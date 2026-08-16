@@ -40,4 +40,3 @@ log redaction. `OutboxRelayIT` uses PostgreSQL and a NATS JetStream container to
 verify published state, duplicate message deduplication, retry recovery, and
 dead-letter state. Tests are skipped when Docker is unavailable using the same
 Testcontainers convention as the existing persistence tests.
-
