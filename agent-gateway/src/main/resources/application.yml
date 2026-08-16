@@ -1,0 +1,23 @@
+agentteams:
+  gateway:
+    nats:
+      enabled: false
+      url: nats://localhost:4222
+      subject: task.events.*
+      durable: agent-gateway
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true

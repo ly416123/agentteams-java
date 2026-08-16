@@ -1,0 +1,185 @@
+package io.agentteams.gateway;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nats.client.JetStream;
+import io.nats.client.JetStreamApiException;
+import io.nats.client.JetStreamSubscription;
+import io.nats.client.Message;
+import io.nats.client.PushSubscribeOptions;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/** Consumes Control Plane Outbox envelopes and turns them into durable gateway commands. */
+public final class NatsGatewayEventConsumer implements AutoCloseable {
+
+    private static final Logger LOGGER = Logger.getLogger(NatsGatewayEventConsumer.class.getName());
+    private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(500);
+
+    private final JetStream jetStream;
+    private final TaskAssignedCommandHandler commandHandler;
+    private final ObjectMapper objectMapper;
+    private final String subject;
+    private final String durable;
+    private final AtomicBoolean running = new AtomicBoolean();
+    private final Object lifecycleMonitor = new Object();
+    private JetStreamSubscription subscription;
+    private ExecutorService executor;
+
+    public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
+            ObjectMapper objectMapper, String subject, String durable) {
+        this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
+        this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.subject = requireText(subject, "subject");
+        this.durable = requireText(durable, "durable");
+    }
+
+    /** Testable constructor for envelope processing without starting a NATS subscription. */
+    public NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper) {
+        this.jetStream = null;
+        this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.subject = null;
+        this.durable = null;
+    }
+
+    public void start() throws IOException, JetStreamApiException {
+        synchronized (lifecycleMonitor) {
+            if (running.get()) {
+                return;
+            }
+            if (jetStream == null) {
+                throw new IllegalStateException("NATS runtime is not configured");
+            }
+            subscription = jetStream.subscribe(subject, durable,
+                    PushSubscribeOptions.builder().durable(durable).build());
+            running.set(true);
+            executor = Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "agent-gateway-nats-consumer");
+                thread.setDaemon(true);
+                return thread;
+            });
+            executor.execute(this::consumeLoop);
+        }
+    }
+
+    /** Parses, handles, and ACKs one message. Invalid messages are deliberately left unacked. */
+    public boolean process(Message message) {
+        Objects.requireNonNull(message, "message");
+        GatewayOutboxEvent event = parse(message.getData());
+        boolean handled = commandHandler.handle(event.eventType(), event.aggregateId().toString(),
+                event.payload().toString(), event.occurredAt());
+        message.ack();
+        return handled;
+    }
+
+    @Override
+    public void close() {
+        stop();
+    }
+
+    public void stop() {
+        synchronized (lifecycleMonitor) {
+            if (!running.getAndSet(false)) {
+                return;
+            }
+            if (subscription != null) {
+                subscription.unsubscribe();
+                subscription = null;
+            }
+            if (executor != null) {
+                executor.shutdownNow();
+                executor = null;
+            }
+        }
+    }
+
+    private void consumeLoop() {
+        while (running.get()) {
+            try {
+                Message message = subscription.nextMessage(RECEIVE_TIMEOUT);
+                if (message != null) {
+                    process(message);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (RuntimeException error) {
+                LOGGER.log(Level.WARNING, "Agent Gateway NATS event was rejected and will be redelivered", error);
+            }
+        }
+    }
+
+    private GatewayOutboxEvent parse(byte[] data) {
+        if (data == null || data.length == 0) {
+            throw new IllegalArgumentException("NATS event payload must not be empty");
+        }
+        try {
+            JsonNode root = objectMapper.readTree(new String(data, StandardCharsets.UTF_8));
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("NATS event payload must be a JSON object");
+            }
+            UUID eventId = uuid(root, "event_id");
+            String eventType = text(root, "event_type");
+            String aggregateType = text(root, "aggregate_type");
+            UUID aggregateId = uuid(root, "aggregate_id");
+            JsonNode version = root.get("aggregate_version");
+            if (version == null || !version.canConvertToLong() || version.asLong() < 0) {
+                throw new IllegalArgumentException("aggregate_version must be a non-negative integer");
+            }
+            Instant occurredAt;
+            try {
+                occurredAt = Instant.parse(text(root, "occurred_at"));
+            } catch (java.time.DateTimeException error) {
+                throw new IllegalArgumentException("occurred_at must be an ISO-8601 instant", error);
+            }
+            JsonNode payload = root.get("payload");
+            if (payload == null || !payload.isObject()) {
+                throw new IllegalArgumentException("payload must be a JSON object");
+            }
+            return new GatewayOutboxEvent(eventId, eventType, aggregateType, aggregateId, version.asLong(),
+                    occurredAt, payload);
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("NATS event payload is invalid JSON", error);
+        }
+    }
+
+    private static UUID uuid(JsonNode root, String field) {
+        String value = text(root, field);
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException(field + " must be a UUID", error);
+        }
+    }
+
+    private static String text(JsonNode root, String field) {
+        JsonNode value = root.get(field);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            throw new IllegalArgumentException(field + " must be a non-blank string");
+        }
+        return value.asText();
+    }
+
+    private static String requireText(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+        return value;
+    }
+
+    private record GatewayOutboxEvent(UUID eventId, String eventType, String aggregateType, UUID aggregateId,
+            long aggregateVersion, Instant occurredAt, JsonNode payload) {
+    }
+}

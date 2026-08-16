@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package io.agentteams.contracts.v1;
+
+option java_multiple_files = true;
+option java_package = "io.agentteams.contracts.v1";
+option java_outer_classname = "AgentChannelProto";
+
+import "google/protobuf/timestamp.proto";
+
+// Schema evolution rules:
+// - Additive changes use new field tags and new field names.
+// - A deleted or renamed field must reserve its former tag and name with a
+//   `reserved` declaration; tags and names must never be reused.
+// - This v1 schema has no historical deletions, so it intentionally declares
+//   no reserved tags or names yet.
+// - New envelope variants are added as new oneof fields with new tags.
+
+// A peer is compatible when its major version matches the local major version
+// and its minor version is less than or equal to the local minor version.
+// This lets a newer peer accept older peers while preventing unknown semantics
+// from being sent to an older peer.
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+// Event identity and ordering are carried in every event. task_id and
+// attempt_id are empty for events that are not task-scoped.
+message EventMetadata {
+  string event_id = 1;
+  string agent_id = 2;
+  string task_id = 3;
+  string attempt_id = 4;
+  uint64 sequence = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+  uint64 expected_version = 7;
+  string lease_id = 8;
+}
+
+message AgentHello {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  string runtime_name = 3;
+  string runtime_version = 4;
+  map<string, string> capabilities = 5;
+  uint32 max_concurrent_tasks = 6;
+  uint64 config_version = 7;
+  uint64 max_workspace_bytes = 8;
+  uint64 max_artifact_bytes = 9;
+}
+
+message AgentReady {
+  EventMetadata metadata = 1;
+  bool accepted = 2;
+  ProtocolVersion negotiated_version = 3;
+  string rejection_reason = 4;
+}
+
+message TaskAssigned {
+  EventMetadata metadata = 1;
+  string task_type = 2;
+  bytes input_json = 3;
+  repeated string required_capabilities = 4;
+  google.protobuf.Timestamp lease_expires_at = 5;
+}
+
+message TaskAccepted {
+  EventMetadata metadata = 1;
+  bool accepted = 2;
+  string rejection_reason = 3;
+}
+
+message TaskProgress {
+  EventMetadata metadata = 1;
+  uint32 percent = 2;
+  string status = 3;
+  string message = 4;
+}
+
+message TaskHeartbeat {
+  EventMetadata metadata = 1;
+  string status = 2;
+  google.protobuf.Timestamp lease_expires_at = 3;
+}
+
+message ArtifactRef {
+  string name = 1;
+  string uri = 2;
+  string sha256 = 3;
+  uint64 size_bytes = 4;
+}
+
+message TaskCompleted {
+  EventMetadata metadata = 1;
+  bytes result_json = 2;
+  repeated ArtifactRef artifacts = 3;
+}
+
+message TaskFailed {
+  EventMetadata metadata = 1;
+  string code = 2;
+  string message = 3;
+  bool retryable = 4;
+  string details = 5;
+}
+
+message ConfigChanged {
+  EventMetadata metadata = 1;
+  uint64 config_version = 2;
+  string manifest_uri = 3;
+  string manifest_sha256 = 4;
+  uint64 size_bytes = 5;
+}
+
+message ConfigApplied {
+  EventMetadata metadata = 1;
+  uint64 config_version = 2;
+  bool applied = 3;
+  string error_message = 4;
+}
+
+message Ack {
+  EventMetadata metadata = 1;
+  string acked_event_id = 2;
+  uint64 acked_sequence = 3;
+}
+
+message Error {
+  EventMetadata metadata = 1;
+  string code = 2;
+  string message = 3;
+  bool retryable = 4;
+  string rejected_event_id = 5;
+}
+
+// AgentMessage is sent from an Agent to the Gateway. The oneof is an
+// extensible envelope: adding a new field number preserves wire compatibility
+// and lets older agents ignore message types they do not know.
+message AgentMessage {
+  oneof payload {
+    AgentHello hello = 1;
+    TaskAccepted task_accepted = 2;
+    TaskProgress task_progress = 3;
+    TaskHeartbeat task_heartbeat = 4;
+    TaskCompleted task_completed = 5;
+    TaskFailed task_failed = 6;
+    ConfigApplied config_applied = 7;
+    Ack ack = 8;
+    Error error = 9;
+  }
+}
+
+// ServerMessage is sent from the Gateway to an Agent. The oneof is an
+// extensible envelope: adding a new field number preserves wire compatibility
+// and lets older agents ignore message types they do not know.
+message ServerMessage {
+  oneof payload {
+    AgentReady ready = 1;
+    TaskAssigned task_assigned = 2;
+    ConfigChanged config_changed = 3;
+    Ack ack = 4;
+    Error error = 5;
+  }
+}
+
+service AgentChannel {
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}

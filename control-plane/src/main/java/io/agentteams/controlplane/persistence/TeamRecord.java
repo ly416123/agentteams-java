@@ -1,0 +1,26 @@
+package io.agentteams.controlplane.persistence;
+
+import java.time.Instant;
+import java.util.Objects;
+import java.util.UUID;
+
+public record TeamRecord(UUID id, String name, String displayName, String status,
+        Instant createdAt, Instant updatedAt, long version) {
+    public TeamRecord {
+        Objects.requireNonNull(id, "id");
+        requireText(name, "name");
+        requireText(displayName, "displayName");
+        requireText(status, "status");
+        Objects.requireNonNull(createdAt, "createdAt");
+        Objects.requireNonNull(updatedAt, "updatedAt");
+        if (version < 0) throw new IllegalArgumentException("version must not be negative");
+    }
+
+    public static TeamRecord create(UUID id, String name, String displayName, Instant now) {
+        return new TeamRecord(id, name, displayName, "ACTIVE", now, now, 0);
+    }
+
+    private static void requireText(String value, String field) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " must not be blank");
+    }
+}

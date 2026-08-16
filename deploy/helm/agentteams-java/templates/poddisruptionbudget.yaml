@@ -1,0 +1,19 @@
+{{- if .Values.availability.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane
+spec:
+  minAvailable: {{ .Values.availability.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentteams-control-plane }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-gateway
+spec:
+  minAvailable: {{ .Values.availability.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentteams-gateway }
+{{- end }}

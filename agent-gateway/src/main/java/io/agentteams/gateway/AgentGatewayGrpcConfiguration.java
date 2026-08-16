@@ -1,0 +1,256 @@
+package io.agentteams.gateway;
+
+import io.agentteams.contracts.v1.ProtocolVersion;
+import io.agentteams.contracts.v1.ServerMessage;
+import io.agentteams.controlplane.service.ExecutionEventService;
+import io.nats.client.Connection;
+import io.nats.client.JetStream;
+import io.nats.client.Nats;
+import java.time.Clock;
+import java.time.Instant;
+import java.io.IOException;
+import java.util.List;
+import java.util.UUID;
+import javax.sql.DataSource;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/** Default process wiring; production deployments can replace each port adapter with a durable bean. */
+@Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties({GrpcServerProperties.class, NatsGatewayProperties.class})
+public class AgentGatewayGrpcConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean(Clock.class)
+    public Clock gatewayClock() {
+        return Clock.systemUTC();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ConnectionRegistry.class)
+    public ConnectionRegistry connectionRegistry() {
+        return new ConnectionRegistry();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean({AgentStatePort.class, DataSource.class})
+    public AgentStatePort agentStatePort() {
+        return new NoopAgentStatePort();
+    }
+
+    @Bean
+    @ConditionalOnBean(DataSource.class)
+    @ConditionalOnMissingBean(AgentStatePort.class)
+    public JdbcAgentStateStore jdbcAgentStateStore(DataSource dataSource) {
+        return new JdbcAgentStateStore(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean({AuthenticationPort.class, AgentSessionStore.class})
+    public AuthenticationPort authenticationPort() {
+        return (connection, hello) -> AuthenticationPort.AuthenticationDecision.allow();
+    }
+
+    @Bean
+    @ConditionalOnBean(DataSource.class)
+    @ConditionalOnMissingBean(AgentSessionStore.class)
+    public AgentSessionStore jdbcAgentSessionStore(DataSource dataSource) {
+        return new JdbcAgentSessionStore(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    @ConditionalOnBean(AgentSessionStore.class)
+    @ConditionalOnMissingBean(AuthenticationPort.class)
+    public AuthenticationPort sessionTokenAuthentication(AgentSessionStore sessions, Clock clock) {
+        return new SessionTokenAuthenticator(sessions, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ProtocolNegotiationPort.class)
+    public ProtocolNegotiationPort protocolNegotiationPort() {
+        return ProtocolNegotiationPort.compatiblePeerVersion();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean({CommandReplayPort.class, DataSource.class})
+    public CommandReplayPort commandReplayPort() {
+        return new NoopCommandReplayPort();
+    }
+
+    @Bean
+    @ConditionalOnBean(DataSource.class)
+    @ConditionalOnMissingBean(CommandReplayPort.class)
+    public JdbcCommandEventStore jdbcCommandEventStore(DataSource dataSource) {
+        return new JdbcCommandEventStore(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(CommandDeliveryService.class)
+    public CommandDeliveryService commandDeliveryService(ConnectionRegistry registry,
+            CommandReplayPort commands, Clock clock) {
+        return new CommandDeliveryService(registry, commands, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(TaskAssignedCommandHandler.class)
+    public TaskAssignedCommandHandler taskAssignedCommandHandler(CommandDeliveryService delivery) {
+        return new TaskAssignedCommandHandler(delivery);
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
+    public Connection gatewayNatsConnection(NatsGatewayProperties properties)
+            throws IOException, InterruptedException {
+        return Nats.connect(properties.getUrl());
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
+    public JetStream gatewayJetStream(Connection gatewayNatsConnection) throws IOException {
+        return gatewayNatsConnection.jetStream();
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "stop")
+    @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
+    public NatsGatewayEventConsumer natsGatewayEventConsumer(JetStream gatewayJetStream,
+            TaskAssignedCommandHandler commandHandler, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            NatsGatewayProperties properties) {
+        return new NatsGatewayEventConsumer(gatewayJetStream, commandHandler, objectMapper,
+                properties.getSubject(), properties.getDurable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean({InboundEventPort.class, DataSource.class})
+    public InboundEventPort inboundEventPort() {
+        return new NoopInboundEventPort();
+    }
+
+    @Bean
+    @ConditionalOnBean(DataSource.class)
+    @ConditionalOnMissingBean(InboundEventPort.class)
+    public JdbcInboundEventStore jdbcInboundEventStore(DataSource dataSource) {
+        return new JdbcInboundEventStore(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean({GatewayApplicationHandler.class, ExecutionEventService.class})
+    public GatewayApplicationHandler gatewayApplicationHandler() {
+        return new NoopGatewayApplicationHandler();
+    }
+
+    @Bean
+    @ConditionalOnBean(ExecutionEventService.class)
+    @ConditionalOnMissingBean(GatewayApplicationHandler.class)
+    public GatewayApplicationHandler controlPlaneGatewayApplicationHandler(
+            ExecutionEventService executionEvents, Clock clock) {
+        return new ControlPlaneGatewayApplicationHandler(executionEvents, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(InboundEventHandler.class)
+    public InboundEventHandler inboundEventHandler(ConnectionRegistry registry, InboundEventPort events,
+            GatewayApplicationHandler application, CommandDeliveryService delivery, Clock clock) {
+        return new InboundEventHandler(registry, events, application, delivery, clock);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(AgentChannelService.class)
+    public AgentChannelService agentChannelService(ConnectionRegistry registry, AgentStatePort state,
+            AuthenticationPort authentication, ProtocolNegotiationPort negotiation,
+            CommandDeliveryService delivery, InboundEventHandler inbound, Clock clock) {
+        return new AgentChannelService(
+                ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build(),
+                registry, state, authentication, GrpcTransportIdentity::current, negotiation, delivery, inbound, clock);
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "stop")
+    public AgentGatewayGrpcServer agentGatewayGrpcServer(GrpcServerProperties properties,
+            AgentChannelService channelService) {
+        return new AgentGatewayGrpcServer(properties.getPort(), properties.getShutdownTimeout(), channelService);
+    }
+
+    private static final class NoopAgentStatePort implements AgentStatePort {
+        @Override
+        public void registered(AgentProfile profile, Instant at) {
+        }
+
+        @Override
+        public void seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        }
+
+        @Override
+        public void disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        }
+    }
+
+    private static final class NoopInboundEventPort implements InboundEventPort {
+        @Override
+        public boolean recordIfNew(String eventId, String agentId, UUID connectionId, Instant receivedAt) {
+            return true;
+        }
+    }
+
+    private static final class NoopGatewayApplicationHandler implements GatewayApplicationHandler {
+        @Override
+        public void taskAccepted(ConnectionRegistry.ConnectionSnapshot connection,
+                io.agentteams.contracts.v1.TaskAccepted event) {
+        }
+
+        @Override
+        public void taskProgress(ConnectionRegistry.ConnectionSnapshot connection,
+                io.agentteams.contracts.v1.TaskProgress event) {
+        }
+
+        @Override
+        public void taskHeartbeat(ConnectionRegistry.ConnectionSnapshot connection,
+                io.agentteams.contracts.v1.TaskHeartbeat event) {
+        }
+
+        @Override
+        public void taskCompleted(ConnectionRegistry.ConnectionSnapshot connection,
+                io.agentteams.contracts.v1.TaskCompleted event) {
+        }
+
+        @Override
+        public void taskFailed(ConnectionRegistry.ConnectionSnapshot connection,
+                io.agentteams.contracts.v1.TaskFailed event) {
+        }
+    }
+
+    private static final class NoopCommandReplayPort implements CommandReplayPort {
+        @Override
+        public SequencedCommand append(String agentId, ServerMessage command) {
+            if (!command.hasTaskAssigned()) {
+                throw new IllegalArgumentException("only TaskAssigned commands are supported");
+            }
+            long sequence = command.getTaskAssigned().getMetadata().getSequence();
+            if (sequence <= 0) {
+                sequence = 1;
+            }
+            return new SequencedCommand(sequence, command);
+        }
+
+        @Override
+        public List<SequencedCommand> replayUnacknowledged(String agentId) {
+            return List.of();
+        }
+
+        @Override
+        public void markDelivered(String agentId, UUID connectionId, long sequence) {
+        }
+
+        @Override
+        public AcknowledgementValidation validateAcknowledgement(String agentId, UUID connectionId,
+                long sequence) {
+            return AcknowledgementValidation.rejected(0, "noop command store has no durable delivery");
+        }
+
+        @Override
+        public void acknowledge(String agentId, long sequence) {
+        }
+    }
+}

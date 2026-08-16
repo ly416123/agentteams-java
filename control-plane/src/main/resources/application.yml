@@ -1,0 +1,42 @@
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,nats
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+agentteams:
+  storage:
+    enabled: false
+    endpoint: http://minio:9000
+    bucket: agentteams
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+  nats:
+    enabled: false
+    url: nats://localhost:4222
+  outbox:
+    relay:
+      enabled: false
+      concurrency: 4
+      batch-size: 16
+      max-attempts: 10
+      claim-lease: 30s
+      base-retry-delay: 1s
+      max-retry-delay: 5m
+      poll-interval-ms: 1000
+      shutdown-timeout: 30s

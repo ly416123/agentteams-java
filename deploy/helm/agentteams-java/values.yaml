@@ -1,0 +1,40 @@
+images:
+  controlPlane: ghcr.io/ly416123/agentteams-control-plane:latest
+  gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
+  operator: ghcr.io/ly416123/agentteams-operator:latest
+imagePullPolicy: IfNotPresent
+serviceAccount:
+  create: true
+  name: agentteams
+controlPlane:
+  replicas: 2
+  port: 8080
+  env:
+    SPRING_PROFILES_ACTIVE: k8s
+    AGENTTEAMS_NATS_ENABLED: "true"
+    AGENTTEAMS_OUTBOX_RELAY_ENABLED: "true"
+gateway:
+  replicas: 2
+  port: 8081
+operator:
+  leaderElection:
+    enabled: true
+    leaseName: agentteams-operator
+database:
+  jdbcUrl: jdbc:postgresql://postgresql:5432/agentteams
+  username: agentteams
+  existingSecret: agentteams-database
+storage:
+  enabled: false
+  endpoint: http://minio:9000
+  bucket: agentteams
+  existingSecret: agentteams-storage
+nats:
+  url: nats://nats:4222
+resources: {}
+availability:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+networkPolicy:
+  enabled: true
