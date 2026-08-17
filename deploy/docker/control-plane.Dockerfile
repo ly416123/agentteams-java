@@ -1,7 +1,8 @@
 FROM maven:3.9.16-eclipse-temurin-17 AS build
 WORKDIR /workspace
 COPY . .
-RUN mvn -q -pl control-plane -am -DskipTests package
+RUN mvn -q -pl control-plane -am -DskipTests install
+RUN mvn -q -pl control-plane -DskipTests package spring-boot:repackage
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app

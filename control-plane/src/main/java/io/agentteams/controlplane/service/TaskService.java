@@ -75,7 +75,12 @@ public final class TaskService {
 
     /** Explicit queue operation; task creation intentionally remains in DRAFT. */
     public TaskRecord queue(UUID id, long expectedVersion, String idempotencyKey) {
-        return transition(id, TaskPhase.QUEUED, expectedVersion, idempotencyKey, "api", "service", QUEUE_TASK);
+        return queue(id, expectedVersion, idempotencyKey, "api");
+    }
+
+    public TaskRecord queue(UUID id, long expectedVersion, String idempotencyKey, String actor) {
+        return transition(id, TaskPhase.QUEUED, expectedVersion, idempotencyKey,
+                defaultText(actor, "api"), "service", QUEUE_TASK);
     }
 
     public TaskRecord cancel(UUID id, long expectedVersion, String idempotencyKey,

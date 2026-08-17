@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,6 +17,7 @@ public final class AgentService {
     private final IdempotencyService idempotency;
     private final Clock clock;
 
+    @Autowired
     public AgentService(FoundationPersistenceService persistence, IdempotencyService idempotency) {
         this(persistence, idempotency, Clock.systemUTC());
     }

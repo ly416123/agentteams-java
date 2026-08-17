@@ -3,20 +3,54 @@ package io.agentteams.operator;
 import java.util.Map;
 import java.util.Objects;
 
-public record WorkerSpec(String agentId, String runtime, String image, int replicas, Map<String, String> env) {
-    public WorkerSpec {
-        requireText(agentId, "agentId");
-        requireText(runtime, "runtime");
-        requireText(image, "image");
-        if (replicas < 1) {
-            throw new IllegalArgumentException("replicas must be positive");
-        }
-        env = Map.copyOf(Objects.requireNonNull(env, "env"));
+/** Kubernetes-friendly mutable spec with immutable-style accessors for application code. */
+public final class WorkerSpec {
+    private String agentId;
+    private String runtime;
+    private String image;
+    private int replicas;
+    private Map<String, String> env;
+
+    public WorkerSpec() {
+        this.agentId = "";
+        this.runtime = "";
+        this.image = "";
+        this.replicas = 1;
+        this.env = Map.of();
     }
 
-    private static void requireText(String value, String field) {
+    public WorkerSpec(String agentId, String runtime, String image, int replicas, Map<String, String> env) {
+        setAgentId(agentId);
+        setRuntime(runtime);
+        setImage(image);
+        setReplicas(replicas);
+        setEnv(env);
+    }
+
+    public String agentId() { return agentId; }
+    public String runtime() { return runtime; }
+    public String image() { return image; }
+    public int replicas() { return replicas; }
+    public Map<String, String> env() { return env; }
+
+    public String getAgentId() { return agentId; }
+    public void setAgentId(String value) { agentId = requireText(value, "agentId"); }
+    public String getRuntime() { return runtime; }
+    public void setRuntime(String value) { runtime = requireText(value, "runtime"); }
+    public String getImage() { return image; }
+    public void setImage(String value) { image = requireText(value, "image"); }
+    public int getReplicas() { return replicas; }
+    public void setReplicas(int value) {
+        if (value < 1) throw new IllegalArgumentException("replicas must be positive");
+        replicas = value;
+    }
+    public Map<String, String> getEnv() { return env; }
+    public void setEnv(Map<String, String> value) { env = Map.copyOf(Objects.requireNonNull(value, "env")); }
+
+    private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be blank");
         }
+        return value;
     }
 }

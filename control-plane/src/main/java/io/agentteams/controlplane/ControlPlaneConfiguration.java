@@ -1,8 +1,13 @@
 package io.agentteams.controlplane;
 
+import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.TaskCommandPort;
+import io.agentteams.controlplane.application.ControlPlaneExecutionEventAdapter;
+import io.agentteams.controlplane.application.ControlPlaneTaskCommandAdapter;
 import io.agentteams.controlplane.outbox.EventPublisher;
 import io.agentteams.controlplane.outbox.JdbcOutboxStore;
 import io.agentteams.controlplane.outbox.NatsEventPublisher;
+import io.agentteams.controlplane.outbox.NatsExecutionEventConsumer;
 import io.agentteams.controlplane.outbox.OutboxRelay;
 import io.agentteams.controlplane.outbox.OutboxRelayProperties;
 import io.agentteams.controlplane.outbox.OutboxStore;
@@ -14,12 +19,19 @@ import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
 import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
 import io.agentteams.controlplane.service.SchedulerLeaseService;
+import io.agentteams.controlplane.service.TaskAssignmentScheduler;
+import io.agentteams.controlplane.service.TaskAssignmentService;
 import io.agentteams.controlplane.service.TeamService;
+import io.agentteams.controlplane.service.ExecutionEventService;
+import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.storage.MinioObjectStorage;
 import io.agentteams.controlplane.storage.MinioObjectStorageConfig;
 import io.agentteams.controlplane.storage.ObjectStorage;
 import io.agentteams.controlplane.observability.ControlPlaneMetrics;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.controlplane.security.ApiAuthenticationFilter;
+import io.agentteams.controlplane.security.IdentityTokenValidator;
+import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,9 +44,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @Configuration
 @EnableScheduling
@@ -52,15 +67,25 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(MeterRegistry.class)
-    ControlPlaneMetrics controlPlaneMetrics(MeterRegistry registry) {
-        return new ControlPlaneMetrics(registry);
+    ControlPlaneMetrics controlPlaneMetrics(ObjectProvider<MeterRegistry> registries) {
+        return new ControlPlaneMetrics(registries.getIfAvailable(SimpleMeterRegistry::new));
     }
 
     @Bean
+    @Primary
     TaskMetricsPort taskMetricsPort(ObjectProvider<ControlPlaneMetrics> metrics) {
         ControlPlaneMetrics available = metrics.getIfAvailable();
         return available == null ? TaskMetricsPort.noop() : available;
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.security.api.enabled", havingValue = "true")
+    FilterRegistrationBean<ApiAuthenticationFilter> apiAuthenticationFilter(IdentityTokenValidator validator) {
+        FilterRegistrationBean<ApiAuthenticationFilter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(new ApiAuthenticationFilter(validator));
+        registration.addUrlPatterns("/api/*");
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 
     @Bean
@@ -82,15 +107,34 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(DataSource.class)
     SchedulerLeaseRepository schedulerLeaseRepository(DataSource dataSource) {
         return new SchedulerLeaseRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
     }
 
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(SchedulerLeaseRepository.class)
     SchedulerLeaseService schedulerLeaseService(SchedulerLeaseRepository repository) {
         return new SchedulerLeaseService(repository);
+    }
+
+    @Bean
+    TaskAssignmentService taskAssignmentService(FoundationPersistenceService persistence,
+            ObjectProvider<ControlPlaneMetrics> metrics,
+            @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration) {
+        ControlPlaneMetrics available = metrics.getIfAvailable();
+        return new TaskAssignmentService(persistence, leaseDuration,
+                available == null ? TaskMetricsPort.noop() : available);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "agentteams.scheduler.enabled", havingValue = "true", matchIfMissing = true)
+    TaskAssignmentScheduler taskAssignmentScheduler(TaskAssignmentService assignments,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.scheduler.batch-size:16}") int batchSize) {
+        return new TaskAssignmentScheduler(assignments, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
     }
 
     @Bean
@@ -130,6 +174,24 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(FoundationPersistenceService.class)
+    ExecutionEventService executionEventService(FoundationPersistenceService persistence, TaskMetricsPort metrics) {
+        return new ExecutionEventService(persistence, metrics);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(TaskService.class)
+    TaskCommandPort taskCommandPort(TaskService tasks) {
+        return new ControlPlaneTaskCommandAdapter(tasks);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(ExecutionEventService.class)
+    ExecutionEventPort executionEventPort(ExecutionEventService executionEvents) {
+        return new ControlPlaneExecutionEventAdapter(executionEvents);
+    }
+
+    @Bean
     @ConfigurationProperties(prefix = "agentteams.outbox.relay")
     OutboxRelayProperties outboxRelayProperties() {
         return new OutboxRelayProperties();
@@ -141,11 +203,24 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean(destroyMethod = "close")
-    @ConditionalOnProperty(name = {"agentteams.nats.enabled", "agentteams.outbox.relay.enabled"},
-            havingValue = "true")
+    @ConditionalOnProperty(name = "agentteams.nats.enabled", havingValue = "true")
     Connection natsConnection(@Value("${agentteams.nats.url:nats://localhost:4222}") String url)
             throws IOException, InterruptedException {
         return Nats.connect(url);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.nats.enabled", havingValue = "true")
+    NatsConnectionProbe natsConnectionProbe(Connection connection) {
+        return () -> connection.getStatus() == Connection.Status.CONNECTED;
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.nats.enabled", havingValue = "true")
+    NatsExecutionEventConsumer natsExecutionEventConsumer(Connection connection,
+            ExecutionEventPort executionEvents, ObjectMapper objectMapper) throws IOException {
+        return new NatsExecutionEventConsumer(connection.jetStream(), executionEvents, objectMapper,
+                "control-plane-execution-events");
     }
 
     @Bean

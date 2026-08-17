@@ -9,17 +9,16 @@ import static org.mockito.Mockito.verify;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
+import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
+import io.agentteams.application.api.ExecutionEventPort.ExecutionPhase;
+import io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand;
+import io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.TaskAccepted;
 import io.agentteams.contracts.v1.TaskCompleted;
 import io.agentteams.contracts.v1.TaskFailed;
 import io.agentteams.contracts.v1.TaskProgress;
-import io.agentteams.controlplane.persistence.ArtifactRecord;
-import io.agentteams.controlplane.service.ExecutionEventService;
-import io.agentteams.domain.task.FailureInfo;
-import io.agentteams.domain.task.LeaseRenewalCommand;
-import io.agentteams.domain.task.TaskPhase;
-import io.agentteams.domain.task.TaskTransitionCommand;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -37,7 +36,7 @@ class ControlPlaneGatewayApplicationHandlerTest {
 
     @Test
     void mapsAcceptedProgressCompletedAndFailedToDomainTransitions() {
-        ExecutionEventService service = mock(ExecutionEventService.class);
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
         ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
         ConnectionRegistry.ConnectionSnapshot connection = connection();
 
@@ -47,25 +46,26 @@ class ControlPlaneGatewayApplicationHandlerTest {
         handler.taskFailed(connection, TaskFailed.newBuilder().setMetadata(metadata("failed", 4))
                 .setCode("RUNTIME_ERROR").setMessage("token=secret").setDetails("password: hidden").build());
 
-        ArgumentCaptor<TaskTransitionCommand> commands = ArgumentCaptor.forClass(TaskTransitionCommand.class);
+        ArgumentCaptor<TaskExecutionCommand> commands = ArgumentCaptor.forClass(TaskExecutionCommand.class);
         verify(service, org.mockito.Mockito.times(4)).apply(eq(TASK_ID), commands.capture(), any());
-        assertThat(commands.getAllValues()).extracting(TaskTransitionCommand::targetPhase)
-                .containsExactly(TaskPhase.ACCEPTED, TaskPhase.RUNNING, TaskPhase.SUCCEEDED, TaskPhase.FAILED);
-        assertThat(commands.getAllValues()).extracting(TaskTransitionCommand::expectedVersion)
+        assertThat(commands.getAllValues()).extracting(TaskExecutionCommand::phase)
+                .containsExactly(ExecutionPhase.ACCEPTED, ExecutionPhase.RUNNING, ExecutionPhase.SUCCEEDED,
+                        ExecutionPhase.FAILED);
+        assertThat(commands.getAllValues()).extracting(TaskExecutionCommand::expectedVersion)
                 .containsExactly(1L, 2L, 3L, 4L);
         assertThat(commands.getAllValues()).allSatisfy(command -> {
-            assertThat(command.actor()).isEqualTo("agent-1");
+            assertThat(command.agentId()).isEqualTo("agent-1");
             assertThat(command.source()).isEqualTo("gateway");
             assertThat(command.occurredAt()).isEqualTo(AT);
         });
-        TaskTransitionCommand failure = commands.getAllValues().get(3);
-        assertThat(failure.failure().redactedMessage()).doesNotContain("secret", "hidden")
+        TaskExecutionCommand failure = commands.getAllValues().get(3);
+        assertThat(failure.failureMessage()).doesNotContain("secret", "hidden")
                 .contains("[REDACTED]");
     }
 
     @Test
     void mapsArtifactRefToArtifactRecord() {
-        ExecutionEventService service = mock(ExecutionEventService.class);
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
         ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
         EventMetadata metadata = metadata("completed-artifact", 7);
         handler.taskCompleted(connection(), TaskCompleted.newBuilder().setMetadata(metadata)
@@ -74,22 +74,19 @@ class ControlPlaneGatewayApplicationHandlerTest {
                         .setName("result.json").setUri("s3://bucket/result.json").setSha256("abc").setSizeBytes(12).build())
                 .build());
 
-        ArgumentCaptor<List<ArtifactRecord>> artifacts = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<ArtifactReference>> artifacts = ArgumentCaptor.forClass(List.class);
         verify(service).apply(eq(TASK_ID), any(), artifacts.capture());
-        ArtifactRecord record = artifacts.getValue().get(0);
-        assertThat(record.taskId()).isEqualTo(TASK_ID);
-        assertThat(record.attemptId()).isEqualTo(ATTEMPT_ID);
+        ArtifactReference record = artifacts.getValue().get(0);
         assertThat(record.name()).isEqualTo("result.json");
         assertThat(record.storageKey()).isEqualTo("s3://bucket/result.json");
         assertThat(record.sha256()).isEqualTo("abc");
         assertThat(record.sizeBytes()).isEqualTo(12);
-        assertThat(record.status()).isEqualTo("AVAILABLE");
         assertThat(record.metadataJson()).isEqualTo("{}");
     }
 
     @Test
     void mapsHeartbeatToLeaseRenewalInsteadOfAStateTransition() {
-        ExecutionEventService service = mock(ExecutionEventService.class);
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
         ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
         Instant renewedUntil = AT.plusSeconds(600);
 
@@ -109,7 +106,7 @@ class ControlPlaneGatewayApplicationHandlerTest {
 
     @Test
     void rejectsMissingOrInvalidRequiredMetadata() {
-        ExecutionEventService service = mock(ExecutionEventService.class);
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
         ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
         EventMetadata invalid = metadata("bad", 1).toBuilder().setAttemptId("not-a-uuid").build();
 
@@ -125,7 +122,7 @@ class ControlPlaneGatewayApplicationHandlerTest {
 
     @Test
     void rejectsMissingOrInvalidUuidIdentityFields() {
-        ExecutionEventService service = mock(ExecutionEventService.class);
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
         ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
         String[] fields = {"eventId", "taskId", "attemptId", "leaseId"};
 

@@ -2,7 +2,7 @@ package io.agentteams.gateway;
 
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
-import io.agentteams.controlplane.service.ExecutionEventService;
+import io.agentteams.application.api.ExecutionEventPort;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.Nats;
@@ -18,6 +18,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.beans.factory.ObjectProvider;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /** Default process wiring; production deployments can replace each port adapter with a durable bean. */
 @Configuration(proxyBeanMethods = false)
@@ -31,9 +35,27 @@ public class AgentGatewayGrpcConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(com.fasterxml.jackson.databind.ObjectMapper.class)
+    public com.fasterxml.jackson.databind.ObjectMapper gatewayObjectMapper() {
+        return new com.fasterxml.jackson.databind.ObjectMapper();
+    }
+
+    @Bean
+    public GatewayMetrics gatewayMetrics(ObjectProvider<MeterRegistry> registries) {
+        return new GatewayMetrics(registries.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    @Bean
+    @Primary
+    public GatewayMetricsPort gatewayMetricsPort(ObjectProvider<GatewayMetrics> metrics) {
+        GatewayMetrics available = metrics.getIfAvailable();
+        return available == null ? GatewayMetricsPort.noop() : available;
+    }
+
+    @Bean
     @ConditionalOnMissingBean(ConnectionRegistry.class)
-    public ConnectionRegistry connectionRegistry() {
-        return new ConnectionRegistry();
+    public ConnectionRegistry connectionRegistry(GatewayMetricsPort metrics) {
+        return new ConnectionRegistry(ConnectionTermination.grpcStream(), metrics);
     }
 
     @Bean
@@ -114,6 +136,13 @@ public class AgentGatewayGrpcConfiguration {
         return gatewayNatsConnection.jetStream();
     }
 
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
+    public ExecutionEventPort natsExecutionEventPort(JetStream gatewayJetStream,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new NatsExecutionEventPublisher(gatewayJetStream, objectMapper);
+    }
+
     @Bean(initMethod = "start", destroyMethod = "stop")
     @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
     public NatsGatewayEventConsumer natsGatewayEventConsumer(JetStream gatewayJetStream,
@@ -137,16 +166,16 @@ public class AgentGatewayGrpcConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean({GatewayApplicationHandler.class, ExecutionEventService.class})
+    @ConditionalOnMissingBean({GatewayApplicationHandler.class, ExecutionEventPort.class})
     public GatewayApplicationHandler gatewayApplicationHandler() {
         return new NoopGatewayApplicationHandler();
     }
 
     @Bean
-    @ConditionalOnBean(ExecutionEventService.class)
+    @ConditionalOnBean(ExecutionEventPort.class)
     @ConditionalOnMissingBean(GatewayApplicationHandler.class)
     public GatewayApplicationHandler controlPlaneGatewayApplicationHandler(
-            ExecutionEventService executionEvents, Clock clock) {
+            ExecutionEventPort executionEvents, Clock clock) {
         return new ControlPlaneGatewayApplicationHandler(executionEvents, clock);
     }
 

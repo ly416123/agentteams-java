@@ -2,10 +2,12 @@ package io.agentteams.operator;
 
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import io.javaoperatorsdk.operator.api.reconciler.ControllerConfiguration;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
 import io.javaoperatorsdk.operator.api.reconciler.Reconciler;
 import io.javaoperatorsdk.operator.api.reconciler.UpdateControl;
 
+@ControllerConfiguration
 public final class WorkerReconciler implements Reconciler<Worker> {
     private final KubernetesClient client;
 

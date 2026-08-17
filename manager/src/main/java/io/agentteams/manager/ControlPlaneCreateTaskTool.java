@@ -3,8 +3,8 @@ package io.agentteams.manager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.agentteams.controlplane.persistence.TaskRecord;
-import io.agentteams.controlplane.service.TaskService;
+import io.agentteams.application.api.TaskCommandPort;
+import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -13,18 +13,18 @@ import java.util.HexFormat;
 
 /** Typed Manager tool: model output becomes a Task only after validation and idempotent persistence. */
 public final class ControlPlaneCreateTaskTool {
-    private final TaskService taskService;
+    private final TaskCommandPort taskCommands;
     private final ObjectMapper mapper;
 
-    public ControlPlaneCreateTaskTool(TaskService taskService, ObjectMapper mapper) {
-        this.taskService = Objects.requireNonNull(taskService, "taskService");
+    public ControlPlaneCreateTaskTool(TaskCommandPort taskCommands, ObjectMapper mapper) {
+        this.taskCommands = Objects.requireNonNull(taskCommands, "taskCommands");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
-    public TaskRecord create(CreateTaskIntent intent) {
+    public TaskCreationResult create(CreateTaskIntent intent) {
         Objects.requireNonNull(intent, "intent");
-        return taskService.create(idempotencyKey(intent), new TaskService.TaskInput(intent.title(),
-                intent.description(), spec(intent), "manager", "deepseek"));
+        return taskCommands.create(idempotencyKey(intent), new TaskCommandPort.TaskCreateCommand(intent.title(),
+                intent.description(), spec(intent), "manager", "manager"));
     }
 
     private String spec(CreateTaskIntent intent) {

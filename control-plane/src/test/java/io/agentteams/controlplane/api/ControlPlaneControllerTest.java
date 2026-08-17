@@ -178,6 +178,21 @@ class ControlPlaneControllerTest {
     }
 
     @Test
+    void queuesATaskWithExpectedVersionAndIdempotencyKey() throws Exception {
+        UUID id = UUID.randomUUID();
+        TaskRecord queued = new TaskRecord(id, "Build API", "description", TaskPhase.QUEUED, 0, "{}",
+                "api", "rest", null, null, Instant.now(), Instant.now(), 1);
+        when(tasks.queue(eq(id), eq(0L), eq("queue-key"))).thenReturn(queued);
+
+        mockMvc.perform(post("/api/v1/tasks/{id}/queue", id)
+                        .header("Idempotency-Key", "queue-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phase").value("QUEUED"));
+    }
+
+    @Test
     void reportsOptimisticConflictWithoutInternalDetails() throws Exception {
         UUID id = UUID.randomUUID();
         when(tasks.cancel(eq(id), eq(0L), eq("cancel-key"), any(), any()))

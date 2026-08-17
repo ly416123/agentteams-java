@@ -13,7 +13,7 @@ import io.fabric8.kubernetes.model.annotation.Version;
 @Plural("teams")
 public class Team extends CustomResource<TeamSpec, TeamStatus> implements Namespaced {
     @Override
-    protected TeamSpec initSpec() { return null; }
+    protected TeamSpec initSpec() { return new TeamSpec(); }
 
     @Override
     protected TeamStatus initStatus() { return new TeamStatus(); }

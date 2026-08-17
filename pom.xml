@@ -15,6 +15,7 @@
     <modules>
         <module>contracts</module>
         <module>domain</module>
+        <module>application-contracts</module>
         <module>control-plane</module>
         <module>agent-gateway</module>
         <module>runtime</module>

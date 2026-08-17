@@ -2,7 +2,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics,prometheus
   endpoint:
     health:
       probes:
@@ -18,6 +18,10 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+
+logging:
+  pattern:
+    level: "%5p [corr:%X{correlationId:-unknown}]"
 
 agentteams:
   storage:
@@ -40,3 +44,11 @@ agentteams:
       max-retry-delay: 5m
       poll-interval-ms: 1000
       shutdown-timeout: 30s
+  scheduler:
+    enabled: true
+    poll-interval-ms: 1000
+    lease-duration: 30s
+    batch-size: 16
+  security:
+    api:
+      enabled: false

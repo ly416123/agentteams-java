@@ -14,7 +14,7 @@ import io.fabric8.kubernetes.model.annotation.Version;
 public class Worker extends CustomResource<WorkerSpec, WorkerStatus> implements Namespaced {
     @Override
     protected WorkerSpec initSpec() {
-        return null;
+        return new WorkerSpec();
     }
 
     @Override

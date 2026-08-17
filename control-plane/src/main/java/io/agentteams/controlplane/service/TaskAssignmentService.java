@@ -138,6 +138,11 @@ public final class TaskAssignmentService {
         });
     }
 
+    public java.util.List<UUID> queuedTaskIds(int limit) {
+        if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
+        return persistence.inTransaction(tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, limit));
+    }
+
     private static String taskAssignedPayload(TaskRecord task, AgentRecord agent, TaskAttemptRecord attempt,
             TaskAssignmentRecord assignment, AgentLeaseRecord lease) {
         try {

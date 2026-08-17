@@ -8,6 +8,7 @@ this build.
 
 - `contracts`: protobuf and gRPC contract build support.
 - `domain`: framework-independent domain model and tests.
+- `application-contracts`: application ports and DTOs shared by service boundaries.
 - `control-plane`: Spring Boot application dependencies for business APIs,
   persistence, Flyway, PostgreSQL, and NATS.
 - `agent-gateway`: Spring Boot application dependencies for gRPC agent
@@ -50,8 +51,19 @@ embed Docker Compose or local polling infrastructure.
 
 The runtime path is push-based: Control Plane writes PostgreSQL plus Outbox,
 NATS carries durable events, Gateway delivers assignments over a gRPC stream,
-and the Agent acknowledges/reports progress on that stream. Matrix is an
-optional human-collaboration adapter; it is not the task state database.
+and the Agent acknowledges/reports progress on that stream. Agent execution
+events return through the `agent.events.*` JetStream stream and are applied by
+the Control Plane. Gateway and Manager depend on application contracts rather
+than Control Plane persistence classes. Matrix is an optional
+human-collaboration adapter; it is not the task state database.
+
+The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
+`POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. The built-in
+lease-based scheduler assigns queued work across replicas and recovers expired
+leases after restart. Set `AGENTTEAMS_SECURITY_API_ENABLED=true` only after
+providing an `IdentityTokenValidator` implementation for the deployment; this
+enables the Bearer-token boundary for `/api/*` without embedding a specific
+OIDC provider in the core services.
 
 Without Docker/WSL, all pure-Java tests still run. Testcontainers-based
 PostgreSQL/NATS/MinIO tests are marked `disabledWithoutDocker` and are skipped

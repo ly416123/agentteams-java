@@ -1,0 +1,26 @@
+name: agentteams-java-ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Unit and integration tests
+        run: mvn -q -Pintegration-tests verify
+      - name: Helm lint
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - run: helm lint deploy/helm/agentteams-java
+      - run: helm template agentteams deploy/helm/agentteams-java >/tmp/agentteams-rendered.yaml

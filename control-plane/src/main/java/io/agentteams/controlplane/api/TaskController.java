@@ -2,6 +2,7 @@ package io.agentteams.controlplane.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskService;
 import java.time.Instant;
 import java.util.UUID;
@@ -32,7 +33,8 @@ public final class TaskController {
             @RequestBody CreateTaskRequest request) {
         requireRequest(request);
         requireIdempotencyKey(idempotencyKey);
-        TaskRecord task = service.create(idempotencyKey, request.toServiceInput());
+        TaskRecord task = service.create(idempotencyKey,
+                request.toServiceInput(PrincipalContext.actorOr(request.actor())));
         return ResponseEntity.status(201).body(TaskResponse.from(task));
     }
 
@@ -49,15 +51,30 @@ public final class TaskController {
         requireIdempotencyKey(idempotencyKey);
         CancelTaskRequest input = request == null ? new CancelTaskRequest(null, null, null) : request;
         long expectedVersion = input.expectedVersion() == null ? 0 : input.expectedVersion();
-        TaskRecord task = service.cancel(id, expectedVersion, idempotencyKey, input.actor(), input.source());
+        TaskRecord task = service.cancel(id, expectedVersion, idempotencyKey,
+                PrincipalContext.actorOr(input.actor()), input.source());
         return TaskResponse.from(task);
+    }
+
+    @PostMapping("/{id}/queue")
+    public TaskResponse queue(
+            @PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody(required = false) QueueTaskRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        QueueTaskRequest input = request == null ? new QueueTaskRequest(null) : request;
+        long expectedVersion = input.expectedVersion() == null ? 0 : input.expectedVersion();
+        TaskRecord queued = PrincipalContext.current().isPresent()
+                ? service.queue(id, expectedVersion, idempotencyKey, PrincipalContext.actorOr("api"))
+                : service.queue(id, expectedVersion, idempotencyKey);
+        return TaskResponse.from(queued);
     }
 
     public record CreateTaskRequest(String title, String description, JsonNode spec,
             String actor, String source) {
 
-        TaskService.TaskInput toServiceInput() {
-            return new TaskService.TaskInput(title, description, json(spec), actor, source);
+        TaskService.TaskInput toServiceInput(String authenticatedActor) {
+            return new TaskService.TaskInput(title, description, json(spec), authenticatedActor, source);
         }
 
         private static String json(JsonNode value) {
@@ -72,6 +89,9 @@ public final class TaskController {
     }
 
     public record CancelTaskRequest(Long expectedVersion, String actor, String source) {
+    }
+
+    public record QueueTaskRequest(Long expectedVersion) {
     }
 
     public record TaskResponse(UUID id, String title, String description, String phase,

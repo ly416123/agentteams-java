@@ -3,6 +3,7 @@ package io.agentteams.controlplane.persistence;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -40,6 +41,17 @@ public final class TaskRepository {
                        failure_code, redacted_failure_message, created_at, updated_at, version
                   FROM tasks WHERE id = ? FOR UPDATE
                 """, this::map, id).stream().findFirst();
+    }
+
+    public List<UUID> findIdsByPhase(TaskPhase phase, int limit) {
+        if (phase == null) throw new IllegalArgumentException("phase must not be null");
+        if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
+        return jdbc.query("""
+                SELECT id FROM tasks
+                 WHERE phase = ?
+                 ORDER BY priority DESC, created_at ASC, id ASC
+                 LIMIT ?
+                """, (rs, row) -> rs.getObject("id", UUID.class), phase.name(), limit);
     }
 
     public TaskRecord updateState(TaskRecord next, long expectedVersion) {

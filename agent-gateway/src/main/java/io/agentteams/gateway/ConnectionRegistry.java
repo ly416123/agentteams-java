@@ -15,18 +15,25 @@ public final class ConnectionRegistry {
     private final Map<UUID, AgentConnection> connections = new ConcurrentHashMap<>();
     private final Map<String, AgentConnection> currentByAgent = new ConcurrentHashMap<>();
     private final ConnectionTermination termination;
+    private final GatewayMetricsPort metrics;
 
     public ConnectionRegistry() {
-        this(ConnectionTermination.grpcStream());
+        this(ConnectionTermination.grpcStream(), GatewayMetricsPort.noop());
     }
 
     public ConnectionRegistry(ConnectionTermination termination) {
+        this(termination, GatewayMetricsPort.noop());
+    }
+
+    public ConnectionRegistry(ConnectionTermination termination, GatewayMetricsPort metrics) {
         this.termination = Objects.requireNonNull(termination, "termination");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     public AgentConnection open(StreamObserver<ServerMessage> outbound, String transportIdentity, Instant connectedAt) {
         AgentConnection connection = new AgentConnection(UUID.randomUUID(), outbound, transportIdentity, connectedAt);
         connections.put(connection.connectionId(), connection);
+        metrics.connectionOpened();
         return connection;
     }
 
@@ -36,6 +43,7 @@ public final class ConnectionRegistry {
         requireOwned(connection);
         Objects.requireNonNull(profile, "profile");
         connection.register(profile, initialAckSequence, seenAt);
+        metrics.connectionRegistered();
         AgentConnection replaced = currentByAgent.put(profile.agentId(), connection);
         if (replaced == null || replaced == connection) {
             return Optional.empty();
@@ -87,7 +95,10 @@ public final class ConnectionRegistry {
         if (connection == null) {
             return Optional.empty();
         }
-        connections.remove(connection.connectionId(), connection);
+        boolean removed = connections.remove(connection.connectionId(), connection);
+        if (removed) {
+            metrics.connectionClosed();
+        }
         Optional<AgentProfile> profile = connection.profile();
         if (profile.isEmpty() || !currentByAgent.remove(profile.get().agentId(), connection)) {
             return Optional.empty();

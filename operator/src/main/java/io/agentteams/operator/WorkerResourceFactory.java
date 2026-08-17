@@ -13,6 +13,8 @@ import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 import io.fabric8.kubernetes.api.model.apps.DeploymentSpecBuilder;
 import io.fabric8.kubernetes.api.model.PodSpecBuilder;
 import io.fabric8.kubernetes.api.model.PodTemplateSpecBuilder;
+import io.fabric8.kubernetes.api.model.ProbeBuilder;
+import io.fabric8.kubernetes.api.model.TCPSocketActionBuilder;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +34,12 @@ public final class WorkerResourceFactory {
                 .withImage(spec.image())
                 .withPorts(new io.fabric8.kubernetes.api.model.ContainerPortBuilder()
                         .withName("grpc").withContainerPort(GRPC_PORT).build())
+                .withReadinessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()
+                        .withPort(new io.fabric8.kubernetes.api.model.IntOrString(GRPC_PORT)).build())
+                        .withInitialDelaySeconds(5).withPeriodSeconds(10).withFailureThreshold(3).build())
+                .withLivenessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()
+                        .withPort(new io.fabric8.kubernetes.api.model.IntOrString(GRPC_PORT)).build())
+                        .withInitialDelaySeconds(15).withPeriodSeconds(20).withFailureThreshold(3).build())
                 .withEnv(spec.env().entrySet().stream()
                         .sorted(Map.Entry.comparingByKey())
                         .map(entry -> new EnvVarBuilder().withName(entry.getKey()).withValue(entry.getValue()).build())
@@ -73,7 +81,7 @@ public final class WorkerResourceFactory {
                 .withName(name(worker)).withNamespace(namespace(worker)).withLabels(labels);
         if (worker.getMetadata().getUid() != null && !worker.getMetadata().getUid().isBlank()) {
             builder.withOwnerReferences(new OwnerReferenceBuilder()
-                    .withApiVersion("io.agentteams/v1alpha1").withKind("Worker")
+                    .withApiVersion("agentteams.io/v1alpha1").withKind("Worker")
                     .withName(name(worker)).withUid(worker.getMetadata().getUid())
                     .withController(true).withBlockOwnerDeletion(true).build());
         }

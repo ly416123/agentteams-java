@@ -24,5 +24,9 @@ public final class SchedulerLeaseService {
         }
     }
 
-    public record Result<T>(boolean leader, T value) { }
+    public record Result<T>(boolean leader, T value) {
+        public T valueOr(T fallback) {
+            return leader ? value : fallback;
+        }
+    }
 }

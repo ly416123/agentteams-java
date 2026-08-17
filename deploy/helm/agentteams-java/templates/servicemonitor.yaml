@@ -1,0 +1,18 @@
+{{- if .Values.observability.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}
+  labels:
+    {{- toYaml .Values.observability.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: agentteams
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace | quote }}]
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: {{ .Values.observability.serviceMonitor.interval | quote }}
+{{- end }}

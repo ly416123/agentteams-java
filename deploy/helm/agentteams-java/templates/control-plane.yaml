@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-control-plane
+  labels:
+    app.kubernetes.io/part-of: agentteams
 spec:
   replicas: {{ .Values.controlPlane.replicas }}
   selector:
@@ -29,6 +31,19 @@ spec:
               value: {{ .Values.nats.url | quote }}
             - name: AGENTTEAMS_STORAGE_ENABLED
               value: {{ .Values.storage.enabled | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            - name: AGENTTEAMS_SCHEDULER_ENABLED
+              value: {{ .Values.controlPlane.scheduler.enabled | quote }}
+            - name: AGENTTEAMS_SCHEDULER_POLL_INTERVAL_MS
+              value: {{ .Values.controlPlane.scheduler.pollIntervalMs | quote }}
+            - name: AGENTTEAMS_SCHEDULER_LEASE_DURATION
+              value: {{ .Values.controlPlane.scheduler.leaseDuration | quote }}
+            - name: AGENTTEAMS_SCHEDULER_BATCH_SIZE
+              value: {{ .Values.controlPlane.scheduler.batchSize | quote }}
+            - name: AGENTTEAMS_SECURITY_API_ENABLED
+              value: {{ .Values.controlPlane.security.apiEnabled | quote }}
 {{- if .Values.storage.enabled }}
             - name: AGENTTEAMS_STORAGE_ENDPOINT
               value: {{ .Values.storage.endpoint | quote }}
@@ -53,6 +68,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-control-plane
+  labels:
+    app.kubernetes.io/part-of: agentteams
 spec:
   selector: { app.kubernetes.io/name: agentteams-control-plane }
   ports: [{ name: http, port: {{ .Values.controlPlane.port }}, targetPort: http }]

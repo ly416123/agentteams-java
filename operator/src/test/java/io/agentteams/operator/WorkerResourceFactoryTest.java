@@ -14,7 +14,7 @@ class WorkerResourceFactoryTest {
     void mapsWorkerSpecToStableDeploymentAndService() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withNamespace("agentteams")
-                .withGeneration(4L).build());
+                .withGeneration(4L).withUid("worker-uid").build());
         worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 2,
                 Map.of("MODEL", "deepseek")));
 
@@ -30,8 +30,19 @@ class WorkerResourceFactoryTest {
         assertThat(deployment.getSpec().getTemplate().getMetadata().getLabels())
                 .containsEntry("agentteams.io/agent-id", "agent-a")
                 .containsEntry("agentteams.io/runtime", "qwenpaw");
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getReadinessProbe())
+                .isNotNull();
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getLivenessProbe())
+                .isNotNull();
+        assertThat(deployment.getMetadata().getOwnerReferences()).singleElement()
+                .satisfies(owner -> assertThat(owner.getApiVersion()).isEqualTo("agentteams.io/v1alpha1"));
         assertThat(service.getMetadata().getName()).isEqualTo("worker-a");
         assertThat(service.getSpec().getPorts().get(0).getPort()).isEqualTo(9090);
         assertThat(service.getSpec().getSelector()).containsEntry("app.kubernetes.io/name", "agentteams-worker");
+    }
+
+    @Test
+    void customResourceStartsWithNonNullSpecForFabric8Deserialization() {
+        assertThat(new Worker().getSpec()).isNotNull();
     }
 }

@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-gateway
+  labels:
+    app.kubernetes.io/part-of: agentteams
 spec:
   replicas: {{ .Values.gateway.replicas }}
   selector:
@@ -16,8 +18,16 @@ spec:
         - name: gateway
           image: {{ .Values.images.gateway }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
-          ports: [{ name: grpc, containerPort: {{ .Values.gateway.port }} }]
+          ports:
+            - { name: grpc, containerPort: {{ .Values.gateway.port }} }
+            - { name: http, containerPort: {{ .Values.gateway.httpPort }} }
           env:
+            - name: AGENTTEAMS_GATEWAY_GRPC_PORT
+              value: {{ .Values.gateway.port | quote }}
+            - name: AGENTTEAMS_GATEWAY_NATS_ENABLED
+              value: {{ .Values.gateway.env.AGENTTEAMS_GATEWAY_NATS_ENABLED | quote }}
+            - name: AGENTTEAMS_GATEWAY_NATS_URL
+              value: {{ .Values.nats.url | quote }}
             - name: SPRING_DATASOURCE_URL
               value: {{ .Values.database.jdbcUrl | quote }}
             - name: SPRING_DATASOURCE_USERNAME
@@ -25,16 +35,20 @@ spec:
             - name: SPRING_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: password }
-            - name: AGENTTEAMS_GATEWAY_NATS_URL
-              value: {{ .Values.nats.url | quote }}
-          readinessProbe: { tcpSocket: { port: grpc } }
-          livenessProbe: { tcpSocket: { port: grpc } }
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
           resources: {{- toYaml .Values.resources | nindent 12 }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-gateway
+  labels:
+    app.kubernetes.io/part-of: agentteams
 spec:
   selector: { app.kubernetes.io/name: agentteams-gateway }
-  ports: [{ name: grpc, port: {{ .Values.gateway.port }}, targetPort: grpc }]
+  ports:
+    - { name: grpc, port: {{ .Values.gateway.port }}, targetPort: grpc }
+    - { name: http, port: {{ .Values.gateway.httpPort }}, targetPort: http }

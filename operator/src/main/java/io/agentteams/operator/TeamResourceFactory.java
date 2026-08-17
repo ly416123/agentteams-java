@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
+import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -26,9 +27,16 @@ public final class TeamResourceFactory {
         } catch (Exception error) {
             throw new IllegalArgumentException("Team spec cannot be serialized", error);
         }
+        ObjectMetaBuilder metadata = new ObjectMetaBuilder().withName(team.getMetadata().getName() + "-config")
+                .withNamespace(namespace).withLabels(labels);
+        if (team.getMetadata().getUid() != null && !team.getMetadata().getUid().isBlank()) {
+            metadata.withOwnerReferences(new OwnerReferenceBuilder()
+                    .withApiVersion("agentteams.io/v1alpha1").withKind("Team")
+                    .withName(team.getMetadata().getName()).withUid(team.getMetadata().getUid())
+                    .withController(true).withBlockOwnerDeletion(true).build());
+        }
         return new ConfigMapBuilder().withApiVersion("v1").withKind("ConfigMap")
-                .withMetadata(new ObjectMetaBuilder().withName(team.getMetadata().getName() + "-config")
-                        .withNamespace(namespace).withLabels(labels).build())
+                .withMetadata(metadata.build())
                 .withData(data).build();
     }
 }
