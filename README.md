@@ -1,6 +1,6 @@
 # AgentTeams Java
 
-This directory contains the Java 21 Maven foundation for AgentTeams. The
+This directory contains the Java 17 Maven foundation for AgentTeams. The
 existing Go implementation is outside this project and is not modified by
 this build.
 
@@ -19,8 +19,8 @@ this build.
 
 ## Build
 
-The parent POM configures the Maven compiler for Java 21 (`--release 21`) and
-UTF-8. A Java 21 JDK is required to build the project. Unit tests are enabled
+The parent POM configures the Maven compiler for Java 17 (`--release 17`) and
+UTF-8. A Java 17 JDK is required to build the project. Unit tests are enabled
 by default:
 
 ```text
@@ -56,3 +56,27 @@ optional human-collaboration adapter; it is not the task state database.
 Without Docker/WSL, all pure-Java tests still run. Testcontainers-based
 PostgreSQL/NATS/MinIO tests are marked `disabledWithoutDocker` and are skipped
 until a container engine is available.
+
+## Local infrastructure
+
+On macOS, the repository provides a Colima/Testcontainers bootstrap script:
+
+```bash
+source deploy/dev-env.sh
+mvn -q clean test
+```
+
+For local Kubernetes work, create the documented Kind cluster and install the
+development PostgreSQL and NATS dependencies:
+
+```bash
+source deploy/dev-env.sh
+kind create cluster --config deploy/kind-config.yaml
+kubectl apply -f deploy/kind-dev-infra.yaml
+helm lint deploy/helm/agentteams-java
+```
+
+`deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
+uses an `emptyDir` volume and the database password is a local test secret.
+Production deployments must provide durable PostgreSQL, NATS JetStream and
+Secrets through the target cluster or its operators.

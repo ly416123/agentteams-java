@@ -91,7 +91,7 @@ public final class ExecutionEventService {
                     nextAttempt.source(), currentAttempt.version(), nextAttempt.updatedAt());
             tx.agentLeases().updateExpiry(nextAttempt.leaseId(), nextAttempt.leaseExpiresAt(),
                     currentLease.version(), nextAttempt.updatedAt());
-            FoundationPersistenceService.appendEvent(tx, "task", taskId, "TaskLeaseRenewed",
+            FoundationPersistenceService.appendEvent(tx, command.eventId(), "task", taskId, "TaskLeaseRenewed",
                     "{\"eventId\":\"" + command.eventId() + "\",\"leaseExpiresAt\":\""
                             + command.requestedExpiry() + "\"}", command.occurredAt(), next.version());
             return result;
@@ -140,7 +140,7 @@ public final class ExecutionEventService {
             }
             tx.artifacts().insertIfAbsent(artifact);
         }
-        FoundationPersistenceService.appendEvent(tx, "task", taskId, "TaskTransitionApplied",
+        FoundationPersistenceService.appendEvent(tx, command.eventId(), "task", taskId, "TaskTransitionApplied",
                 transitionPayload(command, applied), command.occurredAt(), next.version());
         return result;
     }

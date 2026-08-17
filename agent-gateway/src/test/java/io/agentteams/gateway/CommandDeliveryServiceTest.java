@@ -45,7 +45,7 @@ class CommandDeliveryServiceTest {
         first.onNext(GatewayTestFixtures.hello("agent-1"));
         delivery.deliver("agent-1", ServerMessage.newBuilder()
                 .setTaskAssigned(GatewayTestFixtures.assignment("agent-1", "assignment-1")).build());
-        store.replay.add(store.appended.getFirst());
+        store.replay.add(store.appended.get(0));
 
         first.onCompleted();
         GatewayTestFixtures.RecordingObserver secondOutbound = new GatewayTestFixtures.RecordingObserver();

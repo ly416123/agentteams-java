@@ -46,7 +46,7 @@ public final class AgentRepository {
                                   THEN CAST(? AS jsonb)->'requiredCapabilities'
                                   ELSE '[]'::jsonb
                               END) AS required(capability)
-                        WHERE NOT (agents.capabilities ? required.capability)
+                        WHERE NOT jsonb_exists(agents.capabilities, required.capability)
                    )
                  ORDER BY id
                  LIMIT 1
@@ -72,7 +72,7 @@ public final class AgentRepository {
                                   THEN CAST(? AS jsonb)->'requiredCapabilities'
                                   ELSE '[]'::jsonb
                               END) AS required(capability)
-                        WHERE NOT (agents.capabilities ? required.capability)
+                        WHERE NOT jsonb_exists(agents.capabilities, required.capability)
                    )
                  ORDER BY agents.id
                  LIMIT 1

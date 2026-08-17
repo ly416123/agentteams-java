@@ -76,7 +76,7 @@ class MatrixAppServiceHttpAdapterTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().events().getFirst().status())
+        assertThat(response.getBody().events().get(0).status())
                 .isEqualTo(MatrixAppServiceHttpAdapter.EventStatus.IGNORED);
         assertThat(handled).hasValue(0);
     }
@@ -164,7 +164,7 @@ class MatrixAppServiceHttpAdapterTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().events().getFirst().response()).isEqualTo("bound");
+        assertThat(response.getBody().events().get(0).response()).isEqualTo("bound");
         assertThat(received).hasValue(bound);
     }
 

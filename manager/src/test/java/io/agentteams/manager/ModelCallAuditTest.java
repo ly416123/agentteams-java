@@ -32,7 +32,7 @@ class ModelCallAuditTest {
         assertThat(service.handleCreateTask("prompt apiKey=do-not-persist",
                 new ManagerToolRegistry.ToolContext(Set.of("task:create"), false))).isEqualTo("accepted");
 
-        ModelCallAudit audit = audits.getFirst();
+        ModelCallAudit audit = audits.get(0);
         assertThat(audit.provider()).isEqualTo("MockModelProvider");
         assertThat(audit.model()).isEqualTo("deepseek-chat");
         assertThat(audit.latency()).isGreaterThanOrEqualTo(java.time.Duration.ZERO);
@@ -65,7 +65,7 @@ class ModelCallAuditTest {
                 new ManagerToolRegistry.ToolContext(Set.of(), false)))
                 .isInstanceOf(ModelProviderException.class);
 
-        ModelCallAudit audit = audits.getFirst();
+        ModelCallAudit audit = audits.get(0);
         assertThat(audit.outcome()).isEqualTo(ModelCallAudit.Outcome.FAILURE);
         assertThat(audit.errorCategory()).isEqualTo(ModelProviderException.Category.NETWORK.name());
         assertThat(audit.toString()).doesNotContain("should-not-persist");

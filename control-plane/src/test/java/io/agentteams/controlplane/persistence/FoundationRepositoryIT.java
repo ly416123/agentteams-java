@@ -127,7 +127,8 @@ class FoundationRepositoryIT {
                     taskId, TaskPhase.QUEUED, 0, now.plusSeconds(1)));
         };
 
-        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
             Future<Object> first = executor.submit(update);
             Future<Object> second = executor.submit(update);
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
@@ -147,6 +148,8 @@ class FoundationRepositoryIT {
                 }
             }
             assertThat(failures).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -221,7 +224,8 @@ class FoundationRepositoryIT {
             return persistence.createTask(command);
         };
 
-        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
             Future<TaskRecord> first = executor.submit(create);
             Future<TaskRecord> second = executor.submit(create);
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
@@ -230,6 +234,8 @@ class FoundationRepositoryIT {
             TaskRecord firstTask = first.get(10, TimeUnit.SECONDS);
             TaskRecord secondTask = second.get(10, TimeUnit.SECONDS);
             assertThat(secondTask).isEqualTo(firstTask);
+        } finally {
+            executor.shutdownNow();
         }
 
         long taskCount = persistence.inTransaction(tx -> tx.tasks().count());

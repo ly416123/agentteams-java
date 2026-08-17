@@ -6,7 +6,7 @@
 
 **Architecture:** PostgreSQL is the source of truth, NATS JetStream carries durable events, gRPC bidirectional streaming provides push delivery, and Java Operator SDK reconciles Kubernetes resources. The first executable slice uses a Fake Agent before real QwenPaw and DeepSeek integration.
 
-**Tech Stack:** Java 21, Maven, Spring Boot 3.x, gRPC Java, Java Operator SDK, Fabric8 Kubernetes Client, JDBC or jOOQ, Flyway, PostgreSQL, NATS JetStream, Kind, Helm, Testcontainers, and OpenTelemetry.
+**Tech Stack:** Java 17, Maven, Spring Boot 3.x, gRPC Java, Java Operator SDK, Fabric8 Kubernetes Client, JDBC or jOOQ, Flyway, PostgreSQL, NATS JetStream, Kind, Helm, Testcontainers, and OpenTelemetry.
 
 ## Scope boundary
 
@@ -74,11 +74,11 @@ Generated protobuf and gRPC sources are produced during the Maven build and must
 - Create module POMs for contracts, domain, control-plane, agent-gateway, operator, and integration-tests.
 - Create .gitignore.
 - Create README.md.
-- Create an initial Java 21 smoke test under domain/src/test/java.
+- Create an initial Java 17 smoke test under domain/src/test/java.
 
 **Requirements:**
 
-- Use Java 21 and UTF-8 consistently.
+- Use Java 17 and UTF-8 consistently.
 - Configure reproducible compiler, Surefire, JaCoCo, and dependency versions in the parent POM.
 - Use Spring Boot dependency management only for application modules.
 - Add protobuf/gRPC build support to contracts.
@@ -88,7 +88,7 @@ Generated protobuf and gRPC sources are produced during the Maven build and must
 
 **TDD first:**
 
-- Add a Java 21 smoke test proving the domain module is compiled and executed by Maven.
+- Add a Java 17 smoke test proving the domain module is compiled and executed by Maven.
 - Run mvn -q test.
 - Expected result: all modules compile and the smoke test passes.
 

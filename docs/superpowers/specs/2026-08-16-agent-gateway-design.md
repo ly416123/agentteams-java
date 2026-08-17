@@ -61,5 +61,5 @@ making the gateway depend on `control-plane` JDBC classes.
 
 Focused unit tests cover valid/invalid Hello and Ready, TaskAssigned delivery,
 accepted event persistence/routing, duplicate suppression, stale connections,
-and reconnect replay. They use in-memory port fakes only; no Maven, Java 21,
+and reconnect replay. They use in-memory port fakes only; no Maven, Java 17,
 Docker, NATS, or PostgreSQL runtime is required for the implementation.

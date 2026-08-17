@@ -6,7 +6,7 @@
 
 **Architecture:** `AgentChannelService` coordinates `ConnectionRegistry`, `CommandDeliveryService`, `InboundEventHandler`, and injected ports. The registry contains connection metadata only; durable command and inbound-event state stays behind ports that can later be backed by PostgreSQL/outbox adapters.
 
-**Tech Stack:** Java 21, Spring Boot, gRPC Java, generated protobuf contracts, JUnit 5, AssertJ.
+**Tech Stack:** Java 17, Spring Boot, gRPC Java, generated protobuf contracts, JUnit 5, AssertJ.
 
 ---
 

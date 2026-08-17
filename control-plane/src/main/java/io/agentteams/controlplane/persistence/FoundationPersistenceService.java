@@ -239,7 +239,13 @@ public final class FoundationPersistenceService {
 
     public static UUID appendEvent(FoundationTransaction tx, String aggregateType, UUID aggregateId,
             String eventType, String payloadJson, Instant occurredAt, long aggregateVersion) {
-        UUID eventId = UUID.randomUUID();
+        return appendEvent(tx, UUID.randomUUID(), aggregateType, aggregateId, eventType, payloadJson,
+                occurredAt, aggregateVersion);
+    }
+
+    public static UUID appendEvent(FoundationTransaction tx, UUID eventId, String aggregateType,
+            UUID aggregateId, String eventType, String payloadJson, Instant occurredAt, long aggregateVersion) {
+        Objects.requireNonNull(eventId, "eventId");
         DomainEventRecord domainEvent = DomainEventRecord.create(eventId, aggregateType, aggregateId,
                 eventType, payloadJson, occurredAt, aggregateVersion);
         tx.domainEvents().insert(domainEvent);

@@ -6,7 +6,7 @@
 
 **Architecture:** PostgreSQL owns relay state. A short transaction claims due rows with `FOR UPDATE SKIP LOCKED` and a recoverable `IN_FLIGHT` lease; a worker publishes an `EventEnvelope` to JetStream and persists `PUBLISHED`, retry, or `DEAD_LETTER` afterward. NATS is an external delivery adapter and never becomes the source of relay state.
 
-**Tech Stack:** Java 21, Spring Boot JDBC, PostgreSQL/Flyway, jnats 2.20.5, JUnit 5, AssertJ, Testcontainers PostgreSQL and NATS.
+**Tech Stack:** Java 17, Spring Boot JDBC, PostgreSQL/Flyway, jnats 2.20.5, JUnit 5, AssertJ, Testcontainers PostgreSQL and NATS.
 
 ---
 
