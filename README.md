@@ -99,6 +99,21 @@ kubectl -n agentteams wait --for=condition=available \
   deployment/agentteams-agentteams-java-operator --timeout=300s
 ```
 
+The Kind path was verified on 2026-08-18 with a two-node `v1.36.1` cluster.
+Docker Hub was not reachable from the environment, so the pinned node image
+and dependency images were preloaded into Kind; the application manifests keep
+their canonical image names and `IfNotPresent` policy. The MinIO server uses
+`RELEASE.2024-11-07T00-52-20Z`, while the compatible fixed `mc` bootstrap image
+uses `RELEASE.2025-07-21T05-28-08Z`. The service Dockerfiles copy
+`deploy/docker/maven-settings.xml` so Maven builds use the configured public
+mirror when Maven Central is unavailable.
+
+The Operator smoke path was also verified with a temporary `Worker` CR:
+Operator-created Deployment and Service reached Ready, replica changes updated
+Worker status, and deleting the CR removed both child resources. Worker images
+are generated with `imagePullPolicy: IfNotPresent` so locally loaded Kind images
+do not trigger a registry pull.
+
 The chart resource names include both the Helm release and chart name. The
 Control Plane API can be exposed for a smoke check with:
 

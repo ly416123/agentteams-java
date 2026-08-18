@@ -23,5 +23,11 @@ spec:
                 image: { type: string }
                 replicas: { type: integer, minimum: 1, default: 1 }
                 env: { type: object, additionalProperties: { type: string } }
-            status: { type: object }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                observedGeneration: { type: integer, format: int64 }
+                readyReplicas: { type: integer }
+                message: { type: string }
       subresources: { status: {} }

@@ -58,7 +58,7 @@ stringData:
 
 **Job `minio-bucket-bootstrap`**（与 `nats-stream-bootstrap` 同模式）：
 
-- 镜像 `minio/mc:RELEASE.2024-11-07T00-52-20Z`
+- 镜像 `minio/mc:RELEASE.2025-07-21T05-28-08Z`（固定 tag；该版本可获取且兼容当前 MinIO 服务）
 - `restartPolicy: OnFailure`、`backoffLimit: 6`
 - env 从 `agentteams-storage` Secret 读取 `access-key` / `secret-key`
 - 命令：使用同一组环境变量轮询执行 `mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"`（每 2 秒重试），随后执行 `mc mb --ignore-existing local/agentteams`

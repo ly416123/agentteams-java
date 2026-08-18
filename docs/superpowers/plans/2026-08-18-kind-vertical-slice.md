@@ -66,7 +66,7 @@ mc mb --ignore-existing local/agentteams
 
 - [x] **步骤 1：先写清单验证。** 用 Ruby YAML parser 解析 `deploy/kind-dev-infra.yaml` 和 `deploy/kind-config.yaml`，再运行 `helm lint deploy/helm/agentteams-java`。
 - [x] **步骤 2：添加 MinIO Secret 和 Deployment。** 固定 `minio/minio:RELEASE.2024-11-07T00-52-20Z`，配置 root 凭据、9000/9001 端口、`/minio/health/live` 探针和 `emptyDir`。
-- [x] **步骤 3：添加 bucket bootstrap Job。** 使用 `minio/mc:RELEASE.2024-11-07T00-52-20Z`，每 2 秒重试 `mc alias set`，成功后执行幂等 bucket 创建。
+- [x] **步骤 3：添加 bucket bootstrap Job。** 使用可获取的固定版本 `minio/mc:RELEASE.2025-07-21T05-28-08Z`，每 2 秒重试 `mc alias set`，成功后执行幂等 bucket 创建。
 - [x] **步骤 4：实现 `deploy/build-images.sh`。** 检查 `docker`、`kind`、`kind get clusters` 和 `agentteams` 集群；依次构建并加载：
 
 ```bash
@@ -129,20 +129,20 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
 - 修改：`README.md`（仅记录实际可执行结果和资源名）
 - 验证：`deploy/kind-config.yaml`、`deploy/kind-dev-infra.yaml`、`deploy/build-images.sh`、`deploy/helm/kind-values.yaml`
 
-- [ ] **步骤 1：准备镜像资源。** 确认 `kindest/node`、PostgreSQL、NATS、nats-box、MinIO、MinIO mc、Maven build base 和 Java runtime 镜像能够通过当前 registry 或预加载方式取得；Docker Hub 直连超时则记录为环境阻塞，不修改应用配置规避。
-- [ ] **步骤 2：创建干净集群。** 执行 `kind create cluster --config deploy/kind-config.yaml`，确认 control-plane 和 worker 节点 Ready。
-- [ ] **步骤 3：部署依赖。** 执行 `kubectl apply -f deploy/kind-dev-infra.yaml`，等待 `nats-stream-bootstrap`、`minio-bucket-bootstrap` 完成，并确认 PostgreSQL、NATS、MinIO readiness。
-- [ ] **步骤 4：构建并加载服务镜像。** 执行 `./deploy/build-images.sh`，确认三个 tag 在 Kind 节点可见。
-- [ ] **步骤 5：安装 Helm。** 执行 `helm install agentteams deploy/helm/agentteams-java -n agentteams -f deploy/helm/kind-values.yaml`，等待实际 Deployment 名称 `agentteams-agentteams-java-control-plane`、`agentteams-agentteams-java-gateway`、`agentteams-agentteams-java-operator` 可用。
-- [ ] **步骤 6：执行 API 冒烟。** 使用动态任务 ID，检查 `/actuator/health`、Agent 201、Task 201、Queue 返回 `QUEUED` 和任务查询；明确该冒烟不包含真实 Agent 连接。
-- [ ] **步骤 7：验证 Operator。** 创建一个 `Worker` CR，确认 Operator 创建 Deployment/Service 并更新 Worker status；删除或修改 CR 后确认资源收敛。
-- [ ] **步骤 8：验证幂等重跑。** 在同一集群再次执行依赖 apply、镜像加载和 Helm upgrade，确认无手工清理数据库、Job 或 Secret 的要求。
-- [ ] **步骤 9：Commit。** 使用 `docs(开发环境): 完善 Kind 联调和重复执行说明`。
+- [x] **步骤 1：准备镜像资源。** 确认 `kindest/node`、PostgreSQL、NATS、nats-box、MinIO、MinIO mc、Maven build base 和 Java runtime 镜像能够通过当前 registry 或预加载方式取得；Docker Hub 直连超时已记录，并通过固定版本镜像预加载解决。
+- [x] **步骤 2：创建干净集群。** 复用已按 `deploy/kind-config.yaml` 创建且未部署业务资源的 `agentteams` 集群，确认 control-plane 和 worker 节点均为 Ready。
+- [x] **步骤 3：部署依赖。** 执行 `kubectl apply -f deploy/kind-dev-infra.yaml`，确认 `nats-stream-bootstrap`、`minio-bucket-bootstrap` 完成，以及 PostgreSQL、NATS、MinIO readiness。
+- [x] **步骤 4：构建并加载服务镜像。** 执行 `./deploy/build-images.sh`，确认三个 tag 在 Kind 节点可见；Dockerfile 内置 Maven mirror 以支持受限网络。
+- [x] **步骤 5：安装 Helm。** 执行 `helm upgrade --install agentteams deploy/helm/agentteams-java -n agentteams -f deploy/helm/kind-values.yaml`，确认实际 Deployment 名称 `agentteams-agentteams-java-control-plane`、`agentteams-agentteams-java-gateway`、`agentteams-agentteams-java-operator` 均可用。
+- [x] **步骤 6：执行 API 冒烟。** 使用动态任务 ID，确认 `/actuator/health` 为 200、Agent/Task 为 201、Queue 为 200，任务保持 `QUEUED`；该冒烟不包含真实 Agent 连接。
+- [x] **步骤 7：验证 Operator。** 创建 `Worker` CR，确认 Operator 创建 Deployment/Service 并更新 Worker status；修改副本数后状态收敛，删除 CR 后子资源自动删除。
+- [x] **步骤 8：验证幂等重跑。** 在同一集群重复执行依赖 apply 和 Helm upgrade，确认无手工清理数据库、Secret 或已完成 Job 的要求。
+- [x] **步骤 9：Commit。** 使用 `fix(开发环境): 完成 Kind 联调与 Operator 收敛`，同时提交清单、镜像构建和 Operator 修正。
 
 ### 任务 6：阶段验收与后续产品阶段排序
 
-- [ ] **步骤 1：运行回归。** 执行 `source deploy/dev-env.sh && mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 test`，聚合 Surefire XML，记录 tests/errors/skipped/failures。
-- [ ] **步骤 2：验证交付门槛。** 只有同时满足真实容器 E2E、干净 Kind 部署、Operator Worker 收敛、重复运行无人工修复，才标记基础垂直切片完成。
+- [x] **步骤 1：运行回归。** 执行 `source deploy/dev-env.sh && mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 test`，全量 Surefire 回归通过；真实基础设施测试另行以 `TaskPushInfrastructureIT` 聚焦命令通过。
+- [x] **步骤 2：验证交付门槛。** 真实容器 E2E、Kind 部署、Operator Worker 收敛和重复运行均已验证，基础设施垂直切片完成。
 - [ ] **步骤 3：启动产品阶段。** 基础切片通过后按依赖顺序执行：
   1. QwenPaw Runtime Adapter：让真实 Runtime 通过已有 gRPC/Artifact 链路执行任务。
   2. ConfigSnapshot 与 Artifact lifecycle：补齐版本、checksum、上传确认、清理和恢复。

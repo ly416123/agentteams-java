@@ -6,6 +6,7 @@ import io.javaoperatorsdk.operator.api.reconciler.ControllerConfiguration;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
 import io.javaoperatorsdk.operator.api.reconciler.Reconciler;
 import io.javaoperatorsdk.operator.api.reconciler.UpdateControl;
+import java.time.Duration;
 
 @ControllerConfiguration
 public final class WorkerReconciler implements Reconciler<Worker> {
@@ -36,6 +37,8 @@ public final class WorkerReconciler implements Reconciler<Worker> {
         status.setMessage(ready >= resource.getSpec().replicas()
                 ? "Worker deployment is ready" : "Waiting for Worker deployment readiness");
         resource.setStatus(status);
-        return UpdateControl.patchStatus(resource);
+        UpdateControl<Worker> update = UpdateControl.updateStatus(resource);
+        return ready >= resource.getSpec().replicas()
+                ? update : update.rescheduleAfter(Duration.ofSeconds(5));
     }
 }

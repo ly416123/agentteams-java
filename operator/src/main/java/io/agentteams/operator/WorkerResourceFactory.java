@@ -32,6 +32,7 @@ public final class WorkerResourceFactory {
         ContainerBuilder container = new ContainerBuilder()
                 .withName("worker")
                 .withImage(spec.image())
+                .withImagePullPolicy("IfNotPresent")
                 .withPorts(new io.fabric8.kubernetes.api.model.ContainerPortBuilder()
                         .withName("grpc").withContainerPort(GRPC_PORT).build())
                 .withReadinessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()

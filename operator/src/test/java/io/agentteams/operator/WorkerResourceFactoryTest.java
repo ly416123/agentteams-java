@@ -27,6 +27,8 @@ class WorkerResourceFactoryTest {
         assertThat(deployment.getSpec().getTemplate().getSpec().getAutomountServiceAccountToken()).isFalse();
         assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getImage())
                 .isEqualTo("example/worker:v1");
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getImagePullPolicy())
+                .isEqualTo("IfNotPresent");
         assertThat(deployment.getSpec().getTemplate().getMetadata().getLabels())
                 .containsEntry("agentteams.io/agent-id", "agent-a")
                 .containsEntry("agentteams.io/runtime", "qwenpaw");

@@ -39,9 +39,9 @@ class JdbcPersistenceWiringTest {
                     assertThat(context.getBeansOfType(CommandReplayPort.class)).hasSize(1);
                     assertThat(context.getBeansOfType(InboundEventPort.class)).hasSize(1);
                     assertThat(context.getBeansOfType(AgentStatePort.class)).hasSize(1);
-                    assertThat(context).doesNotHaveBean("commandReplayPort");
-                    assertThat(context).doesNotHaveBean("inboundEventPort");
-                    assertThat(context).doesNotHaveBean("agentStatePort");
+                    assertThat(context.getBean(CommandReplayPort.class)).isInstanceOf(JdbcCommandEventStore.class);
+                    assertThat(context.getBean(InboundEventPort.class)).isInstanceOf(JdbcInboundEventStore.class);
+                    assertThat(context.getBean(AgentStatePort.class)).isInstanceOf(JdbcAgentStateStore.class);
                 });
     }
 

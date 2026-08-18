@@ -176,7 +176,9 @@ spec:
               nats --server nats://nats:4222 stream info AGENT_EVENTS >/dev/null 2>&1 ||
               nats --server nats://nats:4222 stream add AGENT_EVENTS --subjects agent.events.* --storage file --retention limits
               --max-msgs=-1 --max-bytes=-1 --max-age=0 --max-msg-size=-1 --discard old
-              --replicas 1 --defaults
+              --replicas 1 --defaults;
+              nats --server nats://nats:4222 stream info TASK_EVENTS >/dev/null;
+              nats --server nats://nats:4222 stream info AGENT_EVENTS >/dev/null
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -271,7 +273,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: minio-admin
-          image: minio/mc:RELEASE.2024-11-07T00-52-20Z
+          image: minio/mc:RELEASE.2025-07-21T05-28-08Z
           imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_ROOT_USER

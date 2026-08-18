@@ -1,5 +1,6 @@
 FROM maven:3.9.16-eclipse-temurin-17 AS build
 WORKDIR /workspace
+COPY deploy/docker/maven-settings.xml /root/.m2/settings.xml
 COPY . .
 RUN mvn -q -pl control-plane -am -DskipTests install
 RUN mvn -q -pl control-plane -DskipTests package spring-boot:repackage
