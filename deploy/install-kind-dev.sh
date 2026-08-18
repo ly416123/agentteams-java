@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+NAMESPACE=${AGENTTEAMS_NAMESPACE:-agentteams}
+INGRESS_CHART_VERSION=${INGRESS_NGINX_CHART_VERSION:-4.11.3}
+
+source "$ROOT/deploy/dev-env.sh"
+
+for command_name in helm jq; do
+  command -v "$command_name" >/dev/null || {
+    echo "缺少 $command_name，请先安装。" >&2
+    exit 1
+  }
+done
+
+if ! kind get clusters | grep -Fxq agentteams; then
+  "$ROOT/deploy/pull-kind-node-image.sh"
+  kind create cluster --config "$ROOT/deploy/kind-config.yaml"
+else
+  echo "复用现有 agentteams Kind 集群；kind-config.yaml 的新端口映射不会自动应用。"
+fi
+
+kubectl apply -f "$ROOT/deploy/kind-dev-infra.yaml"
+kubectl -n "$NAMESPACE" wait --for=condition=ready statefulset/postgresql statefulset/nats statefulset/minio --timeout=180s
+kubectl -n "$NAMESPACE" wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=180s
+
+kubectl apply -f "$ROOT/deploy/kind-observability.yaml"
+kubectl -n "$NAMESPACE" wait --for=condition=available deployment/prometheus deployment/grafana deployment/qwenpaw --timeout=240s
+
+helm upgrade --install ingress-nginx ingress-nginx \
+  --repo https://kubernetes.github.io/ingress-nginx \
+  --version "$INGRESS_CHART_VERSION" \
+  --namespace ingress-nginx --create-namespace --wait --timeout 5m \
+  --set controller.service.type=NodePort \
+  --set controller.service.nodePorts.http=30080 \
+  --set controller.service.nodePorts.https=30443 \
+  --set controller.ingressClassResource.default=true
+kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
+
+"$ROOT/deploy/build-images.sh"
+helm lint "$ROOT/deploy/helm/agentteams-java"
+helm upgrade --install agentteams "$ROOT/deploy/helm/agentteams-java" \
+  --namespace "$NAMESPACE" --create-namespace --wait --timeout 5m \
+  -f "$ROOT/deploy/helm/kind-values.yaml"
+kubectl -n "$NAMESPACE" wait --for=condition=available \
+  deployment/agentteams-agentteams-java-control-plane \
+  deployment/agentteams-agentteams-java-gateway \
+  deployment/agentteams-agentteams-java-operator --timeout=300s
+
+echo "Kind 本地基础设施闭环已安装。"
+echo "入口：api.agentteams.localhost、gateway.agentteams.localhost、qwenpaw.agentteams.localhost、prometheus.agentteams.localhost、grafana.agentteams.localhost"
