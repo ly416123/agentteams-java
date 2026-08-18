@@ -57,6 +57,14 @@ the Control Plane. Gateway and Manager depend on application contracts rather
 than Control Plane persistence classes. Matrix is an optional
 human-collaboration adapter; it is not the task state database.
 
+The runtime module provides `JsonLinesQwenPawProcessPort` for an external
+QwenPaw process. It starts the configured command, sends one JSON object per
+stdin line (`start`, `task`, `cancel`, or `stop`), and consumes `result`
+objects from stdout. A process exit fails every in-flight task; cancellation
+removes the task from the completion set. The boundary is deliberately
+runtime-specific and does not move QwenPaw files or sockets into the Control
+Plane. The real QwenPaw image/command remains a deployment input.
+
 The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
 `POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. The built-in
 lease-based scheduler assigns queued work across replicas and recovers expired
