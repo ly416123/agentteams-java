@@ -18,10 +18,30 @@ spec:
               type: object
               required: [leaderRef, members, policy, workspaceRef, channelBindingRef]
               properties:
-                leaderRef: { type: string }
+                leaderRef: { type: string, minLength: 1 }
                 workspaceRef: { type: string }
                 channelBindingRef: { type: string }
-                members: { type: array, items: { type: object } }
-                policy: { type: object }
-            status: { type: object }
+                members:
+                  type: array
+                  items:
+                    type: object
+                    required: [agentRef, role, capabilities]
+                    properties:
+                      agentRef: { type: string, minLength: 1 }
+                      role: { type: string, minLength: 1 }
+                      capabilities:
+                        type: array
+                        items: { type: string, minLength: 1 }
+                policy:
+                  type: object
+                  required: [maxConcurrentTasks, requireApproval]
+                  properties:
+                    maxConcurrentTasks: { type: integer, minimum: 1, default: 1 }
+                    requireApproval: { type: boolean, default: false }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                observedGeneration: { type: integer, format: int64 }
+                message: { type: string }
       subresources: { status: {} }
