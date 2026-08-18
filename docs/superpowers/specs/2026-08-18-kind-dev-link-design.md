@@ -2,7 +2,7 @@
 
 Date: 2026-08-18
 
-Status: Approved by user (2026-08-18); 待实现计划
+Status: Approved by user (2026-08-18); implementation in progress
 
 ## 1. Purpose
 
@@ -48,6 +48,7 @@ stringData:
 
 - 镜像 `minio/minio:RELEASE.2024-11-07T00-52-20Z`（固定 tag，dev 可复现）
 - args：`server /data --console-address :9001`
+- 环境变量 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` 从 `agentteams-storage` Secret 的 `access-key` / `secret-key` 读取
 - 端口：`api` 9000、`console` 9001
 - 探针：liveness/readiness 均为 `httpGet /minio/health/live`，端口 `api`
 - 存储：`emptyDir` 挂载 `/data`（dev 专用，与 PostgreSQL 一致；README 已有警告）
@@ -60,7 +61,7 @@ stringData:
 - 镜像 `minio/mc:RELEASE.2024-11-07T00-52-20Z`
 - `restartPolicy: OnFailure`、`backoffLimit: 6`
 - env 从 `agentteams-storage` Secret 读取 `access-key` / `secret-key`
-- 命令：轮询等待 `mc alias set local http://minio:9000` 成功（每 2 秒重试），随后 `mc mb --ignore-existing local/agentteams`
+- 命令：使用同一组环境变量轮询执行 `mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"`（每 2 秒重试），随后执行 `mc mb --ignore-existing local/agentteams`
 
 ### 3.2 镜像构建/加载脚本（新建 deploy/build-images.sh）
 
@@ -83,8 +84,10 @@ storage:
   existingSecret: agentteams-storage
 observability:
   serviceMonitor:
-    enabled: true
+    enabled: false
 ```
+
+Kind 默认不安装 Prometheus Operator，因此不能渲染 ServiceMonitor；接入观测设施时再单独开启。
 
 其余沿用默认值：`database.jdbcUrl` 指向 `postgresql:5432`、`agentteams-database` Secret、scheduler 开启、`security.apiEnabled: false`（本地无 OIDC 实现，保持关闭）、NATS/Outbox 默认开启。
 
@@ -99,28 +102,33 @@ kubectl apply -f deploy/kind-dev-infra.yaml
 kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap --timeout=120s
 kubectl -n agentteams wait --for=condition=complete job/minio-bucket-bootstrap --timeout=120s
 ./deploy/build-images.sh
-helm install agentteams deploy/helm/agentteams-java -f deploy/helm/kind-values.yaml
+helm install agentteams deploy/helm/agentteams-java -n agentteams -f deploy/helm/kind-values.yaml
 kubectl -n agentteams wait --for=condition=available \
-  deployment/agentteams-control-plane deployment/agentteams-agent-gateway deployment/agentteams-operator --timeout=300s
+  deployment/agentteams-agentteams-java-control-plane \
+  deployment/agentteams-agentteams-java-gateway \
+  deployment/agentteams-agentteams-java-operator --timeout=300s
 ```
 
 冒烟验证步骤（控制面 API 冒烟，请求体字段已核实自 `AgentController.CreateAgentRequest` 与 `TaskController.CreateTaskRequest`，三个端点均要求 `Idempotency-Key` 请求头）：
 
 ```bash
-kubectl -n agentteams port-forward svc/agentteams-control-plane 8080:8080
+kubectl -n agentteams port-forward svc/agentteams-agentteams-java-control-plane 8080:8080 &
+PORT_FORWARD_PID=$!
+trap 'kill "$PORT_FORWARD_PID" 2>/dev/null || true' EXIT
+until curl -fsS localhost:8080/actuator/health >/dev/null; do sleep 2; done
 # 1. 健康检查
-curl -s localhost:8080/actuator/health
+curl -fsS localhost:8080/actuator/health
 # 2. 注册一个 Agent（capabilities 为 JSON 对象）
-curl -s -X POST localhost:8080/api/v1/agents \
+AGENT_ID=$(curl -fsS -X POST localhost:8080/api/v1/agents \
   -H 'Idempotency-Key: smoke-agent-1' -H 'Content-Type: application/json' \
-  -d '{"name":"smoke-agent","runtime":"fake","capabilities":{"java":"17"}}'
+  -d '{"name":"smoke-agent","runtime":"fake","capabilities":{"java":"17"}}' | jq -r '.id')
 # 3. 创建任务（DRAFT）并入队
-curl -s -X POST localhost:8080/api/v1/tasks \
+TASK_ID=$(curl -fsS -X POST localhost:8080/api/v1/tasks \
   -H 'Idempotency-Key: smoke-task-1' -H 'Content-Type: application/json' \
-  -d '{"title":"smoke","description":"kind smoke task","spec":{}}'
-curl -s -X POST localhost:8080/api/v1/tasks/<taskId>/queue -H 'Idempotency-Key: smoke-queue-1'
+  -d '{"title":"smoke","description":"kind smoke task","spec":{}}' | jq -r '.id')
+curl -fsS -X POST "localhost:8080/api/v1/tasks/${TASK_ID}/queue" -H 'Idempotency-Key: smoke-queue-1'
 # 4. 查询任务状态
-curl -s localhost:8080/api/v1/tasks/<taskId>
+curl -fsS "localhost:8080/api/v1/tasks/${TASK_ID}"
 ```
 
 冒烟验证的判定标准：健康检查通过、Agent 创建返回 201、任务创建返回 201、入队返回 phase=`QUEUED`、查询可读回任务。任务停留在 `QUEUED` 是预期行为——API 注册的 Agent 不会建立 gRPC 连接变为 READY，完整推送链路由集成测试 `TaskPushE2ETest`（Testcontainers + FakeAgent）覆盖，不属于本冒烟范围。
@@ -132,7 +140,7 @@ curl -s localhost:8080/api/v1/tasks/<taskId>
 - `helm lint deploy/helm/agentteams-java`
 - `helm template agentteams deploy/helm/agentteams-java -f deploy/helm/kind-values.yaml` 渲染检查（storage 环境变量指向 minio:9000）
 - `bash -n deploy/build-images.sh` 语法检查
-- 在本机实际执行完整序列：apply kind-dev-infra → 两个 bootstrap Job 完成 → 构建并加载镜像 → helm install → 全部 Pod ready → 冒烟 API 通过
+- 在本机实际执行完整序列：apply kind-dev-infra → 两个 bootstrap Job 完成 → 构建并加载镜像 → helm install → 三个实际 Deployment ready → 冒烟 API 通过
 
 ## 4. Out of scope
 
