@@ -2,6 +2,7 @@ package io.agentteams.gateway;
 
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.agentteams.application.api.ExecutionEventPort;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
@@ -37,7 +38,7 @@ public class AgentGatewayGrpcConfiguration {
     @Bean
     @ConditionalOnMissingBean(com.fasterxml.jackson.databind.ObjectMapper.class)
     public com.fasterxml.jackson.databind.ObjectMapper gatewayObjectMapper() {
-        return new com.fasterxml.jackson.databind.ObjectMapper();
+        return new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new JavaTimeModule());
     }
 
     @Bean
@@ -59,16 +60,10 @@ public class AgentGatewayGrpcConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean({AgentStatePort.class, DataSource.class})
-    public AgentStatePort agentStatePort() {
-        return new NoopAgentStatePort();
-    }
-
-    @Bean
-    @ConditionalOnBean(DataSource.class)
     @ConditionalOnMissingBean(AgentStatePort.class)
-    public JdbcAgentStateStore jdbcAgentStateStore(DataSource dataSource) {
-        return new JdbcAgentStateStore(dataSource);
+    public AgentStatePort agentStatePort(ObjectProvider<DataSource> dataSources) {
+        DataSource dataSource = dataSources.getIfAvailable();
+        return dataSource == null ? new NoopAgentStatePort() : new JdbcAgentStateStore(dataSource);
     }
 
     @Bean
@@ -98,16 +93,10 @@ public class AgentGatewayGrpcConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean({CommandReplayPort.class, DataSource.class})
-    public CommandReplayPort commandReplayPort() {
-        return new NoopCommandReplayPort();
-    }
-
-    @Bean
-    @ConditionalOnBean(DataSource.class)
     @ConditionalOnMissingBean(CommandReplayPort.class)
-    public JdbcCommandEventStore jdbcCommandEventStore(DataSource dataSource) {
-        return new JdbcCommandEventStore(dataSource);
+    public CommandReplayPort commandReplayPort(ObjectProvider<DataSource> dataSources) {
+        DataSource dataSource = dataSources.getIfAvailable();
+        return dataSource == null ? new NoopCommandReplayPort() : new JdbcCommandEventStore(dataSource);
     }
 
     @Bean
@@ -153,16 +142,10 @@ public class AgentGatewayGrpcConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean({InboundEventPort.class, DataSource.class})
-    public InboundEventPort inboundEventPort() {
-        return new NoopInboundEventPort();
-    }
-
-    @Bean
-    @ConditionalOnBean(DataSource.class)
     @ConditionalOnMissingBean(InboundEventPort.class)
-    public JdbcInboundEventStore jdbcInboundEventStore(DataSource dataSource) {
-        return new JdbcInboundEventStore(dataSource);
+    public InboundEventPort inboundEventPort(ObjectProvider<DataSource> dataSources) {
+        DataSource dataSource = dataSources.getIfAvailable();
+        return dataSource == null ? new NoopInboundEventPort() : new JdbcInboundEventStore(dataSource);
     }
 
     @Bean

@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.outbox;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.application.api.ExecutionEventEnvelope;
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.PlatformEventSubjects;
@@ -85,7 +86,18 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
 
     void process(Message message) {
         try {
-            ExecutionEventEnvelope envelope = mapper.readValue(message.getData(), ExecutionEventEnvelope.class);
+            JsonNode root = mapper.readTree(message.getData());
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("execution event payload must be a JSON object");
+            }
+            // Agent aggregate outbox events share the agent.events.* subject. They are
+            // intentionally acknowledged here because this consumer only owns execution
+            // envelopes and must not block later agent execution messages.
+            if (!root.hasNonNull("type") && root.hasNonNull("event_type")) {
+                message.ack();
+                return;
+            }
+            ExecutionEventEnvelope envelope = mapper.treeToValue(root, ExecutionEventEnvelope.class);
             if ("TASK".equals(envelope.type())) {
                 executionEvents.apply(envelope.taskId(), envelope.taskExecution(), envelope.artifacts());
             } else if ("LEASE_RENEWAL".equals(envelope.type())) {

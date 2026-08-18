@@ -6,17 +6,25 @@ import io.agentteams.contracts.v1.Ack;
 import io.agentteams.contracts.v1.AgentChannelGrpc;
 import io.agentteams.contracts.v1.AgentHello;
 import io.agentteams.contracts.v1.AgentMessage;
+import io.agentteams.contracts.v1.ArtifactRef;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
+import io.agentteams.contracts.v1.TaskAccepted;
 import io.agentteams.contracts.v1.TaskAssigned;
+import io.agentteams.contracts.v1.TaskCompleted;
+import io.agentteams.contracts.v1.TaskHeartbeat;
+import io.agentteams.contracts.v1.TaskProgress;
 import io.agentteams.gateway.SequencedCommand;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -29,6 +37,7 @@ final class FakeAgent implements AutoCloseable {
     private final StreamObserver<AgentMessage> requests;
     private final String agentId;
     private final BlockingQueue<ServerMessage> responses = new LinkedBlockingQueue<>();
+    private final CopyOnWriteArrayList<String> receivedKinds = new CopyOnWriteArrayList<>();
     private volatile Throwable failure;
     private volatile boolean requestsClosed;
 
@@ -39,6 +48,11 @@ final class FakeAgent implements AutoCloseable {
     }
 
     static FakeAgent connect(String host, int port, String agentId, ProtocolVersion version) {
+        return connect(host, port, agentId, version, Map.of("tasks", "1"));
+    }
+
+    static FakeAgent connect(String host, int port, String agentId, ProtocolVersion version,
+            Map<String, String> capabilities) {
         ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port)
                 .usePlaintext()
                 .build();
@@ -46,6 +60,7 @@ final class FakeAgent implements AutoCloseable {
         StreamObserver<AgentMessage> requests = AgentChannelGrpc.newStub(channel).connect(new StreamObserver<>() {
             @Override
             public void onNext(ServerMessage message) {
+                holder[0].receivedKinds.add(message.getPayloadCase().name());
                 holder[0].responses.add(message);
             }
 
@@ -61,7 +76,7 @@ final class FakeAgent implements AutoCloseable {
         });
         FakeAgent agent = new FakeAgent(channel, requests, agentId);
         holder[0] = agent;
-        requests.onNext(hello(agentId, version));
+        requests.onNext(hello(agentId, version, capabilities));
         return agent;
     }
 
@@ -76,9 +91,64 @@ final class FakeAgent implements AutoCloseable {
         return message.getTaskAssigned();
     }
 
+    void accept(TaskAssigned assignment) {
+        requests.onNext(AgentMessage.newBuilder().setTaskAccepted(TaskAccepted.newBuilder()
+                .setMetadata(taskMetadata(assignment, UUID.randomUUID().toString(), 2))
+                .setAccepted(true)
+                .build()).build());
+    }
+
+    void progress(TaskAssigned assignment) {
+        requests.onNext(AgentMessage.newBuilder().setTaskProgress(TaskProgress.newBuilder()
+                .setMetadata(taskMetadata(assignment, UUID.randomUUID().toString(), 3))
+                .setPercent(50)
+                .setStatus("running")
+                .setMessage("half way")
+                .build()).build());
+    }
+
+    void heartbeat(TaskAssigned assignment) {
+        requests.onNext(AgentMessage.newBuilder().setTaskHeartbeat(TaskHeartbeat.newBuilder()
+                .setMetadata(taskMetadata(assignment, UUID.randomUUID().toString(), 4))
+                .setStatus("running")
+                .setLeaseExpiresAt(timestamp(Instant.now().plusSeconds(60)))
+                .build()).build());
+    }
+
+    void complete(TaskAssigned assignment, String name, String storageKey, String sha256, long sizeBytes) {
+        requests.onNext(AgentMessage.newBuilder().setTaskCompleted(TaskCompleted.newBuilder()
+                .setMetadata(taskMetadata(assignment, UUID.randomUUID().toString(), 5))
+                .setResultJson(com.google.protobuf.ByteString.copyFromUtf8("{\"ok\":true}"))
+                .addArtifacts(ArtifactRef.newBuilder()
+                        .setName(name)
+                        .setUri(storageKey)
+                        .setSha256(sha256)
+                        .setSizeBytes(sizeBytes)
+                        .build())
+                .build()).build());
+    }
+
+    void completeWithEventId(TaskAssigned assignment, String eventId, String name, String storageKey,
+            String sha256, long sizeBytes) {
+        requests.onNext(AgentMessage.newBuilder().setTaskCompleted(TaskCompleted.newBuilder()
+                .setMetadata(taskMetadata(assignment, eventId, 5))
+                .setResultJson(com.google.protobuf.ByteString.copyFromUtf8("{\"ok\":true}"))
+                .addArtifacts(ArtifactRef.newBuilder()
+                        .setName(name)
+                        .setUri(storageKey)
+                        .setSha256(sha256)
+                        .setSizeBytes(sizeBytes)
+                        .build())
+                .build()).build());
+    }
+
     void acknowledge(SequencedCommand command) {
         TaskAssigned task = command.message().getTaskAssigned();
         acknowledgeSequence(command.sequence(), task.getMetadata().getEventId());
+    }
+
+    void acknowledge(TaskAssigned task) {
+        acknowledgeSequence(task.getMetadata().getSequence(), task.getMetadata().getEventId());
     }
 
     void acknowledgeSequence(long sequence, String commandEventId) {
@@ -102,6 +172,11 @@ final class FakeAgent implements AutoCloseable {
         }
     }
 
+    String failureDescription() {
+        Throwable current = failure;
+        return current == null ? "none" : current.toString();
+    }
+
     @Override
     public void close() throws InterruptedException {
         closeWithoutAcknowledging();
@@ -115,7 +190,7 @@ final class FakeAgent implements AutoCloseable {
                 throw new AssertionError("fake agent gRPC stream failed", failure);
             }
             long remaining = deadline - System.nanoTime();
-            assertTrue(remaining > 0, "timed out waiting for a server message");
+            assertTrue(remaining > 0, "timed out waiting for a server message; received=" + receivedKinds);
             ServerMessage message = responses.poll(remaining, TimeUnit.NANOSECONDS);
             if (message != null && predicate.test(message)) {
                 return message;
@@ -123,7 +198,8 @@ final class FakeAgent implements AutoCloseable {
         }
     }
 
-    private static AgentMessage hello(String agentId, ProtocolVersion version) {
+    private static AgentMessage hello(String agentId, ProtocolVersion version,
+            Map<String, String> capabilities) {
         return AgentMessage.newBuilder().setHello(AgentHello.newBuilder()
                 .setMetadata(EventMetadata.newBuilder()
                         .setEventId("hello-" + UUID.randomUUID())
@@ -135,8 +211,27 @@ final class FakeAgent implements AutoCloseable {
                 .setProtocolVersion(version)
                 .setRuntimeName("fake-agent")
                 .setRuntimeVersion("test")
-                .putCapabilities("tasks", "1")
+                .putAllCapabilities(capabilities)
                 .setMaxConcurrentTasks(1)
                 .build()).build();
+    }
+
+    private static EventMetadata taskMetadata(TaskAssigned assignment, String eventId, long expectedVersion) {
+        return EventMetadata.newBuilder()
+                .setEventId(eventId)
+                .setAgentId(assignment.getMetadata().getAgentId())
+                .setTaskId(assignment.getMetadata().getTaskId())
+                .setAttemptId(assignment.getMetadata().getAttemptId())
+                .setLeaseId(assignment.getMetadata().getLeaseId())
+                .setExpectedVersion(expectedVersion)
+                .setOccurredAt(timestamp(Instant.now()))
+                .build();
+    }
+
+    private static com.google.protobuf.Timestamp timestamp(Instant instant) {
+        return com.google.protobuf.Timestamp.newBuilder()
+                .setSeconds(instant.getEpochSecond())
+                .setNanos(instant.getNano())
+                .build();
     }
 }

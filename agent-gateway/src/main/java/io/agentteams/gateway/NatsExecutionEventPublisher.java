@@ -34,7 +34,8 @@ public final class NatsExecutionEventPublisher implements ExecutionEventPort {
         try {
             jetStream.publish(PlatformEventSubjects.agentExecution(agentId), mapper.writeValueAsBytes(envelope));
         } catch (Exception error) {
-            throw new IllegalStateException("failed to publish Agent execution event for task " + taskId, error);
+            throw new IllegalStateException("failed to publish Agent execution event for task " + taskId
+                    + ": " + error.getMessage(), error);
         }
     }
 }

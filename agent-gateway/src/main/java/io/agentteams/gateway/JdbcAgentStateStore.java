@@ -30,7 +30,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
                 "'PROVISIONING', 'OFFLINE', 'READY'");
         jdbc.update(upsertSql(false), profile.agentId(), "ONLINE", "READY", profile.runtime(),
                 profile.runtimeVersion(), capabilitiesJson(profile.capabilities()), Timestamp.from(at),
-                Timestamp.from(at), Timestamp.from(at));
+                Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
     }
 
     @Override
@@ -41,7 +41,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         refreshCanonicalAgent(agentId, connection.runtime(), connection.capabilities(), at);
         jdbc.update(upsertSql(false), connection.agentId(), "ONLINE", "READY", connection.runtime(),
                 connection.runtimeVersion(), capabilitiesJson(connection.capabilities()), Timestamp.from(at),
-                Timestamp.from(at), Timestamp.from(at));
+                Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
     }
 
     @Override
@@ -53,7 +53,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
                 "'PROVISIONING', 'READY', 'BUSY', 'DRAINING', 'OFFLINE'");
         jdbc.update(upsertSql(true), connection.agentId(), "OFFLINE", "DISCONNECTED", connection.runtime(),
                 connection.runtimeVersion(), capabilitiesJson(connection.capabilities()), Timestamp.from(at),
-                Timestamp.from(at), Timestamp.from(at));
+                Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
     }
 
     private void updateCanonicalAgent(UUID agentId, String phase, String runtime,

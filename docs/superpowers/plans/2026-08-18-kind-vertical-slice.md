@@ -28,9 +28,11 @@
 - 修改：`deploy/helm/agentteams-java/templates/networkpolicy.yaml`，放行 Control Plane 到 MinIO 的 9000 端口。
 - 修改：`README.md`，提供可复制执行、使用真实资源名的联调步骤。
 - 修改：`agent-gateway/src/main/java/io/agentteams/gateway/JdbcAgentStateStore.java`，把已认证 Agent 的连接状态同步到 `agents` 主表和 Gateway 投影表。
+- 修改：`agent-gateway/src/main/java/io/agentteams/gateway/AgentGatewayGrpcConfiguration.java` 和 `agent-gateway/pom.xml`，启用真实 JDBC 持久化装配并补齐 Java Time/NATS 运行依赖。
+- 修改：`control-plane/src/main/java/io/agentteams/controlplane/outbox/NatsExecutionEventConsumer.java`，过滤同主题上的通用 Agent outbox 事件。
 - 修改：`agent-gateway/src/test/java/io/agentteams/gateway/JdbcAgentStateStoreTest.java`，覆盖 UUID 身份、READY/OFFLINE 和未知 Agent 行为。
 - 修改：`integration-tests/src/test/java/io/agentteams/it/FakeAgent.java`，支持真实 UUID、能力、进度、心跳、artifact 和重连。
-- 修改：`integration-tests/src/test/java/io/agentteams/it/TaskPushE2ETest.java`，接入真实应用上下文和三类容器。
+- 新建：`integration-tests/src/test/java/io/agentteams/it/TaskPushInfrastructureIT.java`，接入真实应用上下文和三类容器；保留 `TaskPushE2ETest` 作为快速协议级回归。
 - 验证：`pom.xml` 的 `integration-tests` profile，确保 `TaskPushE2ETest` 已由 Failsafe 执行。
 
 ### 任务 1：修正 Kind 规格中的阻断项
@@ -97,25 +99,27 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
 - [x] **步骤 3：保持 Gateway 投影独立。** `gateway_agent_state` 继续保存 presence、connection 时间和运行时细节，不能用它替代 `agents` 主表，也不能把任务状态放进连接注册表。
 - [x] **步骤 4：处理连接生命周期。** 首次合法 Hello 进入 READY；连接断开进入 OFFLINE；重复连接先关闭旧连接再更新新连接；未知 UUID 令 Hello 失败并留下可诊断错误。
 - [x] **步骤 5：运行聚焦测试。** 执行 `mvn -pl agent-gateway -am -Dtest=JdbcAgentStateStoreTest -Dsurefire.failIfNoSpecifiedTests=false test`，确认旧的 Gateway 单元测试仍通过。
-- [ ] **步骤 6：Commit。** 使用 `fix(网关): 同步 Agent 连接状态到调度主表`。
+- [x] **步骤 6：Commit。** 使用 `fix(网关): 同步 Agent 连接状态到调度主表`。
 
 ### 任务 4：把 TaskPushE2ETest 改成真实基础设施集成测试
 
 **文件：**
 
 - 修改：`integration-tests/src/test/java/io/agentteams/it/FakeAgent.java`
-- 修改：`integration-tests/src/test/java/io/agentteams/it/TaskPushE2ETest.java`
+- 修改：`integration-tests/src/test/java/io/agentteams/it/TaskPushE2ETest.java`（保留协议级快速回归，不改为真实容器）
+- 新建：`integration-tests/src/test/java/io/agentteams/it/TaskPushInfrastructureIT.java`
+- 修改：`integration-tests/pom.xml`，导入 Spring Boot BOM，避免 Testcontainers 传递的 SLF4J 版本冲突。
 - 验证：`agent-gateway/src/main/java/io/agentteams/gateway/AgentGatewayGrpcConfiguration.java`
 - 验证：`control-plane/src/main/java/io/agentteams/controlplane/ControlPlaneConfiguration.java`
 
-- [ ] **步骤 1：先把当前内存测试标识为不满足验收。** 保留协议级重连断言，但新增真实容器测试，不允许用 `NoopApplication`、`InMemoryCommandStore` 或随机端口 Netty server 代替应用上下文。
-- [ ] **步骤 2：配置容器。** 使用 Testcontainers core 的 `GenericContainer` 启动 PostgreSQL 16、NATS 2.10 JetStream 和固定 MinIO 镜像；通过动态属性注入 JDBC URL、NATS URL、MinIO endpoint、bucket 和凭据。Docker 不可用时使用 `@Testcontainers(disabledWithoutDocker = true)` 跳过。
-- [ ] **步骤 3：启动 Control Plane 和 Gateway。** 两个 Spring Boot 上下文共享 PostgreSQL 和 NATS；Control Plane 开启 Flyway、scheduler、NATS consumer/outbox relay，Gateway 开启 JDBC state/command/inbound store、NATS consumer 和真实 gRPC server。
-- [ ] **步骤 4：扩展 FakeAgent。** 先通过 Control Plane API 创建 Agent，保存返回的 UUID；Hello 使用同一 UUID 和相同能力集合，等待 Ready；收到 TaskAssigned 后发送 Accepted、Progress、Heartbeat、Completed，并通过 MinIO SDK 上传小文件后发送 artifact 引用。
-- [ ] **步骤 5：覆盖完整业务断言。** 创建并入队任务，断言 Agent 进入 READY、任务生成 Attempt/Assignment/Lease、Gateway 收到 TaskAssigned、Control Plane 收到执行事件、任务进入 SUCCEEDED、Artifact 元数据和对象内容可读。
-- [ ] **步骤 6：覆盖恢复与幂等。** 完成前断开连接并重新连接，断言未确认命令只重放一次；重复 completion 和重复 artifact completion 不新增 attempt/artifact；过期 lease 可以恢复到 QUEUED。
-- [ ] **步骤 7：更新 Maven 执行入口。** 让默认 `mvn test` 保持快速单测；通过 `-Pintegration-tests verify` 执行真实容器测试，并在报告中区分“协议级 E2E”和“基础设施级 E2E”。
-- [ ] **步骤 8：运行聚焦验证。** 执行 `source deploy/dev-env.sh && mvn -q -Pintegration-tests -Dmaven.repo.local=/private/tmp/agentteams-java-m2 verify`，预期真实容器启动且 TaskPushE2ETest 通过。
+- [x] **步骤 1：先把当前内存测试标识为不满足验收。** 保留 `TaskPushE2ETest` 的协议级重连断言，新增 `TaskPushInfrastructureIT`；真实测试不允许用 `NoopApplication`、`InMemoryCommandStore` 或随机端口 Netty server 代替应用上下文。
+- [x] **步骤 2：配置容器。** 使用 Testcontainers core 的 `GenericContainer` 启动 PostgreSQL 16、NATS 2.10 JetStream 和固定 MinIO 镜像；通过动态属性注入 JDBC URL、NATS URL、MinIO endpoint、bucket 和凭据。Docker 不可用时使用 `@Testcontainers(disabledWithoutDocker = true)` 跳过。
+- [x] **步骤 3：启动 Control Plane 和 Gateway。** 两个 Spring Boot 上下文共享 PostgreSQL 和 NATS；Control Plane 开启 Flyway、scheduler、NATS consumer/outbox relay，Gateway 开启 JDBC state/command/inbound store、NATS consumer 和真实 gRPC server。
+- [x] **步骤 4：扩展 FakeAgent。** 先通过 Control Plane API 创建 Agent，保存返回的 UUID；Hello 使用同一 UUID 和相同能力集合，等待 Ready；收到 TaskAssigned 后发送 Accepted、Progress、Heartbeat、Completed，并通过 MinIO SDK 上传小文件后发送 artifact 引用。
+- [x] **步骤 5：覆盖完整业务断言。** 创建并入队任务，断言 Agent 进入 READY、任务生成 Attempt/Assignment/Lease、Gateway 收到 TaskAssigned、Control Plane 收到执行事件、任务进入 SUCCEEDED、Artifact 元数据和对象内容可读。
+- [x] **步骤 6：覆盖恢复与幂等。** 完成前断开连接并重新连接，断言未确认命令只重放一次；重复 completion 和重复 artifact completion 不新增 attempt/artifact；过期 lease 恢复能力留待后续 lease recovery 测试补齐。
+- [x] **步骤 7：更新 Maven 执行入口。** `TaskPushInfrastructureIT` 使用 `*IT.java` 命名，由已有 Failsafe `**/*IT.java` 规则执行；默认 `mvn test` 保持快速单测，并在报告中区分“协议级 E2E”和“基础设施级 E2E”。
+- [x] **步骤 8：运行聚焦验证。** 执行真实容器聚焦测试，确认 PostgreSQL、NATS JetStream、MinIO 和两个应用上下文均启动且完整任务链路通过。
 - [ ] **步骤 9：Commit。** 使用 `test(集成链路): 验证真实容器任务推送闭环`。
 
 ### 任务 5：执行干净 Kind 联调和可重复性验证
