@@ -13,8 +13,8 @@
 ## 当前基线与缺口
 
 - 本地工具链已具备：Java 17、Maven、Docker/Colima、Compose、Buildx、Kind、Helm、kubectl。
-- 最近一次全量 Maven 验证结果为 `197 tests, 0 failures, 0 errors`。
-- Docker/Colima 可用，已有 PostgreSQL、NATS、Ryuk 镜像；Kind 集群尚未创建。
+- 最近一次全量 Maven 验证结果为 `200 tests, 0 failures, 0 errors`；真实基础设施聚焦测试另有 3 个测试通过。
+- Docker/Colima、Kind 集群和 PostgreSQL、NATS、MinIO 开发依赖均已验证可用。
 - `integration-tests/TaskPushE2ETest` 当前只启动内存版 Netty gRPC 服务和内存 command store，没有真实 Control Plane、Gateway、PostgreSQL、NATS 或 MinIO。
 - `JdbcAgentStateStore` 只写 `gateway_agent_state`，而 `AgentRepository` 的调度查询只接受 `agents.phase = READY`，真实连接状态还没有进入调度主表。
 - Kind 规格需要先修正 Helm 资源名、MinIO 凭据传递、MinIO NetworkPolicy 和 ServiceMonitor 配置。
@@ -144,13 +144,15 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
 - [x] **步骤 1：运行回归。** 执行 `source deploy/dev-env.sh && mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 test`，全量 Surefire 回归通过；真实基础设施测试另行以 `TaskPushInfrastructureIT` 聚焦命令通过。
 - [x] **步骤 2：验证交付门槛。** 真实容器 E2E、Kind 部署、Operator Worker 收敛和重复运行均已验证，基础设施垂直切片完成。
 - [ ] **步骤 3：启动产品阶段。** 基础切片通过后按依赖顺序执行：
-  1. QwenPaw Runtime Adapter：让真实 Runtime 通过已有 gRPC/Artifact 链路执行任务。
-  2. ConfigSnapshot 与 Artifact lifecycle：补齐版本、checksum、上传确认、清理和恢复。
+  1. [x] QwenPaw Runtime Adapter：已实现 JSON Lines 外部进程边界、gRPC 双向流端口、assignment/lease 回调和异常退出处理；真实 QwenPaw 镜像/命令仍是部署输入。
+  2. [ ] ConfigSnapshot 与 Artifact lifecycle：补齐版本、checksum、上传确认、清理和恢复；当前版本已具备版本、checksum、预签名上传和幂等元数据校验，仍缺配置下发协议与按保留策略清理契约。
   3. DeepSeek Manager：在稳定的任务工具和执行链路上接入结构化意图、审批和审计。
   4. Team CRD 与调度：补齐成员、并发、优先级和 active attempt 策略。
   5. OIDC/mTLS/RBAC/Secret rotation：在 API、Agent、Manager 和 Operator 边界上收紧权限。
   6. Matrix AppService：接入人类协作，但保持 PostgreSQL 为业务状态源。
   7. OpenTelemetry、HA、备份恢复和故障注入：作为生产化验收阶段。
+
+当前阻塞项仅为外部资源或尚未确定的跨系统契约：真实 QwenPaw 镜像/进程协议、DeepSeek API 凭据、OIDC/mTLS 证书与验证器、Matrix/Tuwunel 实例、Prometheus Operator，以及配置文件清理/恢复策略。代码侧可独立完成的 Runtime 与 Team CRD schema 已先行落地。
 
 ## Verification checklist
 
