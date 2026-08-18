@@ -10,6 +10,11 @@ spec:
   ingress:
     - from:
         - podSelector: {}
+        # 入口流量来自 ingress-nginx namespace
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: ingress-nginx }
       ports:
         - { protocol: TCP, port: {{ .Values.controlPlane.port }} }
   egress:

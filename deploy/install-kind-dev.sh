@@ -25,7 +25,7 @@ fi
 "$ROOT/deploy/preload-kind-images.sh"
 
 kubectl apply -f "$ROOT/deploy/kind-dev-infra.yaml"
-kubectl -n "$NAMESPACE" wait --for=condition=ready statefulset/postgresql statefulset/nats statefulset/minio --timeout=180s
+kubectl -n "$NAMESPACE" rollout status statefulset/postgresql statefulset/nats statefulset/minio --timeout=180s
 kubectl -n "$NAMESPACE" wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=180s
 
 kubectl apply -f "$ROOT/deploy/kind-observability.yaml"
@@ -39,7 +39,8 @@ helm upgrade --install ingress-nginx ingress-nginx \
   --set controller.service.nodePorts.http=30080 \
   --set controller.service.nodePorts.https=30443 \
   --set controller.ingressClassResource.default=true \
-  --set controller.admissionWebhooks.enabled=false
+  --set controller.admissionWebhooks.enabled=false \
+  --set controller.image.digest=""
 kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
 
 "$ROOT/deploy/build-images.sh"
