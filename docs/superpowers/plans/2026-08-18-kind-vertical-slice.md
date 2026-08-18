@@ -120,7 +120,7 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
 - [x] **步骤 6：覆盖恢复与幂等。** 完成前断开连接并重新连接，断言未确认命令只重放一次；重复 completion 和重复 artifact completion 不新增 attempt/artifact；过期 lease 恢复能力留待后续 lease recovery 测试补齐。
 - [x] **步骤 7：更新 Maven 执行入口。** `TaskPushInfrastructureIT` 使用 `*IT.java` 命名，由已有 Failsafe `**/*IT.java` 规则执行；默认 `mvn test` 保持快速单测，并在报告中区分“协议级 E2E”和“基础设施级 E2E”。
 - [x] **步骤 8：运行聚焦验证。** 执行真实容器聚焦测试，确认 PostgreSQL、NATS JetStream、MinIO 和两个应用上下文均启动且完整任务链路通过。
-- [ ] **步骤 9：Commit。** 使用 `test(集成链路): 验证真实容器任务推送闭环`。
+- [x] **步骤 9：Commit。** 使用 `test(集成链路): 验证真实容器任务推送闭环`。
 
 ### 任务 5：执行干净 Kind 联调和可重复性验证
 

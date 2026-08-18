@@ -27,7 +27,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.UUID;
@@ -163,6 +162,10 @@ class TaskPushInfrastructureIT {
 
                 assertEquals(1, countArtifacts(taskId), "the completion event must persist one artifact");
                 assertEquals(objectKey, artifactStorageKey(taskId));
+                assertEquals(artifact.length, artifactSize(taskId));
+                assertEquals(sha256, artifactSha256(taskId));
+                assertEquals("AVAILABLE", artifactStatus(taskId));
+                assertEquals(assignment.task().getMetadata().getAttemptId(), artifactAttemptId(taskId));
                 assertEquals("real infrastructure artifact", downloadArtifact(objectKey));
 
                 reconnected.completeWithEventId(assignment.task(), completionEventId, "result.txt",
@@ -293,6 +296,23 @@ class TaskPushInfrastructureIT {
 
     private static String artifactStorageKey(UUID taskId) {
         return jdbc().queryForObject("SELECT storage_key FROM artifacts WHERE task_id = ?", String.class, taskId);
+    }
+
+    private static long artifactSize(UUID taskId) {
+        Long size = jdbc().queryForObject("SELECT size_bytes FROM artifacts WHERE task_id = ?", Long.class, taskId);
+        return size == null ? -1 : size;
+    }
+
+    private static String artifactSha256(UUID taskId) {
+        return jdbc().queryForObject("SELECT sha256 FROM artifacts WHERE task_id = ?", String.class, taskId);
+    }
+
+    private static String artifactStatus(UUID taskId) {
+        return jdbc().queryForObject("SELECT status FROM artifacts WHERE task_id = ?", String.class, taskId);
+    }
+
+    private static String artifactAttemptId(UUID taskId) {
+        return jdbc().queryForObject("SELECT attempt_id::text FROM artifacts WHERE task_id = ?", String.class, taskId);
     }
 
     private static int countDomainEvents(String eventId) {

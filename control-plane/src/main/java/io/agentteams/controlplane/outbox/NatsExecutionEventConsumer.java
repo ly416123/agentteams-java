@@ -93,7 +93,9 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             // Agent aggregate outbox events share the agent.events.* subject. They are
             // intentionally acknowledged here because this consumer only owns execution
             // envelopes and must not block later agent execution messages.
-            if (!root.hasNonNull("type") && root.hasNonNull("event_type")) {
+            if (!root.hasNonNull("type") && root.hasNonNull("event_type")
+                    && root.hasNonNull("aggregate_type") && root.hasNonNull("aggregate_id")
+                    && root.hasNonNull("payload")) {
                 message.ack();
                 return;
             }
