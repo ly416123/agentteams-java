@@ -40,9 +40,16 @@ public final class GatewayRuntimeAdapter {
         RuntimeTask task = new RuntimeTask(taskId, assignment.getTaskType(),
                 assignment.getInputJson().toStringUtf8(), Map.of("agentId", agentId,
                         "attemptId", input.getAttemptId(), "leaseId", input.getLeaseId()));
-        RuntimeSubmission submission = runtime.submit(task);
-        if (submission.accepted()) assignments.putIfAbsent(taskId,
-                new AssignmentContext(input, assignment.getLeaseExpiresAt()));
+        AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt());
+        boolean registered = assignments.putIfAbsent(taskId, assignmentContext) == null;
+        RuntimeSubmission submission;
+        try {
+            submission = runtime.submit(task);
+        } catch (RuntimeException error) {
+            if (registered) assignments.remove(taskId, assignmentContext);
+            throw error;
+        }
+        if (!submission.accepted() && registered) assignments.remove(taskId, assignmentContext);
         channel.send(AgentMessage.newBuilder().setTaskAccepted(TaskAccepted.newBuilder()
                 .setMetadata(metadata(taskId, input)).setAccepted(submission.accepted())
                 .setRejectionReason(submission.accepted() ? "" : submission.reason()).build()).build());

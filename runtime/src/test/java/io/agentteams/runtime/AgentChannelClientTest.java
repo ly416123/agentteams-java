@@ -10,6 +10,7 @@ import io.agentteams.contracts.v1.AgentMessage;
 import io.agentteams.contracts.v1.AgentReady;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
+import io.agentteams.contracts.v1.TaskAssigned;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -106,6 +107,45 @@ class AgentChannelClientTest {
                 .hasMessageContaining("CLOSED");
     }
 
+    @Test
+    void acceptsAssignmentThroughRuntimeAndRegistersLeaseForHeartbeats() {
+        RecordingPort port = new RecordingPort();
+        AgentChannelClient client = client(port);
+        FakeRuntime runtime = new FakeRuntime();
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", port::send, runtime,
+                Clock.fixed(START, ZoneOffset.UTC));
+        runtime.start(new AgentRuntimeContext("qwenpaw", 1, Clock.fixed(START, ZoneOffset.UTC),
+                result -> { }, java.util.Map.of()));
+        client.connect(hello());
+        client.onReady(ready(true));
+        UUID taskId = UUID.randomUUID();
+
+        RuntimeSubmission submission = client.onTaskAssigned(assignment(taskId), adapter);
+
+        assertThat(submission.accepted()).isTrue();
+        assertThat(client.heartbeat(taskId, "running")).isEqualTo(HeartbeatResult.SENT);
+        assertThat(client.completeTask(RuntimeResult.success(taskId, "done", START), adapter))
+                .isEqualTo(CompletionStatus.COMPLETED);
+        assertThat(client.heartbeat(taskId, "after-completion"))
+                .isEqualTo(HeartbeatResult.UNKNOWN_LEASE);
+        assertThat(port.messages()).extracting(AgentMessage::getPayloadCase)
+                .contains(AgentMessage.PayloadCase.TASK_ACCEPTED, AgentMessage.PayloadCase.TASK_HEARTBEAT,
+                        AgentMessage.PayloadCase.TASK_COMPLETED);
+    }
+
+    @Test
+    void rejectsAssignmentBeforeReadyAndDoesNotRegisterItsLease() {
+        AgentChannelClient client = client(new RecordingPort());
+        UUID taskId = UUID.randomUUID();
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", message -> { }, new FakeRuntime(),
+                Clock.fixed(START, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> client.onTaskAssigned(assignment(taskId), adapter))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("DISCONNECTED");
+        assertThat(client.heartbeat(taskId, "running")).isEqualTo(HeartbeatResult.NOT_READY);
+    }
+
     private static AgentChannelClient client(RecordingPort port) {
         return new AgentChannelClient("agent-1", port, Clock.fixed(START, ZoneOffset.UTC), Duration.ofSeconds(5));
     }
@@ -131,6 +171,17 @@ class AgentChannelClientTest {
     private static EventMetadata metadata(String agentId) {
         return EventMetadata.newBuilder().setEventId(UUID.randomUUID().toString())
                 .setAgentId(agentId).setOccurredAt(Timestamp.getDefaultInstance()).build();
+    }
+
+    private static TaskAssigned assignment(UUID taskId) {
+        return TaskAssigned.newBuilder().setMetadata(EventMetadata.newBuilder()
+                .setEventId(UUID.randomUUID().toString()).setAgentId("agent-1").setTaskId(taskId.toString())
+                .setAttemptId("attempt-1").setLeaseId("lease-1")
+                .setOccurredAt(Timestamp.getDefaultInstance()).build())
+                .setTaskType("chat").setInputJson(ByteString.copyFromUtf8("{}"))
+                .setLeaseExpiresAt(Timestamp.newBuilder()
+                        .setSeconds(START.plusSeconds(30).getEpochSecond()).build())
+                .build();
     }
 
     private static final class RecordingPort implements AgentChannelPort {

@@ -37,4 +37,59 @@ class GatewayRuntimeAdapterTest {
         assertThat(messages).extracting(AgentMessage::getPayloadCase)
                 .containsExactly(AgentMessage.PayloadCase.TASK_ACCEPTED, AgentMessage.PayloadCase.TASK_COMPLETED);
     }
+
+    @Test
+    void registersAssignmentBeforeRuntimeCanCompleteSynchronously() {
+        List<AgentMessage> messages = new ArrayList<>();
+        ImmediateCompletionRuntime runtime = new ImmediateCompletionRuntime();
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", messages::add, runtime,
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+        runtime.start(new AgentRuntimeContext("qwenpaw", 1, Clock.systemUTC(), adapter::complete, java.util.Map.of()));
+        UUID taskId = UUID.randomUUID();
+        TaskAssigned assignment = assignment(taskId);
+
+        assertThat(adapter.acceptAssignment(assignment).accepted()).isTrue();
+        assertThat(messages).extracting(AgentMessage::getPayloadCase)
+                .containsExactlyInAnyOrder(AgentMessage.PayloadCase.TASK_COMPLETED,
+                        AgentMessage.PayloadCase.TASK_ACCEPTED);
+    }
+
+    private static TaskAssigned assignment(UUID taskId) {
+        return TaskAssigned.newBuilder().setMetadata(EventMetadata.newBuilder()
+                .setEventId(UUID.randomUUID().toString()).setAgentId("agent-1").setTaskId(taskId.toString())
+                .setAttemptId(UUID.randomUUID().toString()).setLeaseId(UUID.randomUUID().toString())
+                .setOccurredAt(Timestamp.getDefaultInstance()).build()).setTaskType("chat")
+                .setInputJson(com.google.protobuf.ByteString.copyFromUtf8("{}"))
+                .setLeaseExpiresAt(Timestamp.getDefaultInstance()).build();
+    }
+
+    private static final class ImmediateCompletionRuntime implements AgentRuntime {
+        private RuntimeTask task;
+        private RuntimeResultSink sink;
+
+        @Override
+        public void start(AgentRuntimeContext context) { sink = context.resultSink(); }
+
+        @Override
+        public RuntimeSubmission submit(RuntimeTask task) {
+            this.task = task;
+            sink.accept(RuntimeResult.success(task.id(), "done", Instant.EPOCH));
+            return RuntimeSubmission.acceptedSubmission();
+        }
+
+        @Override
+        public CompletionStatus complete(RuntimeResult result) { return CompletionStatus.COMPLETED; }
+
+        @Override
+        public boolean cancel(UUID taskId) { return false; }
+
+        @Override
+        public java.util.Optional<RuntimeStatus> status(UUID taskId) { return java.util.Optional.empty(); }
+
+        @Override
+        public RuntimeSnapshot snapshot() { return new RuntimeSnapshot(task == null ? 0 : 1, task == null ? 0 : 1); }
+
+        @Override
+        public void stop() { }
+    }
 }
