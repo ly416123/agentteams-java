@@ -9,7 +9,7 @@ source "$ROOT/deploy/dev-env.sh"
 
 for command_name in helm jq; do
   command -v "$command_name" >/dev/null || {
-    echo "缺少 $command_name，请先安装。" >&2
+    echo "缺少 ${command_name}，请先安装。" >&2
     exit 1
   }
 done
