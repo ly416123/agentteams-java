@@ -13,7 +13,7 @@ this build.
   persistence, Flyway, PostgreSQL, and NATS.
 - `agent-gateway`: Spring Boot application dependencies for gRPC agent
   connections and NATS integration.
-- `runtime`: runtime-neutral Agent SPI with Fake and QwenPaw process adapters.
+- `runtime`: runtime-neutral Agent SPI with Fake and QwenPaw HTTP/process adapters.
 - `manager`: DeepSeek/OpenAI-compatible structured Manager and permissioned tools.
 - `operator`: Java Operator SDK and Fabric8 Kubernetes dependencies.
 - `integration-tests`: cross-module tests and Testcontainers dependencies.
@@ -57,14 +57,17 @@ the Control Plane. Gateway and Manager depend on application contracts rather
 than Control Plane persistence classes. Matrix is an optional
 human-collaboration adapter; it is not the task state database.
 
-The runtime module provides `JsonLinesQwenPawProcessPort` for an external
-QwenPaw process and `GrpcAgentChannelPort` for the protobuf bidirectional
-stream. The process adapter starts the configured command, sends one JSON
-object per stdin line (`start`, `task`, `cancel`, or `stop`), and consumes
-`result` objects from stdout. A process exit fails every in-flight task;
-cancellation removes the task from the completion set. The boundary is
-deliberately runtime-specific and does not move QwenPaw files or sockets into
-the Control Plane. The real QwenPaw image/command remains a deployment input.
+The runtime module provides `QwenPawHttpRuntimePort` for the official QwenPaw
+HTTP/SSE API, `JsonLinesQwenPawProcessPort` for a custom external process
+boundary, and `GrpcAgentChannelPort` for the protobuf bidirectional stream.
+The HTTP port sends `POST /api/console/chat` with `X-Agent-Id`, parses terminal
+`completed`/`failed` SSE events, and treats cancellation as best-effort local
+stream cancellation. Configure it with `QwenPawHttpRuntimeConfiguration`; a
+remote deployment should provide QwenPaw's Web Auth token as the optional
+Bearer token. The JSON Lines adapter is retained for internal/custom process
+protocols and is not the protocol used by the official QwenPaw image. These
+boundaries are deliberately runtime-specific and do not move QwenPaw files or
+sockets into the Control Plane.
 
 The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
 `POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. The built-in
