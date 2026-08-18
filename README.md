@@ -83,6 +83,7 @@ dependencies, load local service images, and install the chart:
 
 ```bash
 source deploy/dev-env.sh
+./deploy/pull-kind-node-image.sh
 kind create cluster --config deploy/kind-config.yaml
 kubectl apply -f deploy/kind-dev-infra.yaml
 kubectl -n agentteams wait --for=condition=available deployment/postgresql deployment/nats deployment/minio --timeout=180s
