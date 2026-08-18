@@ -21,3 +21,30 @@ Recovery order is: PostgreSQL, NATS JetStream, object storage, Control Plane,
 Gateway, then Operator/Workers. Pending Outbox rows and unexpired leases are
 reconciled by the Control Plane after restart; Matrix delivery is replayable
 from its Inbox/Outbox tables.
+
+## Kind development cluster backup
+
+For the local Kind cluster (installed by `deploy/install-kind-dev.sh`), use
+the scripted backup that dumps PostgreSQL and mirrors the MinIO `agentteams`
+bucket into `backups/` under the repository root:
+
+```bash
+# Requires kubectl and mc (MinIO client). Object mirroring needs a reachable
+# MinIO, so run it while the Kind cluster is up.
+./deploy/backup/backup-kind.sh
+
+# Output layout: backups/agentteams-<stamp>.dump, backups/minio-<stamp>/,
+# and backups/SHA256SUMS with SHA-256 checksums for every file.
+```
+
+Restoration requires an explicit confirmation and never deletes existing
+backups:
+
+```bash
+./deploy/backup/restore-kind.sh --confirm
+```
+
+Both scripts honor `AGENTTEAMS_NAMESPACE`, `AGENTTEAMS_BACKUP_DIR`, and
+`MC_BIN` overrides. The Kind scripts back up the same logical content as the
+production runbook above; production still uses the cluster-provided
+PostgreSQL/MinIO endpoints and this file's pg_dump/mc instructions.
