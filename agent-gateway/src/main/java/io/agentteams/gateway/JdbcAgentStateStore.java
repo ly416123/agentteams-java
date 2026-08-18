@@ -4,6 +4,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -24,6 +25,9 @@ public class JdbcAgentStateStore implements GatewayStateStore {
     public void registered(AgentProfile profile, Instant at) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(at, "at");
+        UUID agentId = canonicalAgentId(profile.agentId());
+        updateCanonicalAgent(agentId, "READY", profile.runtime(), profile.capabilities(), at,
+                "'PROVISIONING', 'OFFLINE', 'READY'");
         jdbc.update(upsertSql(false), profile.agentId(), "ONLINE", "READY", profile.runtime(),
                 profile.runtimeVersion(), capabilitiesJson(profile.capabilities()), Timestamp.from(at),
                 Timestamp.from(at), Timestamp.from(at));
@@ -33,6 +37,8 @@ public class JdbcAgentStateStore implements GatewayStateStore {
     public void seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(at, "at");
+        UUID agentId = canonicalAgentId(connection.agentId());
+        refreshCanonicalAgent(agentId, connection.runtime(), connection.capabilities(), at);
         jdbc.update(upsertSql(false), connection.agentId(), "ONLINE", "READY", connection.runtime(),
                 connection.runtimeVersion(), capabilitiesJson(connection.capabilities()), Timestamp.from(at),
                 Timestamp.from(at), Timestamp.from(at));
@@ -42,9 +48,52 @@ public class JdbcAgentStateStore implements GatewayStateStore {
     public void disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(at, "at");
+        UUID agentId = canonicalAgentId(connection.agentId());
+        updateCanonicalAgent(agentId, "OFFLINE", connection.runtime(), connection.capabilities(), at,
+                "'PROVISIONING', 'READY', 'BUSY', 'DRAINING', 'OFFLINE'");
         jdbc.update(upsertSql(true), connection.agentId(), "OFFLINE", "DISCONNECTED", connection.runtime(),
                 connection.runtimeVersion(), capabilitiesJson(connection.capabilities()), Timestamp.from(at),
                 Timestamp.from(at), Timestamp.from(at));
+    }
+
+    private void updateCanonicalAgent(UUID agentId, String phase, String runtime,
+            Map<String, String> capabilities, Instant at, String allowedPhases) {
+        int updated = jdbc.update("""
+                UPDATE agents
+                   SET phase = ?, runtime = ?, capabilities = ?::jsonb,
+                       updated_at = ?, version = version + 1
+                 WHERE id = ? AND phase IN (%s)
+                """.formatted(allowedPhases), phase, runtime, capabilitiesJson(capabilities),
+                Timestamp.from(at), agentId);
+        if (updated == 0) {
+            throw unknownOrInvalidAgent(agentId);
+        }
+    }
+
+    private void refreshCanonicalAgent(UUID agentId, String runtime, Map<String, String> capabilities,
+            Instant at) {
+        int updated = jdbc.update("""
+                UPDATE agents
+                   SET runtime = ?, capabilities = ?::jsonb,
+                       updated_at = ?, version = version + 1
+                 WHERE id = ? AND phase <> 'FAILED'
+                """, runtime, capabilitiesJson(capabilities), Timestamp.from(at), agentId);
+        if (updated == 0) {
+            throw unknownOrInvalidAgent(agentId);
+        }
+    }
+
+    private static UUID canonicalAgentId(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException("Agent Hello must use a canonical UUID: " + value,
+                    exception);
+        }
+    }
+
+    private static IllegalStateException unknownOrInvalidAgent(UUID agentId) {
+        return new IllegalStateException("Agent is not registered or cannot change state: " + agentId);
     }
 
     private static String upsertSql(boolean disconnected) {
