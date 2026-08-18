@@ -100,27 +100,32 @@ kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap --
 kubectl -n agentteams wait --for=condition=complete job/minio-bucket-bootstrap --timeout=120s
 ./deploy/build-images.sh
 helm install agentteams deploy/helm/agentteams-java -f deploy/helm/kind-values.yaml
-kubectl -n agentteams wait --for=condition=ready pod -l app.kubernetes.io/part-of=agentteams --timeout=300s
+kubectl -n agentteams wait --for=condition=available \
+  deployment/agentteams-control-plane deployment/agentteams-agent-gateway deployment/agentteams-operator --timeout=300s
 ```
 
-冒烟验证步骤（控制面 API 冒烟）：
+冒烟验证步骤（控制面 API 冒烟，请求体字段已核实自 `AgentController.CreateAgentRequest` 与 `TaskController.CreateTaskRequest`，三个端点均要求 `Idempotency-Key` 请求头）：
 
 ```bash
 kubectl -n agentteams port-forward svc/agentteams-control-plane 8080:8080
 # 1. 健康检查
 curl -s localhost:8080/actuator/health
-# 2. 注册一个 Agent
-curl -s -X POST localhost:8080/api/v1/agents -H 'Content-Type: application/json' \
-  -d '{"name":"smoke-agent","capabilities":["java"]}'
+# 2. 注册一个 Agent（capabilities 为 JSON 对象）
+curl -s -X POST localhost:8080/api/v1/agents \
+  -H 'Idempotency-Key: smoke-agent-1' -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-agent","runtime":"fake","capabilities":{"java":"17"}}'
 # 3. 创建任务（DRAFT）并入队
-curl -s -X POST localhost:8080/api/v1/tasks -H 'Content-Type: application/json' \
-  -d '{"title":"smoke","description":"kind smoke task","requiredCapabilities":["java"]}'
-curl -s -X POST localhost:8080/api/v1/tasks/<taskId>/queue -H 'Idempotency-Key: smoke-1'
+curl -s -X POST localhost:8080/api/v1/tasks \
+  -H 'Idempotency-Key: smoke-task-1' -H 'Content-Type: application/json' \
+  -d '{"title":"smoke","description":"kind smoke task","spec":{}}'
+curl -s -X POST localhost:8080/api/v1/tasks/<taskId>/queue -H 'Idempotency-Key: smoke-queue-1'
 # 4. 查询任务状态
 curl -s localhost:8080/api/v1/tasks/<taskId>
 ```
 
-保留「生产部署必须自备持久 PostgreSQL/NATS/Secret」与 kind-dev-infra 为 dev-only 的现有警告。冒烟请求体字段以实现时核实的 `CreateTaskCommand` / Agent 注册 API 实际字段为准。
+冒烟验证的判定标准：健康检查通过、Agent 创建返回 201、任务创建返回 201、入队返回 phase=`QUEUED`、查询可读回任务。任务停留在 `QUEUED` 是预期行为——API 注册的 Agent 不会建立 gRPC 连接变为 READY，完整推送链路由集成测试 `TaskPushE2ETest`（Testcontainers + FakeAgent）覆盖，不属于本冒烟范围。
+
+保留「生产部署必须自备持久 PostgreSQL/NATS/Secret」与 kind-dev-infra 为 dev-only 的现有警告。
 
 ### 3.5 Verification
 
