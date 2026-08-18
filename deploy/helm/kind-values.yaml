@@ -1,0 +1,13 @@
+images:
+  controlPlane: ghcr.io/ly416123/agentteams-control-plane:latest
+  gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
+  operator: ghcr.io/ly416123/agentteams-operator:latest
+imagePullPolicy: IfNotPresent
+storage:
+  enabled: true
+  endpoint: http://minio:9000
+  bucket: agentteams
+  existingSecret: agentteams-storage
+observability:
+  serviceMonitor:
+    enabled: false

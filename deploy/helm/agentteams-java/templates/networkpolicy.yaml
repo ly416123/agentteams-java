@@ -18,6 +18,9 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
         - { protocol: TCP, port: 4222 }
+        {{- if .Values.storage.enabled }}
+        - { protocol: TCP, port: 9000 }
+        {{- end }}
     - to:
         - namespaceSelector: {}
       ports:

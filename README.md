@@ -78,15 +78,51 @@ source deploy/dev-env.sh
 mvn -q clean test
 ```
 
-For local Kubernetes work, create the documented Kind cluster and install the
-development PostgreSQL and NATS dependencies:
+For local Kubernetes work, create a clean Kind cluster, install the development
+dependencies, load local service images, and install the chart:
 
 ```bash
 source deploy/dev-env.sh
 kind create cluster --config deploy/kind-config.yaml
 kubectl apply -f deploy/kind-dev-infra.yaml
+kubectl -n agentteams wait --for=condition=available deployment/postgresql deployment/nats deployment/minio --timeout=180s
+kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=120s
+./deploy/build-images.sh
 helm lint deploy/helm/agentteams-java
+helm upgrade --install agentteams deploy/helm/agentteams-java \
+  --namespace agentteams --create-namespace --wait \
+  -f deploy/helm/kind-values.yaml
+kubectl -n agentteams wait --for=condition=available \
+  deployment/agentteams-agentteams-java-control-plane \
+  deployment/agentteams-agentteams-java-gateway \
+  deployment/agentteams-agentteams-java-operator --timeout=300s
 ```
+
+The chart resource names include both the Helm release and chart name. The
+Control Plane API can be exposed for a smoke check with:
+
+```bash
+kubectl -n agentteams port-forward \
+  svc/agentteams-agentteams-java-control-plane 8080:8080 &
+PORT_FORWARD_PID=$!
+trap 'kill "$PORT_FORWARD_PID" 2>/dev/null || true' EXIT
+until curl -fsS localhost:8080/actuator/health >/dev/null; do sleep 2; done
+AGENT_ID=$(curl -fsS -X POST http://localhost:8080/api/v1/agents \
+  -H 'Idempotency-Key: smoke-agent-1' -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-agent","runtime":"fake","capabilities":{"java":"17"}}' \
+  | jq -r '.id')
+TASK_ID=$(curl -fsS -X POST http://localhost:8080/api/v1/tasks \
+  -H 'Idempotency-Key: smoke-task-1' -H 'Content-Type: application/json' \
+  -d '{"title":"smoke","description":"kind smoke task","spec":{}}' \
+  | jq -r '.id')
+curl -fsS -X POST "http://localhost:8080/api/v1/tasks/${TASK_ID}/queue" \
+  -H 'Idempotency-Key: smoke-queue-1'
+curl -fsS "http://localhost:8080/api/v1/tasks/${TASK_ID}"
+```
+
+This smoke check expects the task to remain `QUEUED`: registering an Agent via
+the API does not establish a gRPC connection. The complete push path is
+covered by the infrastructure integration test.
 
 `deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
 uses an `emptyDir` volume and the database password is a local test secret.
