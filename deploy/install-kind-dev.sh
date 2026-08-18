@@ -21,6 +21,9 @@ else
   echo "复用现有 agentteams Kind 集群；kind-config.yaml 的新端口映射不会自动应用。"
 fi
 
+# 节点内 containerd 无镜像加速器：先在本地拉取（走 Colima 加速器）再注入节点
+"$ROOT/deploy/preload-kind-images.sh"
+
 kubectl apply -f "$ROOT/deploy/kind-dev-infra.yaml"
 kubectl -n "$NAMESPACE" wait --for=condition=ready statefulset/postgresql statefulset/nats statefulset/minio --timeout=180s
 kubectl -n "$NAMESPACE" wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=180s
@@ -35,7 +38,8 @@ helm upgrade --install ingress-nginx ingress-nginx \
   --set controller.service.type=NodePort \
   --set controller.service.nodePorts.http=30080 \
   --set controller.service.nodePorts.https=30443 \
-  --set controller.ingressClassResource.default=true
+  --set controller.ingressClassResource.default=true \
+  --set controller.admissionWebhooks.enabled=false
 kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
 
 "$ROOT/deploy/build-images.sh"
