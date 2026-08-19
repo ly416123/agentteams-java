@@ -19,6 +19,11 @@ public interface GatewayApplicationHandler {
 
     void taskFailed(ConnectionRegistry.ConnectionSnapshot connection, TaskFailed event);
 
+    default void configApplied(ConnectionRegistry.ConnectionSnapshot connection,
+            io.agentteams.contracts.v1.ConfigApplied event) {
+        // Configuration acknowledgements are optional for gateway-only deployments.
+    }
+
     default void agentHeartbeat(ConnectionRegistry.ConnectionSnapshot connection,
             io.agentteams.contracts.v1.AgentHeartbeat event) {
         // Presence is refreshed by InboundEventHandler after routing.

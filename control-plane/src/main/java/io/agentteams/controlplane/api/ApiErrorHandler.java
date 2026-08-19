@@ -13,11 +13,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 
 @RestControllerAdvice
 public final class ApiErrorHandler {
+    private static final Logger LOG = LoggerFactory.getLogger(ApiErrorHandler.class);
 
     @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class,
             MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class})
@@ -52,7 +55,8 @@ public final class ApiErrorHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    ResponseEntity<ApiError> internal(Exception ignored) {
+    ResponseEntity<ApiError> internal(Exception error) {
+        LOG.error("Unhandled API request failure type={} message={}", error.getClass().getName(), error.getMessage(), error);
         return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "request could not be completed");
     }
 

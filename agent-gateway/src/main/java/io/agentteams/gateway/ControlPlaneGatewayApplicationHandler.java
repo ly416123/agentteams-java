@@ -2,6 +2,7 @@ package io.agentteams.gateway;
 
 import com.google.protobuf.util.Timestamps;
 import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
 import io.agentteams.application.api.ExecutionEventPort.ExecutionPhase;
 import io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand;
@@ -26,11 +27,37 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
     private static final String ARTIFACT_CONTENT_TYPE = "application/octet-stream";
 
     private final ExecutionEventPort executionEvents;
+    private final ConfigEventPort configEvents;
     private final Clock clock;
 
     public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents, Clock clock) {
+        this(executionEvents, command -> { }, clock);
+    }
+
+    public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, Clock clock) {
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
+        this.configEvents = Objects.requireNonNull(configEvents, "configEvents");
         this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    @Override
+    public void configApplied(ConnectionRegistry.ConnectionSnapshot connection,
+            io.agentteams.contracts.v1.ConfigApplied event) {
+        EventMetadata metadata = event.getMetadata();
+        UUID eventId = uuid(metadata.getEventId(), "event_id");
+        UUID bindingId = uuid(event.getBindingId(), "binding_id");
+        UUID snapshotId = uuid(event.getSnapshotId(), "snapshot_id");
+        if (!connection.agentId().equals(metadata.getAgentId())) {
+            throw invalid("agent_id does not match connection");
+        }
+        if (event.getConfigVersion() <= 0) {
+            throw invalid("config_version must be positive");
+        }
+        configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(eventId, bindingId, snapshotId,
+                uuid(connection.agentId(), "agent_id"), event.getConfigVersion(), event.getApplied(),
+                event.getErrorMessage(), occurredAt(metadata), SOURCE,
+                GrpcTransportIdentity.currentCorrelationId()));
     }
 
     @Override

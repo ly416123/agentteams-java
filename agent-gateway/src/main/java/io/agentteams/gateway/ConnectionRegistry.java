@@ -48,7 +48,15 @@ public final class ConnectionRegistry {
         if (replaced == null || replaced == connection) {
             return Optional.empty();
         }
-        termination.terminate(replaced, ConnectionTermination.Termination.stale());
+        try {
+            termination.terminate(replaced, ConnectionTermination.Termination.stale());
+        } finally {
+            // The termination callback closes the peer stream, but it does not
+            // necessarily call the server-side inbound observer. Remove the
+            // replaced handle here so a reconnect cannot leave a ghost stream
+            // in this replica's local registry.
+            close(replaced);
+        }
         return snapshot(replaced);
     }
 

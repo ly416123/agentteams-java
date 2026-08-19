@@ -89,6 +89,31 @@ class QwenPawHttpRuntimePortTest {
     }
 
     @Test
+    void appliesConfigurationThroughRuntimeEndpoint() throws Exception {
+        server.createContext("/api/models/active", exchange -> {
+            captureRequest(exchange);
+            assertThat(exchange.getRequestMethod()).isEqualTo("PUT");
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        port.start(context(), value -> { });
+        port.applyConfig(new RuntimeConfigSnapshot(4, "sha-4",
+                Map.of("provider_id", "deepseek", "model", "deepseek")));
+
+        JsonNode request = MAPPER.readTree(requestBody.get());
+        assertThat(agentId.get()).isEqualTo("default");
+        assertThat(authorization.get()).isEqualTo("Bearer secret");
+        assertThat(request.path("provider_id").asText()).isEqualTo("deepseek");
+        assertThat(request.path("model").asText()).isEqualTo("deepseek");
+        assertThat(request.path("scope").asText()).isEqualTo("agent");
+        assertThat(request.path("agent_id").asText()).isEqualTo("default");
+        port.stop();
+    }
+
+    @Test
     void extractsFinalAssistantMessageFromQwenPawResponseSnapshot() throws Exception {
         server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
                 "text/event-stream",

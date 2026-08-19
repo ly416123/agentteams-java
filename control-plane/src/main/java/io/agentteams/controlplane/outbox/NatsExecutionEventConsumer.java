@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.application.api.ExecutionEventEnvelope;
 import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.ConfigAppliedEnvelope;
+import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
@@ -26,6 +28,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
 
     private final JetStream jetStream;
     private final ExecutionEventPort executionEvents;
+    private final ConfigEventPort configEvents;
     private final ObjectMapper mapper;
     private final String durable;
     private final AtomicBoolean running = new AtomicBoolean();
@@ -34,8 +37,14 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ObjectMapper mapper, String durable) {
+        this(jetStream, executionEvents, command -> { }, mapper, durable);
+    }
+
+    public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
+        this.configEvents = Objects.requireNonNull(configEvents, "configEvents");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
         this.durable = durable == null || durable.isBlank() ? "control-plane-execution-events" : durable;
     }
@@ -96,6 +105,15 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             if (!root.hasNonNull("type") && root.hasNonNull("event_type")
                     && root.hasNonNull("aggregate_type") && root.hasNonNull("aggregate_id")
                     && root.hasNonNull("payload")) {
+                message.ack();
+                return;
+            }
+            if ("CONFIG_APPLIED".equals(root.path("type").asText())) {
+                ConfigAppliedEnvelope envelope = mapper.treeToValue(root, ConfigAppliedEnvelope.class);
+                configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(envelope.eventId(),
+                        envelope.bindingId(), envelope.snapshotId(), envelope.agentId(), envelope.configVersion(),
+                        envelope.applied(), envelope.errorMessage(), envelope.occurredAt(), envelope.source(),
+                        envelope.correlationId()));
                 message.ack();
                 return;
             }

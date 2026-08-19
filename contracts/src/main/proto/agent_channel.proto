@@ -118,6 +118,11 @@ message ConfigChanged {
   string manifest_uri = 3;
   string manifest_sha256 = 4;
   uint64 size_bytes = 5;
+  string binding_id = 6;
+  string snapshot_id = 7;
+  // Small manifests may be delivered inline. Large manifests should use
+  // manifest_uri and an object-storage reader supplied by the runtime.
+  string manifest_json = 8;
 }
 
 message ConfigApplied {
@@ -125,6 +130,8 @@ message ConfigApplied {
   uint64 config_version = 2;
   bool applied = 3;
   string error_message = 4;
+  string binding_id = 5;
+  string snapshot_id = 6;
 }
 
 message Ack {

@@ -28,30 +28,54 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
 
     private final JetStream jetStream;
     private final TaskAssignedCommandHandler commandHandler;
+    private final ConfigChangedCommandHandler configHandler;
     private final ObjectMapper objectMapper;
     private final String subject;
     private final String durable;
+    private final String configSubject;
+    private final String configDurable;
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object lifecycleMonitor = new Object();
     private JetStreamSubscription subscription;
+    private JetStreamSubscription configSubscription;
     private ExecutorService executor;
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ObjectMapper objectMapper, String subject, String durable) {
+        this(jetStream, commandHandler, new ConfigChangedCommandHandler(
+                commandHandler.delivery(), objectMapper), objectMapper, subject, durable,
+                "agent.events.*", "agent-gateway-config");
+    }
+
+    public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
+            ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable) {
+        this(jetStream, commandHandler, configHandler, objectMapper, subject, durable,
+                "agent.events.*", "agent-gateway-config");
+    }
+
+    public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
+            ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
+            String configSubject, String configDurable) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
+        this.configHandler = Objects.requireNonNull(configHandler, "configHandler");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.subject = requireText(subject, "subject");
         this.durable = requireText(durable, "durable");
+        this.configSubject = requireText(configSubject, "configSubject");
+        this.configDurable = requireText(configDurable, "configDurable");
     }
 
     /** Testable constructor for envelope processing without starting a NATS subscription. */
     public NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper) {
         this.jetStream = null;
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
+        this.configHandler = new ConfigChangedCommandHandler(commandHandler.delivery(), objectMapper);
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.subject = null;
         this.durable = null;
+        this.configSubject = null;
+        this.configDurable = null;
     }
 
     public void start() throws IOException, JetStreamApiException {
@@ -64,6 +88,8 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             }
             subscription = jetStream.subscribe(subject, durable,
                     PushSubscribeOptions.builder().durable(durable).build());
+            configSubscription = jetStream.subscribe(configSubject, configDurable,
+                    PushSubscribeOptions.builder().durable(configDurable).build());
             running.set(true);
             executor = Executors.newSingleThreadExecutor(runnable -> {
                 Thread thread = new Thread(runnable, "agent-gateway-nats-consumer");
@@ -80,6 +106,10 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         GatewayOutboxEvent event = parse(message.getData());
         boolean handled = commandHandler.handle(event.eventType(), event.aggregateId().toString(),
                 event.payload().toString(), event.occurredAt());
+        if (!handled) {
+            handled = configHandler.handle(event.eventType(), event.aggregateId().toString(),
+                    event.payload().toString(), event.occurredAt());
+        }
         message.ack();
         return handled;
     }
@@ -98,6 +128,10 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 subscription.unsubscribe();
                 subscription = null;
             }
+            if (configSubscription != null) {
+                configSubscription.unsubscribe();
+                configSubscription = null;
+            }
             if (executor != null) {
                 executor.shutdownNow();
                 executor = null;
@@ -112,12 +146,25 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 if (message != null) {
                     process(message);
                 }
+                Message configMessage = configSubscription.nextMessage(RECEIVE_TIMEOUT);
+                if (configMessage != null) {
+                    processConfig(configMessage);
+                }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 return;
             } catch (RuntimeException error) {
                 LOGGER.log(Level.WARNING, "Agent Gateway NATS event was rejected and will be redelivered", error);
             }
+        }
+    }
+
+    /** The agent event stream also carries worker-to-control-plane events; consume those without redelivery. */
+    private void processConfig(Message message) {
+        try {
+            process(message);
+        } catch (IllegalArgumentException ignored) {
+            message.ack();
         }
     }
 

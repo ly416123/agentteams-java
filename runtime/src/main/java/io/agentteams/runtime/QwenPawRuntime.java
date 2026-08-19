@@ -71,6 +71,17 @@ public final class QwenPawRuntime implements AgentRuntime {
     }
 
     @Override
+    public void applyConfig(RuntimeConfigSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        try {
+            process.applyConfig(snapshot);
+        } catch (RuntimeException error) {
+            throw new RuntimeConfigApplyException("QwenPaw configuration activation failed", error);
+        }
+        state.applyConfig(snapshot);
+    }
+
+    @Override
     public void stop() {
         try {
             process.stop();

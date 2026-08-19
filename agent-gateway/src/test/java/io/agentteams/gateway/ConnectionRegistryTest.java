@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ConnectionRegistryTest {
@@ -42,13 +42,36 @@ class ConnectionRegistryTest {
     void replacingConnectionActivelyClosesOldStreamWithNonRetryableStaleReason() {
         List<AgentConnection> terminated = new ArrayList<>();
         List<ConnectionTermination.Termination> reasons = new ArrayList<>();
+        AtomicInteger closed = new AtomicInteger();
         ConnectionRegistry registry = new ConnectionRegistry((connection, termination) -> {
             terminated.add(connection);
             reasons.add(termination);
-            // Simulate the old stream's close callback racing with replacement.
-            registryRef.get().close(connection);
+        }, new GatewayMetricsPort() {
+            @Override
+            public void connectionOpened() {
+            }
+
+            @Override
+            public void connectionClosed() {
+                closed.incrementAndGet();
+            }
+
+            @Override
+            public void connectionRegistered() {
+            }
+
+            @Override
+            public void eventRejected() {
+            }
+
+            @Override
+            public void commandAppended() {
+            }
+
+            @Override
+            public void commandDeduplicated() {
+            }
         });
-        registryRef.set(registry);
         AgentConnection first = registry.open(sink(), "peer-1", Instant.parse("2026-08-16T00:00:00Z"));
         AgentConnection second = registry.open(sink(), "peer-2", Instant.parse("2026-08-16T00:01:00Z"));
         AgentProfile profile = new AgentProfile("agent-1", "qwenpaw", "0.4.0", Map.of());
@@ -61,10 +84,9 @@ class ConnectionRegistryTest {
             assertThat(reason.code()).isEqualTo("STALE_CONNECTION");
             assertThat(reason.retryable()).isFalse();
         });
+        assertThat(closed).hasValue(1);
         assertThat(registry.current("agent-1")).hasValue(second);
     }
-
-    private static final AtomicReference<ConnectionRegistry> registryRef = new AtomicReference<>();
 
     private static StreamObserver<ServerMessage> sink() {
         return new StreamObserver<>() {

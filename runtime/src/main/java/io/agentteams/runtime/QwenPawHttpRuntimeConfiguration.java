@@ -11,7 +11,8 @@ public record QwenPawHttpRuntimeConfiguration(
         String authorizationToken,
         Duration connectTimeout,
         String userId,
-        String channel) {
+        String channel,
+        String configurationPath) {
 
     public QwenPawHttpRuntimeConfiguration {
         Objects.requireNonNull(endpoint, "endpoint");
@@ -32,11 +33,21 @@ public record QwenPawHttpRuntimeConfiguration(
         if (channel == null || channel.isBlank()) {
             throw new IllegalArgumentException("channel must not be blank");
         }
+        if (configurationPath == null || configurationPath.isBlank() || !configurationPath.startsWith("/")) {
+            throw new IllegalArgumentException("configurationPath must be an absolute path");
+        }
         authorizationToken = authorizationToken == null || authorizationToken.isBlank()
                 ? null : authorizationToken;
     }
 
     public QwenPawHttpRuntimeConfiguration(URI endpoint) {
-        this(endpoint, "default", null, Duration.ofSeconds(10), "agentteams", "console");
+        this(endpoint, "default", null, Duration.ofSeconds(10), "agentteams", "console",
+                "/api/models/active");
+    }
+
+    public QwenPawHttpRuntimeConfiguration(URI endpoint, String agentId, String authorizationToken,
+            Duration connectTimeout, String userId, String channel) {
+        this(endpoint, agentId, authorizationToken, connectTimeout, userId, channel,
+                "/api/models/active");
     }
 }

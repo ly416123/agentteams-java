@@ -86,6 +86,17 @@ class FakeRuntimeTest {
         assertThat(runtime.snapshot().running()).isZero();
     }
 
+    @Test
+    void appliesImmutableConfigurationWithoutChangingRunningTaskState() {
+        FakeRuntime runtime = new FakeRuntime();
+        runtime.start(context(1));
+
+        runtime.applyConfig(new RuntimeConfigSnapshot(2, "sha-2", java.util.Map.of("model", "deepseek")));
+
+        assertThat(runtime.configuration()).hasValueSatisfying(snapshot -> assertThat(snapshot.version()).isEqualTo(2));
+        assertThat(runtime.snapshot().running()).isZero();
+    }
+
     private static AgentRuntimeContext context(int maxConcurrency) {
         return context(maxConcurrency, result -> { });
     }

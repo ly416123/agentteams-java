@@ -98,6 +98,15 @@ public final class JsonLinesQwenPawProcessPort implements QwenPawProcessPort {
     }
 
     @Override
+    public void applyConfig(RuntimeConfigSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        ObjectNode command = mapper.createObjectNode().put("type", "config")
+                .put("configVersion", snapshot.version()).put("checksum", snapshot.checksum());
+        command.set("configuration", mapper.valueToTree(snapshot.values()));
+        send(command);
+    }
+
+    @Override
     public void cancel(UUID taskId) {
         Objects.requireNonNull(taskId, "taskId");
         inFlight.remove(taskId);

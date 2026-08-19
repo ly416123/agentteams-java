@@ -5,6 +5,9 @@ agentteams:
       url: nats://localhost:4222
       subject: task.events.*
       durable: agent-gateway
+      config-subject: agent.events.*
+      config-durable: agent-gateway-config
+      instance-id: ${AGENTTEAMS_GATEWAY_NATS_INSTANCE_ID:local}
 
 management:
   endpoints:

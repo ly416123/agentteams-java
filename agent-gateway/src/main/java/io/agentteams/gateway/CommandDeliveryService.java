@@ -24,8 +24,8 @@ public final class CommandDeliveryService {
     public SequencedCommand deliver(String agentId, ServerMessage command) {
         requireAgentId(agentId);
         Objects.requireNonNull(command, "command");
-        if (!command.hasTaskAssigned()) {
-            throw new IllegalArgumentException("only TaskAssigned commands are supported by this delivery path");
+        if (!command.hasTaskAssigned() && !command.hasConfigChanged()) {
+            throw new IllegalArgumentException("unsupported Agent command payload");
         }
         SequencedCommand persisted = commands.append(agentId, command);
         registry.current(agentId).ifPresent(connection -> sendIfCurrent(connection, persisted));

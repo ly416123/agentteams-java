@@ -28,6 +28,9 @@ spec:
               value: {{ .Values.gateway.env.AGENTTEAMS_GATEWAY_NATS_ENABLED | quote }}
             - name: AGENTTEAMS_GATEWAY_NATS_URL
               value: {{ .Values.nats.url | quote }}
+            - name: AGENTTEAMS_GATEWAY_NATS_INSTANCE_ID
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
             - name: SPRING_DATASOURCE_URL
               value: {{ .Values.database.jdbcUrl | quote }}
             - name: SPRING_DATASOURCE_USERNAME
@@ -49,6 +52,7 @@ metadata:
     app.kubernetes.io/part-of: agentteams
 spec:
   selector: { app.kubernetes.io/name: agentteams-gateway }
+  sessionAffinity: {{ .Values.gateway.sessionAffinity | default "None" }}
   ports:
     - { name: grpc, port: {{ .Values.gateway.port }}, targetPort: grpc }
     - { name: http, port: {{ .Values.gateway.httpPort }}, targetPort: http }

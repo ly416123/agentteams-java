@@ -4,6 +4,7 @@ import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.ConfigEventPort;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.Nats;
@@ -113,6 +114,21 @@ public class AgentGatewayGrpcConfiguration {
         return new TaskAssignedCommandHandler(delivery);
     }
 
+    @Bean
+    @ConditionalOnMissingBean(ConfigChangedCommandHandler.class)
+    public ConfigChangedCommandHandler configChangedCommandHandler(CommandDeliveryService delivery,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new ConfigChangedCommandHandler(delivery, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
+    @ConditionalOnMissingBean(ConfigEventPort.class)
+    public ConfigEventPort natsConfigEventPort(JetStream gatewayJetStream,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new NatsConfigEventPublisher(gatewayJetStream, objectMapper);
+    }
+
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
     public Connection gatewayNatsConnection(NatsGatewayProperties properties)
@@ -136,10 +152,12 @@ public class AgentGatewayGrpcConfiguration {
     @Bean(initMethod = "start", destroyMethod = "stop")
     @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
     public NatsGatewayEventConsumer natsGatewayEventConsumer(JetStream gatewayJetStream,
-            TaskAssignedCommandHandler commandHandler, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            TaskAssignedCommandHandler commandHandler, ConfigChangedCommandHandler configHandler,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             NatsGatewayProperties properties) {
-        return new NatsGatewayEventConsumer(gatewayJetStream, commandHandler, objectMapper,
-                properties.getSubject(), properties.getDurable());
+        return new NatsGatewayEventConsumer(gatewayJetStream, commandHandler, configHandler, objectMapper,
+                properties.getSubject(), properties.taskConsumerDurable(), properties.getConfigSubject(),
+                properties.configConsumerDurable());
     }
 
     @Bean
@@ -159,8 +177,9 @@ public class AgentGatewayGrpcConfiguration {
     @ConditionalOnBean(ExecutionEventPort.class)
     @ConditionalOnMissingBean(GatewayApplicationHandler.class)
     public GatewayApplicationHandler controlPlaneGatewayApplicationHandler(
-            ExecutionEventPort executionEvents, Clock clock) {
-        return new ControlPlaneGatewayApplicationHandler(executionEvents, clock);
+            ExecutionEventPort executionEvents, ObjectProvider<ConfigEventPort> configEvents, Clock clock) {
+        ConfigEventPort available = configEvents.getIfAvailable(() -> command -> { });
+        return new ControlPlaneGatewayApplicationHandler(executionEvents, available, clock);
     }
 
     @Bean
@@ -239,10 +258,12 @@ public class AgentGatewayGrpcConfiguration {
     private static final class NoopCommandReplayPort implements CommandReplayPort {
         @Override
         public SequencedCommand append(String agentId, ServerMessage command) {
-            if (!command.hasTaskAssigned()) {
-                throw new IllegalArgumentException("only TaskAssigned commands are supported");
+            if (!command.hasTaskAssigned() && !command.hasConfigChanged()) {
+                throw new IllegalArgumentException("unsupported Agent command payload");
             }
-            long sequence = command.getTaskAssigned().getMetadata().getSequence();
+            long sequence = command.hasTaskAssigned()
+                    ? command.getTaskAssigned().getMetadata().getSequence()
+                    : command.getConfigChanged().getMetadata().getSequence();
             if (sequence <= 0) {
                 sequence = 1;
             }

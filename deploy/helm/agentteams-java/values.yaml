@@ -24,6 +24,10 @@ gateway:
   replicas: 2
   port: 9090
   httpPort: 8080
+  # AgentChannel is a long-lived gRPC stream. Keep reconnects for a worker on
+  # the same Gateway replica when possible; durable DB ownership still handles
+  # pod loss and cross-replica stale streams.
+  sessionAffinity: ClientIP
   env:
     AGENTTEAMS_GATEWAY_GRPC_PORT: "9090"
     AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"

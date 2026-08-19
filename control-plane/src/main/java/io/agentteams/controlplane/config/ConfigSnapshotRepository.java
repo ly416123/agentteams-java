@@ -27,11 +27,19 @@ public final class ConfigSnapshotRepository {
                 """, this::map, subject, version).stream().findFirst();
     }
 
+    public Optional<ConfigSnapshot> findById(UUID id) {
+        return jdbc.query("""
+                SELECT id, subject, version, manifest::text, checksum, actor, created_at
+                FROM config_snapshots WHERE id = ?
+                """, this::map, id).stream().findFirst();
+    }
+
     public Optional<ConfigSnapshot> findByChecksum(String subject, String checksum) {
         return jdbc.query("""
                 SELECT id, subject, version, manifest::text, checksum, actor, created_at
-                FROM config_snapshots WHERE subject = ? AND checksum = ?
-                """, this::map, subject, checksum).stream().findFirst();
+                FROM config_snapshots WHERE subject = ?
+                """, this::map, subject).stream()
+                .filter(snapshot -> snapshot.checksum().equals(checksum)).findFirst();
     }
 
     public long nextVersion(String subject) {
@@ -42,7 +50,22 @@ public final class ConfigSnapshotRepository {
 
     private ConfigSnapshot map(ResultSet rs, int row) throws SQLException {
         return new ConfigSnapshot(rs.getObject("id", UUID.class), rs.getString("subject"),
-                rs.getLong("version"), rs.getString("manifest"), rs.getString("checksum"),
+                rs.getLong("version"), normalize(rs.getString("manifest")),
+                ConfigManifestCanonicalizer.normalize(rs.getString("manifest")).equals(rs.getString("manifest"))
+                        ? rs.getString("checksum") : checksum(rs.getString("manifest")),
                 rs.getString("actor"), rs.getTimestamp("created_at").toInstant());
+    }
+
+    private static String normalize(String manifest) {
+        return ConfigManifestCanonicalizer.normalize(manifest);
+    }
+
+    private static String checksum(String manifest) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(normalize(manifest).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 }

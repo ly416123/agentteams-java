@@ -124,6 +124,99 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
     }
 
     @Override
+    public void applyConfig(RuntimeConfigSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        synchronized (lifecycleMonitor) {
+            if (!started) {
+                throw new IllegalStateException("QwenPaw HTTP port is not started");
+            }
+        }
+        if ("/api/models/active".equals(configuration.configurationPath())) {
+            applyNativeModelConfig(snapshot);
+            return;
+        }
+        applyLegacyConfig(snapshot);
+    }
+
+    private void applyNativeModelConfig(RuntimeConfigSnapshot snapshot) {
+        Map<String, String> values = snapshot.values();
+        String model = values.get("model");
+        if (model == null || model.isBlank()) {
+            throw new IllegalArgumentException("QwenPaw native configuration requires model");
+        }
+        String provider = values.get("provider_id");
+        if (provider == null || provider.isBlank()) {
+            provider = activeProviderId();
+        }
+        ObjectNode selection = objectMapper.createObjectNode()
+                .put("provider_id", provider)
+                .put("model", model)
+                .put("scope", "agent")
+                .put("agent_id", configuration.agentId());
+        sendConfiguration("PUT", configurationEndpoint(), selection, snapshot);
+
+        ObjectNode modelConfig = objectMapper.createObjectNode();
+        values.forEach((key, value) -> {
+            if (!"provider_id".equals(key) && !"model".equals(key)) {
+                modelConfig.put(key, value);
+            }
+        });
+        if (!modelConfig.isEmpty()) {
+            sendConfiguration("PUT", modelConfigurationEndpoint(provider, model), modelConfig, snapshot);
+        }
+    }
+
+    private String activeProviderId() {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(configurationEndpoint())
+                .header("Accept", "application/json");
+        addAuthorization(requestBuilder);
+        try {
+            HttpResponse<String> response = httpClient.send(requestBuilder.GET().build(),
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("QwenPaw active model HTTP " + response.statusCode());
+            }
+            String provider = objectMapper.readTree(response.body()).path("active_llm").path("provider_id").asText();
+            if (provider.isBlank()) {
+                throw new IllegalStateException("QwenPaw active model did not include provider_id");
+            }
+            return provider;
+        } catch (IOException | InterruptedException error) {
+            if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException("QwenPaw active model request failed", error);
+        }
+    }
+
+    private void applyLegacyConfig(RuntimeConfigSnapshot snapshot) {
+        ObjectNode body = objectMapper.valueToTree(snapshot.values());
+        sendConfiguration("PATCH", configurationEndpoint(), body, snapshot);
+    }
+
+    private void sendConfiguration(String method, URI endpoint, ObjectNode body, RuntimeConfigSnapshot snapshot) {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(configurationEndpoint())
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("X-Agent-Id", configuration.agentId())
+                .header("X-Config-Version", Long.toString(snapshot.version()))
+                .header("X-Config-Sha256", snapshot.checksum());
+        addAuthorization(requestBuilder);
+        try {
+            HttpResponse<String> response = httpClient.send(requestBuilder
+                    .uri(endpoint)
+                    .method(method, HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body),
+                            StandardCharsets.UTF_8))
+                    .build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("QwenPaw config HTTP " + response.statusCode()
+                        + (response.body().isBlank() ? "" : ": " + truncate(response.body())));
+            }
+        } catch (IOException | InterruptedException error) {
+            if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException("QwenPaw configuration request failed", error);
+        }
+    }
+
+    @Override
     public void cancel(UUID taskId) {
         Objects.requireNonNull(taskId, "taskId");
         RequestHandle handle = requests.remove(taskId);
@@ -261,6 +354,27 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
     private URI chatEndpoint() {
         String base = configuration.endpoint().toString();
         return URI.create(base.replaceAll("/+$", "") + "/api/console/chat");
+    }
+
+    private URI configurationEndpoint() {
+        String base = configuration.endpoint().toString().replaceAll("/+$", "");
+        String path = configuration.configurationPath().replace("{agentId}",
+                java.net.URLEncoder.encode(configuration.agentId(), StandardCharsets.UTF_8));
+        return URI.create(base + path);
+    }
+
+    private URI modelConfigurationEndpoint(String provider, String model) {
+        String base = configuration.endpoint().toString().replaceAll("/+$", "");
+        return URI.create(base + "/api/models/"
+                + java.net.URLEncoder.encode(provider, StandardCharsets.UTF_8)
+                + "/models/" + java.net.URLEncoder.encode(model, StandardCharsets.UTF_8) + "/config");
+    }
+
+    private void addAuthorization(HttpRequest.Builder requestBuilder) {
+        String authorizationToken = configuration.authorizationToken();
+        if (authorizationToken != null && !authorizationToken.isBlank()) {
+            requestBuilder.header("Authorization", "Bearer " + authorizationToken);
+        }
     }
 
     private Instant now() {

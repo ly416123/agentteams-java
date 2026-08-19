@@ -1,9 +1,11 @@
 package io.agentteams.controlplane;
 
 import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.controlplane.application.ControlPlaneExecutionEventAdapter;
 import io.agentteams.controlplane.application.ControlPlaneTaskCommandAdapter;
+import io.agentteams.controlplane.application.ControlPlaneConfigEventAdapter;
 import io.agentteams.controlplane.outbox.EventPublisher;
 import io.agentteams.controlplane.outbox.JdbcOutboxStore;
 import io.agentteams.controlplane.outbox.NatsEventPublisher;
@@ -17,6 +19,9 @@ import io.agentteams.controlplane.artifact.ArtifactService;
 import io.agentteams.controlplane.config.ConfigLifecycleRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
+import io.agentteams.controlplane.config.ConfigDeploymentService;
+import io.agentteams.controlplane.config.ConfigUploadCleanupJob;
+import io.agentteams.controlplane.config.ConfigUploadService;
 import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
 import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.agentteams.controlplane.service.TaskAssignmentScheduler;
@@ -89,19 +94,27 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(DataSource.class)
     ConfigSnapshotRepository configSnapshotRepository(DataSource dataSource) {
         return new ConfigSnapshotRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
     }
 
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(ConfigSnapshotRepository.class)
     ConfigSnapshotService configSnapshotService(ConfigSnapshotRepository repository, Clock clock) {
         return new ConfigSnapshotService(repository, clock);
     }
 
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(DataSource.class)
+    ConfigDeploymentService configDeploymentService(FoundationPersistenceService persistence,
+            ConfigSnapshotRepository snapshots, Clock clock, ObjectMapper objectMapper) {
+        return new ConfigDeploymentService(persistence, snapshots, clock, objectMapper);
+    }
+
+    @Bean
+    ConfigEventPort configEventPort(ConfigDeploymentService deployments) {
+        return new ControlPlaneConfigEventAdapter(deployments);
+    }
+
+    @Bean
     ConfigLifecycleRepository configLifecycleRepository(DataSource dataSource) {
         return new ConfigLifecycleRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
     }
@@ -162,6 +175,21 @@ public class ControlPlaneConfiguration {
 
     @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({ArtifactService.class,
+            ConfigSnapshotRepository.class, FoundationPersistenceService.class, ObjectStorage.class})
+    ConfigUploadService configUploadService(FoundationPersistenceService persistence,
+            ConfigSnapshotRepository snapshots, ObjectStorage storage, ArtifactService verification, Clock clock) {
+        return new ConfigUploadService(persistence, snapshots, storage, verification, clock);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(ConfigUploadService.class)
+    ConfigUploadCleanupJob configUploadCleanupJob(ConfigUploadService uploads,
+            @Value("${agentteams.config.upload-cleanup-batch-size:100}") int batchSize) {
+        return new ConfigUploadCleanupJob(uploads, batchSize);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({ArtifactService.class,
             FoundationPersistenceService.class})
     ArtifactCompletionService artifactCompletionService(FoundationPersistenceService persistence,
             ArtifactService artifacts, Clock clock) {
@@ -218,8 +246,9 @@ public class ControlPlaneConfiguration {
     @Bean(initMethod = "start", destroyMethod = "close")
     @ConditionalOnProperty(name = "agentteams.nats.enabled", havingValue = "true")
     NatsExecutionEventConsumer natsExecutionEventConsumer(Connection connection,
-            ExecutionEventPort executionEvents, ObjectMapper objectMapper) throws IOException {
-        return new NatsExecutionEventConsumer(connection.jetStream(), executionEvents, objectMapper,
+            ExecutionEventPort executionEvents, ConfigEventPort configEvents, ObjectMapper objectMapper)
+            throws IOException {
+        return new NatsExecutionEventConsumer(connection.jetStream(), executionEvents, configEvents, objectMapper,
                 "control-plane-execution-events");
     }
 

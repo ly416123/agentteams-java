@@ -1,10 +1,14 @@
 package io.agentteams.worker;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.Timestamp;
 import io.agentteams.contracts.v1.AgentHello;
 import io.agentteams.contracts.v1.AgentMessage;
 import io.agentteams.contracts.v1.AgentReady;
 import io.agentteams.contracts.v1.Ack;
+import io.agentteams.contracts.v1.ConfigApplied;
+import io.agentteams.contracts.v1.ConfigChanged;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
@@ -21,6 +25,9 @@ import io.agentteams.runtime.QwenPawRuntime;
 import io.agentteams.runtime.RuntimeResult;
 import io.agentteams.runtime.RuntimeResultSink;
 import io.agentteams.runtime.RuntimeSubmission;
+import io.agentteams.runtime.RuntimeConfigCoordinator;
+import io.agentteams.runtime.RuntimeConfigPrepared;
+import io.agentteams.runtime.RuntimeConfigSnapshot;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 
@@ -28,6 +35,9 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -62,6 +72,8 @@ public final class QwenPawWorker implements AutoCloseable {
     private final AgentChannelClient channelClient;
     private final GrpcAgentChannelPort channelPort;
     private final QwenPawRuntime runtime;
+    private final ConfigManifestFetcher manifestFetcher;
+    private final RuntimeConfigCoordinator configCoordinator;
     private final GatewayRuntimeAdapter runtimeAdapter;
     private final AgentHello hello;
     private final WorkerHealthServer healthServer;
@@ -86,8 +98,21 @@ public final class QwenPawWorker implements AutoCloseable {
         QwenPawHttpRuntimeConfiguration qwenPawConfiguration = new QwenPawHttpRuntimeConfiguration(
                 URI.create(configuration.qwenPawEndpoint()), configuration.qwenPawAgentId(),
                 configuration.qwenPawAuthorizationToken(), configuration.qwenPawConnectTimeout(),
-                configuration.qwenPawUserId(), configuration.qwenPawChannel());
+                configuration.qwenPawUserId(), configuration.qwenPawChannel(), configuration.qwenPawConfigurationPath());
         this.runtime = new QwenPawRuntime(new QwenPawHttpRuntimePort(qwenPawConfiguration));
+        this.manifestFetcher = new ConfigManifestFetcher(configuration.configManifestBaseUrl(),
+                configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
+        this.configCoordinator = new RuntimeConfigCoordinator((snapshot, current) ->
+                new RuntimeConfigPrepared() {
+                    @Override
+                    public void activate() {
+                        runtime.applyConfig(snapshot);
+                    }
+
+                    @Override
+                    public void discard() {
+                    }
+                });
         this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock);
         RuntimeResultSink resultSink = this::onRuntimeResult;
         this.hello = hello(configuration, clock);
@@ -141,12 +166,69 @@ public final class QwenPawWorker implements AutoCloseable {
                 onReady(message.getReady());
             } else if (message.hasTaskAssigned()) {
                 onAssignment(message.getTaskAssigned());
+            } else if (message.hasConfigChanged()) {
+                onConfigChanged(message.getConfigChanged());
             } else if (message.hasError()) {
                 System.err.printf("Agent Gateway error code=%s message=%s%n",
                         message.getError().getCode(), message.getError().getMessage());
             }
         } catch (RuntimeException error) {
             System.err.printf("Unable to process Agent Gateway message: %s%n", rootMessage(error));
+        }
+    }
+
+    private void onConfigChanged(ConfigChanged changed) {
+        EventMetadata input = changed.getMetadata();
+        System.out.printf("ConfigChanged received agent=%s version=%d sequence=%d%n",
+                configuration.agentId(), changed.getConfigVersion(), input.getSequence());
+        boolean applied = false;
+        String errorMessage = "";
+        try {
+            if (!configuration.agentId().equals(input.getAgentId())) {
+                throw new IllegalArgumentException("config agent_id does not match Worker");
+            }
+            String manifestJson = changed.getManifestJson().isBlank()
+                    ? manifestFetcher.fetch(changed.getManifestUri(), changed.getSnapshotId(),
+                            changed.getManifestSha256(), changed.getSizeBytes())
+                    : changed.getManifestJson();
+            byte[] manifestBytes = manifestJson.getBytes(StandardCharsets.UTF_8);
+            if (manifestBytes.length != changed.getSizeBytes()) {
+                throw new IllegalArgumentException("configuration manifest size mismatch");
+            }
+            String checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(manifestBytes));
+            if (!checksum.equalsIgnoreCase(changed.getManifestSha256())) {
+                throw new IllegalArgumentException("configuration manifest checksum mismatch");
+            }
+            JsonNode root = new ObjectMapper().readTree(manifestJson);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("configuration manifest must be a JSON object");
+            }
+            Map<String, String> values = new java.util.LinkedHashMap<>();
+            root.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().isTextual()
+                    ? entry.getValue().asText() : entry.getValue().toString()));
+            configCoordinator.apply(new RuntimeConfigSnapshot(changed.getConfigVersion(),
+                    changed.getManifestSha256(), values));
+            applied = true;
+        } catch (Exception failure) {
+            errorMessage = truncate(rootMessage(failure));
+        }
+        EventMetadata metadata = input.toBuilder()
+                .setEventId(UUID.nameUUIDFromBytes(("config-applied:" + input.getEventId() + ":" + applied)
+                        .getBytes(StandardCharsets.UTF_8)).toString())
+                .setOccurredAt(timestamp(clock.instant()))
+                .build();
+        channelPort.send(AgentMessage.newBuilder().setConfigApplied(ConfigApplied.newBuilder()
+                .setMetadata(metadata)
+                .setConfigVersion(changed.getConfigVersion())
+                .setApplied(applied)
+                .setErrorMessage(errorMessage)
+                .setBindingId(changed.getBindingId())
+                .setSnapshotId(changed.getSnapshotId())
+                .build()).build());
+        System.out.printf("ConfigChanged completed agent=%s version=%d applied=%s error=%s%n",
+                configuration.agentId(), changed.getConfigVersion(), applied, errorMessage);
+        if (input.getSequence() > 0) {
+            acknowledge(input);
         }
     }
 
@@ -200,7 +282,10 @@ public final class QwenPawWorker implements AutoCloseable {
     }
 
     private void acknowledge(TaskAssigned assignment) {
-        EventMetadata input = assignment.getMetadata();
+        acknowledge(assignment.getMetadata());
+    }
+
+    private void acknowledge(EventMetadata input) {
         EventMetadata metadata = input.toBuilder()
                 .setEventId("ack-" + input.getEventId())
                 .setOccurredAt(timestamp(clock.instant()))
@@ -324,13 +409,17 @@ public final class QwenPawWorker implements AutoCloseable {
             String qwenPawAuthorizationToken,
             String qwenPawUserId,
             String qwenPawChannel,
+            String qwenPawConfigurationPath,
             Duration qwenPawConnectTimeout,
             Duration reconnectDelay,
             String runtimeVersion,
             int maxConcurrentTasks,
             long maxWorkspaceBytes,
             long maxArtifactBytes,
-            int healthPort) {
+            int healthPort,
+            URI configManifestBaseUrl,
+            Duration configFetchTimeout,
+            long maxConfigManifestBytes) {
 
         static WorkerConfiguration fromEnvironment() {
             return from(System.getenv());
@@ -346,13 +435,17 @@ public final class QwenPawWorker implements AutoCloseable {
                     optional(environment, "QWENPAW_AUTH_TOKEN"),
                     value(environment, "QWENPAW_USER_ID", "agentteams"),
                     value(environment, "QWENPAW_CHANNEL", "console"),
+                    value(environment, "QWENPAW_CONFIG_PATH", "/api/models/active"),
                     Duration.ofSeconds(integer(environment, "QWENPAW_CONNECT_TIMEOUT_SECONDS", 10)),
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_RECONNECT_DELAY_SECONDS", 2)),
                     value(environment, "AGENTTEAMS_RUNTIME_VERSION", "0.1.0"),
                     integer(environment, "AGENTTEAMS_MAX_CONCURRENT_TASKS", 1),
                     longValue(environment, "AGENTTEAMS_MAX_WORKSPACE_BYTES", 2L * 1024 * 1024 * 1024),
                     longValue(environment, "AGENTTEAMS_MAX_ARTIFACT_BYTES", 2L * 1024 * 1024 * 1024),
-                    integer(environment, "AGENTTEAMS_WORKER_HEALTH_PORT", 9090));
+                    integer(environment, "AGENTTEAMS_WORKER_HEALTH_PORT", 9090),
+                    optionalUri(environment, "AGENTTEAMS_CONFIG_MANIFEST_BASE_URL"),
+                    Duration.ofSeconds(integer(environment, "AGENTTEAMS_CONFIG_FETCH_TIMEOUT_SECONDS", 15)),
+                    longValue(environment, "AGENTTEAMS_MAX_CONFIG_MANIFEST_BYTES", 16L * 1024 * 1024));
         }
 
         Map<String, String> runtimeConfiguration() {
@@ -360,7 +453,8 @@ public final class QwenPawWorker implements AutoCloseable {
                     "gatewayHost", gatewayHost,
                     "gatewayPort", Integer.toString(gatewayPort),
                     "qwenPawEndpoint", qwenPawEndpoint,
-                    "qwenPawAgentId", qwenPawAgentId);
+                    "qwenPawAgentId", qwenPawAgentId,
+                    "qwenPawConfigurationPath", qwenPawConfigurationPath);
         }
 
         private static String required(Map<String, String> environment, String name) {
@@ -374,6 +468,11 @@ public final class QwenPawWorker implements AutoCloseable {
         private static String optional(Map<String, String> environment, String name) {
             String result = environment.get(name);
             return result == null || result.isBlank() ? null : result.trim();
+        }
+
+        private static URI optionalUri(Map<String, String> environment, String name) {
+            String result = optional(environment, name);
+            return result == null ? null : URI.create(result);
         }
 
         private static String value(Map<String, String> environment, String name, String fallback) {

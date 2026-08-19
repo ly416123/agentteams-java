@@ -29,6 +29,10 @@ public final class TaskAssignedCommandHandler {
         this.delivery = Objects.requireNonNull(delivery, "delivery");
     }
 
+    CommandDeliveryService delivery() {
+        return delivery;
+    }
+
     public boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt,
             KnownTaskFields taskFields) {
         return handle(eventType, aggregateId, payloadJson, occurredAt, taskFields, 0);

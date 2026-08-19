@@ -10,6 +10,7 @@ import java.util.UUID;
 public final class FakeRuntime implements AgentRuntime {
     private final Map<UUID, RuntimeStatus> tasks = new LinkedHashMap<>();
     private AgentRuntimeContext context;
+    private RuntimeConfigSnapshot configuration;
     private int running;
 
     @Override
@@ -80,11 +81,22 @@ public final class FakeRuntime implements AgentRuntime {
     }
 
     @Override
+    public synchronized void applyConfig(RuntimeConfigSnapshot snapshot) {
+        requireStarted();
+        this.configuration = Objects.requireNonNull(snapshot, "snapshot");
+    }
+
+    public synchronized Optional<RuntimeConfigSnapshot> configuration() {
+        return Optional.ofNullable(configuration);
+    }
+
+    @Override
     public synchronized void stop() {
         if (context == null) {
             return;
         }
         context = null;
+        configuration = null;
         running = 0;
     }
 

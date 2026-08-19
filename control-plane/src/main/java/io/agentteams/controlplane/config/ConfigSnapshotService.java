@@ -41,7 +41,7 @@ public final class ConfigSnapshotService {
         try {
             JsonNode node = MAPPER.readTree(value);
             if (node == null || !node.isObject()) throw new IllegalArgumentException("manifest must be a JSON object");
-            return MAPPER.writeValueAsString(node);
+            return ConfigManifestCanonicalizer.normalize(node.toString());
         } catch (Exception error) {
             throw new IllegalArgumentException("manifestJson must be valid JSON", error);
         }

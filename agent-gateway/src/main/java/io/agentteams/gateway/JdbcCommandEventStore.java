@@ -72,11 +72,11 @@ public class JdbcCommandEventStore implements CommandEventStore {
     public SequencedCommand append(String agentId, ServerMessage command) {
         requireText(agentId, "agentId");
         Objects.requireNonNull(command, "command");
-        if (!command.hasTaskAssigned()) {
-            throw new IllegalArgumentException("only TaskAssigned commands are supported");
+        if (!command.hasTaskAssigned() && !command.hasConfigChanged()) {
+            throw new IllegalArgumentException("unsupported Agent command payload");
         }
 
-        EventMetadata inputMetadata = command.getTaskAssigned().getMetadata();
+        EventMetadata inputMetadata = metadata(command);
         String eventId = inputMetadata.getEventId();
         if (eventId.isBlank()) {
             eventId = UUID.randomUUID().toString();
@@ -91,9 +91,7 @@ public class JdbcCommandEventStore implements CommandEventStore {
             throw new IllegalStateException("database returned an invalid command sequence");
         }
         metadata = metadata.toBuilder().setSequence(allocated).build();
-        ServerMessage persisted = command.toBuilder()
-                .setTaskAssigned(command.getTaskAssigned().toBuilder().setMetadata(metadata).build())
-                .build();
+        ServerMessage persisted = withMetadata(command, metadata);
         try {
             jdbc.update(INSERT_COMMAND, agentId, allocated, metadata.getEventId(), persisted.toByteArray(),
                     Timestamp.from(clock.instant()));
@@ -196,6 +194,20 @@ public class JdbcCommandEventStore implements CommandEventStore {
                  WHERE agent_id = ? AND event_id = ?
                 """, (resultSet, rowNumber) -> readCommand(resultSet), agentId, eventId)
                 .stream().findFirst();
+    }
+
+    private static EventMetadata metadata(ServerMessage command) {
+        return command.hasTaskAssigned() ? command.getTaskAssigned().getMetadata()
+                : command.getConfigChanged().getMetadata();
+    }
+
+    private static ServerMessage withMetadata(ServerMessage command, EventMetadata metadata) {
+        if (command.hasTaskAssigned()) {
+            return command.toBuilder().setTaskAssigned(command.getTaskAssigned().toBuilder()
+                    .setMetadata(metadata).build()).build();
+        }
+        return command.toBuilder().setConfigChanged(command.getConfigChanged().toBuilder()
+                .setMetadata(metadata).build()).build();
     }
 
     private static void requireText(String value, String field) {
