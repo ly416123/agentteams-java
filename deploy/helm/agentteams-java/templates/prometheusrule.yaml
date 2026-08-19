@@ -1,0 +1,44 @@
+{{- if .Values.observability.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}
+  labels:
+    {{- toYaml .Values.observability.prometheusRule.labels | nindent 4 }}
+spec:
+  groups:
+    - name: agentteams.recovery
+      rules:
+        - alert: AgentTeamsLeaseRecovery
+          expr: increase(agentteams_tasks_leases_expired_total[10m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: AgentTeams task leases are expiring
+            description: One or more task leases expired in the last 10 minutes and required recovery.
+        - alert: AgentTeamsGatewayCommandDeduplication
+          expr: increase(agentteams_gateway_commands_deduplicated_total[10m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: AgentTeams Gateway is deduplicating commands
+            description: Outbox redelivery or Gateway retry caused duplicate command events in the last 10 minutes.
+        - alert: AgentTeamsGatewayRejectedEvents
+          expr: increase(agentteams_gateway_events_rejected_total[10m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: AgentTeams Gateway rejected inbound events
+            description: The Gateway rejected one or more inbound Agent events in the last 10 minutes.
+        - alert: AgentTeamsOutboxRetries
+          expr: increase(agentteams_outbox_retries_total[10m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: AgentTeams Outbox events are retrying
+            description: At least one Outbox event failed delivery in the last 10 minutes.
+{{- end }}

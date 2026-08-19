@@ -13,6 +13,8 @@ public final class GatewayMetrics implements GatewayMetricsPort {
     private final Counter closed;
     private final Counter registered;
     private final Counter rejected;
+    private final Counter commandsAppended;
+    private final Counter commandsDeduplicated;
 
     public GatewayMetrics(MeterRegistry registry) {
         Objects.requireNonNull(registry, "registry");
@@ -22,6 +24,8 @@ public final class GatewayMetrics implements GatewayMetricsPort {
         closed = registry.counter("agentteams.gateway.connections.closed");
         registered = registry.counter("agentteams.gateway.connections.registered");
         rejected = registry.counter("agentteams.gateway.events.rejected");
+        commandsAppended = registry.counter("agentteams.gateway.commands.appended");
+        commandsDeduplicated = registry.counter("agentteams.gateway.commands.deduplicated");
     }
 
     @Override
@@ -38,4 +42,10 @@ public final class GatewayMetrics implements GatewayMetricsPort {
 
     @Override
     public void eventRejected() { rejected.increment(); }
+
+    @Override
+    public void commandAppended() { commandsAppended.increment(); }
+
+    @Override
+    public void commandDeduplicated() { commandsDeduplicated.increment(); }
 }

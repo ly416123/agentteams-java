@@ -19,6 +19,7 @@
         <module>control-plane</module>
         <module>agent-gateway</module>
         <module>runtime</module>
+        <module>agent-worker</module>
         <module>manager</module>
         <module>operator</module>
         <module>integration-tests</module>

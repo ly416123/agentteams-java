@@ -8,6 +8,7 @@ import java.util.UUID;
 public final class QwenPawRuntime implements AgentRuntime {
     private final QwenPawProcessPort process;
     private final FakeRuntime state = new FakeRuntime();
+    private AgentRuntimeContext context;
 
     public QwenPawRuntime(QwenPawProcessPort process) {
         this.process = Objects.requireNonNull(process, "process");
@@ -15,11 +16,17 @@ public final class QwenPawRuntime implements AgentRuntime {
 
     @Override
     public void start(AgentRuntimeContext context) {
-        state.start(context);
+        this.context = Objects.requireNonNull(context, "context");
+        // Process completions are delivered to the outer Agent client. The
+        // state tracker must not invoke that callback a second time when the
+        // GatewayRuntimeAdapter calls complete()/fail().
+        state.start(new AgentRuntimeContext(context.runtimeName(), context.maxConcurrency(), context.clock(),
+                ignored -> { }, context.configuration()));
         try {
-            process.start(context, state::complete);
+            process.start(context, context.resultSink());
         } catch (RuntimeException error) {
             state.stop();
+            this.context = null;
             throw error;
         }
     }
@@ -31,7 +38,7 @@ public final class QwenPawRuntime implements AgentRuntime {
             try {
                 process.submit(task);
             } catch (RuntimeException error) {
-                state.complete(RuntimeResult.failure(task.id(), "runtime submission failed",
+                context.resultSink().accept(RuntimeResult.failure(task.id(), "runtime submission failed",
                         java.time.Instant.now()));
                 throw error;
             }
@@ -69,6 +76,7 @@ public final class QwenPawRuntime implements AgentRuntime {
             process.stop();
         } finally {
             state.stop();
+            context = null;
         }
     }
 }

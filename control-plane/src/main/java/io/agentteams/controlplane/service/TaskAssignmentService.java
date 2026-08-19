@@ -114,8 +114,8 @@ public final class TaskAssignmentService {
 
     public int recoverExpiredLeases(Instant now) {
         Objects.requireNonNull(now, "now");
-        return persistence.inTransaction(tx -> {
-            int recovered = 0;
+        int recovered = persistence.inTransaction(tx -> {
+            int recoveredCount = 0;
             for (UUID leaseId : tx.expiredActiveLeaseIds(now)) {
                 AgentLeaseRecord lease = tx.agentLeases().findById(leaseId).orElseThrow();
                 tx.agentLeases().updateStatus(lease.id(), "EXPIRED", now, lease.version(), now);
@@ -125,17 +125,25 @@ public final class TaskAssignmentService {
                 }
                 TaskAttemptRecord attempt = tx.taskAttempts().findById(lease.taskAttemptId()).orElseThrow();
                 TaskRecord task = tx.tasks().findById(attempt.taskId()).orElseThrow();
+                tx.taskAttempts().updatePhase(attempt.id(), TaskPhase.CANCELLED, now, null, null,
+                        attempt.version(), now);
                 teamId(task).ifPresent(team -> tx.teams().releaseTaskAssignment(team, task.id(), now));
                 if (!task.phase().terminal()) {
                     TaskRecord queued = new TaskRecord(task.id(), task.title(), task.description(), TaskPhase.QUEUED,
                             task.priority(), task.specJson(), task.actor(), task.source(), null, null,
                             task.createdAt(), now, task.version() + 1);
                     tx.tasks().updateState(queued, task.version());
+                    FoundationPersistenceService.appendEvent(tx, "task", task.id(), "TaskLeaseExpired",
+                            leaseExpiredPayload(task, attempt, lease, assignment, now), now, queued.version());
                 }
-                recovered++;
+                recoveredCount++;
             }
-            return recovered;
+            return recoveredCount;
         });
+        for (int i = 0; i < recovered; i++) {
+            metrics.taskLeaseExpired();
+        }
+        return recovered;
     }
 
     public java.util.List<UUID> queuedTaskIds(int limit) {
@@ -156,6 +164,7 @@ public final class TaskAssignmentService {
             payload.put("attemptId", attempt.id().toString());
             payload.put("assignmentId", assignment.id().toString());
             payload.put("leaseId", lease.id().toString());
+            payload.put("expectedVersion", task.version());
             payload.set("spec", spec);
             payload.put("taskType", textOrDefault(spec, "taskType", "generic"));
             JsonNode input = spec.get("inputJson");
@@ -174,6 +183,14 @@ public final class TaskAssignmentService {
         } catch (Exception error) {
             throw new IllegalArgumentException("task spec cannot be serialized for assignment", error);
         }
+    }
+
+    private static String leaseExpiredPayload(TaskRecord task, TaskAttemptRecord attempt, AgentLeaseRecord lease,
+            TaskAssignmentRecord assignment, Instant recoveredAt) {
+        return "{\"taskId\":\"" + task.id() + "\",\"attemptId\":\"" + attempt.id()
+                + "\",\"assignmentId\":\"" + (assignment == null ? "" : assignment.id())
+                + "\",\"leaseId\":\"" + lease.id() + "\",\"recoveredAt\":\"" + recoveredAt
+                + "\",\"reason\":\"LEASE_EXPIRED\"}";
     }
 
     private static String textOrDefault(JsonNode object, String field, String fallback) {

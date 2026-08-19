@@ -18,4 +18,9 @@ public interface GatewayApplicationHandler {
     void taskCompleted(ConnectionRegistry.ConnectionSnapshot connection, TaskCompleted event);
 
     void taskFailed(ConnectionRegistry.ConnectionSnapshot connection, TaskFailed event);
+
+    default void agentHeartbeat(ConnectionRegistry.ConnectionSnapshot connection,
+            io.agentteams.contracts.v1.AgentHeartbeat event) {
+        // Presence is refreshed by InboundEventHandler after routing.
+    }
 }

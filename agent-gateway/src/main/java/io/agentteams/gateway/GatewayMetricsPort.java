@@ -6,6 +6,8 @@ public interface GatewayMetricsPort {
     void connectionClosed();
     void connectionRegistered();
     void eventRejected();
+    void commandAppended();
+    void commandDeduplicated();
 
     static GatewayMetricsPort noop() {
         return new GatewayMetricsPort() {
@@ -13,6 +15,8 @@ public interface GatewayMetricsPort {
             public void connectionClosed() { }
             public void connectionRegistered() { }
             public void eventRejected() { }
+            public void commandAppended() { }
+            public void commandDeduplicated() { }
         };
     }
 }

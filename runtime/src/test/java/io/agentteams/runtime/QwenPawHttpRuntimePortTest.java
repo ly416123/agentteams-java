@@ -89,6 +89,39 @@ class QwenPawHttpRuntimePortTest {
     }
 
     @Test
+    void extractsFinalAssistantMessageFromQwenPawResponseSnapshot() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream",
+                "data: {\"status\":\"created\",\"output\":[],\"object\":\"response\"}\n\n"
+                        + "data: {\"type\":\"message\",\"role\":\"assistant\",\"content\":[],"
+                        + "\"status\":\"in_progress\"}\n\n"
+                        + "data: {\"type\":\"text\",\"delta\":false,\"text\":\"QWENPAW_OUTPUT_OK\"}\n\n"
+                        + "data: {\"id\":\"reasoning-1\",\"type\":\"reasoning\",\"role\":\"assistant\","
+                        + "\"content\":[{\"text\":\"internal\"}],\"status\":\"completed\","
+                        + "\"object\":\"message\"}\n\n"
+                        + "data: {\"id\":\"response-1\",\"status\":\"completed\","
+                        + "\"output\":["
+                        + "{\"type\":\"reasoning\",\"role\":\"assistant\",\"content\":[{\"text\":\"internal\"}]},"
+                        + "{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"text\":\"QWENPAW_OUTPUT_OK\"}]}"
+                        + "]}\n\n"));
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<RuntimeResult> result = new AtomicReference<>();
+        RuntimeTask task = task();
+        port.start(context(), value -> {
+            result.set(value);
+            completed.countDown();
+        });
+        port.submit(task);
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(result.get()).isEqualTo(RuntimeResult.success(task.id(), "QWENPAW_OUTPUT_OK", Instant.EPOCH));
+        port.stop();
+    }
+
+    @Test
     void convertsFailedSseAndHttpErrorsToRuntimeFailures() throws Exception {
         server.createContext("/api/console/chat", exchange -> {
             captureRequest(exchange);

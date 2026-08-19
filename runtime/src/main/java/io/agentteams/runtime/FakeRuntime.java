@@ -25,9 +25,12 @@ public final class FakeRuntime implements AgentRuntime {
         requireStarted();
         Objects.requireNonNull(task, "task");
         RuntimeStatus existing = tasks.get(task.id());
-        if (existing != null) {
+        if (existing != null && existing.state() == RuntimeTaskState.RUNNING) {
             return RuntimeSubmission.rejected("task already exists");
         }
+        // A retried Control Plane attempt keeps the task identity but must be
+        // executable after a previous attempt reached a terminal runtime state.
+        // Running attempts remain protected from duplicate side effects above.
         if (running >= context.maxConcurrency()) {
             return RuntimeSubmission.rejected("maximum concurrency reached");
         }

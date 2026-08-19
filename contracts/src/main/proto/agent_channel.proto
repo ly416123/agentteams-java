@@ -50,6 +50,13 @@ message AgentHello {
   uint64 max_artifact_bytes = 9;
 }
 
+// Agent-level presence heartbeat. Unlike TaskHeartbeat, this message is not
+// tied to a task and exists to keep an idle Agent connection alive.
+message AgentHeartbeat {
+  EventMetadata metadata = 1;
+  string status = 2;
+}
+
 message AgentReady {
   EventMetadata metadata = 1;
   bool accepted = 2;
@@ -148,6 +155,7 @@ message AgentMessage {
     ConfigApplied config_applied = 7;
     Ack ack = 8;
     Error error = 9;
+    AgentHeartbeat agent_heartbeat = 10;
   }
 }
 

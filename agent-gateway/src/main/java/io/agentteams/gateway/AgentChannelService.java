@@ -107,9 +107,12 @@ public final class AgentChannelService extends AgentChannelGrpc.AgentChannelImpl
         if (message.hasHello()) {
             throw new GatewayExceptions.InvalidMessage("Hello is allowed only as the first message");
         }
+        ConnectionRegistry.ConnectionSnapshot snapshot = registry.snapshot(connection)
+                .orElseThrow(() -> new GatewayExceptions.StaleConnection("connection is not registered"));
+        if (!state.seen(snapshot, clock.instant())) {
+            throw new GatewayExceptions.StaleConnection("connection is no longer current");
+        }
         inbound.handle(connection, message);
-        // InboundEventHandler updates registry lastSeen; this call persists the status projection.
-        registry.snapshot(connection).ifPresent(snapshot -> state.seen(snapshot, clock.instant()));
     }
 
     private void registerAfterHello(AgentConnection connection, AgentHello hello) {
@@ -135,7 +138,7 @@ public final class AgentChannelService extends AgentChannelGrpc.AgentChannelImpl
                 hello.getRuntimeVersion(), hello.getCapabilitiesMap());
         registry.register(connection, profile, delivery.lastAcknowledgedSequence(profile.agentId()), now)
                 .ifPresent(replaced -> state.disconnected(replaced, now));
-        state.registered(profile, now);
+        state.registered(registry.snapshot(connection).orElseThrow(), now);
         connection.outbound().onNext(ready(profile.agentId(), negotiated, now));
         delivery.replay(connection);
     }

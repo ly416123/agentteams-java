@@ -41,7 +41,22 @@ public final class GatewayRuntimeAdapter {
                 assignment.getInputJson().toStringUtf8(), Map.of("agentId", agentId,
                         "attemptId", input.getAttemptId(), "leaseId", input.getLeaseId()));
         AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt());
-        boolean registered = assignments.putIfAbsent(taskId, assignmentContext) == null;
+        AssignmentContext existing = assignments.putIfAbsent(taskId, assignmentContext);
+        boolean registered = existing == null;
+        if (existing != null && existing.matches(input)) {
+            channel.send(AgentMessage.newBuilder().setTaskAccepted(TaskAccepted.newBuilder()
+                    .setMetadata(metadata(taskId, existing)).setAccepted(true)
+                    .setRejectionReason("").build()).build());
+            return RuntimeSubmission.duplicateAccepted();
+        }
+        if (existing != null) {
+            // A later assignment is a retry after the previous lease expired.
+            // Cancel any still-running local work and replace the assignment
+            // context before submitting the new attempt.
+            runtime.cancel(taskId);
+            assignments.replace(taskId, existing, assignmentContext);
+            registered = true;
+        }
         RuntimeSubmission submission;
         try {
             submission = runtime.submit(task);
@@ -51,8 +66,11 @@ public final class GatewayRuntimeAdapter {
         }
         if (!submission.accepted() && registered) assignments.remove(taskId, assignmentContext);
         channel.send(AgentMessage.newBuilder().setTaskAccepted(TaskAccepted.newBuilder()
-                .setMetadata(metadata(taskId, input)).setAccepted(submission.accepted())
+                .setMetadata(metadata(taskId, assignmentContext)).setAccepted(submission.accepted())
                 .setRejectionReason(submission.accepted() ? "" : submission.reason()).build()).build());
+        if (submission.accepted()) {
+            assignmentContext.advanceVersion();
+        }
         return submission;
     }
 
@@ -60,15 +78,22 @@ public final class GatewayRuntimeAdapter {
         AssignmentContext context = context(taskId);
         if (percent < 0 || percent > 100) throw new IllegalArgumentException("percent must be 0..100");
         channel.send(AgentMessage.newBuilder().setTaskProgress(TaskProgress.newBuilder()
-                .setMetadata(metadata(taskId, context.metadata())).setPercent(percent)
+                .setMetadata(metadata(taskId, context)).setPercent(percent)
                 .setStatus(status == null ? "" : status).setMessage(message == null ? "" : message).build()).build());
+        context.advanceVersion();
     }
 
     public void heartbeat(UUID taskId, String status) {
         AssignmentContext context = context(taskId);
         channel.send(AgentMessage.newBuilder().setTaskHeartbeat(TaskHeartbeat.newBuilder()
-                .setMetadata(metadata(taskId, context.metadata())).setStatus(status == null ? "" : status)
+                .setMetadata(metadata(taskId, context)).setStatus(status == null ? "" : status)
                 .setLeaseExpiresAt(context.leaseExpiresAt()).build()).build());
+        context.advanceVersion();
+    }
+
+    /** Keeps terminal execution events aligned after a heartbeat sent by the channel client. */
+    public void onHeartbeatSent(UUID taskId) {
+        context(taskId).advanceVersion();
     }
 
     public CompletionStatus complete(RuntimeResult result) {
@@ -76,9 +101,17 @@ public final class GatewayRuntimeAdapter {
         CompletionStatus status = runtime.complete(result);
         if (status == CompletionStatus.COMPLETED) {
             AssignmentContext context = context(result.taskId());
-            channel.send(AgentMessage.newBuilder().setTaskCompleted(TaskCompleted.newBuilder()
-                    .setMetadata(metadata(result.taskId(), context.metadata()))
-                    .setResultJson(ByteString.copyFromUtf8(result.output())).build()).build());
+            EventMetadata eventMetadata = metadata(result.taskId(), context);
+            AgentMessage message = result.success()
+                    ? AgentMessage.newBuilder().setTaskCompleted(TaskCompleted.newBuilder()
+                            .setMetadata(eventMetadata)
+                            .setResultJson(ByteString.copyFromUtf8(result.output())).build()).build()
+                    : AgentMessage.newBuilder().setTaskFailed(TaskFailed.newBuilder()
+                            .setMetadata(eventMetadata)
+                            .setCode("RUNTIME_FAILURE")
+                            .setMessage(result.output())
+                            .setRetryable(false).build()).build();
+            channel.send(message);
             assignments.remove(result.taskId());
         }
         return status;
@@ -90,7 +123,7 @@ public final class GatewayRuntimeAdapter {
         if (status == CompletionStatus.COMPLETED) {
             AssignmentContext context = context(taskId);
             channel.send(AgentMessage.newBuilder().setTaskFailed(TaskFailed.newBuilder()
-                    .setMetadata(metadata(taskId, context.metadata())).setCode(code == null ? "RUNTIME_FAILURE" : code)
+                    .setMetadata(metadata(taskId, context)).setCode(code == null ? "RUNTIME_FAILURE" : code)
                     .setMessage(message == null ? "" : message).setRetryable(retryable).build()).build());
             assignments.remove(taskId);
         }
@@ -101,9 +134,10 @@ public final class GatewayRuntimeAdapter {
         return Objects.requireNonNull(assignments.get(taskId), "unknown task assignment: " + taskId);
     }
 
-    private EventMetadata metadata(UUID taskId, EventMetadata input) {
-        return input.toBuilder().setEventId(UUID.randomUUID().toString()).setAgentId(agentId)
-                .setTaskId(taskId.toString()).setOccurredAt(timestamp(clock.instant())).build();
+    private EventMetadata metadata(UUID taskId, AssignmentContext context) {
+        return context.metadata().toBuilder().setEventId(UUID.randomUUID().toString()).setAgentId(agentId)
+                .setTaskId(taskId.toString()).setExpectedVersion(context.expectedVersion())
+                .setOccurredAt(timestamp(clock.instant())).build();
     }
 
     private static UUID uuid(String value, String field) {
@@ -115,5 +149,36 @@ public final class GatewayRuntimeAdapter {
         return Timestamp.newBuilder().setSeconds(instant.getEpochSecond()).setNanos(instant.getNano()).build();
     }
 
-    private record AssignmentContext(EventMetadata metadata, Timestamp leaseExpiresAt) { }
+    private static final class AssignmentContext {
+        private final EventMetadata metadata;
+        private final Timestamp leaseExpiresAt;
+        private long expectedVersion;
+
+        private AssignmentContext(EventMetadata metadata, Timestamp leaseExpiresAt) {
+            this.metadata = metadata;
+            this.leaseExpiresAt = leaseExpiresAt;
+            this.expectedVersion = metadata.getExpectedVersion();
+        }
+
+        private synchronized EventMetadata metadata() {
+            return metadata;
+        }
+
+        private synchronized Timestamp leaseExpiresAt() {
+            return leaseExpiresAt;
+        }
+
+        private synchronized long expectedVersion() {
+            return expectedVersion;
+        }
+
+        private synchronized void advanceVersion() {
+            expectedVersion = Math.addExact(expectedVersion, 1);
+        }
+
+        private boolean matches(EventMetadata input) {
+            return metadata.getAttemptId().equals(input.getAttemptId())
+                    && metadata.getLeaseId().equals(input.getLeaseId());
+        }
+    }
 }

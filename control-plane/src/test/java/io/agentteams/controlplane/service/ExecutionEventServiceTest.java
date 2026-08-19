@@ -111,6 +111,11 @@ class ExecutionEventServiceTest {
                     assertThat(attempt.phase()).isEqualTo(TaskPhase.SUCCEEDED);
                     assertThat(attempt.completedAt()).isEqualTo(completedAt);
                 });
+        var completedLease = persistence.inTransaction(tx -> tx.agentLeases().findById(assignment.lease().id()));
+        assertThat(completedLease).get().satisfies(lease -> {
+            assertThat(lease.status()).isEqualTo("RELEASED");
+            assertThat(lease.releasedAt()).isEqualTo(completedAt);
+        });
         assertThat(persistedArtifact).contains(artifact);
         assertThat(artifactCount).isEqualTo(1);
     }

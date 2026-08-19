@@ -96,11 +96,15 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
 
         HttpRequest request;
         try {
-            request = HttpRequest.newBuilder(chatEndpoint())
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(chatEndpoint())
                     .header("Accept", "text/event-stream")
                     .header("Content-Type", "application/json")
-                    .header("X-Agent-Id", configuration.agentId())
-                    .headers(authorizationHeaders())
+                    .header("X-Agent-Id", configuration.agentId());
+            String authorizationToken = configuration.authorizationToken();
+            if (authorizationToken != null && !authorizationToken.isBlank()) {
+                requestBuilder.header("Authorization", "Bearer " + authorizationToken);
+            }
+            request = requestBuilder
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody(task), StandardCharsets.UTF_8))
                     .build();
             CompletableFuture<HttpResponse<InputStream>> response = httpClient.sendAsync(
@@ -173,11 +177,11 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
                         continue;
                     }
                     latestOutput = event.output().isBlank() ? latestOutput : event.output();
-                    if ("completed".equals(event.status())) {
+                    if (event.terminal() && "completed".equals(event.status())) {
                         publishSuccess(task, handle, sink, latestOutput);
                         return;
                     }
-                    if ("failed".equals(event.status())) {
+                    if (event.terminal() && "failed".equals(event.status())) {
                         publishFailure(task, handle, sink,
                                 event.error().isBlank() ? latestOutput : event.error());
                         return;
@@ -192,11 +196,11 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             SseEvent event = parseEvent(data);
             if (event != null) {
                 latestOutput = event.output().isBlank() ? latestOutput : event.output();
-                if ("completed".equals(event.status())) {
+                if (event.terminal() && "completed".equals(event.status())) {
                     publishSuccess(task, handle, sink, latestOutput);
                     return;
                 }
-                if ("failed".equals(event.status())) {
+                if (event.terminal() && "failed".equals(event.status())) {
                     publishFailure(task, handle, sink,
                             event.error().isBlank() ? latestOutput : event.error());
                     return;
@@ -233,10 +237,12 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         }
         try {
             JsonNode event = objectMapper.readTree(data.toString());
-            return new SseEvent(event.path("status").asText(), outputText(event.path("output")),
-                    errorText(event.path("error")));
+            String object = event.path("object").asText();
+            boolean terminal = object.isBlank() || "response".equals(object);
+            return new SseEvent(event.path("status").asText(), eventOutput(event),
+                    errorText(event.path("error")), terminal);
         } catch (IOException error) {
-            return new SseEvent("failed", "", "invalid QwenPaw SSE event: " + error.getMessage());
+            return new SseEvent("failed", "", "invalid QwenPaw SSE event: " + error.getMessage(), true);
         }
     }
 
@@ -257,33 +263,58 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         return URI.create(base.replaceAll("/+$", "") + "/api/console/chat");
     }
 
-    private String[] authorizationHeaders() {
-        if (configuration.authorizationToken() == null) {
-            return new String[0];
-        }
-        return new String[] {"Authorization", "Bearer " + configuration.authorizationToken()};
-    }
-
     private Instant now() {
         Clock currentClock = clock;
         return currentClock == null ? Clock.systemUTC().instant() : currentClock.instant();
     }
 
+    /** Extracts the assistant message from both response snapshots and streamed content events. */
+    private static String eventOutput(JsonNode event) {
+        JsonNode output = event.get("output");
+        if (output != null && !output.isNull()) {
+            return outputText(output);
+        }
+        String type = event.path("type").asText();
+        if ("message".equals(type)) {
+            return contentText(event.path("content"));
+        }
+        if ("text".equals(type) && !event.path("delta").asBoolean(true)) {
+            return event.path("text").asText("");
+        }
+        return "";
+    }
+
     private static String outputText(JsonNode output) {
         StringBuilder text = new StringBuilder();
         if (output.isArray()) {
+            boolean hasAssistantMessage = false;
             for (JsonNode message : output) {
-                JsonNode content = message.path("content");
-                if (content.isArray()) {
-                    for (JsonNode item : content) {
-                        append(text, item.path("text").asText(""));
-                    }
-                } else {
-                    append(text, content.asText(""));
+                if ("message".equals(message.path("type").asText())
+                        && "assistant".equals(message.path("role").asText())) {
+                    hasAssistantMessage = true;
+                    append(text, contentText(message.path("content")));
                 }
+            }
+            if (hasAssistantMessage) {
+                return text.toString();
+            }
+            for (JsonNode message : output) {
+                append(text, contentText(message.path("content")));
             }
         } else {
             append(text, output.asText(""));
+        }
+        return text.toString();
+    }
+
+    private static String contentText(JsonNode content) {
+        StringBuilder text = new StringBuilder();
+        if (content.isArray()) {
+            for (JsonNode item : content) {
+                append(text, item.path("text").asText(""));
+            }
+        } else {
+            append(text, content.asText(""));
         }
         return text.toString();
     }
@@ -314,7 +345,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    private record SseEvent(String status, String output, String error) {
+    private record SseEvent(String status, String output, String error, boolean terminal) {
     }
 
     private static final class RequestHandle {

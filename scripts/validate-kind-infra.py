@@ -14,7 +14,7 @@ def fail(message: str) -> None:
 
 def resources():
     try:
-        return [item for item in yaml.safe_load_all(MANIFEST.read_text()) if item]
+        return [item for item in yaml.safe_load_all(MANIFEST.read_text(encoding="utf-8")) if item]
     except Exception as exc:
         fail(f"cannot parse {MANIFEST}: {exc}")
 
@@ -47,8 +47,9 @@ def main():
         fail("NATS must persist JetStream data under /data/jetstream")
     qwenpaw = find("Deployment", "qwenpaw")
     image = qwenpaw["spec"]["template"]["spec"]["containers"][0].get("image")
-    if image != "agentscope/qwenpaw:v2.1.0":
-        fail(f"QwenPaw image must be pinned to agentscope/qwenpaw:v2.1.0, got {image}")
+    expected_image = "agentscope/qwenpaw@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd"
+    if image != expected_image:
+        fail(f"QwenPaw image must be pinned to {expected_image}, got {image}")
     service = find("Service", "qwenpaw")
     ports = {port.get("port") for port in service["spec"].get("ports", [])}
     if 8088 not in ports:

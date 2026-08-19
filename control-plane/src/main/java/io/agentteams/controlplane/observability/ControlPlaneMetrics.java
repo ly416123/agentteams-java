@@ -14,6 +14,8 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     private final Counter tasksFailed;
     private final Counter gatewayReconnects;
     private final Counter outboxRetries;
+    private final Counter taskLeasesExpired;
+    private final Counter taskLeasesReleased;
     private final Timer managerLatency;
 
     public ControlPlaneMetrics(MeterRegistry registry) {
@@ -24,6 +26,8 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
         tasksFailed = registry.counter("agentteams.tasks.failed");
         gatewayReconnects = registry.counter("agentteams.gateway.reconnects");
         outboxRetries = registry.counter("agentteams.outbox.retries");
+        taskLeasesExpired = registry.counter("agentteams.tasks.leases.expired");
+        taskLeasesReleased = registry.counter("agentteams.tasks.leases.released");
         managerLatency = registry.timer("agentteams.manager.call.latency");
     }
 
@@ -33,5 +37,7 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     public void taskFailed() { tasksFailed.increment(); }
     public void gatewayReconnected() { gatewayReconnects.increment(); }
     public void outboxRetried() { outboxRetries.increment(); }
+    public void taskLeaseExpired() { taskLeasesExpired.increment(); }
+    public void taskLeaseReleased() { taskLeasesReleased.increment(); }
     public void managerCall(Duration duration) { managerLatency.record(Objects.requireNonNull(duration, "duration")); }
 }

@@ -22,38 +22,51 @@ public class JdbcAgentStateStore implements GatewayStateStore {
     }
 
     @Override
-    public void registered(AgentProfile profile, Instant at) {
-        Objects.requireNonNull(profile, "profile");
+    public void registered(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(at, "at");
-        UUID agentId = canonicalAgentId(profile.agentId());
-        updateCanonicalAgent(agentId, "READY", profile.runtime(), profile.capabilities(), at,
+        UUID agentId = canonicalAgentId(connection.agentId());
+        updateCanonicalAgent(agentId, "READY", connection.runtime(), connection.capabilities(), at,
                 "'PROVISIONING', 'OFFLINE', 'READY'");
-        jdbc.update(upsertSql(false), profile.agentId(), "ONLINE", "READY", profile.runtime(),
-                profile.runtimeVersion(), capabilitiesJson(profile.capabilities()), Timestamp.from(at),
-                Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
+        jdbc.update(upsertSql(), connection.agentId(), connection.connectionId(), "ONLINE", "READY",
+                connection.runtime(), connection.runtimeVersion(), capabilitiesJson(connection.capabilities()),
+                Timestamp.from(at), Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
     }
 
     @Override
-    public void seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+    public boolean seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(at, "at");
-        UUID agentId = canonicalAgentId(connection.agentId());
-        refreshCanonicalAgent(agentId, connection.runtime(), connection.capabilities(), at);
-        jdbc.update(upsertSql(false), connection.agentId(), "ONLINE", "READY", connection.runtime(),
-                connection.runtimeVersion(), capabilitiesJson(connection.capabilities()), Timestamp.from(at),
-                Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
+        int owned = jdbc.update("""
+                UPDATE gateway_agent_state
+                   SET presence = 'ONLINE', phase = 'READY', runtime = ?, runtime_version = ?,
+                       capabilities = ?::jsonb, last_seen_at = ?, disconnected_at = NULL, updated_at = ?
+                 WHERE agent_id = ? AND connection_id = ?
+                """, connection.runtime(), connection.runtimeVersion(), capabilitiesJson(connection.capabilities()),
+                Timestamp.from(at), Timestamp.from(at), connection.agentId(), connection.connectionId());
+        if (owned == 0) {
+            return false;
+        }
+        refreshCanonicalAgent(canonicalAgentId(connection.agentId()), connection.runtime(),
+                connection.capabilities(), at);
+        return true;
     }
 
     @Override
-    public void disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+    public boolean disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(at, "at");
-        UUID agentId = canonicalAgentId(connection.agentId());
-        updateCanonicalAgent(agentId, "OFFLINE", connection.runtime(), connection.capabilities(), at,
-                "'PROVISIONING', 'READY', 'BUSY', 'DRAINING', 'OFFLINE'");
-        jdbc.update(upsertSql(true), connection.agentId(), "OFFLINE", "DISCONNECTED", connection.runtime(),
-                connection.runtimeVersion(), capabilitiesJson(connection.capabilities()), Timestamp.from(at),
-                Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
+        int owned = jdbc.update("""
+                UPDATE gateway_agent_state
+                   SET presence = 'OFFLINE', phase = 'DISCONNECTED', disconnected_at = ?, updated_at = ?
+                 WHERE agent_id = ? AND connection_id = ?
+                """, Timestamp.from(at), Timestamp.from(at), connection.agentId(), connection.connectionId());
+        if (owned == 0) {
+            return false;
+        }
+        updateCanonicalAgent(canonicalAgentId(connection.agentId()), "OFFLINE", connection.runtime(),
+                connection.capabilities(), at, "'PROVISIONING', 'READY', 'BUSY', 'DRAINING', 'OFFLINE'");
+        return true;
     }
 
     private void updateCanonicalAgent(UUID agentId, String phase, String runtime,
@@ -96,13 +109,14 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         return new IllegalStateException("Agent is not registered or cannot change state: " + agentId);
     }
 
-    private static String upsertSql(boolean disconnected) {
+    private static String upsertSql() {
         return """
-                INSERT INTO gateway_agent_state
-                    (agent_id, presence, phase, runtime, runtime_version, capabilities,
+            INSERT INTO gateway_agent_state
+                    (agent_id, connection_id, presence, phase, runtime, runtime_version, capabilities,
                      connected_at, last_seen_at, disconnected_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
                 ON CONFLICT (agent_id) DO UPDATE SET
+                    connection_id = EXCLUDED.connection_id,
                     presence = EXCLUDED.presence,
                     phase = EXCLUDED.phase,
                     runtime = EXCLUDED.runtime,

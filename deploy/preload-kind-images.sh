@@ -14,7 +14,7 @@ IMAGES=(
   "docker.io/natsio/nats-box:0.14.0|dockerproxy.net/natsio/nats-box:0.14.0;docker.m.daocloud.io/natsio/nats-box:0.14.0"
   "docker.io/minio/minio:RELEASE.2024-11-07T00-52-20Z|dockerproxy.net/minio/minio:RELEASE.2024-11-07T00-52-20Z;docker.m.daocloud.io/minio/minio:RELEASE.2024-11-07T00-52-20Z"
   "docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z|dockerproxy.net/minio/mc:RELEASE.2025-07-21T05-28-08Z;docker.m.daocloud.io/minio/mc:RELEASE.2025-07-21T05-28-08Z"
-  "docker.io/agentscope/qwenpaw:v2.1.0|dockerproxy.net/agentscope/qwenpaw:v2.1.0;docker.m.daocloud.io/agentscope/qwenpaw:v2.1.0"
+  "docker.io/agentscope/qwenpaw:latest|dockerproxy.net/agentscope/qwenpaw:latest;docker.m.daocloud.io/agentscope/qwenpaw:latest"
   "docker.io/prom/prometheus:v2.55.1|dockerproxy.net/prom/prometheus:v2.55.1;docker.m.daocloud.io/prom/prometheus:v2.55.1"
   "docker.io/grafana/grafana:11.3.0|dockerproxy.net/grafana/grafana:11.3.0;docker.m.daocloud.io/grafana/grafana:11.3.0"
   "registry.k8s.io/ingress-nginx/controller:v1.11.3|registry.aliyuncs.com/google_containers/nginx-ingress-controller:v1.11.3"

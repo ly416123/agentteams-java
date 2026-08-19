@@ -54,6 +54,69 @@ class GatewayRuntimeAdapterTest {
                         AgentMessage.PayloadCase.TASK_ACCEPTED);
     }
 
+    @Test
+    void reportsRuntimeRejectionToGateway() {
+        List<AgentMessage> messages = new ArrayList<>();
+        FakeRuntime runtime = new FakeRuntime();
+        runtime.start(new AgentRuntimeContext("fake", 1, Clock.systemUTC(), result -> { }, java.util.Map.of()));
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", messages::add, runtime,
+                Clock.systemUTC());
+
+        TaskAssigned first = assignment(UUID.randomUUID());
+        assertThat(adapter.acceptAssignment(first).accepted()).isTrue();
+        messages.clear();
+        TaskAssigned second = assignment(UUID.randomUUID());
+        RuntimeSubmission submission = adapter.acceptAssignment(second);
+
+        assertThat(submission.accepted()).isFalse();
+        assertThat(messages).singleElement().satisfies(message -> {
+            assertThat(message.getPayloadCase()).isEqualTo(AgentMessage.PayloadCase.TASK_ACCEPTED);
+            assertThat(message.getTaskAccepted().getAccepted()).isFalse();
+            assertThat(message.getTaskAccepted().getRejectionReason()).isNotBlank();
+        });
+    }
+
+    @Test
+    void replacesACompletedRuntimeTaskForANewAttempt() {
+        List<AgentMessage> messages = new ArrayList<>();
+        FakeRuntime runtime = new FakeRuntime();
+        runtime.start(new AgentRuntimeContext("fake", 1, Clock.systemUTC(), result -> { }, java.util.Map.of()));
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", messages::add, runtime,
+                Clock.systemUTC());
+        UUID taskId = UUID.randomUUID();
+        TaskAssigned first = assignment(taskId);
+
+        assertThat(adapter.acceptAssignment(first).accepted()).isTrue();
+        assertThat(adapter.complete(RuntimeResult.success(taskId, "first", Instant.EPOCH)))
+                .isEqualTo(CompletionStatus.COMPLETED);
+
+        TaskAssigned retry = first.toBuilder().setMetadata(first.getMetadata().toBuilder()
+                .setAttemptId(UUID.randomUUID().toString()).setLeaseId(UUID.randomUUID().toString()).build()).build();
+        assertThat(adapter.acceptAssignment(retry).accepted()).isTrue();
+        assertThat(adapter.complete(RuntimeResult.success(taskId, "retry", Instant.EPOCH)))
+                .isEqualTo(CompletionStatus.COMPLETED);
+    }
+
+    @Test
+    void advancesExecutionVersionWhenReportingProgress() {
+        List<AgentMessage> messages = new ArrayList<>();
+        FakeRuntime runtime = new FakeRuntime();
+        runtime.start(new AgentRuntimeContext("fake", 1, Clock.systemUTC(), result -> { }, java.util.Map.of()));
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", messages::add, runtime,
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+        UUID taskId = UUID.randomUUID();
+
+        assertThat(adapter.acceptAssignment(assignment(taskId)).accepted()).isTrue();
+        adapter.progress(taskId, 0, "running", "started");
+        adapter.complete(RuntimeResult.success(taskId, "done", Instant.EPOCH));
+
+        assertThat(messages).extracting(AgentMessage::getPayloadCase)
+                .containsExactly(AgentMessage.PayloadCase.TASK_ACCEPTED,
+                        AgentMessage.PayloadCase.TASK_PROGRESS, AgentMessage.PayloadCase.TASK_COMPLETED);
+        assertThat(messages.get(1).getTaskProgress().getMetadata().getExpectedVersion()).isEqualTo(1);
+        assertThat(messages.get(2).getTaskCompleted().getMetadata().getExpectedVersion()).isEqualTo(2);
+    }
+
     private static TaskAssigned assignment(UUID taskId) {
         return TaskAssigned.newBuilder().setMetadata(EventMetadata.newBuilder()
                 .setEventId(UUID.randomUUID().toString()).setAgentId("agent-1").setTaskId(taskId.toString())

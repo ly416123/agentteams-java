@@ -61,12 +61,32 @@ class AgentChannelClientTest {
                 .isEqualTo(AgentMessage.PayloadCase.TASK_HEARTBEAT);
         assertThat(port.messages().get(1).getTaskHeartbeat().getMetadata().getLeaseId())
                 .isEqualTo("lease-1");
+        assertThat(port.messages().get(1).getTaskHeartbeat().getLeaseExpiresAt().getSeconds())
+                .isEqualTo(START.plusSeconds(40).getEpochSecond());
 
-        clock.advance(Duration.ofSeconds(10));
+        clock.advance(Duration.ofSeconds(40));
         assertThat(client.heartbeat(taskId, "late")).isEqualTo(HeartbeatResult.EXPIRED);
         assertThat(client.heartbeat(UUID.randomUUID(), "missing"))
                 .isEqualTo(HeartbeatResult.UNKNOWN_LEASE);
         assertThat(port.messages()).hasSize(2);
+    }
+
+    @Test
+    void sendsAgentHeartbeatWhenReadyWithoutATaskLease() {
+        MutableClock clock = new MutableClock(START);
+        RecordingPort port = new RecordingPort();
+        AgentChannelClient client = new AgentChannelClient("agent-1", port, clock, Duration.ofSeconds(5));
+
+        assertThat(client.heartbeatAgent("idle")).isFalse();
+        client.connect(hello());
+        client.onReady(ready(true));
+
+        assertThat(client.heartbeatAgent("idle")).isTrue();
+        AgentMessage heartbeat = port.messages().get(1);
+        assertThat(heartbeat.getPayloadCase()).isEqualTo(AgentMessage.PayloadCase.AGENT_HEARTBEAT);
+        assertThat(heartbeat.getAgentHeartbeat().getMetadata().getAgentId()).isEqualTo("agent-1");
+        assertThat(heartbeat.getAgentHeartbeat().getMetadata().getTaskId()).isEmpty();
+        assertThat(heartbeat.getAgentHeartbeat().getStatus()).isEqualTo("idle");
     }
 
     @Test
@@ -130,7 +150,28 @@ class AgentChannelClientTest {
                 .isEqualTo(HeartbeatResult.UNKNOWN_LEASE);
         assertThat(port.messages()).extracting(AgentMessage::getPayloadCase)
                 .contains(AgentMessage.PayloadCase.TASK_ACCEPTED, AgentMessage.PayloadCase.TASK_HEARTBEAT,
-                        AgentMessage.PayloadCase.TASK_COMPLETED);
+                AgentMessage.PayloadCase.TASK_COMPLETED);
+    }
+
+    @Test
+    void synchronizesLeaseVersionAfterRuntimeAdapterProgressBeforeHeartbeat() {
+        MutableClock clock = new MutableClock(START);
+        RecordingPort port = new RecordingPort();
+        AgentChannelClient client = new AgentChannelClient("agent-1", port, clock, Duration.ofSeconds(5));
+        FakeRuntime runtime = new FakeRuntime();
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", port::send, runtime, clock);
+        runtime.start(new AgentRuntimeContext("qwenpaw", 1, clock, result -> { }, java.util.Map.of()));
+        UUID taskId = UUID.randomUUID();
+        client.connect(hello());
+        client.onReady(ready(true));
+
+        assertThat(client.onTaskAssigned(assignment(taskId), adapter).accepted()).isTrue();
+        adapter.progress(taskId, 0, "running", "started");
+        assertThat(client.advanceTaskEventVersion(taskId)).isTrue();
+        assertThat(client.heartbeat(taskId, "running")).isEqualTo(HeartbeatResult.SENT);
+
+        AgentMessage heartbeat = port.messages().get(port.messages().size() - 1);
+        assertThat(heartbeat.getTaskHeartbeat().getMetadata().getExpectedVersion()).isEqualTo(2);
     }
 
     @Test

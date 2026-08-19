@@ -27,6 +27,12 @@ class WorkerResourceFactoryTest {
         assertThat(deployment.getSpec().getTemplate().getSpec().getAutomountServiceAccountToken()).isFalse();
         assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getImage())
                 .isEqualTo("example/worker:v1");
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv())
+                .anySatisfy(env -> assertThat(env.getName()).isEqualTo("AGENTTEAMS_AGENT_ID"))
+                .anySatisfy(env -> assertThat(env.getName()).isEqualTo("MODEL"));
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv().stream()
+                .filter(env -> "AGENTTEAMS_AGENT_ID".equals(env.getName())).findFirst().orElseThrow().getValue())
+                .isEqualTo("agent-a");
         assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getImagePullPolicy())
                 .isEqualTo("IfNotPresent");
         assertThat(deployment.getSpec().getTemplate().getMetadata().getLabels())

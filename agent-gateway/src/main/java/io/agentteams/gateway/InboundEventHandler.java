@@ -78,6 +78,7 @@ public final class InboundEventHandler {
             case TASK_HEARTBEAT -> application.taskHeartbeat(snapshot, message.getTaskHeartbeat());
             case TASK_COMPLETED -> application.taskCompleted(snapshot, message.getTaskCompleted());
             case TASK_FAILED -> application.taskFailed(snapshot, message.getTaskFailed());
+            case AGENT_HEARTBEAT -> application.agentHeartbeat(snapshot, message.getAgentHeartbeat());
             case CONFIG_APPLIED -> throw new GatewayExceptions.InvalidMessage(
                     "ConfigApplied is not handled by the Task Gateway application port");
             case ERROR -> throw new GatewayExceptions.InvalidMessage("agent reported an Error payload");
@@ -100,6 +101,7 @@ public final class InboundEventHandler {
             case TASK_HEARTBEAT -> message.getTaskHeartbeat().getMetadata();
             case TASK_COMPLETED -> message.getTaskCompleted().getMetadata();
             case TASK_FAILED -> message.getTaskFailed().getMetadata();
+            case AGENT_HEARTBEAT -> message.getAgentHeartbeat().getMetadata();
             case ACK -> message.getAck().getMetadata();
             default -> throw new GatewayExceptions.InvalidMessage("payload metadata is required");
         };

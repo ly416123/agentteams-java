@@ -130,6 +130,15 @@ public final class ExecutionEventService {
         }
         if (next.phase().terminal()) {
             teamId(current).ifPresent(team -> tx.teams().releaseTaskAssignment(team, taskId, next.updatedAt()));
+            if (next.attempt() != null) {
+                var lease = tx.agentLeases().findById(next.attempt().leaseId())
+                        .orElseThrow(() -> new IllegalStateException("active lease is missing"));
+                if ("ACTIVE".equals(lease.status())) {
+                    tx.agentLeases().updateStatus(lease.id(), "RELEASED", next.updatedAt(), lease.version(),
+                            next.updatedAt());
+                    metrics.taskLeaseReleased();
+                }
+            }
         }
         for (ArtifactRecord artifact : artifacts) {
             if (!taskId.equals(artifact.taskId())) {
@@ -146,7 +155,14 @@ public final class ExecutionEventService {
     }
 
     private static Task toDomain(TaskRecord task, TaskAttemptRecord attempt, Set<UUID> processedEvents) {
-        TaskAttempt domainAttempt = attempt == null ? null : new TaskAttempt(attempt.id(), attempt.taskId(),
+        // Expired/recovered assignments remain in task_attempts for audit, but
+        // they are no longer the aggregate's active attempt. Rebuilding them
+        // for a QUEUED/CANCELLED task violates the domain invariant and turns
+        // every redelivered stale event into a poison message.
+        boolean activeAttempt = attempt != null
+                && task.phase() == attempt.phase()
+                && task.version() == attempt.version();
+        TaskAttempt domainAttempt = !activeAttempt ? null : new TaskAttempt(attempt.id(), attempt.taskId(),
                 attempt.leaseId(), attempt.phase(), attempt.createdAt(), attempt.updatedAt(),
                 attempt.leaseExpiresAt(), attempt.completedAt(), attempt.actor(), attempt.source(),
                 attempt.failureCode(), attempt.redactedFailureMessage(), attempt.version());

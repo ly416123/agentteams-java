@@ -23,8 +23,10 @@ class JdbcAgentStateStoreTest {
         JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
 
         UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
-        store.registered(new AgentProfile(agentId.toString(), "deepseek-worker", "1.2.3",
-                Map.of("gpu", "true", "tasks", "v1")), Instant.parse("2026-08-16T00:00:00Z"));
+        ConnectionRegistry.ConnectionSnapshot connection = new ConnectionRegistry.ConnectionSnapshot(
+                UUID.randomUUID(), agentId.toString(), "deepseek-worker", "1.2.3",
+                Map.of("gpu", "true", "tasks", "v1"), Instant.parse("2026-08-16T00:00:00Z"), 0);
+        store.registered(connection, Instant.parse("2026-08-16T00:00:00Z"));
 
         ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).update(contains("gateway_agent_state"), args.capture());
@@ -43,6 +45,7 @@ class JdbcAgentStateStoreTest {
     void recordsSeenAndDisconnectedPresenceTransitions() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(contains("UPDATE agents"), any(Object[].class))).thenReturn(1);
+        when(jdbc.update(contains("UPDATE gateway_agent_state"), any(Object[].class))).thenReturn(1);
         JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
         UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
         ConnectionRegistry.ConnectionSnapshot snapshot = new ConnectionRegistry.ConnectionSnapshot(
@@ -68,9 +71,12 @@ class JdbcAgentStateStoreTest {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
         UUID unknownId = UUID.fromString("c7a0d5fd-4d9a-4ce4-93f6-1b758a8cfca2");
+        ConnectionRegistry.ConnectionSnapshot unknown = new ConnectionRegistry.ConnectionSnapshot(
+                UUID.randomUUID(), unknownId.toString(), "runtime", "1.0", Map.of(),
+                Instant.parse("2026-08-16T00:00:00Z"), 0);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.registered(
-                        new AgentProfile(unknownId.toString(), "runtime", "1.0", Map.of()),
+                        unknown,
                         Instant.parse("2026-08-16T00:00:00Z")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(unknownId.toString());

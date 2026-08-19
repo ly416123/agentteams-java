@@ -16,7 +16,7 @@ def main():
     if not MANIFEST.exists():
         fail("manifest does not exist")
     try:
-        resources = [item for item in yaml.safe_load_all(MANIFEST.read_text()) if item]
+        resources = [item for item in yaml.safe_load_all(MANIFEST.read_text(encoding="utf-8")) if item]
     except Exception as exc:
         fail(f"cannot parse manifest: {exc}")
     by_name = {(item.get("kind"), item.get("metadata", {}).get("name")): item for item in resources}
@@ -24,6 +24,9 @@ def main():
         ("ConfigMap", "prometheus-config"),
         ("Deployment", "prometheus"),
         ("Service", "prometheus"),
+        ("ServiceAccount", "prometheus"),
+        ("Role", "prometheus-discovery"),
+        ("RoleBinding", "prometheus-discovery"),
         ("PersistentVolumeClaim", "prometheus-data"),
         ("Deployment", "grafana"),
         ("Service", "grafana"),
@@ -34,11 +37,17 @@ def main():
         if key not in by_name:
             fail(f"missing {key[0]}/{key[1]}")
     config = by_name[("ConfigMap", "prometheus-config")]["data"].get("prometheus.yml", "")
-    for target in ("agentteams-agentteams-java-control-plane:8080", "agentteams-agentteams-java-gateway:8080"):
-        if target not in config:
-            fail(f"Prometheus config missing target {target}")
+    for job, label in (("control-plane", "agentteams-control-plane"), ("gateway", "agentteams-gateway")):
+        if f"job_name: {job}" not in config or "kubernetes_sd_configs:" not in config:
+            fail(f"Prometheus config missing Kubernetes discovery for {job}")
+        if label not in config:
+            fail(f"Prometheus config missing pod label {label}")
     if "/actuator/prometheus" not in config:
         fail("Prometheus config must scrape /actuator/prometheus")
+    deployment = by_name[("Deployment", "prometheus")]
+    pod_spec = deployment["spec"]["template"]["spec"]
+    if pod_spec.get("serviceAccountName") != "prometheus":
+        fail("Prometheus deployment must use the discovery service account")
     datasource = by_name[("ConfigMap", "grafana-datasources")]["data"].get("datasources.yaml", "")
     if "http://prometheus:9090" not in datasource:
         fail("Grafana datasource must point to Prometheus")

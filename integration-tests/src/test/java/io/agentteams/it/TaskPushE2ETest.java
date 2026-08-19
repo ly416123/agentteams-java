@@ -10,7 +10,6 @@ import io.agentteams.contracts.v1.ServerMessage;
 import io.agentteams.contracts.v1.TaskAssigned;
 import io.agentteams.gateway.AcknowledgementValidation;
 import io.agentteams.gateway.AgentChannelService;
-import io.agentteams.gateway.AgentProfile;
 import io.agentteams.gateway.AgentStatePort;
 import io.agentteams.gateway.AuthenticationPort;
 import io.agentteams.gateway.CommandDeliveryService;
@@ -165,15 +164,17 @@ class TaskPushE2ETest {
 
     private static final class NoopStatePort implements AgentStatePort {
         @Override
-        public void registered(AgentProfile profile, Instant at) {
+        public void registered(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
         }
 
         @Override
-        public void seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        public boolean seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            return true;
         }
 
         @Override
-        public void disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        public boolean disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            return true;
         }
     }
 

@@ -371,7 +371,7 @@ spec:
     spec:
       containers:
         - name: qwenpaw
-          image: agentscope/qwenpaw:v2.1.0
+          image: agentscope/qwenpaw@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd
           imagePullPolicy: IfNotPresent
           # 官方镜像 entrypoint 在 K8s 下会把 Service 环境变量拼成绑定地址，
           # 而 --port 只接受整数端口；显式覆盖为纯端口号。

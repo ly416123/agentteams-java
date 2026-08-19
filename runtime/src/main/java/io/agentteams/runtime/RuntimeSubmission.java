@@ -5,6 +5,10 @@ public record RuntimeSubmission(boolean accepted, RuntimeTaskState state, String
         return new RuntimeSubmission(true, RuntimeTaskState.RUNNING, "accepted");
     }
 
+    public static RuntimeSubmission duplicateAccepted() {
+        return new RuntimeSubmission(true, RuntimeTaskState.RUNNING, "already accepted");
+    }
+
     public static RuntimeSubmission rejected(String reason) {
         return new RuntimeSubmission(false, RuntimeTaskState.REJECTED, reason);
     }

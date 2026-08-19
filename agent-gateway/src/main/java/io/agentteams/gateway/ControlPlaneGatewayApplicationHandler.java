@@ -36,7 +36,11 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
     @Override
     public void taskAccepted(ConnectionRegistry.ConnectionSnapshot connection, TaskAccepted event) {
         if (!event.getAccepted()) {
-            throw invalid("accepted event must have accepted=true");
+            // A runtime may reject a redelivered assignment because it is
+            // already running another attempt. This is a valid delivery
+            // outcome, not a malformed execution event; acknowledge it and
+            // leave the Control Plane aggregate unchanged.
+            return;
         }
         apply(connection, event.getMetadata(), ExecutionPhase.ACCEPTED, "", "", List.of());
     }

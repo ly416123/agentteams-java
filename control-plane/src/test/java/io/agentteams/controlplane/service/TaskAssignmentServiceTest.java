@@ -123,6 +123,11 @@ class TaskAssignmentServiceTest {
                     assertThat(assignment.phase()).isEqualTo(TaskPhase.CANCELLED);
                     assertThat(assignment.releasedAt()).isEqualTo(recoveryTime);
                 });
+        var expiredAttempt = persistence.inTransaction(tx -> tx.taskAttempts().findById(first.attempt().id()));
+        assertThat(expiredAttempt).get().satisfies(attempt -> {
+            assertThat(attempt.phase()).isEqualTo(TaskPhase.CANCELLED);
+            assertThat(attempt.completedAt()).isEqualTo(recoveryTime);
+        });
 
         TaskAssignmentService.AssignmentResult second = service.queueReadyTask(taskId, recoveryTime);
 
@@ -134,7 +139,8 @@ class TaskAssignmentServiceTest {
             assertThat(tx.taskAttempts().count()).isEqualTo(2);
             assertThat(tx.taskAssignments().count()).isEqualTo(2);
             assertThat(tx.agentLeases().count()).isEqualTo(2);
-            assertThat(tx.outboxEvents().eventTypes()).containsExactly("TaskAssigned", "TaskAssigned");
+            assertThat(tx.outboxEvents().eventTypes()).containsExactly("TaskAssigned", "TaskAssigned",
+                    "TaskLeaseExpired");
             return null;
         });
     }

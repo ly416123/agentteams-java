@@ -62,6 +62,21 @@ class InboundEventHandlerTest {
     }
 
     @Test
+    void forwardsAgentHeartbeatWithoutTaskMetadata() {
+        GatewayTestFixtures.RecordingInboundStore eventStore = new GatewayTestFixtures.RecordingInboundStore();
+        GatewayTestFixtures.RecordingApplicationHandler application = new GatewayTestFixtures.RecordingApplicationHandler();
+        AgentMessage message = GatewayTestFixtures.agentHeartbeat("agent-1", "agent-heartbeat-1");
+        ConnectionRegistry registry = new ConnectionRegistry();
+        InboundEventHandler handler = handler(registry, eventStore, application);
+
+        handler.handle(connected(registry, "agent-1"), message);
+
+        assertThat(eventStore.seen).containsExactly("agent-heartbeat-1");
+        assertThat(eventStore.agents).containsExactly("agent-1");
+        assertThat(application.agentHeartbeats).containsExactly(message.getAgentHeartbeat());
+    }
+
+    @Test
     void forwardsCompletedToPortAndApplication() {
         GatewayTestFixtures.RecordingInboundStore eventStore = new GatewayTestFixtures.RecordingInboundStore();
         GatewayTestFixtures.RecordingApplicationHandler application = new GatewayTestFixtures.RecordingApplicationHandler();

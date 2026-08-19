@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -42,18 +43,29 @@ public class JdbcCommandEventStore implements CommandEventStore {
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final GatewayMetricsPort metrics;
 
     public JdbcCommandEventStore(DataSource dataSource) {
-        this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")), Clock.systemUTC());
+        this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")), Clock.systemUTC(),
+                GatewayMetricsPort.noop());
+    }
+
+    public JdbcCommandEventStore(DataSource dataSource, GatewayMetricsPort metrics) {
+        this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")), Clock.systemUTC(), metrics);
     }
 
     public JdbcCommandEventStore(JdbcTemplate jdbc) {
-        this(jdbc, Clock.systemUTC());
+        this(jdbc, Clock.systemUTC(), GatewayMetricsPort.noop());
     }
 
     JdbcCommandEventStore(JdbcTemplate jdbc, Clock clock) {
+        this(jdbc, clock, GatewayMetricsPort.noop());
+    }
+
+    JdbcCommandEventStore(JdbcTemplate jdbc, Clock clock, GatewayMetricsPort metrics) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     @Override
@@ -64,23 +76,37 @@ public class JdbcCommandEventStore implements CommandEventStore {
             throw new IllegalArgumentException("only TaskAssigned commands are supported");
         }
 
+        EventMetadata inputMetadata = command.getTaskAssigned().getMetadata();
+        String eventId = inputMetadata.getEventId();
+        if (eventId.isBlank()) {
+            eventId = UUID.randomUUID().toString();
+        }
+        EventMetadata metadata = inputMetadata.toBuilder()
+                .setAgentId(agentId)
+                .setEventId(eventId)
+                .build();
+
         Long allocated = jdbc.queryForObject(ALLOCATE_SEQUENCE, Long.class, agentId);
         if (allocated == null || allocated <= 0) {
             throw new IllegalStateException("database returned an invalid command sequence");
         }
-        EventMetadata metadata = command.getTaskAssigned().getMetadata().toBuilder()
-                .setAgentId(agentId)
-                .setSequence(allocated)
-                .build();
-        if (metadata.getEventId().isBlank()) {
-            metadata = metadata.toBuilder().setEventId(UUID.randomUUID().toString()).build();
-        }
+        metadata = metadata.toBuilder().setSequence(allocated).build();
         ServerMessage persisted = command.toBuilder()
                 .setTaskAssigned(command.getTaskAssigned().toBuilder().setMetadata(metadata).build())
                 .build();
-        jdbc.update(INSERT_COMMAND, agentId, allocated, metadata.getEventId(), persisted.toByteArray(),
-                Timestamp.from(clock.instant()));
-        return new SequencedCommand(allocated, persisted);
+        try {
+            jdbc.update(INSERT_COMMAND, agentId, allocated, metadata.getEventId(), persisted.toByteArray(),
+                    Timestamp.from(clock.instant()));
+            metrics.commandAppended();
+            return new SequencedCommand(allocated, persisted);
+        } catch (DuplicateKeyException duplicate) {
+            // Outbox delivery is at-least-once. If a Gateway process crashes
+            // after the insert but before the broker acknowledgement, the
+            // same event must reuse the original command sequence.
+            SequencedCommand existing = findByEventId(agentId, eventId).orElseThrow(() -> duplicate);
+            metrics.commandDeduplicated();
+            return existing;
+        }
     }
 
     @Override
@@ -161,6 +187,15 @@ public class JdbcCommandEventStore implements CommandEventStore {
             throw new DataAccessException("stored command is not valid protobuf", error) {
             };
         }
+    }
+
+    private java.util.Optional<SequencedCommand> findByEventId(String agentId, String eventId) {
+        return jdbc.query("""
+                SELECT sequence, command_bytes
+                  FROM gateway_commands
+                 WHERE agent_id = ? AND event_id = ?
+                """, (resultSet, rowNumber) -> readCommand(resultSet), agentId, eventId)
+                .stream().findFirst();
     }
 
     private static void requireText(String value, String field) {

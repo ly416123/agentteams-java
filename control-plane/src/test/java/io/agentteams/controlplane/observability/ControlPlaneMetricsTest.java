@@ -17,9 +17,13 @@ class ControlPlaneMetricsTest {
         metrics.taskFailed();
         metrics.gatewayReconnected();
         metrics.outboxRetried();
+        metrics.taskLeaseExpired();
+        metrics.taskLeaseReleased();
         metrics.managerCall(Duration.ofMillis(20));
         assertThat(registry.counter("agentteams.tasks.created").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.gateway.reconnects").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.tasks.leases.expired").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.tasks.leases.released").count()).isEqualTo(1);
         assertThat(registry.timer("agentteams.manager.call.latency").count()).isEqualTo(1);
     }
 }

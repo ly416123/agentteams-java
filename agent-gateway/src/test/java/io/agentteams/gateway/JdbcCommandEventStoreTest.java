@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 class JdbcCommandEventStoreTest {
@@ -42,6 +43,30 @@ class JdbcCommandEventStoreTest {
         assertThat(values).contains("agent-1", 7L);
         assertThat(values).anyMatch(value -> value instanceof byte[] bytes
                 && java.util.Arrays.equals(bytes, result.message().toByteArray()));
+    }
+
+    @Test
+    void reusesExistingSequenceWhenAnOutboxEventIsDeliveredAgain() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        String eventId = UUID.randomUUID().toString();
+        ServerMessage command = ServerMessage.newBuilder()
+                .setTaskAssigned(GatewayTestFixtures.assignment("agent-1", eventId))
+                .build();
+        ServerMessage persisted = command.toBuilder().setTaskAssigned(command.getTaskAssigned().toBuilder()
+                .setMetadata(command.getTaskAssigned().getMetadata().toBuilder()
+                        .setAgentId("agent-1").setEventId(eventId).setSequence(4).build()).build()).build();
+        doReturn(8L).when(jdbc).queryForObject(contains("gateway_agent_sequences"), eq(Long.class),
+                any(Object[].class));
+        org.mockito.Mockito.doThrow(new DuplicateKeyException("event already exists"))
+                .when(jdbc).update(contains("gateway_commands"), any(Object[].class));
+        doReturn(List.of(new SequencedCommand(4, persisted))).when(jdbc).query(
+                argThat(sql -> sql.contains("WHERE agent_id = ? AND event_id = ?")),
+                any(org.springframework.jdbc.core.RowMapper.class), eq("agent-1"), eq(eventId));
+
+        SequencedCommand result = new JdbcCommandEventStore(jdbc, fixedClock()).append("agent-1", command);
+
+        assertThat(result.sequence()).isEqualTo(4);
+        assertThat(result.message()).isEqualTo(persisted);
     }
 
     @Test

@@ -48,7 +48,8 @@ class AgentChannelServiceTest {
             assertThat(message.getReady().getNegotiatedVersion()).isEqualTo(GatewayTestFixtures.VERSION);
         });
         assertThat(registry.current("agent-1")).isPresent();
-        assertThat(stateStore.registered).singleElement().extracting(AgentProfile::agentId).isEqualTo("agent-1");
+        assertThat(stateStore.registered).singleElement().extracting(ConnectionRegistry.ConnectionSnapshot::agentId)
+                .isEqualTo("agent-1");
     }
 
     @Test
@@ -152,6 +153,64 @@ class AgentChannelServiceTest {
         assertThat(application.accepted).extracting(event -> event.getMetadata().getEventId())
                 .containsExactly("current-event");
         assertThat(firstOutbound.error).isNotNull();
+    }
+
+    @Test
+    void staleConnectionOnAnotherGatewayReplicaCannotRefreshOrForward() {
+        SharedConnectionState sharedState = new SharedConnectionState();
+        GatewayTestFixtures.RecordingApplicationHandler sharedApplication =
+                new GatewayTestFixtures.RecordingApplicationHandler();
+        ConnectionRegistry firstRegistry = new ConnectionRegistry();
+        ConnectionRegistry secondRegistry = new ConnectionRegistry();
+        AgentChannelService firstService = serviceFor(firstRegistry, sharedState, sharedApplication);
+        AgentChannelService secondService = serviceFor(secondRegistry, sharedState, sharedApplication);
+
+        GatewayTestFixtures.RecordingObserver firstOutbound = new GatewayTestFixtures.RecordingObserver();
+        StreamObserver<AgentMessage> first = firstService.connect(firstOutbound);
+        first.onNext(GatewayTestFixtures.hello("agent-1"));
+
+        GatewayTestFixtures.RecordingObserver secondOutbound = new GatewayTestFixtures.RecordingObserver();
+        StreamObserver<AgentMessage> second = secondService.connect(secondOutbound);
+        second.onNext(GatewayTestFixtures.hello("agent-1"));
+
+        first.onNext(GatewayTestFixtures.accepted("agent-1", "old-replica-event"));
+        second.onNext(GatewayTestFixtures.accepted("agent-1", "new-replica-event"));
+
+        assertThat(firstOutbound.error).isInstanceOf(StatusRuntimeException.class);
+        assertThat(((StatusRuntimeException) firstOutbound.error).getStatus().getCode())
+                .isEqualTo(Status.Code.FAILED_PRECONDITION);
+        assertThat(sharedApplication.accepted).extracting(event -> event.getMetadata().getEventId())
+                .containsExactly("new-replica-event");
+    }
+
+    private static AgentChannelService serviceFor(ConnectionRegistry registry, AgentStatePort state,
+            GatewayApplicationHandler application) {
+        CommandDeliveryService delivery = new CommandDeliveryService(registry,
+                new GatewayTestFixtures.RecordingCommandStore(), fixedClock());
+        InboundEventHandler inbound = new InboundEventHandler(registry,
+                new GatewayTestFixtures.RecordingInboundStore(), application, delivery, fixedClock());
+        return new AgentChannelService(GatewayTestFixtures.VERSION, registry, state,
+                AgentAuthenticator.allowAll(), () -> "test-peer", delivery, inbound, fixedClock());
+    }
+
+    private static final class SharedConnectionState implements AgentStatePort {
+        private final java.util.concurrent.ConcurrentHashMap<String, java.util.UUID> owners =
+                new java.util.concurrent.ConcurrentHashMap<>();
+
+        @Override
+        public void registered(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            owners.put(connection.agentId(), connection.connectionId());
+        }
+
+        @Override
+        public boolean seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            return connection.connectionId().equals(owners.get(connection.agentId()));
+        }
+
+        @Override
+        public boolean disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            return owners.remove(connection.agentId(), connection.connectionId());
+        }
     }
 
     private static Clock fixedClock() {

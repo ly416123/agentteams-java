@@ -120,11 +120,33 @@ uses `RELEASE.2025-07-21T05-28-08Z`. The service Dockerfiles copy
 `deploy/docker/maven-settings.xml` so Maven builds use the configured public
 mirror when Maven Central is unavailable.
 
+The `kind-recovery` CI job creates the same two-node topology, builds and loads
+the service images, creates a real QwenPaw Worker, and runs
+`scripts/run-kind-lease-recovery.py`. Prometheus uses Kubernetes Pod discovery
+instead of a load-balanced Service target, and
+`scripts/validate-kind-prometheus.py` verifies that both Control Plane and
+Gateway replicas are being scraped.
+
 The Operator smoke path was also verified with a temporary `Worker` CR:
 Operator-created Deployment and Service reached Ready, replica changes updated
 Worker status, and deleting the CR removed both child resources. Worker images
 are generated with `imagePullPolicy: IfNotPresent` so locally loaded Kind images
 do not trigger a registry pull.
+
+The QwenPaw Worker image is built and loaded by `deploy/build-images.sh`. To
+connect one to the real push path, first create an Agent through the Control
+Plane API, replace the placeholder UUID in
+`deploy/examples/qwenpaw-worker.yaml`, and apply it:
+
+```bash
+kubectl apply -f deploy/examples/qwenpaw-worker.yaml
+kubectl -n agentteams wait --for=condition=available deployment/qwenpaw-worker --timeout=180s
+```
+
+The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`; the
+Gateway and QwenPaw endpoints remain explicit Worker environment settings.
+The Worker calls QwenPaw's HTTP/SSE endpoint and reports accepted, heartbeat,
+progress, completion, or failure events over the Gateway gRPC stream.
 
 The chart resource names include both the Helm release and chart name. The
 Control Plane API can be exposed for a smoke check with:

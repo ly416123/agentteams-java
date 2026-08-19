@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
@@ -118,6 +119,18 @@ class ControlPlaneGatewayApplicationHandlerTest {
                 .setMetadata(metadata("rejected", 1).toBuilder().clearLeaseId().build()).setAccepted(true).build()))
                 .isInstanceOf(GatewayExceptions.InvalidMessage.class)
                 .hasMessageContaining("lease_id");
+    }
+
+    @Test
+    void ignoresRuntimeAssignmentRejectionWithoutMutatingControlPlane() {
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
+        ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
+
+        handler.taskAccepted(connection(), TaskAccepted.newBuilder()
+                .setMetadata(metadata("rejected", 1)).setAccepted(false)
+                .setRejectionReason("already running").build());
+
+        verifyNoInteractions(service);
     }
 
     @Test

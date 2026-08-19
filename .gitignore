@@ -33,3 +33,6 @@ dependency-reduced-pom.xml
 # Operating-system metadata
 .DS_Store
 Thumbs.db
+
+# Local API credentials (never commit)
+/apikey

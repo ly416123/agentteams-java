@@ -3,6 +3,7 @@ package io.agentteams.gateway;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import io.agentteams.contracts.v1.AgentHello;
+import io.agentteams.contracts.v1.AgentHeartbeat;
 import io.agentteams.contracts.v1.AgentMessage;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
@@ -61,6 +62,13 @@ final class GatewayTestFixtures {
                 .setMetadata(taskMetadata(agentId, eventId))
                 .setStatus("running")
                 .setLeaseExpiresAt(Timestamp.newBuilder().setSeconds(1_800_000_030L).build())
+                .build()).build();
+    }
+
+    static AgentMessage agentHeartbeat(String agentId, String eventId) {
+        return AgentMessage.newBuilder().setAgentHeartbeat(AgentHeartbeat.newBuilder()
+                .setMetadata(metadata(eventId, agentId))
+                .setStatus("idle")
                 .build()).build();
     }
 
@@ -131,23 +139,25 @@ final class GatewayTestFixtures {
     }
 
     static final class RecordingStateStore implements GatewayStateStore {
-        final List<AgentProfile> registered = new ArrayList<>();
+        final List<ConnectionRegistry.ConnectionSnapshot> registered = new ArrayList<>();
         final List<ConnectionRegistry.ConnectionSnapshot> disconnected = new ArrayList<>();
         int seen;
 
         @Override
-        public void registered(AgentProfile profile, Instant at) {
-            registered.add(profile);
+        public void registered(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            registered.add(connection);
         }
 
         @Override
-        public void seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        public boolean seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
             seen++;
+            return true;
         }
 
         @Override
-        public void disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        public boolean disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
             disconnected.add(connection);
+            return true;
         }
     }
 
@@ -214,6 +224,7 @@ final class GatewayTestFixtures {
         final List<io.agentteams.contracts.v1.TaskAccepted> accepted = new ArrayList<>();
         final List<io.agentteams.contracts.v1.TaskProgress> progress = new ArrayList<>();
         final List<io.agentteams.contracts.v1.TaskHeartbeat> heartbeats = new ArrayList<>();
+        final List<io.agentteams.contracts.v1.AgentHeartbeat> agentHeartbeats = new ArrayList<>();
         final List<io.agentteams.contracts.v1.TaskCompleted> completed = new ArrayList<>();
         final List<io.agentteams.contracts.v1.TaskFailed> failed = new ArrayList<>();
 
@@ -233,6 +244,12 @@ final class GatewayTestFixtures {
         public void taskHeartbeat(ConnectionRegistry.ConnectionSnapshot connection,
                 io.agentteams.contracts.v1.TaskHeartbeat event) {
             heartbeats.add(event);
+        }
+
+        @Override
+        public void agentHeartbeat(ConnectionRegistry.ConnectionSnapshot connection,
+                io.agentteams.contracts.v1.AgentHeartbeat event) {
+            agentHeartbeats.add(event);
         }
 
         @Override

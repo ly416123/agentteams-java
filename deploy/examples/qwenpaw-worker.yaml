@@ -1,0 +1,20 @@
+# Replace agentId with the UUID returned by POST /api/v1/agents before applying.
+# The Operator injects AGENTTEAMS_AGENT_ID from spec.agentId so the Worker
+# cannot accidentally register as a different Control Plane Agent.
+apiVersion: agentteams.io/v1alpha1
+kind: Worker
+metadata:
+  name: qwenpaw-worker
+  namespace: agentteams
+spec:
+  agentId: "00000000-0000-0000-0000-000000000001"
+  runtime: qwenpaw
+  image: ghcr.io/ly416123/agentteams-agent-worker:latest
+  replicas: 1
+  env:
+    AGENTTEAMS_GATEWAY_HOST: agentteams-agentteams-java-gateway
+    AGENTTEAMS_GATEWAY_PORT: "9090"
+    QWENPAW_ENDPOINT: http://qwenpaw:8088
+    QWENPAW_AGENT_ID: default
+    QWENPAW_USER_ID: agentteams
+    QWENPAW_CHANNEL: console

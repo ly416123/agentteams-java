@@ -94,9 +94,10 @@ public class AgentGatewayGrpcConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(CommandReplayPort.class)
-    public CommandReplayPort commandReplayPort(ObjectProvider<DataSource> dataSources) {
+    public CommandReplayPort commandReplayPort(ObjectProvider<DataSource> dataSources,
+            GatewayMetricsPort metrics) {
         DataSource dataSource = dataSources.getIfAvailable();
-        return dataSource == null ? new NoopCommandReplayPort() : new JdbcCommandEventStore(dataSource);
+        return dataSource == null ? new NoopCommandReplayPort() : new JdbcCommandEventStore(dataSource, metrics);
     }
 
     @Bean
@@ -187,15 +188,17 @@ public class AgentGatewayGrpcConfiguration {
 
     private static final class NoopAgentStatePort implements AgentStatePort {
         @Override
-        public void registered(AgentProfile profile, Instant at) {
+        public void registered(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
         }
 
         @Override
-        public void seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        public boolean seen(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            return true;
         }
 
         @Override
-        public void disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+        public boolean disconnected(ConnectionRegistry.ConnectionSnapshot connection, Instant at) {
+            return true;
         }
     }
 

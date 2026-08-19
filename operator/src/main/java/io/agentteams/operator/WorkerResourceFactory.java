@@ -29,6 +29,10 @@ public final class WorkerResourceFactory {
         String name = name(worker);
         Map<String, String> labels = labels(worker);
         WorkerSpec spec = worker.getSpec();
+        Map<String, String> environment = new LinkedHashMap<>(spec.env());
+        // The CR identity is canonical. A stale or conflicting value supplied
+        // through env must not make the worker register as another Agent.
+        environment.put("AGENTTEAMS_AGENT_ID", spec.agentId());
         ContainerBuilder container = new ContainerBuilder()
                 .withName("worker")
                 .withImage(spec.image())
@@ -41,7 +45,7 @@ public final class WorkerResourceFactory {
                 .withLivenessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()
                         .withPort(new io.fabric8.kubernetes.api.model.IntOrString(GRPC_PORT)).build())
                         .withInitialDelaySeconds(15).withPeriodSeconds(20).withFailureThreshold(3).build())
-                .withEnv(spec.env().entrySet().stream()
+                .withEnv(environment.entrySet().stream()
                         .sorted(Map.Entry.comparingByKey())
                         .map(entry -> new EnvVarBuilder().withName(entry.getKey()).withValue(entry.getValue()).build())
                         .toList());

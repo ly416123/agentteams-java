@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build and load the three local service images into the agentteams Kind cluster.
+# Build and load the local service images into the agentteams Kind cluster.
 # Prerequisites: Docker/Colima, kind, and an existing cluster named agentteams.
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -25,6 +25,7 @@ declare -a images=(
   "deploy/docker/control-plane.Dockerfile|ghcr.io/ly416123/agentteams-control-plane:latest"
   "deploy/docker/gateway.Dockerfile|ghcr.io/ly416123/agentteams-agent-gateway:latest"
   "deploy/docker/operator.Dockerfile|ghcr.io/ly416123/agentteams-operator:latest"
+  "deploy/docker/worker.Dockerfile|ghcr.io/ly416123/agentteams-agent-worker:latest"
 )
 
 for image in "${images[@]}"; do
@@ -35,4 +36,4 @@ for image in "${images[@]}"; do
   kind load docker-image "$tag" --name agentteams
 done
 
-echo "三个服务镜像已加载到 agentteams Kind 集群。"
+echo "服务和 QwenPaw Worker 镜像已加载到 agentteams Kind 集群。"

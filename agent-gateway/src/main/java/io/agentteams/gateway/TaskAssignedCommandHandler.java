@@ -31,6 +31,11 @@ public final class TaskAssignedCommandHandler {
 
     public boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt,
             KnownTaskFields taskFields) {
+        return handle(eventType, aggregateId, payloadJson, occurredAt, taskFields, 0);
+    }
+
+    private boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt,
+            KnownTaskFields taskFields, long expectedVersion) {
         if (!EVENT_TYPE.equals(eventType)) {
             return false;
         }
@@ -49,6 +54,7 @@ public final class TaskAssignedCommandHandler {
                 .setTaskId(payload.taskId().toString())
                 .setAttemptId(payload.attemptId().toString())
                 .setLeaseId(payload.leaseId().toString())
+                .setExpectedVersion(expectedVersion)
                 .setOccurredAt(timestamp(occurredAt))
                 .build();
         TaskAssigned assigned = TaskAssigned.newBuilder()
@@ -67,7 +73,24 @@ public final class TaskAssignedCommandHandler {
         if (!EVENT_TYPE.equals(eventType)) {
             return false;
         }
-        return handle(eventType, aggregateId, payloadJson, occurredAt, parseKnownTaskFields(payloadJson));
+        return handle(eventType, aggregateId, payloadJson, occurredAt, parseKnownTaskFields(payloadJson),
+                parseExpectedVersion(payloadJson));
+    }
+
+    private long parseExpectedVersion(String payloadJson) {
+        try {
+            JsonNode root = MAPPER.readTree(payloadJson);
+            JsonNode value = root == null ? null : root.get("expectedVersion");
+            if (value == null) {
+                return 0;
+            }
+            if (!value.isIntegralNumber() || value.asLong() < 0) {
+                throw new IllegalArgumentException("expectedVersion must be a non-negative integer");
+            }
+            return value.asLong();
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("payloadJson is invalid JSON", error);
+        }
     }
 
     public KnownTaskFields parseKnownTaskFields(String payloadJson) {
@@ -180,6 +203,6 @@ public final class TaskAssignedCommandHandler {
     private static final class SetOfKnownFields {
         private static final java.util.Set<String> NAMES = java.util.Set.of(
                 "taskId", "agentId", "attemptId", "assignmentId", "leaseId", "spec", "taskType",
-                "inputJson", "requiredCapabilities", "leaseExpiresAt");
+                "inputJson", "requiredCapabilities", "leaseExpiresAt", "expectedVersion");
     }
 }

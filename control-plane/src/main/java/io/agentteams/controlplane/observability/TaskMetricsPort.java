@@ -7,6 +7,8 @@ public interface TaskMetricsPort {
     void taskCompleted();
     void taskFailed();
     void outboxRetried();
+    void taskLeaseExpired();
+    void taskLeaseReleased();
 
     static TaskMetricsPort noop() {
         return new TaskMetricsPort() {
@@ -15,6 +17,8 @@ public interface TaskMetricsPort {
             public void taskCompleted() { }
             public void taskFailed() { }
             public void outboxRetried() { }
+            public void taskLeaseExpired() { }
+            public void taskLeaseReleased() { }
         };
     }
 }
