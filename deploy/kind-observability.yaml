@@ -10,6 +10,8 @@ data:
     global:
       scrape_interval: 15s
       evaluation_interval: 15s
+    rule_files:
+      - /etc/prometheus/rules/agentteams-alerts.yml
     scrape_configs:
       - job_name: control-plane
         metrics_path: /actuator/prometheus
@@ -37,6 +39,66 @@ data:
           - source_labels: [__meta_kubernetes_pod_container_port_name]
             regex: http
             action: keep
+  agentteams-alerts.yml: |
+    groups:
+      - name: agentteams.recovery
+        rules:
+          - alert: AgentTeamsLeaseRecovery
+            expr: increase(agentteams_tasks_leases_expired_total[10m]) > 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: AgentTeams task leases are expiring
+              description: One or more task leases expired in the last 10 minutes and required recovery.
+          - alert: AgentTeamsGatewayCommandDeduplication
+            expr: increase(agentteams_gateway_commands_deduplicated_total[10m]) > 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: AgentTeams Gateway is deduplicating commands
+              description: Outbox redelivery or Gateway retry caused duplicate command events in the last 10 minutes.
+          - alert: AgentTeamsGatewayRejectedEvents
+            expr: increase(agentteams_gateway_events_rejected_total[10m]) > 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: AgentTeams Gateway rejected inbound events
+              description: The Gateway rejected one or more inbound Agent events in the last 10 minutes.
+          - alert: AgentTeamsOutboxRetries
+            expr: increase(agentteams_outbox_retries_total[10m]) > 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: AgentTeams Outbox events are retrying
+              description: At least one Outbox event failed delivery in the last 10 minutes.
+          - alert: AgentTeamsOutboxBacklog
+            expr: agentteams_outbox_backlog > 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: AgentTeams Outbox backlog is not draining
+              description: One or more non-terminal Outbox events have remained in the relay backlog for 10 minutes.
+          - alert: AgentTeamsOutboxDeadLettered
+            expr: increase(agentteams_outbox_dead_lettered_total[5m]) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: AgentTeams Outbox event moved to dead-letter
+              description: At least one Outbox event exhausted its retry budget in the last 5 minutes.
+          - alert: AgentTeamsGatewayNatsConsumerErrors
+            expr: increase(agentteams_gateway_nats_consumer_errors_total[5m]) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: AgentTeams Gateway NATS consumer is rejecting events
+              description: The Gateway NATS consumer encountered event processing errors in the last 5 minutes.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -139,12 +201,20 @@ spec:
             - name: config
               mountPath: /etc/prometheus/prometheus.yml
               subPath: prometheus.yml
+            - name: rules
+              mountPath: /etc/prometheus/rules
             - name: data
               mountPath: /prometheus
       volumes:
         - name: config
           configMap:
             name: prometheus-config
+        - name: rules
+          configMap:
+            name: prometheus-config
+            items:
+              - key: agentteams-alerts.yml
+                path: agentteams-alerts.yml
         - name: data
           persistentVolumeClaim:
             claimName: prometheus-data
