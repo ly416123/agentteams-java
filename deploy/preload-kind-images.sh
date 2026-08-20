@@ -14,6 +14,7 @@ IMAGES=(
   "docker.io/natsio/nats-box:0.14.0|dockerproxy.net/natsio/nats-box:0.14.0;docker.m.daocloud.io/natsio/nats-box:0.14.0"
   "docker.io/minio/minio:RELEASE.2024-11-07T00-52-20Z|dockerproxy.net/minio/minio:RELEASE.2024-11-07T00-52-20Z;docker.m.daocloud.io/minio/minio:RELEASE.2024-11-07T00-52-20Z"
   "docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z|dockerproxy.net/minio/mc:RELEASE.2025-07-21T05-28-08Z;docker.m.daocloud.io/minio/mc:RELEASE.2025-07-21T05-28-08Z"
+  # 清单 kind-dev-infra.yaml 用 digest sha256:1132da... 固定版本，与 latest 为同一版本
   "docker.io/agentscope/qwenpaw:latest|dockerproxy.net/agentscope/qwenpaw:latest;docker.m.daocloud.io/agentscope/qwenpaw:latest"
   "docker.io/prom/prometheus:v2.55.1|dockerproxy.net/prom/prometheus:v2.55.1;docker.m.daocloud.io/prom/prometheus:v2.55.1"
   "docker.io/grafana/grafana:11.3.0|dockerproxy.net/grafana/grafana:11.3.0;docker.m.daocloud.io/grafana/grafana:11.3.0"
