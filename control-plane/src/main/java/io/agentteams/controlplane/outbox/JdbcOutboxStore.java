@@ -16,6 +16,11 @@ public final class JdbcOutboxStore implements OutboxStore {
     }
 
     @Override
+    public long pendingCount() {
+        return persistence.inTransaction(tx -> tx.outboxEvents().pendingCount());
+    }
+
+    @Override
     public List<OutboxEventRecord> claimDue(Instant now, int limit, Duration lease) {
         return persistence.inTransaction(tx -> tx.outboxEvents().claimDue(now, limit, lease));
     }

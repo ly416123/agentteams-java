@@ -9,6 +9,10 @@ public interface GatewayMetricsPort {
     void commandAppended();
     void commandDeduplicated();
 
+    default void natsEventProcessed() { }
+    default void natsEventRejected() { }
+    default void natsConsumerError() { }
+
     static GatewayMetricsPort noop() {
         return new GatewayMetricsPort() {
             public void connectionOpened() { }

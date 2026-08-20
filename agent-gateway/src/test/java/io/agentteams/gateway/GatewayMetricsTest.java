@@ -16,11 +16,17 @@ class GatewayMetricsTest {
         metrics.commandAppended();
         metrics.commandDeduplicated();
         metrics.eventRejected();
+        metrics.natsEventProcessed();
+        metrics.natsEventRejected();
+        metrics.natsConsumerError();
         metrics.connectionClosed();
 
         assertThat(registry.find("agentteams.gateway.connections.active").gauge().value()).isZero();
         assertThat(registry.counter("agentteams.gateway.commands.appended").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.gateway.commands.deduplicated").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.gateway.events.rejected").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.gateway.nats.events.processed").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.gateway.nats.events.rejected").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.gateway.nats.consumer.errors").count()).isEqualTo(1);
     }
 }

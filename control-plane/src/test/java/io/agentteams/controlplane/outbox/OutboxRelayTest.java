@@ -2,7 +2,10 @@ package io.agentteams.controlplane.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.agentteams.controlplane.observability.ControlPlaneMetrics;
+import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -30,6 +33,21 @@ class OutboxRelayTest {
         assertThat(publisher.subjects).containsExactly("task.events." + store.event.aggregateId());
         assertThat(store.published).containsExactly(store.event.eventId());
         assertThat(store.retries).isEmpty();
+    }
+
+    @Test
+    void recordsBacklogAndPublishOutcomeMetrics() {
+        FakeStore store = new FakeStore(event(1));
+        store.pending = 4;
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ControlPlaneMetrics metrics = new ControlPlaneMetrics(registry);
+        try (OutboxRelay relay = relay(store, new RecordingPublisher(), metrics)) {
+            assertThat(relay.relayOnce()).isEqualTo(1);
+        }
+
+        assertThat(registry.find("agentteams.outbox.backlog").gauge().value()).isEqualTo(4);
+        assertThat(registry.counter("agentteams.outbox.published").count()).isEqualTo(1);
+        assertThat(registry.timer("agentteams.outbox.publish.latency").count()).isEqualTo(1);
     }
 
     @Test
@@ -148,6 +166,11 @@ class OutboxRelayTest {
     }
 
     private static OutboxRelay relay(FakeStore store, EventPublisher publisher) {
+        return relay(store, publisher, TaskMetricsPort.noop());
+    }
+
+    private static OutboxRelay relay(FakeStore store, EventPublisher publisher,
+            io.agentteams.controlplane.observability.TaskMetricsPort metrics) {
         OutboxRelayProperties properties = new OutboxRelayProperties();
         properties.setConcurrency(2);
         properties.setBatchSize(2);
@@ -155,7 +178,7 @@ class OutboxRelayTest {
         properties.setBaseRetryDelay(Duration.ofSeconds(1));
         properties.setMaxRetryDelay(Duration.ofSeconds(5));
         return new OutboxRelay(store, publisher, properties,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), metrics);
     }
 
     private static OutboxEventRecord event(int attempts) {
@@ -171,9 +194,15 @@ class OutboxRelayTest {
         private final List<UUID> deadLetters = new ArrayList<>();
         private final List<String> errors = new ArrayList<>();
         private Instant nextRetryAt;
+        private long pending = -1;
 
         private FakeStore(OutboxEventRecord event) {
             this.event = event;
+        }
+
+        @Override
+        public long pendingCount() {
+            return pending;
         }
 
         @Override

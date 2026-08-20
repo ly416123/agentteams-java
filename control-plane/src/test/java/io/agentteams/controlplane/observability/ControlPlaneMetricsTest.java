@@ -17,6 +17,11 @@ class ControlPlaneMetricsTest {
         metrics.taskFailed();
         metrics.gatewayReconnected();
         metrics.outboxRetried();
+        metrics.outboxPublished();
+        metrics.outboxDeadLettered();
+        metrics.outboxPublishFailed();
+        metrics.outboxBacklog(3);
+        metrics.outboxPublish(Duration.ofMillis(12));
         metrics.taskLeaseExpired();
         metrics.taskLeaseReleased();
         metrics.managerCall(Duration.ofMillis(20));
@@ -25,5 +30,10 @@ class ControlPlaneMetricsTest {
         assertThat(registry.counter("agentteams.tasks.leases.expired").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.tasks.leases.released").count()).isEqualTo(1);
         assertThat(registry.timer("agentteams.manager.call.latency").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.outbox.published").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.outbox.dead_lettered").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.outbox.publish.failures").count()).isEqualTo(1);
+        assertThat(registry.find("agentteams.outbox.backlog").gauge().value()).isEqualTo(3);
+        assertThat(registry.timer("agentteams.outbox.publish.latency").count()).isEqualTo(1);
     }
 }

@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Stable metric names shared by the Control Plane, Gateway and adapters. */
 public final class ControlPlaneMetrics implements TaskMetricsPort {
@@ -14,9 +15,14 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     private final Counter tasksFailed;
     private final Counter gatewayReconnects;
     private final Counter outboxRetries;
+    private final Counter outboxPublished;
+    private final Counter outboxDeadLettered;
+    private final Counter outboxPublishFailures;
     private final Counter taskLeasesExpired;
     private final Counter taskLeasesReleased;
     private final Timer managerLatency;
+    private final Timer outboxPublishLatency;
+    private final AtomicLong outboxBacklog = new AtomicLong();
 
     public ControlPlaneMetrics(MeterRegistry registry) {
         Objects.requireNonNull(registry, "registry");
@@ -26,9 +32,14 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
         tasksFailed = registry.counter("agentteams.tasks.failed");
         gatewayReconnects = registry.counter("agentteams.gateway.reconnects");
         outboxRetries = registry.counter("agentteams.outbox.retries");
+        outboxPublished = registry.counter("agentteams.outbox.published");
+        outboxDeadLettered = registry.counter("agentteams.outbox.dead_lettered");
+        outboxPublishFailures = registry.counter("agentteams.outbox.publish.failures");
         taskLeasesExpired = registry.counter("agentteams.tasks.leases.expired");
         taskLeasesReleased = registry.counter("agentteams.tasks.leases.released");
         managerLatency = registry.timer("agentteams.manager.call.latency");
+        outboxPublishLatency = registry.timer("agentteams.outbox.publish.latency");
+        registry.gauge("agentteams.outbox.backlog", outboxBacklog);
     }
 
     public void taskCreated() { tasksCreated.increment(); }
@@ -37,6 +48,13 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     public void taskFailed() { tasksFailed.increment(); }
     public void gatewayReconnected() { gatewayReconnects.increment(); }
     public void outboxRetried() { outboxRetries.increment(); }
+    public void outboxPublished() { outboxPublished.increment(); }
+    public void outboxDeadLettered() { outboxDeadLettered.increment(); }
+    public void outboxPublishFailed() { outboxPublishFailures.increment(); }
+    public void outboxBacklog(long count) { outboxBacklog.set(Math.max(0, count)); }
+    public void outboxPublish(Duration duration) {
+        outboxPublishLatency.record(Objects.requireNonNull(duration, "duration"));
+    }
     public void taskLeaseExpired() { taskLeasesExpired.increment(); }
     public void taskLeaseReleased() { taskLeasesReleased.increment(); }
     public void managerCall(Duration duration) { managerLatency.record(Objects.requireNonNull(duration, "duration")); }

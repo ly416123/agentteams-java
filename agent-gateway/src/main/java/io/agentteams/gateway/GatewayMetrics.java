@@ -15,6 +15,9 @@ public final class GatewayMetrics implements GatewayMetricsPort {
     private final Counter rejected;
     private final Counter commandsAppended;
     private final Counter commandsDeduplicated;
+    private final Counter natsEventsProcessed;
+    private final Counter natsEventsRejected;
+    private final Counter natsConsumerErrors;
 
     public GatewayMetrics(MeterRegistry registry) {
         Objects.requireNonNull(registry, "registry");
@@ -26,6 +29,9 @@ public final class GatewayMetrics implements GatewayMetricsPort {
         rejected = registry.counter("agentteams.gateway.events.rejected");
         commandsAppended = registry.counter("agentteams.gateway.commands.appended");
         commandsDeduplicated = registry.counter("agentteams.gateway.commands.deduplicated");
+        natsEventsProcessed = registry.counter("agentteams.gateway.nats.events.processed");
+        natsEventsRejected = registry.counter("agentteams.gateway.nats.events.rejected");
+        natsConsumerErrors = registry.counter("agentteams.gateway.nats.consumer.errors");
     }
 
     @Override
@@ -48,4 +54,13 @@ public final class GatewayMetrics implements GatewayMetricsPort {
 
     @Override
     public void commandDeduplicated() { commandsDeduplicated.increment(); }
+
+    @Override
+    public void natsEventProcessed() { natsEventsProcessed.increment(); }
+
+    @Override
+    public void natsEventRejected() { natsEventsRejected.increment(); }
+
+    @Override
+    public void natsConsumerError() { natsConsumerErrors.increment(); }
 }

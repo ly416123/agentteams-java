@@ -3,6 +3,7 @@ package io.agentteams.controlplane.outbox;
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +54,10 @@ public final class OutboxRelay implements AutoCloseable {
 
     public int relayOnce() {
         Instant now = clock.instant();
+        long pending = store.pendingCount();
+        if (pending >= 0) {
+            metrics.outboxBacklog(pending);
+        }
         List<OutboxEventRecord> events;
         List<Future<Boolean>> futures = new ArrayList<>();
         synchronized (lifecycleMonitor) {
@@ -89,12 +94,16 @@ public final class OutboxRelay implements AutoCloseable {
     }
 
     private boolean publishOne(OutboxEventRecord event) {
+        Instant started = clock.instant();
         Instant now = clock.instant();
         try {
             publisher.publish(event, EventSubjects.forAggregate(event.aggregateType(), event.aggregateId()));
             store.markPublished(event, clock.instant());
+            metrics.outboxPublished();
+            metrics.outboxPublish(Duration.between(started, clock.instant()));
             return true;
         } catch (Exception publishFailure) {
+            metrics.outboxPublishFailed();
             return handleFailure(event, publishFailure, now);
         }
     }
@@ -113,6 +122,7 @@ public final class OutboxRelay implements AutoCloseable {
         try {
             publisher.publishDeadLetter(event, EventSubjects.DEADLETTER_EVENTS);
             store.markDeadLetter(event, failedAt);
+            metrics.outboxDeadLettered();
             LOGGER.error("Outbox event moved to dead-letter eventId={} aggregateType={} aggregateId={} "
                             + "eventType={} attempt={}", event.eventId(), event.aggregateType(), event.aggregateId(),
                     event.eventType(), event.attempts());

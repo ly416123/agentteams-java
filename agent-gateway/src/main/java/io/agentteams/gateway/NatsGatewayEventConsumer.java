@@ -34,6 +34,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private final String durable;
     private final String configSubject;
     private final String configDurable;
+    private final GatewayMetricsPort metrics;
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object lifecycleMonitor = new Object();
     private JetStreamSubscription subscription;
@@ -44,18 +45,25 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             ObjectMapper objectMapper, String subject, String durable) {
         this(jetStream, commandHandler, new ConfigChangedCommandHandler(
                 commandHandler.delivery(), objectMapper), objectMapper, subject, durable,
-                "agent.events.*", "agent-gateway-config");
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop());
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable) {
         this(jetStream, commandHandler, configHandler, objectMapper, subject, durable,
-                "agent.events.*", "agent-gateway-config");
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop());
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable) {
+        this(jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
+                GatewayMetricsPort.noop());
+    }
+
+    public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
+            ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
+            String configSubject, String configDurable, GatewayMetricsPort metrics) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
         this.configHandler = Objects.requireNonNull(configHandler, "configHandler");
@@ -64,6 +72,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.durable = requireText(durable, "durable");
         this.configSubject = requireText(configSubject, "configSubject");
         this.configDurable = requireText(configDurable, "configDurable");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     /** Testable constructor for envelope processing without starting a NATS subscription. */
@@ -76,6 +85,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.durable = null;
         this.configSubject = null;
         this.configDurable = null;
+        this.metrics = GatewayMetricsPort.noop();
     }
 
     public void start() throws IOException, JetStreamApiException {
@@ -111,6 +121,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                     event.payload().toString(), event.occurredAt());
         }
         message.ack();
+        metrics.natsEventProcessed();
         return handled;
     }
 
@@ -154,6 +165,8 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 Thread.currentThread().interrupt();
                 return;
             } catch (RuntimeException error) {
+                metrics.natsEventRejected();
+                metrics.natsConsumerError();
                 LOGGER.log(Level.WARNING, "Agent Gateway NATS event was rejected and will be redelivered", error);
             }
         }
@@ -164,6 +177,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         try {
             process(message);
         } catch (IllegalArgumentException ignored) {
+            metrics.natsEventRejected();
             message.ack();
         }
     }

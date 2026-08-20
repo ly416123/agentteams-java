@@ -45,6 +45,15 @@ public final class OutboxEventRepository {
         return count == null ? 0 : count;
     }
 
+    public long pendingCount() {
+        Long count = jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM outbox_events
+                 WHERE status IN ('PENDING', 'IN_FLIGHT')
+                """, Long.class);
+        return count == null ? 0 : count;
+    }
+
     public java.util.List<String> eventTypes() {
         return jdbc.query("SELECT event_type FROM outbox_events ORDER BY event_type",
                 (rs, row) -> rs.getString(1));

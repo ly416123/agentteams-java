@@ -7,6 +7,11 @@ import java.util.List;
 
 public interface OutboxStore {
 
+    /** Returns non-terminal rows currently retained by the relay. */
+    default long pendingCount() {
+        return -1;
+    }
+
     List<OutboxEventRecord> claimDue(Instant now, int limit, Duration lease);
 
     void markPublished(OutboxEventRecord event, Instant at);

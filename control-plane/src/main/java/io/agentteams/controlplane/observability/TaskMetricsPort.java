@@ -1,14 +1,22 @@
 package io.agentteams.controlplane.observability;
 
+import java.time.Duration;
+
 /** Optional metrics port so domain services remain usable without Micrometer. */
 public interface TaskMetricsPort {
     void taskCreated();
     void taskAssigned();
     void taskCompleted();
     void taskFailed();
-    void outboxRetried();
     void taskLeaseExpired();
     void taskLeaseReleased();
+
+    default void outboxPublished() { }
+    default void outboxRetried() { }
+    default void outboxDeadLettered() { }
+    default void outboxPublishFailed() { }
+    default void outboxBacklog(long count) { }
+    default void outboxPublish(Duration duration) { }
 
     static TaskMetricsPort noop() {
         return new TaskMetricsPort() {

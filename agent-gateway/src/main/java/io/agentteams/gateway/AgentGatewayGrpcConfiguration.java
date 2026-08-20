@@ -154,10 +154,10 @@ public class AgentGatewayGrpcConfiguration {
     public NatsGatewayEventConsumer natsGatewayEventConsumer(JetStream gatewayJetStream,
             TaskAssignedCommandHandler commandHandler, ConfigChangedCommandHandler configHandler,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-            NatsGatewayProperties properties) {
+            NatsGatewayProperties properties, GatewayMetricsPort metrics) {
         return new NatsGatewayEventConsumer(gatewayJetStream, commandHandler, configHandler, objectMapper,
                 properties.getSubject(), properties.taskConsumerDurable(), properties.getConfigSubject(),
-                properties.configConsumerDurable());
+                properties.configConsumerDurable(), metrics);
     }
 
     @Bean
@@ -193,10 +193,11 @@ public class AgentGatewayGrpcConfiguration {
     @ConditionalOnMissingBean(AgentChannelService.class)
     public AgentChannelService agentChannelService(ConnectionRegistry registry, AgentStatePort state,
             AuthenticationPort authentication, ProtocolNegotiationPort negotiation,
-            CommandDeliveryService delivery, InboundEventHandler inbound, Clock clock) {
+            CommandDeliveryService delivery, InboundEventHandler inbound, Clock clock, GatewayMetricsPort metrics) {
         return new AgentChannelService(
                 ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build(),
-                registry, state, authentication, GrpcTransportIdentity::current, negotiation, delivery, inbound, clock);
+                registry, state, authentication, GrpcTransportIdentity::current, negotiation, delivery, inbound, clock,
+                metrics);
     }
 
     @Bean(initMethod = "start", destroyMethod = "stop")

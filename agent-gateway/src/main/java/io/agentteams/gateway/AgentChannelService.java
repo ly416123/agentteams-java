@@ -27,18 +27,28 @@ public final class AgentChannelService extends AgentChannelGrpc.AgentChannelImpl
     private final CommandDeliveryService delivery;
     private final InboundEventHandler inbound;
     private final Clock clock;
+    private final GatewayMetricsPort metrics;
 
     public AgentChannelService(ProtocolVersion localVersion, ConnectionRegistry registry, AgentStatePort state,
             AuthenticationPort authentication, Supplier<String> transportIdentity,
             CommandDeliveryService delivery, InboundEventHandler inbound, Clock clock) {
         this(localVersion, registry, state, authentication, transportIdentity,
-                ProtocolNegotiationPort.compatiblePeerVersion(), delivery, inbound, clock);
+                ProtocolNegotiationPort.compatiblePeerVersion(), delivery, inbound, clock,
+                GatewayMetricsPort.noop());
     }
 
     public AgentChannelService(ProtocolVersion localVersion, ConnectionRegistry registry, AgentStatePort state,
             AuthenticationPort authentication, Supplier<String> transportIdentity,
             ProtocolNegotiationPort negotiation, CommandDeliveryService delivery,
             InboundEventHandler inbound, Clock clock) {
+        this(localVersion, registry, state, authentication, transportIdentity, negotiation, delivery, inbound, clock,
+                GatewayMetricsPort.noop());
+    }
+
+    public AgentChannelService(ProtocolVersion localVersion, ConnectionRegistry registry, AgentStatePort state,
+            AuthenticationPort authentication, Supplier<String> transportIdentity,
+            ProtocolNegotiationPort negotiation, CommandDeliveryService delivery,
+            InboundEventHandler inbound, Clock clock, GatewayMetricsPort metrics) {
         this.localVersion = Objects.requireNonNull(localVersion, "localVersion");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.state = Objects.requireNonNull(state, "state");
@@ -48,6 +58,7 @@ public final class AgentChannelService extends AgentChannelGrpc.AgentChannelImpl
         this.delivery = Objects.requireNonNull(delivery, "delivery");
         this.inbound = Objects.requireNonNull(inbound, "inbound");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     @Override
@@ -177,6 +188,7 @@ public final class AgentChannelService extends AgentChannelGrpc.AgentChannelImpl
     }
 
     private void terminate(AgentConnection connection, StreamObserver<ServerMessage> response, RuntimeException error) {
+        metrics.eventRejected();
         disconnect(connection);
         Status status = status(error);
         response.onError(status.withDescription(error.getMessage()).withCause(error).asRuntimeException());
