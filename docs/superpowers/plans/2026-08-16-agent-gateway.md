@@ -8,6 +8,10 @@
 
 **Tech Stack:** Java 17, Spring Boot, gRPC Java, generated protobuf contracts, JUnit 5, AssertJ.
 
+### Implementation status (2026-08-21)
+
+Completed in the current branch. `ConnectionRegistry`, command delivery, inbound-event handling, and the gRPC service are implemented with focused unit coverage in `agent-gateway/src/test`. The gateway module test suite and the infrastructure integration suite have passed; the original checklist below is retained as historical design tracking.
+
 ---
 
 ### Task 1: Establish gateway ports and connection model

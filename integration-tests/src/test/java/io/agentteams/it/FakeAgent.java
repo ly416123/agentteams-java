@@ -7,6 +7,7 @@ import io.agentteams.contracts.v1.AgentChannelGrpc;
 import io.agentteams.contracts.v1.AgentHello;
 import io.agentteams.contracts.v1.AgentMessage;
 import io.agentteams.contracts.v1.ArtifactRef;
+import io.agentteams.contracts.v1.ConfigChanged;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
@@ -89,6 +90,16 @@ final class FakeAgent implements AutoCloseable {
         ServerMessage message = await(candidate -> candidate.hasTaskAssigned()
                 && taskId.equals(candidate.getTaskAssigned().getMetadata().getTaskId()));
         return message.getTaskAssigned();
+    }
+
+    ConfigChanged awaitConfigChanged(long configVersion) throws InterruptedException {
+        ServerMessage message = await(candidate -> candidate.hasConfigChanged()
+                && candidate.getConfigChanged().getConfigVersion() == configVersion);
+        return message.getConfigChanged();
+    }
+
+    void acknowledge(ConfigChanged changed) {
+        acknowledgeSequence(changed.getMetadata().getSequence(), changed.getMetadata().getEventId());
     }
 
     void accept(TaskAssigned assignment) {

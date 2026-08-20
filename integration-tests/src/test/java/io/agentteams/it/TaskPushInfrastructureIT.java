@@ -19,6 +19,7 @@ import io.nats.client.Nats;
 import io.nats.client.api.StorageType;
 import io.nats.client.api.StreamConfiguration;
 import io.agentteams.contracts.v1.ProtocolVersion;
+import io.agentteams.contracts.v1.ConfigChanged;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
@@ -77,6 +78,7 @@ class TaskPushInfrastructureIT {
 
     private static ConfigurableApplicationContext controlPlane;
     private static ConfigurableApplicationContext gateway;
+    private static ConfigurableApplicationContext gatewayReplicaTwo;
     private static Connection natsConnection;
 
     @BeforeAll
@@ -88,13 +90,18 @@ class TaskPushInfrastructureIT {
         controlPlane = new SpringApplicationBuilder(ControlPlaneApplication.class)
                 .run(commandLineProperties(controlPlaneProperties()));
         gateway = new SpringApplicationBuilder(AgentGatewayApplication.class)
-                .run(commandLineProperties(gatewayProperties()));
+                .run(commandLineProperties(gatewayProperties("replica-1")));
+        gatewayReplicaTwo = new SpringApplicationBuilder(AgentGatewayApplication.class)
+                .run(commandLineProperties(gatewayProperties("replica-2")));
     }
 
     @AfterAll
     static void stopInfrastructureApplications() {
         if (gateway != null) {
             gateway.close();
+        }
+        if (gatewayReplicaTwo != null) {
+            gatewayReplicaTwo.close();
         }
         if (controlPlane != null) {
             controlPlane.close();
@@ -180,6 +187,44 @@ class TaskPushInfrastructureIT {
         }
     }
 
+    @org.junit.jupiter.api.Test
+    void fansOutConfigChangedToBothGatewayConsumersAndDeduplicatesTheCommand() throws Exception {
+        UUID agentId = createAgent();
+        FakeAgent agent = FakeAgent.connect("127.0.0.1", gatewayPort(), agentId.toString(),
+                ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build());
+        try {
+            agent.awaitReady();
+            String snapshotBody = """
+                    {"subject":"fake-agent-config","manifest":{"model":"fanout-test","provider_id":"fake"},"actor":"integration-test"}
+                    """;
+            com.fasterxml.jackson.databind.JsonNode snapshot = postJson(
+                    "/api/v1/config/snapshots", "config-snapshot-" + UUID.randomUUID(), snapshotBody);
+            UUID snapshotId = UUID.fromString(snapshot.path("id").asText());
+            long configVersion = snapshot.path("version").asLong();
+            com.fasterxml.jackson.databind.JsonNode deployment = postJson(
+                    "/api/v1/config/snapshots/" + snapshotId + "/agents/" + agentId,
+                    "config-deploy-" + UUID.randomUUID(), "{}");
+
+            ConfigChanged changed = agent.awaitConfigChanged(configVersion);
+            agent.acknowledge(changed);
+
+            awaitTrue(() -> gatewayCommandCount(agentId) == 1,
+                    "both Gateway consumers must deduplicate to one durable command");
+            awaitTrue(() -> configConsumerDelivered("agent-gateway-config-replica-1")
+                            && configConsumerDelivered("agent-gateway-config-replica-2"),
+                    "both Gateway durable consumers must receive and acknowledge the event");
+            awaitTrue(() -> acknowledgedSequence(agentId) == changed.getMetadata().getSequence(),
+                    "the active Gateway connection must advance the shared ACK cursor");
+
+            assertEquals(deployment.path("eventId").asText(), changed.getMetadata().getEventId());
+            assertEquals(1, gatewayCommandCount(agentId));
+            assertEquals(1, gatewayDeliveryCount(agentId, changed.getMetadata().getSequence()),
+                    "only the current connection may deliver the command to the Agent");
+        } finally {
+            agent.close();
+        }
+    }
+
     private record TaskAssignedAssignment(io.agentteams.contracts.v1.TaskAssigned task) {
     }
 
@@ -189,8 +234,8 @@ class TaskPushInfrastructureIT {
 
     private static UUID createAgent() throws Exception {
         String body = """
-                {"name":"infrastructure-agent","runtime":"fake-agent","capabilities":{"tasks":"1"},"metadata":{}}
-                """;
+                {"name":"%s","runtime":"fake-agent","capabilities":{"tasks":"1"},"metadata":{}}
+                """.formatted("infrastructure-agent-" + UUID.randomUUID());
         return UUID.fromString(postJson("/api/v1/agents", "agent-create-" + UUID.randomUUID(), body)
                 .path("id").asText());
     }
@@ -327,6 +372,31 @@ class TaskPushInfrastructureIT {
         return count == null ? 0 : count;
     }
 
+    private static int gatewayDeliveryCount(UUID agentId, long sequence) {
+        Integer count = jdbc().queryForObject(
+                "SELECT count(*) FROM gateway_command_deliveries WHERE agent_id = ? AND sequence = ?",
+                Integer.class, agentId.toString(), sequence);
+        return count == null ? 0 : count;
+    }
+
+    private static long acknowledgedSequence(UUID agentId) {
+        Long sequence = jdbc().queryForObject(
+                "SELECT last_ack_sequence FROM gateway_ack_cursors WHERE agent_id = ?", Long.class,
+                agentId.toString());
+        return sequence == null ? 0 : sequence;
+    }
+
+    private static boolean configConsumerDelivered(String durable) {
+        try {
+            io.nats.client.api.ConsumerInfo info = natsConnection.jetStreamManagement()
+                    .getConsumerInfo("AGENT_EVENTS", durable);
+            return info.getDelivered() != null && info.getDelivered().getStreamSequence() > 0
+                    && info.getNumAckPending() == 0 && info.getNumPending() == 0;
+        } catch (Exception unavailable) {
+            return false;
+        }
+    }
+
     private static void awaitTrue(BooleanSupplier condition, String message) {
         long deadline = System.nanoTime() + Duration.ofSeconds(15).toNanos();
         while (System.nanoTime() < deadline) {
@@ -385,7 +455,7 @@ class TaskPushInfrastructureIT {
         };
     }
 
-    private static String[] gatewayProperties() {
+    private static String[] gatewayProperties(String instanceId) {
         return new String[] {
                 "spring.main.web-application-type=none",
                 "spring.main.banner-mode=off",
@@ -399,7 +469,8 @@ class TaskPushInfrastructureIT {
                 "agentteams.gateway.nats.enabled=true",
                 "agentteams.gateway.nats.url=" + natsUrl(),
                 "agentteams.gateway.nats.subject=task.events.*",
-                "agentteams.gateway.nats.durable=agent-gateway-infrastructure-it"
+                "agentteams.gateway.nats.durable=agent-gateway-infrastructure-it",
+                "agentteams.gateway.nats.instance-id=" + instanceId
         };
     }
 

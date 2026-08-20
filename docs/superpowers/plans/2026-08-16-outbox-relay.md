@@ -8,6 +8,10 @@
 
 **Tech Stack:** Java 17, Spring Boot JDBC, PostgreSQL/Flyway, jnats 2.20.5, JUnit 5, AssertJ, Testcontainers PostgreSQL and NATS.
 
+### Implementation status (2026-08-21)
+
+Completed in the current branch. Event subjects/envelopes, JetStream publishing with event-id message IDs, transactional claiming, retry/dead-letter transitions, redacted dead-letter logging, and relay wiring are implemented. Coverage is provided by `OutboxRelayTest`, `OutboxRelayIT`, and the publisher/repository tests; the checklist below remains as historical implementation tracking.
+
 ---
 
 ### Task 1: Define event subjects and envelope contract
