@@ -10,6 +10,10 @@
 
 ### Implementation status (2026-08-21)
 
+已完成。事件主题与信封、JetStream 发布、数据库 Claim、重试/死信、敏感信息脱敏和 Spring 定时装配均已实现，并通过单元测试和 `OutboxRelayIT`。
+
+### Implementation status (2026-08-21)
+
 Completed in the current branch. Event subjects/envelopes, JetStream publishing with event-id message IDs, transactional claiming, retry/dead-letter transitions, redacted dead-letter logging, and relay wiring are implemented. Coverage is provided by `OutboxRelayTest`, `OutboxRelayIT`, and the publisher/repository tests; the checklist below remains as historical implementation tracking.
 
 ---
@@ -22,10 +26,10 @@ Completed in the current branch. Event subjects/envelopes, JetStream publishing 
 - Test: `control-plane/src/test/java/io/agentteams/controlplane/outbox/EventSubjectsTest.java`
 - Test: `control-plane/src/test/java/io/agentteams/controlplane/outbox/EventEnvelopeTest.java`
 
-- [ ] Write tests for agent, task, control, and dead-letter subjects and for all seven envelope fields.
-- [ ] Run the focused tests and confirm failure because the new types do not exist.
-- [ ] Implement immutable records/constants with stable lowercase field names for JSON serialization.
-- [ ] Run the focused tests and confirm they pass.
+- [x] Write tests for agent, task, control, and dead-letter subjects and for all seven envelope fields.
+- [x] Run the focused tests and confirm failure because the new types do not exist.
+- [x] Implement immutable records/constants with stable lowercase field names for JSON serialization.
+- [x] Run the focused tests and confirm they pass.
 
 ### Task 2: Add publisher seam and NATS implementation
 
@@ -34,10 +38,10 @@ Completed in the current branch. Event subjects/envelopes, JetStream publishing 
 - Create: `control-plane/src/main/java/io/agentteams/controlplane/outbox/NatsEventPublisher.java`
 - Test: `control-plane/src/test/java/io/agentteams/controlplane/outbox/NatsEventPublisherTest.java`
 
-- [ ] Write a fake JetStream test seam proving subject, envelope bytes, and `event_id` message ID are passed to JetStream and that an acknowledgement is required.
-- [ ] Run the test and confirm the expected missing-implementation failure.
-- [ ] Implement the publisher with Jackson serialization and jnats `PublishOptions.messageId`.
-- [ ] Run the focused test and confirm it passes.
+- [x] Write a fake JetStream test seam proving subject, envelope bytes, and `event_id` message ID are passed to JetStream and that an acknowledgement is required.
+- [x] Run the test and confirm the expected missing-implementation failure.
+- [x] Implement the publisher with Jackson serialization and jnats `PublishOptions.messageId`.
+- [x] Run the focused test and confirm it passes.
 
 ### Task 3: Make outbox claiming and state transitions transactional
 
@@ -46,10 +50,10 @@ Completed in the current branch. Event subjects/envelopes, JetStream publishing 
 - Modify: `control-plane/src/main/java/io/agentteams/controlplane/persistence/OutboxEventRepository.java`
 - Test: `control-plane/src/test/java/io/agentteams/controlplane/persistence/OutboxEventRepositoryTest.java`
 
-- [ ] Write tests for SQL claim semantics, success, retry scheduling, tenth-attempt dead-lettering, and expired in-flight reclaim.
-- [ ] Run the tests to observe the expected failure.
-- [ ] Add a claim lease/status representation and repository methods that execute claim/update operations using JDBC transactions supplied by `FoundationPersistenceService`.
-- [ ] Keep the existing transactional insert behavior unchanged and run repository tests again.
+- [x] Write tests for SQL claim semantics, success, retry scheduling, tenth-attempt dead-lettering, and expired in-flight reclaim.
+- [x] Run the tests to observe the expected failure.
+- [x] Add a claim lease/status representation and repository methods that execute claim/update operations using JDBC transactions supplied by `FoundationPersistenceService`.
+- [x] Keep the existing transactional insert behavior unchanged and run repository tests again.
 
 ### Task 4: Implement relay concurrency, retry, and redacted dead-letter logging
 
@@ -60,11 +64,11 @@ Completed in the current branch. Event subjects/envelopes, JetStream publishing 
 - Modify: `control-plane/src/main/resources/application.yml`
 - Test: `control-plane/src/test/java/io/agentteams/controlplane/outbox/OutboxRelayTest.java`
 
-- [ ] Write tests proving configurable worker count, acknowledgement-before-published ordering, bounded exponential retry, dead-letter after attempt 10, and redaction of task content/credentials.
-- [ ] Run them and verify the expected failure.
-- [ ] Implement a scheduled relay with a fixed worker pool, database claims, publisher calls, and persisted outcomes. Use a clock and sleeper abstraction so retry tests remain deterministic.
-- [ ] Wire properties and a conditional Spring bean without coupling the relay to HTTP controllers or domain services.
-- [ ] Run the focused tests and confirm they pass.
+- [x] Write tests proving configurable worker count, acknowledgement-before-published ordering, bounded exponential retry, dead-letter after attempt 10, and redaction of task content/credentials.
+- [x] Run them and verify the expected failure.
+- [x] Implement a scheduled relay with a fixed worker pool, database claims, publisher calls, and persisted outcomes. Use a clock and sleeper abstraction so retry tests remain deterministic.
+- [x] Wire properties and a conditional Spring bean without coupling the relay to HTTP controllers or domain services.
+- [x] Run the focused tests and confirm they pass.
 
 ### Task 5: Add NATS JetStream integration coverage
 
@@ -72,15 +76,15 @@ Completed in the current branch. Event subjects/envelopes, JetStream publishing 
 - Create: `control-plane/src/test/java/io/agentteams/controlplane/outbox/OutboxRelayIT.java`
 - Modify: `control-plane/pom.xml` only if the NATS Testcontainers dependency is required by the chosen test image/API.
 
-- [ ] Write Testcontainers tests for successful publication/status, duplicate message-ID deduplication, retry after a transient publish failure, and dead-letter after ten failures.
-- [ ] Ensure tests use `@Testcontainers(disabledWithoutDocker = true)` and do not require Docker at compile time.
-- [ ] Run static inspection and the requested command `mvn -pl control-plane -am -Dtest=OutboxRelayIT test`; report that execution is unavailable if Maven/Java/Docker are absent.
+- [x] Write Testcontainers tests for successful publication/status, duplicate message-ID deduplication, retry after a transient publish failure, and dead-letter after ten failures.
+- [x] Ensure tests use `@Testcontainers(disabledWithoutDocker = true)` and do not require Docker at compile time.
+- [x] Run static inspection and the requested command `mvn -pl control-plane -am -Dtest=OutboxRelayIT test`; report that execution is unavailable if Maven/Java/Docker are absent.
 
 ### Task 6: Final verification
 
 **Files:**
 - Inspect only all changed files under `agentteams-java`.
 
-- [ ] Run `rg` checks for required subjects, SQL locking, message ID, attempt limit, and secret redaction patterns.
-- [ ] Review `git diff --check` and the full diff for scope violations.
-- [ ] Report exact verification results and environment limitations without claiming unavailable tests passed.
+- [x] Run `rg` checks for required subjects, SQL locking, message ID, attempt limit, and secret redaction patterns.
+- [x] Review `git diff --check` and the full diff for scope violations.
+- [x] Report exact verification results and environment limitations without claiming unavailable tests passed.

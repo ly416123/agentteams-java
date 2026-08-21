@@ -143,16 +143,16 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
 
 - [x] **步骤 1：运行回归。** 执行 `source deploy/dev-env.sh && mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 test`，全量 Surefire 回归通过；真实基础设施测试另行以 `TaskPushInfrastructureIT` 聚焦命令通过。
 - [x] **步骤 2：验证交付门槛。** 真实容器 E2E、Kind 部署、Operator Worker 收敛和重复运行均已验证，基础设施垂直切片完成。
-- [ ] **步骤 3：启动产品阶段。** 基础切片通过后按依赖顺序执行：
+- [ ] **步骤 3：持续推进产品阶段。** 基础切片已完成，以下为后续阶段状态：
   1. [x] QwenPaw Runtime Adapter：已实现 JSON Lines 外部进程边界、gRPC 双向流端口、assignment/lease 回调和异常退出处理；真实 QwenPaw 镜像/命令仍是部署输入。
-  2. [ ] ConfigSnapshot 与 Artifact lifecycle：补齐版本、checksum、上传确认、清理和恢复；当前版本已具备版本、checksum、预签名上传和幂等元数据校验，仍缺配置下发协议与按保留策略清理契约。
-  3. DeepSeek Manager：在稳定的任务工具和执行链路上接入结构化意图、审批和审计。
-  4. Team CRD 与调度：补齐成员、并发、优先级和 active attempt 策略。
-  5. OIDC/mTLS/RBAC/Secret rotation：在 API、Agent、Manager 和 Operator 边界上收紧权限。
-  6. Matrix AppService：接入人类协作，但保持 PostgreSQL 为业务状态源。
-  7. OpenTelemetry、HA、备份恢复和故障注入：作为生产化验收阶段。
+  2. [x] ConfigSnapshot 与 Artifact lifecycle：已完成版本、checksum、上传确认、配置下发协议、Worker 暂存、幂等元数据校验和按保留策略清理。
+  3. [x] DeepSeek Manager：已完成 Provider、结构化意图、审批/工具权限和审计代码；真实 DeepSeek API smoke 仍待执行证据。
+  4. [ ] Team CRD 与调度：当前仅完成 CRD、资源投影和基础 status，成员、并发、优先级和 active attempt 策略仍待补齐。
+  5. [ ] OIDC/mTLS/RBAC/Secret rotation：当前具备安全边界和接口骨架，生产级验证器、mTLS、完整 RBAC 和轮换仍待补齐。
+  6. [ ] Matrix AppService：当前已完成 Control Plane 适配器和幂等处理，真实 Tuwunel 部署与联调仍待补齐。
+  7. [ ] OpenTelemetry、HA、备份恢复和故障注入：当前具备基础指标、告警、备份脚本和部分 HA 机制，完整生产化验收仍待补齐。
 
-当前阻塞项仅为外部资源或尚未确定的跨系统契约：真实 QwenPaw 镜像/进程协议、DeepSeek API 凭据、OIDC/mTLS 证书与验证器、Matrix/Tuwunel 实例、Prometheus Operator，以及配置文件清理/恢复策略。代码侧可独立完成的 Runtime 与 Team CRD schema 已先行落地。
+当前未完成项主要是外部资源联调和生产化能力：真实 QwenPaw 镜像/进程协议、DeepSeek API 真实 smoke、OIDC/mTLS 证书与验证器、Matrix/Tuwunel 实例、Prometheus Operator，以及 Team 调度和完整灾备验收。配置文件下发、清理和恢复契约已在 2026-08-21 完成。
 
 ## Verification checklist
 

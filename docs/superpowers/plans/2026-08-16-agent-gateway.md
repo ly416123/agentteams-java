@@ -10,6 +10,10 @@
 
 ### Implementation status (2026-08-21)
 
+已完成。网关连接管理、命令持久化与重放、入站事件幂等、gRPC 服务和 JDBC/NATS 装配均已实现，并通过模块测试及真实基础设施集成测试。
+
+### Implementation status (2026-08-21)
+
 Completed in the current branch. `ConnectionRegistry`, command delivery, inbound-event handling, and the gRPC service are implemented with focused unit coverage in `agent-gateway/src/test`. The gateway module test suite and the infrastructure integration suite have passed; the original checklist below is retained as historical design tracking.
 
 ---
@@ -21,9 +25,9 @@ Completed in the current branch. `ConnectionRegistry`, command delivery, inbound
 - Create: `agent-gateway/src/main/java/io/agentteams/gateway/AgentGatewayPorts.java`
 - Create: `agent-gateway/src/main/java/io/agentteams/gateway/ConnectionRegistry.java`
 
-- [ ] Define immutable agent profile, sequenced command, authentication decision, and application handler port contracts.
-- [ ] Implement atomic current-connection replacement by agent ID and monotonic acknowledgement tracking.
-- [ ] Keep registry data limited to connection/session metadata and stream sink.
+- [x] Define immutable agent profile, sequenced command, authentication decision, and application handler port contracts.
+- [x] Implement atomic current-connection replacement by agent ID and monotonic acknowledgement tracking.
+- [x] Keep registry data limited to connection/session metadata and stream sink.
 
 ### Task 2: Add failing protocol and delivery tests
 
@@ -32,9 +36,9 @@ Completed in the current branch. `ConnectionRegistry`, command delivery, inbound
 - Create: `agent-gateway/src/test/java/io/agentteams/gateway/CommandDeliveryServiceTest.java`
 - Create: `agent-gateway/src/test/java/io/agentteams/gateway/InboundEventHandlerTest.java`
 
-- [ ] Test Hello/Ready negotiation and rejection before registry mutation.
-- [ ] Test TaskAssigned persistence and active-stream delivery with an ordered sequence.
-- [ ] Test accepted forwarding, duplicate suppression, stale rejection, reconnect replacement, and replay.
+- [x] Test Hello/Ready negotiation and rejection before registry mutation.
+- [x] Test TaskAssigned persistence and active-stream delivery with an ordered sequence.
+- [x] Test accepted forwarding, duplicate suppression, stale rejection, reconnect replacement, and replay.
 
 ### Task 3: Implement command and inbound flows
 
@@ -42,8 +46,8 @@ Completed in the current branch. `ConnectionRegistry`, command delivery, inbound
 - Create: `agent-gateway/src/main/java/io/agentteams/gateway/CommandDeliveryService.java`
 - Create: `agent-gateway/src/main/java/io/agentteams/gateway/InboundEventHandler.java`
 
-- [ ] Persist commands before sending, replay only durable unacknowledged commands, and close the send race through current-session checks.
-- [ ] Update last-seen/ack state, deduplicate inbound IDs through the durable port, and route the five required event kinds to the application handler.
+- [x] Persist commands before sending, replay only durable unacknowledged commands, and close the send race through current-session checks.
+- [x] Update last-seen/ack state, deduplicate inbound IDs through the durable port, and route the five required event kinds to the application handler.
 
 ### Task 4: Implement the gRPC service and application entry point
 
@@ -51,11 +55,11 @@ Completed in the current branch. `ConnectionRegistry`, command delivery, inbound
 - Create: `agent-gateway/src/main/java/io/agentteams/gateway/AgentChannelService.java`
 - Create: `agent-gateway/src/main/java/io/agentteams/gateway/AgentGatewayApplication.java`
 
-- [ ] Enforce Hello-first ordering, authentication, protocol compatibility, Ready response, registration, and replay.
-- [ ] Close and remove only the same current connection on stream termination.
-- [ ] Provide the Spring Boot main class without introducing a control-plane JDBC dependency.
+- [x] Enforce Hello-first ordering, authentication, protocol compatibility, Ready response, registration, and replay.
+- [x] Close and remove only the same current connection on stream termination.
+- [x] Provide the Spring Boot main class without introducing a control-plane JDBC dependency.
 
 ### Task 5: Verify and self-review
 
-- [ ] Run `mvn -pl agent-gateway -am test` if Maven is available; otherwise record the environment limitation.
-- [ ] Run source/static checks available without Java/Maven, inspect the complete diff, and check every requested behavior against tests and ports.
+- [x] Run `mvn -pl agent-gateway -am test` if Maven is available; otherwise record the environment limitation.
+- [x] Run source/static checks available without Java/Maven, inspect the complete diff, and check every requested behavior against tests and ports.

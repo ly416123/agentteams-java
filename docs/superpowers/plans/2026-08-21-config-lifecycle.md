@@ -67,4 +67,4 @@
 - [x] **步骤 2：运行真实容器测试。** 执行 `source deploy/dev-env.sh && export TESTCONTAINERS_RYUK_DISABLED=true && mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 -Pintegration-tests -Dit.test=TaskPushInfrastructureIT verify`；预期配置文件闭环通过，Docker 不可用时记录准确跳过原因。
 - [x] **步骤 3：运行全量回归和静态检查。** 执行完整 `mvn clean test`、`bash -n`、`python3 scripts/validate-kind-manifests.py`、`python3 scripts/validate-kind-infra.py`、`helm lint deploy/helm/agentteams-java`、`git diff --check`。
 - [x] **步骤 4：安全检查。** 确认 `git ls-files apikey` 无输出、`git check-ignore -v apikey` 命中规则，差异中没有凭据、预签名 URL 或对象存储密钥。
-- [ ] **步骤 5：提交并同步。** 使用 `feat(配置): 完成快照文件下发与生命周期治理` 提交，验证工作区干净后推送当前功能分支。
+- [x] **步骤 5：提交并同步。** 已使用 `feat(配置): 完成快照文件下发与生命周期治理` 提交，并推送当前功能分支。
