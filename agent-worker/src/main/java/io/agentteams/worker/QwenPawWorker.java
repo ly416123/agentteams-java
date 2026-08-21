@@ -9,6 +9,7 @@ import io.agentteams.contracts.v1.AgentReady;
 import io.agentteams.contracts.v1.Ack;
 import io.agentteams.contracts.v1.ConfigApplied;
 import io.agentteams.contracts.v1.ConfigChanged;
+import io.agentteams.contracts.v1.ConfigFile;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
@@ -36,12 +37,14 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -73,6 +76,8 @@ public final class QwenPawWorker implements AutoCloseable {
     private final GrpcAgentChannelPort channelPort;
     private final QwenPawRuntime runtime;
     private final ConfigManifestFetcher manifestFetcher;
+    private final ConfigFileFetcher configFileFetcher;
+    private final Path configDirectory;
     private final RuntimeConfigCoordinator configCoordinator;
     private final GatewayRuntimeAdapter runtimeAdapter;
     private final AgentHello hello;
@@ -102,6 +107,9 @@ public final class QwenPawWorker implements AutoCloseable {
         this.runtime = new QwenPawRuntime(new QwenPawHttpRuntimePort(qwenPawConfiguration));
         this.manifestFetcher = new ConfigManifestFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
+        this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
+                configuration.configFetchTimeout(), configuration.maxConfigFileBytes());
+        this.configDirectory = configuration.configDirectory();
         this.configCoordinator = new RuntimeConfigCoordinator((snapshot, current) ->
                 new RuntimeConfigPrepared() {
                     @Override
@@ -191,23 +199,8 @@ public final class QwenPawWorker implements AutoCloseable {
                     ? manifestFetcher.fetch(changed.getManifestUri(), changed.getSnapshotId(),
                             changed.getManifestSha256(), changed.getSizeBytes())
                     : changed.getManifestJson();
-            byte[] manifestBytes = manifestJson.getBytes(StandardCharsets.UTF_8);
-            if (manifestBytes.length != changed.getSizeBytes()) {
-                throw new IllegalArgumentException("configuration manifest size mismatch");
-            }
-            String checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(manifestBytes));
-            if (!checksum.equalsIgnoreCase(changed.getManifestSha256())) {
-                throw new IllegalArgumentException("configuration manifest checksum mismatch");
-            }
-            JsonNode root = new ObjectMapper().readTree(manifestJson);
-            if (root == null || !root.isObject()) {
-                throw new IllegalArgumentException("configuration manifest must be a JSON object");
-            }
-            Map<String, String> values = new java.util.LinkedHashMap<>();
-            root.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().isTextual()
-                    ? entry.getValue().asText() : entry.getValue().toString()));
-            configCoordinator.apply(new RuntimeConfigSnapshot(changed.getConfigVersion(),
-                    changed.getManifestSha256(), values));
+            configCoordinator.apply(buildConfigSnapshot(changed, manifestJson, configFileFetcher,
+                    configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion())));
             applied = true;
         } catch (Exception failure) {
             errorMessage = truncate(rootMessage(failure));
@@ -229,6 +222,47 @@ public final class QwenPawWorker implements AutoCloseable {
                 configuration.agentId(), changed.getConfigVersion(), applied, errorMessage);
         if (input.getSequence() > 0) {
             acknowledge(input);
+        }
+    }
+
+    static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,
+            ConfigFileFetcher files, Path versionDirectory) {
+        Objects.requireNonNull(changed, "changed");
+        Objects.requireNonNull(manifestJson, "manifestJson");
+        Objects.requireNonNull(files, "files");
+        Objects.requireNonNull(versionDirectory, "versionDirectory");
+        byte[] manifestBytes = manifestJson.getBytes(StandardCharsets.UTF_8);
+        if (manifestBytes.length != changed.getSizeBytes()) {
+            throw new IllegalArgumentException("configuration manifest size mismatch");
+        }
+        String checksum = HexFormat.of().formatHex(sha256(manifestBytes));
+        if (!checksum.equalsIgnoreCase(changed.getManifestSha256())) {
+            throw new IllegalArgumentException("configuration manifest checksum mismatch");
+        }
+        try {
+            JsonNode root = new ObjectMapper().readTree(manifestJson);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("configuration manifest must be a JSON object");
+            }
+            Map<String, String> values = new LinkedHashMap<>();
+            root.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().isTextual()
+                    ? entry.getValue().asText() : entry.getValue().toString()));
+            Map<String, Path> stagedFiles = new LinkedHashMap<>();
+            for (ConfigFile file : changed.getFilesList()) {
+                stagedFiles.put(file.getPath(), files.fetch(file, versionDirectory));
+            }
+            return new RuntimeConfigSnapshot(changed.getConfigVersion(), changed.getManifestSha256(), values,
+                    stagedFiles);
+        } catch (IOException error) {
+            throw new IllegalArgumentException("configuration manifest must be valid JSON", error);
+        }
+    }
+
+    private static byte[] sha256(byte[] value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(value);
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
         }
     }
 
@@ -419,7 +453,9 @@ public final class QwenPawWorker implements AutoCloseable {
             int healthPort,
             URI configManifestBaseUrl,
             Duration configFetchTimeout,
-            long maxConfigManifestBytes) {
+            long maxConfigManifestBytes,
+            Path configDirectory,
+            long maxConfigFileBytes) {
 
         static WorkerConfiguration fromEnvironment() {
             return from(System.getenv());
@@ -445,7 +481,9 @@ public final class QwenPawWorker implements AutoCloseable {
                     integer(environment, "AGENTTEAMS_WORKER_HEALTH_PORT", 9090),
                     optionalUri(environment, "AGENTTEAMS_CONFIG_MANIFEST_BASE_URL"),
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_CONFIG_FETCH_TIMEOUT_SECONDS", 15)),
-                    longValue(environment, "AGENTTEAMS_MAX_CONFIG_MANIFEST_BYTES", 16L * 1024 * 1024));
+                    longValue(environment, "AGENTTEAMS_MAX_CONFIG_MANIFEST_BYTES", 16L * 1024 * 1024),
+                    Path.of(value(environment, "AGENTTEAMS_CONFIG_DIRECTORY", "/tmp/agentteams-config")),
+                    longValue(environment, "AGENTTEAMS_MAX_CONFIG_FILE_BYTES", 16L * 1024 * 1024));
         }
 
         Map<String, String> runtimeConfiguration() {

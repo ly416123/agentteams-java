@@ -15,6 +15,8 @@ spec:
     AGENTTEAMS_GATEWAY_HOST: agentteams-agentteams-java-gateway
     AGENTTEAMS_GATEWAY_PORT: "9090"
     AGENTTEAMS_CONFIG_MANIFEST_BASE_URL: http://agentteams-agentteams-java-control-plane:8080
+    AGENTTEAMS_CONFIG_DIRECTORY: /tmp/agentteams-config
+    AGENTTEAMS_MAX_CONFIG_FILE_BYTES: "16777216"
     QWENPAW_ENDPOINT: http://qwenpaw:8088
     QWENPAW_AGENT_ID: default
     QWENPAW_USER_ID: agentteams

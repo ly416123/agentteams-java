@@ -147,13 +147,20 @@ class AgentChannelContractTest {
                         .build()).build(),
                 ServerMessage.PayloadCase.TASK_ASSIGNED);
 
-        assertRoundTrip(
+                assertRoundTrip(
                 ServerMessage.newBuilder().setConfigChanged(ConfigChanged.newBuilder()
                         .setMetadata(AGENT_METADATA)
                         .setConfigVersion(13)
                         .setManifestUri("s3://bucket/config-13.json")
                         .setManifestSha256("def456")
                         .setSizeBytes(128)
+                        .addFiles(ConfigFile.newBuilder()
+                                .setPath("models/default.json")
+                                .setUri("urn:agentteams:config-file:snapshot-13:models/default.json")
+                                .setSha256("file-sha256")
+                                .setSizeBytes(42)
+                                .setContentType("application/json")
+                                .build())
                         .build()).build(),
                 ServerMessage.PayloadCase.CONFIG_CHANGED);
 

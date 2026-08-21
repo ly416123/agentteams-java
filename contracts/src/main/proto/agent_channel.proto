@@ -123,6 +123,15 @@ message ConfigChanged {
   // Small manifests may be delivered inline. Large manifests should use
   // manifest_uri and an object-storage reader supplied by the runtime.
   string manifest_json = 8;
+  repeated ConfigFile files = 9;
+}
+
+message ConfigFile {
+  string path = 1;
+  string uri = 2;
+  string sha256 = 3;
+  uint64 size_bytes = 4;
+  string content_type = 5;
 }
 
 message ConfigApplied {

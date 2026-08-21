@@ -7,6 +7,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,6 +41,22 @@ public final class ConfigFileController {
     public CompleteResponse complete(@PathVariable UUID snapshotId, @PathVariable UUID uploadId) {
         ConfigFileRecord file = uploads.complete(snapshotId, uploadId);
         return CompleteResponse.from(file);
+    }
+
+    @GetMapping("/content")
+    public ResponseEntity<InputStreamResource> content(@PathVariable UUID snapshotId,
+            @org.springframework.web.bind.annotation.RequestParam String path) {
+        ConfigUploadService.ConfigFileDownload download = uploads.downloadCompleted(snapshotId, path);
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(download.file().contentType());
+        } catch (IllegalArgumentException ignored) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_LENGTH, Long.toString(download.file().sizeBytes()))
+                .body(new InputStreamResource(download.content()));
     }
 
     public record PrepareRequest(String path, String contentType, String sha256, long sizeBytes, long expirySeconds) { }

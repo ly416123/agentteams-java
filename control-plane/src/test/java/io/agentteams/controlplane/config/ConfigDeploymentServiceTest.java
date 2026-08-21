@@ -1,0 +1,76 @@
+package io.agentteams.controlplane.config;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.agentteams.controlplane.persistence.AgentRecord;
+import io.agentteams.controlplane.persistence.FoundationPersistenceService;
+import io.agentteams.controlplane.persistence.FoundationTransaction;
+import io.agentteams.controlplane.persistence.AgentRepository;
+import io.agentteams.controlplane.persistence.DomainEventRepository;
+import io.agentteams.controlplane.persistence.OutboxEventRepository;
+import io.agentteams.controlplane.persistence.OutboxEventRecord;
+import io.agentteams.domain.agent.AgentPhase;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Function;
+import org.junit.jupiter.api.Test;
+
+class ConfigDeploymentServiceTest {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
+
+    @Test
+    void includesOnlyCompletedFilesInConfigChangedPayload() throws Exception {
+        FoundationPersistenceService persistence = mock(FoundationPersistenceService.class);
+        FoundationTransaction tx = mock(FoundationTransaction.class);
+        ConfigLifecycleRepository lifecycle = mock(ConfigLifecycleRepository.class);
+        ConfigSnapshotRepository snapshots = mock(ConfigSnapshotRepository.class);
+        AgentRepository agents = mock(AgentRepository.class);
+        OutboxEventRepository outbox = mock(OutboxEventRepository.class);
+        DomainEventRepository domainEvents = mock(DomainEventRepository.class);
+        UUID agentId = UUID.randomUUID();
+        ConfigSnapshot snapshot = new ConfigSnapshot(UUID.randomUUID(), "worker", 4,
+                "{\"model\":\"deepseek\"}", "manifest-sha", "test", NOW);
+        ConfigFileRecord file = new ConfigFileRecord(UUID.randomUUID(), snapshot.id(), "models/default.json",
+                "configs/" + snapshot.id() + "/files/models/default.json", "file-sha", 42,
+                "application/json");
+        when(tx.configLifecycle()).thenReturn(lifecycle);
+        when(tx.agents()).thenReturn(agents);
+        when(tx.outboxEvents()).thenReturn(outbox);
+        when(tx.domainEvents()).thenReturn(domainEvents);
+        when(agents.findById(agentId)).thenReturn(Optional.of(AgentRecord.create(agentId, "worker",
+                AgentPhase.PROVISIONING, "qwenpaw", "{}", NOW)));
+        when(lifecycle.findBinding("worker", agentId)).thenReturn(Optional.empty());
+        when(lifecycle.findFiles(snapshot.id())).thenReturn(List.of(file));
+        when(outbox.findByEventId(any())).thenReturn(Optional.empty());
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            Function<FoundationTransaction, ?> work = invocation.getArgument(0);
+            return work.apply(tx);
+        });
+
+        ConfigDeploymentService service = new ConfigDeploymentService(persistence, snapshots,
+                Clock.fixed(NOW, ZoneOffset.UTC), MAPPER);
+
+        service.deploy(agentId, "worker", snapshot);
+
+        var event = org.mockito.ArgumentCaptor.forClass(OutboxEventRecord.class);
+        org.mockito.Mockito.verify(outbox).insert(event.capture());
+        JsonNode payload = MAPPER.readTree(event.getValue().payloadJson());
+        assertThat(payload.path("files")).hasSize(1);
+        assertThat(payload.path("files").get(0).path("path").asText()).isEqualTo("models/default.json");
+        assertThat(payload.path("files").get(0).path("uri").asText())
+                .isEqualTo("urn:agentteams:config-file:" + snapshot.id() + ":models/default.json");
+        assertThat(payload.path("files").get(0).path("sha256").asText()).isEqualTo("file-sha");
+        assertThat(payload.path("files").get(0).path("sizeBytes").asLong()).isEqualTo(42);
+        assertThat(payload.path("files").get(0).path("contentType").asText()).isEqualTo("application/json");
+    }
+}

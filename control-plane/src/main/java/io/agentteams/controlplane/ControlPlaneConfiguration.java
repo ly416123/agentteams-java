@@ -22,6 +22,8 @@ import io.agentteams.controlplane.config.ConfigSnapshotService;
 import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigUploadCleanupJob;
 import io.agentteams.controlplane.config.ConfigUploadService;
+import io.agentteams.controlplane.config.ConfigSnapshotCleanupJob;
+import io.agentteams.controlplane.config.ConfigSnapshotCleanupService;
 import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
 import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.agentteams.controlplane.service.TaskAssignmentScheduler;
@@ -186,6 +188,22 @@ public class ControlPlaneConfiguration {
     ConfigUploadCleanupJob configUploadCleanupJob(ConfigUploadService uploads,
             @Value("${agentteams.config.upload-cleanup-batch-size:100}") int batchSize) {
         return new ConfigUploadCleanupJob(uploads, batchSize);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({FoundationPersistenceService.class,
+            ObjectStorage.class})
+    ConfigSnapshotCleanupService configSnapshotCleanupService(FoundationPersistenceService persistence,
+            ObjectStorage storage) {
+        return new ConfigSnapshotCleanupService(persistence, storage);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(ConfigSnapshotCleanupService.class)
+    ConfigSnapshotCleanupJob configSnapshotCleanupJob(ConfigSnapshotCleanupService cleanup,
+            @Value("${agentteams.config.snapshot-retention-count:5}") int keepCount,
+            @Value("${agentteams.config.snapshot-cleanup-batch-size:25}") int batchSize) {
+        return new ConfigSnapshotCleanupJob(cleanup, keepCount, batchSize);
     }
 
     @Bean

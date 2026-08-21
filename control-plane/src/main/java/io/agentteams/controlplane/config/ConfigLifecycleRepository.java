@@ -23,6 +23,56 @@ public final class ConfigLifecycleRepository {
                 file.sizeBytes(), file.contentType()) == 1;
     }
 
+    public List<ConfigFileRecord> findFiles(UUID snapshotId) {
+        return jdbc.query("""
+                SELECT id, snapshot_id, path, storage_key, checksum, size_bytes, content_type
+                  FROM config_files WHERE snapshot_id = ? ORDER BY path
+                """, (rs, row) -> new ConfigFileRecord(rs.getObject("id", UUID.class),
+                rs.getObject("snapshot_id", UUID.class), rs.getString("path"), rs.getString("storage_key"),
+                rs.getString("checksum"), rs.getLong("size_bytes"), rs.getString("content_type")), snapshotId);
+    }
+
+    public Optional<ConfigFileRecord> findFile(UUID snapshotId, String path) {
+        return jdbc.query("""
+                SELECT id, snapshot_id, path, storage_key, checksum, size_bytes, content_type
+                  FROM config_files WHERE snapshot_id = ? AND path = ?
+                """, (rs, row) -> new ConfigFileRecord(rs.getObject("id", UUID.class),
+                rs.getObject("snapshot_id", UUID.class), rs.getString("path"), rs.getString("storage_key"),
+                rs.getString("checksum"), rs.getLong("size_bytes"), rs.getString("content_type")),
+                snapshotId, path).stream().findFirst();
+    }
+
+    public List<UUID> findCleanupSnapshotIds(int keepCount, int limit) {
+        if (keepCount <= 0) throw new IllegalArgumentException("keepCount must be positive");
+        if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
+        return jdbc.query("""
+                WITH ranked AS (
+                    SELECT id, row_number() OVER (PARTITION BY subject ORDER BY version DESC) AS rank
+                      FROM config_snapshots
+                )
+                SELECT ranked.id
+                  FROM ranked
+                 WHERE ranked.rank > ?
+                   AND NOT EXISTS (SELECT 1 FROM config_bindings b WHERE b.snapshot_id = ranked.id)
+                   AND NOT EXISTS (SELECT 1 FROM config_uploads u
+                                    WHERE u.snapshot_id = ranked.id AND u.status = 'PENDING')
+                 ORDER BY ranked.id
+                 LIMIT ?
+                """, (rs, row) -> rs.getObject(1, UUID.class), keepCount, limit);
+    }
+
+    public List<String> findObjectKeys(UUID snapshotId) {
+        return jdbc.query("""
+                SELECT storage_key FROM config_files WHERE snapshot_id = ?
+                UNION
+                SELECT storage_key FROM config_uploads WHERE snapshot_id = ?
+                """, (rs, row) -> rs.getString(1), snapshotId, snapshotId);
+    }
+
+    public void deleteSnapshot(UUID snapshotId) {
+        jdbc.update("DELETE FROM config_snapshots WHERE id = ?", snapshotId);
+    }
+
     public ConfigBindingRecord upsertBinding(ConfigBindingRecord binding) {
         jdbc.update("""
                 INSERT INTO config_bindings(id, subject, agent_id, snapshot_id, desired_at)

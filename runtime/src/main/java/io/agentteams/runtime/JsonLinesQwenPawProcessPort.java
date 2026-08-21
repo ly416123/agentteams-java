@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -103,6 +104,8 @@ public final class JsonLinesQwenPawProcessPort implements QwenPawProcessPort {
         ObjectNode command = mapper.createObjectNode().put("type", "config")
                 .put("configVersion", snapshot.version()).put("checksum", snapshot.checksum());
         command.set("configuration", mapper.valueToTree(snapshot.values()));
+        command.set("files", mapper.valueToTree(snapshot.files().entrySet().stream()
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().toString()))));
         send(command);
     }
 

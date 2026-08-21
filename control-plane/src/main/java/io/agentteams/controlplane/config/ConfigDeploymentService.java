@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.List;
 import java.util.UUID;
 
 /** Binds a desired snapshot to an Agent and emits a durable ConfigChanged command. */
@@ -53,7 +54,7 @@ public final class ConfigDeploymentService {
             ConfigApplyRecord pending = new ConfigApplyRecord(UUID.randomUUID(), binding.id(), agentId, snapshot.id(),
                     "PENDING", null, null, now);
             tx.configLifecycle().recordApply(pending);
-            String payload = payload(eventId, binding, snapshot);
+            String payload = payload(eventId, binding, snapshot, tx.configLifecycle().findFiles(snapshot.id()));
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", agentId, CONFIG_CHANGED, payload,
                     now, snapshot.version());
             return new ConfigDeployment(binding, snapshot, eventId);
@@ -83,7 +84,8 @@ public final class ConfigDeploymentService {
         });
     }
 
-    private String payload(UUID eventId, ConfigBindingRecord binding, ConfigSnapshot snapshot) {
+    private String payload(UUID eventId, ConfigBindingRecord binding, ConfigSnapshot snapshot,
+            List<ConfigFileRecord> files) {
         try {
             ObjectNode root = mapper.createObjectNode();
             root.put("eventId", eventId.toString());
@@ -98,6 +100,15 @@ public final class ConfigDeploymentService {
             }
             root.put("manifestSha256", snapshot.checksum());
             root.put("sizeBytes", manifestBytes.length);
+            var fileNodes = root.putArray("files");
+            for (ConfigFileRecord file : files) {
+                ObjectNode node = fileNodes.addObject();
+                node.put("path", file.path());
+                node.put("uri", "urn:agentteams:config-file:" + snapshot.id() + ":" + file.path());
+                node.put("sha256", file.checksum());
+                node.put("sizeBytes", file.sizeBytes());
+                node.put("contentType", file.contentType());
+            }
             return mapper.writeValueAsString(root);
         } catch (Exception error) {
             throw new IllegalStateException("unable to serialize ConfigChanged payload", error);

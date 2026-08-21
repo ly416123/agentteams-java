@@ -5,6 +5,7 @@ import io.agentteams.controlplane.artifact.ObjectStoragePaths;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.storage.ObjectStorage;
 import java.net.URL;
+import java.io.InputStream;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -74,6 +75,14 @@ public final class ConfigUploadService {
         });
     }
 
+    public ConfigFileDownload downloadCompleted(UUID snapshotId, String path) {
+        Objects.requireNonNull(snapshotId, "snapshotId");
+        requireText(path, "path");
+        ConfigFileRecord file = persistence.inTransaction(tx -> tx.configLifecycle().findFile(snapshotId, path))
+                .orElseThrow(() -> new IllegalArgumentException("completed config file does not exist"));
+        return new ConfigFileDownload(file, storage.download(file.storageKey()));
+    }
+
     public int cleanupExpired(int limit) {
         if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
         Instant now = clock.instant();
@@ -94,6 +103,13 @@ public final class ConfigUploadService {
         public PreparedUpload {
             Objects.requireNonNull(upload, "upload");
             Objects.requireNonNull(uploadUrl, "uploadUrl");
+        }
+    }
+
+    public record ConfigFileDownload(ConfigFileRecord file, InputStream content) {
+        public ConfigFileDownload {
+            Objects.requireNonNull(file, "file");
+            Objects.requireNonNull(content, "content");
         }
     }
 

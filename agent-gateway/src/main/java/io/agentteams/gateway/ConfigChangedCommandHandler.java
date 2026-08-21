@@ -3,6 +3,7 @@ package io.agentteams.gateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.Timestamp;
+import io.agentteams.contracts.v1.ConfigFile;
 import io.agentteams.contracts.v1.ConfigChanged;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ServerMessage;
@@ -52,6 +53,22 @@ public final class ConfigChangedCommandHandler {
                 .setBindingId(bindingId.toString())
                 .setSnapshotId(snapshotId.toString())
                 .build();
+        JsonNode files = root.get("files");
+        if (files != null) {
+            if (!files.isArray()) throw new IllegalArgumentException("files must be an array");
+            ConfigChanged.Builder builder = changed.toBuilder();
+            for (JsonNode file : files) {
+                if (!file.isObject()) throw new IllegalArgumentException("config file must be an object");
+                builder.addFiles(ConfigFile.newBuilder()
+                        .setPath(text(file, "path"))
+                        .setUri(text(file, "uri"))
+                        .setSha256(text(file, "sha256"))
+                        .setSizeBytes(nonNegative(file, "sizeBytes"))
+                        .setContentType(text(file, "contentType"))
+                        .build());
+            }
+            changed = builder.build();
+        }
         if (!manifestJson.isBlank()) {
             changed = changed.toBuilder().setManifestJson(manifestJson).build();
         }

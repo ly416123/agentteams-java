@@ -201,11 +201,32 @@ class TaskPushInfrastructureIT {
                     "/api/v1/config/snapshots", "config-snapshot-" + UUID.randomUUID(), snapshotBody);
             UUID snapshotId = UUID.fromString(snapshot.path("id").asText());
             long configVersion = snapshot.path("version").asLong();
+            byte[] fileContent = "{\"temperature\":0.1}".getBytes(StandardCharsets.UTF_8);
+            String fileSha = sha256(fileContent);
+            com.fasterxml.jackson.databind.JsonNode prepared = postJson(
+                    "/api/v1/config/snapshots/" + snapshotId + "/files/uploads",
+                    "config-upload-" + UUID.randomUUID(),
+                    "{\"path\":\"models/default.json\",\"contentType\":\"application/json\","
+                            + "\"sha256\":\"" + fileSha + "\",\"sizeBytes\":" + fileContent.length
+                            + ",\"expirySeconds\":900}");
+            HttpResponse<String> upload = HttpClient.newHttpClient().send(HttpRequest.newBuilder()
+                    .uri(URI.create(prepared.path("uploadUrl").asText()))
+                    .header("Content-Type", "application/json")
+                    .PUT(HttpRequest.BodyPublishers.ofByteArray(fileContent)).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertTrue(upload.statusCode() >= 200 && upload.statusCode() < 300,
+                    "config file upload failed: " + upload.statusCode());
+            postJson("/api/v1/config/snapshots/" + snapshotId + "/files/uploads/"
+                            + prepared.path("uploadId").asText() + "/complete",
+                    "config-complete-" + UUID.randomUUID(), "{}");
             com.fasterxml.jackson.databind.JsonNode deployment = postJson(
                     "/api/v1/config/snapshots/" + snapshotId + "/agents/" + agentId,
                     "config-deploy-" + UUID.randomUUID(), "{}");
 
             ConfigChanged changed = agent.awaitConfigChanged(configVersion);
+            assertEquals(1, changed.getFilesCount());
+            assertEquals("models/default.json", changed.getFiles(0).getPath());
+            assertEquals(fileSha, changed.getFiles(0).getSha256());
             agent.acknowledge(changed);
 
             awaitTrue(() -> gatewayCommandCount(agentId) == 1,
@@ -220,6 +241,11 @@ class TaskPushInfrastructureIT {
             assertEquals(1, gatewayCommandCount(agentId));
             assertEquals(1, gatewayDeliveryCount(agentId, changed.getMetadata().getSequence()),
                     "only the current connection may deliver the command to the Agent");
+            agent.applyConfig(changed);
+            awaitTrue(() -> "APPLIED".equals(jdbc().queryForObject(
+                    "SELECT phase FROM config_apply_records WHERE binding_id = ? AND snapshot_id = ?",
+                    String.class, UUID.fromString(deployment.path("bindingId").asText()), snapshotId)),
+                    "Control Plane must persist ConfigApplied");
         } finally {
             agent.close();
         }
@@ -380,10 +406,8 @@ class TaskPushInfrastructureIT {
     }
 
     private static long acknowledgedSequence(UUID agentId) {
-        Long sequence = jdbc().queryForObject(
-                "SELECT last_ack_sequence FROM gateway_ack_cursors WHERE agent_id = ?", Long.class,
-                agentId.toString());
-        return sequence == null ? 0 : sequence;
+        return jdbc().query("SELECT last_ack_sequence FROM gateway_ack_cursors WHERE agent_id = ?",
+                (rs, row) -> rs.getLong(1), agentId.toString()).stream().findFirst().orElse(0L);
     }
 
     private static boolean configConsumerDelivered(String durable) {

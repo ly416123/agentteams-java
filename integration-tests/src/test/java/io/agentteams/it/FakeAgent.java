@@ -8,6 +8,7 @@ import io.agentteams.contracts.v1.AgentHello;
 import io.agentteams.contracts.v1.AgentMessage;
 import io.agentteams.contracts.v1.ArtifactRef;
 import io.agentteams.contracts.v1.ConfigChanged;
+import io.agentteams.contracts.v1.ConfigApplied;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
@@ -100,6 +101,21 @@ final class FakeAgent implements AutoCloseable {
 
     void acknowledge(ConfigChanged changed) {
         acknowledgeSequence(changed.getMetadata().getSequence(), changed.getMetadata().getEventId());
+    }
+
+    void applyConfig(ConfigChanged changed) {
+        requests.onNext(AgentMessage.newBuilder().setConfigApplied(ConfigApplied.newBuilder()
+                .setMetadata(EventMetadata.newBuilder()
+                        .setEventId(UUID.randomUUID().toString())
+                        .setAgentId(agentId)
+                        .setOccurredAt(com.google.protobuf.Timestamp.newBuilder()
+                                .setSeconds(System.currentTimeMillis() / 1000).build())
+                        .build())
+                .setConfigVersion(changed.getConfigVersion())
+                .setApplied(true)
+                .setBindingId(changed.getBindingId())
+                .setSnapshotId(changed.getSnapshotId())
+                .build()).build());
     }
 
     void accept(TaskAssigned assignment) {
