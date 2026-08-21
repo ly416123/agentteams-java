@@ -28,39 +28,39 @@
 
 ### 任务 1：建立真实环境前置检查
 
-- [ ] **步骤 1：检查本机凭据边界。** 使用 `git check-ignore -v apikey`、`git ls-files apikey` 和文件权限检查；禁止读取或打印 Key 内容。
-- [ ] **步骤 2：检查 Kind 和 Docker。** 执行 `source deploy/dev-env.sh`、`docker info`、`kind get clusters`、`kubectl config current-context`；若当前上下文不可用，按 `deploy/install-kind-dev.sh` 的既有流程恢复，不删除已有集群或数据。
-- [ ] **步骤 3：检查资源状态。** 确认 `qwenpaw`、PostgreSQL、NATS、MinIO、Control Plane、Gateway 和 Operator 的 Deployment/StatefulSet Ready，确认 Worker CRD 已安装。
-- [ ] **步骤 4：运行静态脚本检查。** 执行 `bash -n`、`python3 scripts/validate-kind-manifests.py`、`python3 scripts/validate-kind-infra.py`、`helm lint deploy/helm/agentteams-java`。
+- [x] **步骤 1：检查本机凭据边界。** 使用 `git check-ignore -v apikey`、`git ls-files apikey` 和文件权限检查；禁止读取或打印 Key 内容。
+- [x] **步骤 2：检查 Kind 和 Docker。** 执行 `source deploy/dev-env.sh`、`docker info`、`kind get clusters`、`kubectl config current-context`；若当前上下文不可用，按 `deploy/install-kind-dev.sh` 的既有流程恢复，不删除已有集群或数据。
+- [x] **步骤 3：检查资源状态。** 确认 `qwenpaw`、PostgreSQL、NATS、MinIO、Control Plane、Gateway 和 Operator 的 Deployment/StatefulSet Ready，确认 Worker CRD 已安装。
+- [x] **步骤 4：运行静态脚本检查。** 执行 `bash -n`、`python3 scripts/validate-kind-manifests.py`、`python3 scripts/validate-kind-infra.py`、`helm lint deploy/helm/agentteams-java`。
 
 ### 任务 2：配置真实 QwenPaw DeepSeek Provider
 
-- [ ] **步骤 1：运行 QwenPaw 配置脚本。** 执行 `./scripts/configure-local-qwenpaw-deepseek.sh`，仅接受输出 `QWENPAW_DEEPSEEK_OK provider=deepseek model=deepseek-v4-flash`。
-- [ ] **步骤 2：独立检查 active model。** 通过临时 port-forward 查询 `/api/models/active`，只打印 provider 和 model 字段，确认值为 `deepseek` 与 `deepseek-v4-flash`。
-- [ ] **步骤 3：检查 QwenPaw 运行日志。** 仅提取 HTTP 状态、错误类别和就绪信息；若出现 API schema 不兼容，修改脚本并先用脱敏响应结构测试，再重新运行真实配置。
+- [x] **步骤 1：运行 QwenPaw 配置脚本。** 执行 `./scripts/configure-local-qwenpaw-deepseek.sh`，仅接受输出 `QWENPAW_DEEPSEEK_OK provider=deepseek model=deepseek-v4-flash`。
+- [x] **步骤 2：独立检查 active model。** 通过临时 port-forward 查询 `/api/models/active`，只打印 provider 和 model 字段，确认值为 `deepseek` 与 `deepseek-v4-flash`。
+- [x] **步骤 3：检查 QwenPaw 运行日志。** 仅提取 HTTP 状态、错误类别和就绪信息；若出现 API schema 不兼容，修改脚本并先用脱敏响应结构测试，再重新运行真实配置。
 
 ### 任务 3：连接真实 Worker
 
-- [ ] **步骤 1：构建并加载 Worker 镜像。** 执行 `./deploy/build-images.sh`，确认 `ghcr.io/ly416123/agentteams-agent-worker:latest` 已加载到 Kind 节点。
-- [ ] **步骤 2：执行 Worker bootstrap。** 执行 `./deploy/bootstrap-kind-qwenpaw-worker.sh`，确认 Agent UUID 来自 Control Plane，Worker CR、Deployment、Service 和 status 均使用同一身份。
-- [ ] **步骤 3：检查 Worker 连接状态。** 确认 Worker 日志出现 `READY`，Control Plane `agents.phase=READY`，Gateway 无身份或协议错误；检查 QwenPaw endpoint 为集群内 `http://qwenpaw:8088`。
+- [x] **步骤 1：构建并加载 Worker 镜像。** 执行 `./deploy/build-images.sh`，确认 `ghcr.io/ly416123/agentteams-agent-worker:latest` 已加载到 Kind 节点。
+- [x] **步骤 2：执行 Worker bootstrap。** 执行 `./deploy/bootstrap-kind-qwenpaw-worker.sh`，确认 Agent UUID 来自 Control Plane，Worker CR、Deployment、Service 和 status 均使用同一身份。
+- [x] **步骤 3：检查 Worker 连接状态。** 确认 Worker 日志出现 `READY`，Control Plane `agents.phase=READY`，Gateway 无身份或协议错误；检查 QwenPaw endpoint 为集群内 `http://qwenpaw:8088`。
 
 ### 任务 4：执行真实任务闭环
 
-- [ ] **步骤 1：执行 Manager smoke。** 运行 `./scripts/smoke-deepseek-manager.sh`，只接受脱敏成功标记和模型名，不保存输出中的响应正文。
-- [ ] **步骤 2：执行 Kind 任务 smoke。** 运行 `./scripts/smoke-kind-qwenpaw-deepseek.sh`，要求任务最终为 `SUCCEEDED`，并从 Control Plane 返回结果中确认目标标记。
-- [ ] **步骤 3：保留失败诊断。** 如果超时或失败，记录任务 phase、Worker/QwenPaw/Control Plane Pod 状态、最近事件和脱敏日志；按“配置→连接→调度→HTTP/SSE→回传”顺序修复，不直接扩大超时掩盖问题。
-- [ ] **步骤 4：重复验证幂等性。** 使用新的任务 Idempotency-Key 重跑一次，确认两个任务均可独立成功；对同一创建请求重复发送时不新增任务。
+- [x] **步骤 1：执行 Manager smoke。** 运行 `./scripts/smoke-deepseek-manager.sh`，只接受脱敏成功标记和模型名，不保存输出中的响应正文。
+- [x] **步骤 2：执行 Kind 任务 smoke。** 运行 `./scripts/smoke-kind-qwenpaw-deepseek.sh`，要求任务最终为 `SUCCEEDED`，并从 Worker 日志确认目标标记。
+- [x] **步骤 3：保留失败诊断。** 如果超时或失败，记录任务 phase、Worker/QwenPaw/Control Plane Pod 状态、最近事件和脱敏日志；按“配置→连接→调度→HTTP/SSE→回传”顺序修复，不直接扩大超时掩盖问题。
+- [x] **步骤 4：重复验证幂等性。** 使用新的任务 Idempotency-Key 重跑一次，确认两个任务均可独立成功；对同一创建请求重复发送时不新增任务。
 
 ### 任务 5：固化自动化检查和文档
 
-- [ ] **步骤 1：补充脚本契约检查。** 静态检查必须覆盖模型名、Service 名、Worker endpoint、成功标记、Key 文件权限和禁止输出完整响应。
-- [ ] **步骤 2：更新 DeepSeek 计划状态。** 仅在真实命令输出满足验收门槛后勾选对应步骤；外部资源不可用时记录实际错误和复现命令。
-- [ ] **步骤 3：更新 README。** 记录从现有 Kind 集群开始的最短命令、成功输出格式、失败诊断入口和 Key 安全边界，不写入真实 Key 或响应正文。
+- [x] **步骤 1：补充脚本契约检查。** 静态检查必须覆盖模型名、Service 名、Worker endpoint、成功标记、Key 文件权限和禁止输出完整响应。
+- [x] **步骤 2：更新 DeepSeek 计划状态。** 仅在真实命令输出满足验收门槛后勾选对应步骤；外部资源不可用时记录实际错误和复现命令。
+- [x] **步骤 3：更新 README。** 记录从现有 Kind 集群开始的最短命令、成功输出格式、失败诊断入口和 Key 安全边界，不写入真实 Key 或响应正文。
 
 ### 任务 6：回归、提交和同步
 
-- [ ] **步骤 1：运行回归。** 执行 `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test`、真实 `TaskPushInfrastructureIT`、所有脚本/Helm/Kind 静态检查和 `git diff --check`。
-- [ ] **步骤 2：安全检查。** 确认 `git ls-files apikey` 无输出，diff 和新增日志中无 API Key、Authorization 值或完整 QwenPaw/DeepSeek 响应。
-- [ ] **步骤 3：提交。** 使用 `test(集成): 验证真实 QwenPaw DeepSeek Kind 闭环`，提交只包含脚本、文档和必要修复。
+- [x] **步骤 1：运行回归。** 执行 `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test`、真实 `TaskPushInfrastructureIT`、所有脚本/Helm/Kind 静态检查和 `git diff --check`。
+- [x] **步骤 2：安全检查。** 确认 `git ls-files apikey` 无输出，diff 和新增日志中无 API Key、Authorization 值或完整 QwenPaw/DeepSeek 响应。
+- [x] **步骤 3：提交。** 使用 `test(集成): 验证真实 QwenPaw DeepSeek Kind 闭环`，提交只包含脚本、文档和必要修复。
 - [ ] **步骤 4：同步远程。** 验证工作区干净后推送当前功能分支；网络失败时保留本地提交并报告准确远程状态。

@@ -54,6 +54,13 @@ def main():
                      "kubectl apply -f -", "AGENTTEAMS_AGENT_ID"):
         if required not in worker_text:
             fail(f"qwenpaw worker bootstrap script missing {required}")
+    smoke_script = ROOT / "scripts/smoke-kind-qwenpaw-deepseek.sh"
+    if not smoke_script.exists():
+        fail("qwenpaw DeepSeek smoke script does not exist")
+    smoke_text = smoke_script.read_text(encoding="utf-8")
+    for required in ("QWENPAW_DEEPSEEK_SMOKE_OK", "kubectl logs", "Task result"):
+        if required not in smoke_text:
+            fail(f"qwenpaw DeepSeek smoke script must verify {required}")
     print("KIND_MANIFESTS_OK")
 
 

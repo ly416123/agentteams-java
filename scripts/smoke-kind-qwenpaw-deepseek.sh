@@ -6,6 +6,7 @@ CONTROL_PLANE_SERVICE="${AGENTTEAMS_CONTROL_PLANE_SERVICE:-agentteams-agentteams
 WORKER_NAME="${AGENTTEAMS_WORKER_NAME:-qwenpaw-worker}"
 LOCAL_PORT="${AGENTTEAMS_CONTROL_PLANE_LOCAL_PORT:-18080}"
 TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-180}"
+SUCCESS_MARKER="QWENPAW_DEEPSEEK_SMOKE_OK"
 PORT_FORWARD_LOG="${TMPDIR:-/private/tmp}/agentteams-control-plane-smoke.log"
 PORT_FORWARD_PID=""
 
@@ -57,7 +58,14 @@ while :; do
   PHASE="$(jq -r '.phase' <<<"${TASK_JSON}")"
   case "${PHASE}" in
     SUCCEEDED)
-      echo "QWENPAW_DEEPSEEK_TASK_OK task=${TASK_ID} phase=${PHASE}"
+      if ! kubectl logs "deployment/${WORKER_NAME}" -n "${NAMESPACE}" \
+          --since="${TIMEOUT_SECONDS}s" 2>/dev/null \
+          | grep -F -- "Task result task=${TASK_ID} success=true" \
+          | grep -F -- "${SUCCESS_MARKER}" >/dev/null; then
+        echo "QwenPaw task reached SUCCEEDED but output marker was not observed: task=${TASK_ID}" >&2
+        exit 1
+      fi
+      echo "QWENPAW_DEEPSEEK_TASK_OK task=${TASK_ID} phase=${PHASE} output=${SUCCESS_MARKER}"
       exit 0
       ;;
     FAILED|CANCELLED)

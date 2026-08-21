@@ -193,7 +193,11 @@ chmod 600 apikey
 
 The default model is `deepseek-v4-flash`; use `DEEPSEEK_MODEL` only for a
 deliberate local override. A successful task smoke prints
-`QWENPAW_DEEPSEEK_TASK_OK` and requires the task to reach `SUCCEEDED`.
+`QWENPAW_DEEPSEEK_TASK_OK` with `phase=SUCCEEDED` and
+`output=QWENPAW_DEEPSEEK_SMOKE_OK`; the script verifies that marker in the
+Worker log instead of relying on the phase alone. On 2026-08-21, the Manager
+smoke, QwenPaw Provider test, three independent real tasks, and repeated
+Idempotency-Key creation were verified in the local Kind cluster.
 
 `deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
 uses an `emptyDir` volume and the database password is a local test secret.
