@@ -14,6 +14,8 @@ target/
 .project
 .classpath
 .settings/
+.qoder/
+.vscode/
 
 # Local tooling and logs
 .tools/
