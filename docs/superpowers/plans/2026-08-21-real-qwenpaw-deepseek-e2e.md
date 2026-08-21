@@ -63,4 +63,4 @@
 - [x] **步骤 1：运行回归。** 执行 `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test`、真实 `TaskPushInfrastructureIT`、所有脚本/Helm/Kind 静态检查和 `git diff --check`。
 - [x] **步骤 2：安全检查。** 确认 `git ls-files apikey` 无输出，diff 和新增日志中无 API Key、Authorization 值或完整 QwenPaw/DeepSeek 响应。
 - [x] **步骤 3：提交。** 使用 `test(集成): 验证真实 QwenPaw DeepSeek Kind 闭环`，提交只包含脚本、文档和必要修复。
-- [ ] **步骤 4：同步远程。** 验证工作区干净后推送当前功能分支；网络失败时保留本地提交并报告准确远程状态。
+- [x] **步骤 4：同步远程。** 验证工作区干净后推送当前功能分支；网络失败时保留本地提交并报告准确远程状态。
