@@ -28,3 +28,27 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "agentteams-java.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- if .Values.controlPlane.teamSync.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-team-sync
+rules:
+  - apiGroups: ["agentteams.io"]
+    resources: ["teams"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-team-sync
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-team-sync
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "agentteams-java.controlPlaneServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

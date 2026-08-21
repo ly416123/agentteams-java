@@ -61,6 +61,22 @@ def main():
     for required in ("QWENPAW_DEEPSEEK_SMOKE_OK", "kubectl logs", "Task result"):
         if required not in smoke_text:
             fail(f"qwenpaw DeepSeek smoke script must verify {required}")
+    team_crd = (ROOT / "deploy/helm/agentteams-java/crds/teams.yaml").read_text(encoding="utf-8")
+    for required in ("allowedRuntimes", "requiredCapabilities", "x-kubernetes-list-type: set"):
+        if required not in team_crd:
+            fail(f"Team CRD schema missing {required}")
+    control_plane = (ROOT / "deploy/helm/agentteams-java/templates/control-plane.yaml").read_text(encoding="utf-8")
+    for required in ("controlPlaneServiceAccountName", "AGENTTEAMS_TEAM_SYNC_ENABLED",
+                     "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}"):
+        if required not in control_plane:
+            fail(f"Control Plane Team sync manifest missing {required}")
+    rbac = (ROOT / "deploy/helm/agentteams-java/templates/rbac.yaml").read_text(encoding="utf-8")
+    for required in ("control-plane-team-sync", 'verbs: ["get", "list", "watch"]'):
+        if required not in rbac:
+            fail(f"Team sync RBAC missing {required}")
+    network_policy = (ROOT / "deploy/helm/agentteams-java/templates/networkpolicy.yaml").read_text(encoding="utf-8")
+    if "kubernetes.io/metadata.name: default" not in network_policy or "port: 443" not in network_policy:
+        fail("Control Plane NetworkPolicy must allow Kubernetes API HTTPS")
     print("KIND_MANIFESTS_OK")
 
 

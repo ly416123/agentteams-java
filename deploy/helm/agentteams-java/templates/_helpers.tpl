@@ -7,3 +7,6 @@
 {{- define "agentteams-java.serviceAccountName" -}}
 {{- default (include "agentteams-java.fullname" .) .Values.serviceAccount.name -}}
 {{- end -}}
+{{- define "agentteams-java.controlPlaneServiceAccountName" -}}
+{{- default (printf "%s-control-plane" (include "agentteams-java.fullname" .)) .Values.controlPlane.serviceAccount.name -}}
+{{- end -}}

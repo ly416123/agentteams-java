@@ -9,6 +9,12 @@ serviceAccount:
 controlPlane:
   replicas: 2
   port: 8080
+  serviceAccount:
+    create: true
+    name: agentteams-control-plane
+  teamSync:
+    enabled: true
+    namespace: agentteams
   scheduler:
     enabled: true
     pollIntervalMs: 1000
