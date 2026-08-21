@@ -31,8 +31,12 @@ import io.agentteams.runtime.RuntimeConfigPrepared;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
 
 import java.io.IOException;
+import java.io.File;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
@@ -94,8 +98,7 @@ public final class QwenPawWorker implements AutoCloseable {
             thread.setDaemon(true);
             return thread;
         });
-        this.gatewayChannel = ManagedChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
-                .usePlaintext().build();
+        this.gatewayChannel = gatewayChannel(configuration);
         this.channelPort = new GrpcAgentChannelPort(gatewayChannel, this::onServerMessage,
                 this::onDisconnected);
         this.channelClient = new AgentChannelClient(configuration.agentId(), channelPort, clock,
@@ -131,6 +134,24 @@ public final class QwenPawWorker implements AutoCloseable {
 
     public static QwenPawWorker fromEnvironment() {
         return new QwenPawWorker(WorkerConfiguration.fromEnvironment());
+    }
+
+    private static ManagedChannel gatewayChannel(WorkerConfiguration configuration) {
+        if (!configuration.gatewayTlsEnabled()) {
+            return ManagedChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
+                    .usePlaintext().build();
+        }
+        try {
+            SslContext sslContext = GrpcSslContexts.forClient()
+                    .trustManager(new File(configuration.gatewayTlsCaCertPath()))
+                    .keyManager(new File(configuration.gatewayTlsClientCertPath()),
+                            new File(configuration.gatewayTlsClientKeyPath()))
+                    .build();
+            return NettyChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
+                    .sslContext(sslContext).build();
+        } catch (Exception error) {
+            throw new IllegalStateException("failed to build Gateway mTLS channel", error);
+        }
     }
 
     public void start() {
@@ -438,6 +459,10 @@ public final class QwenPawWorker implements AutoCloseable {
             String agentId,
             String gatewayHost,
             int gatewayPort,
+            boolean gatewayTlsEnabled,
+            String gatewayTlsCaCertPath,
+            String gatewayTlsClientCertPath,
+            String gatewayTlsClientKeyPath,
             String qwenPawEndpoint,
             String qwenPawAgentId,
             String qwenPawAuthorizationToken,
@@ -466,6 +491,13 @@ public final class QwenPawWorker implements AutoCloseable {
                     required(environment, "AGENTTEAMS_AGENT_ID"),
                     value(environment, "AGENTTEAMS_GATEWAY_HOST", "agentteams-agentteams-java-gateway"),
                     integer(environment, "AGENTTEAMS_GATEWAY_PORT", 9090),
+                    booleanValue(environment, "AGENTTEAMS_GATEWAY_TLS_ENABLED", false),
+                    requiredWhenEnabled(environment, "AGENTTEAMS_GATEWAY_TLS_CA_CERT_PATH",
+                            "AGENTTEAMS_GATEWAY_TLS_ENABLED"),
+                    requiredWhenEnabled(environment, "AGENTTEAMS_GATEWAY_TLS_CLIENT_CERT_PATH",
+                            "AGENTTEAMS_GATEWAY_TLS_ENABLED"),
+                    requiredWhenEnabled(environment, "AGENTTEAMS_GATEWAY_TLS_CLIENT_KEY_PATH",
+                            "AGENTTEAMS_GATEWAY_TLS_ENABLED"),
                     value(environment, "QWENPAW_ENDPOINT", "http://qwenpaw:8088"),
                     value(environment, "QWENPAW_AGENT_ID", "default"),
                     optional(environment, "QWENPAW_AUTH_TOKEN"),
@@ -516,6 +548,16 @@ public final class QwenPawWorker implements AutoCloseable {
         private static String value(Map<String, String> environment, String name, String fallback) {
             String result = optional(environment, name);
             return result == null ? fallback : result;
+        }
+
+        private static boolean booleanValue(Map<String, String> environment, String name, boolean fallback) {
+            String result = optional(environment, name);
+            return result == null ? fallback : Boolean.parseBoolean(result);
+        }
+
+        private static String requiredWhenEnabled(Map<String, String> environment, String name, String enabledName) {
+            if (!booleanValue(environment, enabledName, false)) return null;
+            return required(environment, name);
         }
 
         private static int integer(Map<String, String> environment, String name, int fallback) {

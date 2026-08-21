@@ -10,6 +10,7 @@ public final class WorkerSpec {
     private String image;
     private int replicas;
     private Map<String, String> env;
+    private String tlsSecret;
 
     public WorkerSpec() {
         this.agentId = "";
@@ -17,14 +18,21 @@ public final class WorkerSpec {
         this.image = "";
         this.replicas = 1;
         this.env = Map.of();
+        this.tlsSecret = "";
     }
 
     public WorkerSpec(String agentId, String runtime, String image, int replicas, Map<String, String> env) {
+        this(agentId, runtime, image, replicas, env, "");
+    }
+
+    public WorkerSpec(String agentId, String runtime, String image, int replicas, Map<String, String> env,
+            String tlsSecret) {
         setAgentId(agentId);
         setRuntime(runtime);
         setImage(image);
         setReplicas(replicas);
         setEnv(env);
+        setTlsSecret(tlsSecret);
     }
 
     public String agentId() { return agentId; }
@@ -32,6 +40,7 @@ public final class WorkerSpec {
     public String image() { return image; }
     public int replicas() { return replicas; }
     public Map<String, String> env() { return env; }
+    public String tlsSecret() { return tlsSecret; }
 
     public String getAgentId() { return agentId; }
     public void setAgentId(String value) { agentId = requireText(value, "agentId"); }
@@ -46,6 +55,8 @@ public final class WorkerSpec {
     }
     public Map<String, String> getEnv() { return env; }
     public void setEnv(Map<String, String> value) { env = Map.copyOf(Objects.requireNonNull(value, "env")); }
+    public String getTlsSecret() { return tlsSecret; }
+    public void setTlsSecret(String value) { tlsSecret = value == null ? "" : value.trim(); }
 
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) {

@@ -33,7 +33,7 @@ def main():
         fail("kind installer does not exist")
     installer_text = installer.read_text(encoding="utf-8")
     order = ["kind-dev-infra.yaml", "kind-observability.yaml", "kind-ingress.yaml",
-             "build-images.sh", "crds/teams.yaml", "helm upgrade --install agentteams",
+             "build-images.sh", "crds/teams.yaml", "crds/workers.yaml", "helm upgrade --install agentteams",
              "bootstrap-kind-qwenpaw-worker.sh"]
     positions = [installer_text.find(value) for value in order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
@@ -55,6 +55,14 @@ def main():
                      "kubectl apply -f -", "AGENTTEAMS_AGENT_ID"):
         if required not in worker_text:
             fail(f"qwenpaw worker bootstrap script missing {required}")
+    mtls_script = ROOT / "deploy/bootstrap-kind-mtls.sh"
+    if not mtls_script.exists():
+        fail("Kind mTLS bootstrap script does not exist")
+    mtls_text = mtls_script.read_text(encoding="utf-8")
+    for required in ("openssl", "agentteams-gateway-mtls", "agentteams-worker-mtls",
+                     "gateway.tls.enabled=true", "AGENTTEAMS_GATEWAY_TLS_ENABLED"):
+        if required not in mtls_text:
+            fail(f"Kind mTLS bootstrap script missing {required}")
     smoke_script = ROOT / "scripts/smoke-kind-qwenpaw-deepseek.sh"
     if not smoke_script.exists():
         fail("qwenpaw DeepSeek smoke script does not exist")
@@ -66,6 +74,9 @@ def main():
     for required in ("allowedRuntimes", "requiredCapabilities", "x-kubernetes-list-type: set"):
         if required not in team_crd:
             fail(f"Team CRD schema missing {required}")
+    worker_crd = (ROOT / "deploy/helm/agentteams-java/crds/workers.yaml").read_text(encoding="utf-8")
+    if "tlsSecret" not in worker_crd:
+        fail("Worker CRD schema missing tlsSecret")
     control_plane = (ROOT / "deploy/helm/agentteams-java/templates/control-plane.yaml").read_text(encoding="utf-8")
     for required in ("controlPlaneServiceAccountName", "AGENTTEAMS_TEAM_SYNC_ENABLED",
                      "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
@@ -88,6 +99,10 @@ def main():
             or "kubernetesApiEndpointPort" not in network_policy
             or "kubernetesApiAllowAllEgress" not in network_policy):
         fail("Control Plane NetworkPolicy must allow Kubernetes API Service and endpoint traffic")
+    gateway = (ROOT / "deploy/helm/agentteams-java/templates/gateway.yaml").read_text(encoding="utf-8")
+    for required in ("AGENTTEAMS_GATEWAY_GRPC_TLS_ENABLED", "gateway.tls.enabled", "gateway.tls.secretName"):
+        if required not in gateway:
+            fail(f"Gateway mTLS manifest missing {required}")
     print("KIND_MANIFESTS_OK")
 
 

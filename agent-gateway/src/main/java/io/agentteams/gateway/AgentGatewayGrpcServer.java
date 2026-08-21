@@ -2,6 +2,10 @@ package io.agentteams.gateway;
 
 import io.grpc.Server;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
+import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
@@ -12,10 +16,16 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
     private final int configuredPort;
     private final Duration shutdownTimeout;
     private final AgentChannelService channelService;
+    private final GrpcTlsProperties tlsProperties;
     private volatile Server server;
 
     public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
             AgentChannelService channelService) {
+        this(configuredPort, shutdownTimeout, channelService, new GrpcTlsProperties());
+    }
+
+    public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
+            AgentChannelService channelService, GrpcTlsProperties tlsProperties) {
         if (configuredPort < 0 || configuredPort > 65_535) {
             throw new IllegalArgumentException("gRPC port must be between 0 and 65535");
         }
@@ -25,16 +35,27 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
             throw new IllegalArgumentException("gRPC shutdown timeout must be positive");
         }
         this.channelService = Objects.requireNonNull(channelService, "channelService");
+        this.tlsProperties = Objects.requireNonNull(tlsProperties, "tlsProperties");
     }
 
     public synchronized void start() throws IOException {
         if (server != null) {
             return;
         }
-        Server started = NettyServerBuilder.forPort(configuredPort)
+        tlsProperties.validate();
+        NettyServerBuilder builder = NettyServerBuilder.forPort(configuredPort)
                 .intercept(new GrpcTransportIdentity.Interceptor())
-                .addService(channelService)
-                .build()
+                .addService(channelService);
+        if (tlsProperties.isEnabled()) {
+            SslContext sslContext = GrpcSslContexts.forServer(
+                            new File(tlsProperties.getCertificateChain()),
+                            new File(tlsProperties.getPrivateKey()))
+                    .trustManager(new File(tlsProperties.getTrustCertificateCollection()))
+                    .clientAuth(ClientAuth.REQUIRE)
+                    .build();
+            builder.sslContext(sslContext);
+        }
+        Server started = builder.build()
                 .start();
         server = started;
     }

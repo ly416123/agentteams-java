@@ -42,6 +42,13 @@ gateway:
   replicas: 2
   port: 9090
   httpPort: 8080
+  tls:
+    enabled: false
+    secretName: agentteams-gateway-mtls
+    mountPath: /etc/agentteams/gateway-tls
+    certificateChainPath: /etc/agentteams/gateway-tls/tls.crt
+    privateKeyPath: /etc/agentteams/gateway-tls/tls.key
+    trustCertificateCollectionPath: /etc/agentteams/gateway-tls/ca.crt
   # AgentChannel is a long-lived gRPC stream. Keep reconnects for a worker on
   # the same Gateway replica when possible; durable DB ownership still handles
   # pod loss and cross-replica stale streams.

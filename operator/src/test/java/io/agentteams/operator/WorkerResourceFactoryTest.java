@@ -53,4 +53,20 @@ class WorkerResourceFactoryTest {
     void customResourceStartsWithNonNullSpecForFabric8Deserialization() {
         assertThat(new Worker().getSpec()).isNotNull();
     }
+
+    @Test
+    void mountsConfiguredTlsSecretIntoWorkerDeployment() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-tls").withNamespace("agentteams").build());
+        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of());
+        spec.setTlsSecret("agentteams-worker-mtls");
+        worker.setSpec(spec);
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getVolumes())
+                .anySatisfy(volume -> assertThat(volume.getSecret().getSecretName()).isEqualTo("agentteams-worker-mtls"));
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts())
+                .anySatisfy(mount -> assertThat(mount.getMountPath()).isEqualTo("/etc/agentteams/gateway-tls"));
+    }
 }

@@ -63,7 +63,8 @@ else
   echo "已注册 QwenPaw Worker Agent ${agent_id}"
 fi
 
-sed "s/00000000-0000-0000-0000-000000000001/${agent_id}/g" \
+sed -e "s/name: qwenpaw-worker/name: ${WORKER_NAME}/" \
+  -e "s/00000000-0000-0000-0000-000000000001/${agent_id}/g" \
   "$ROOT/deploy/examples/qwenpaw-worker.yaml" | kubectl apply -f -
 
 deployment_deadline=$((SECONDS + 180))

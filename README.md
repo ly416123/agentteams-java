@@ -123,6 +123,7 @@ kubectl -n agentteams wait --for=condition=available deployment/postgresql deplo
 kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=120s
 ./deploy/build-images.sh
 kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
+kubectl apply -f deploy/helm/agentteams-java/crds/workers.yaml
 helm lint deploy/helm/agentteams-java
 helm upgrade --install agentteams deploy/helm/agentteams-java \
   --namespace agentteams --create-namespace --wait \
@@ -257,6 +258,23 @@ namespace by default. The deterministic PostgreSQL-backed acceptance test is
 `TeamSchedulingInfrastructureIT`; the Kind smoke additionally proves the
 informer and Helm/RBAC wiring. A cluster with only one READY Agent cannot run
 this smoke without adding a second real Agent.
+
+For a local Gateway↔Worker mTLS check, use the development-only bootstrap
+script. It creates a temporary 30-day CA and certificates under
+`.local/kind-mtls/` (ignored by Git), creates the two Kubernetes Secrets,
+enables Gateway TLS, and patches the selected Worker CRs with the client
+certificate mount:
+
+```bash
+AGENTTEAMS_MTLS_WORKERS=qwenpaw-worker-team-2,qwenpaw-worker-team-3 \
+  ./deploy/bootstrap-kind-mtls.sh
+```
+
+The script waits for the Gateway, Deployment, and Worker status to converge.
+The local validation used two distinct READY Agents and printed
+`TEAM_SCHEDULING_OK`. This is a Kind development path: production should use
+per-Agent certificates issued and rotated by an external CA or cert-manager;
+the repository does not commit generated keys or certificate material.
 
 `deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
 uses an `emptyDir` volume and the database password is a local test secret.

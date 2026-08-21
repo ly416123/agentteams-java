@@ -27,7 +27,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /** Default process wiring; production deployments can replace each port adapter with a durable bean. */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({GrpcServerProperties.class, NatsGatewayProperties.class})
+@EnableConfigurationProperties({GrpcServerProperties.class, GrpcTlsProperties.class, NatsGatewayProperties.class})
 public class AgentGatewayGrpcConfiguration {
 
     @Bean
@@ -202,8 +202,9 @@ public class AgentGatewayGrpcConfiguration {
 
     @Bean(initMethod = "start", destroyMethod = "stop")
     public AgentGatewayGrpcServer agentGatewayGrpcServer(GrpcServerProperties properties,
-            AgentChannelService channelService) {
-        return new AgentGatewayGrpcServer(properties.getPort(), properties.getShutdownTimeout(), channelService);
+            GrpcTlsProperties tlsProperties, AgentChannelService channelService) {
+        return new AgentGatewayGrpcServer(properties.getPort(), properties.getShutdownTimeout(), channelService,
+                tlsProperties);
     }
 
     private static final class NoopAgentStatePort implements AgentStatePort {

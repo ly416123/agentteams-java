@@ -8,6 +8,9 @@ import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.ServicePortBuilder;
+import io.fabric8.kubernetes.api.model.SecretVolumeSourceBuilder;
+import io.fabric8.kubernetes.api.model.VolumeBuilder;
+import io.fabric8.kubernetes.api.model.VolumeMountBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 import io.fabric8.kubernetes.api.model.apps.DeploymentSpecBuilder;
@@ -49,6 +52,19 @@ public final class WorkerResourceFactory {
                         .sorted(Map.Entry.comparingByKey())
                         .map(entry -> new EnvVarBuilder().withName(entry.getKey()).withValue(entry.getValue()).build())
                         .toList());
+        PodSpecBuilder podSpec = new PodSpecBuilder()
+                .withAutomountServiceAccountToken(false)
+                .withContainers(container.build());
+        if (!spec.tlsSecret().isBlank()) {
+            container.withVolumeMounts(new VolumeMountBuilder()
+                    .withName("agentteams-gateway-tls")
+                    .withMountPath("/etc/agentteams/gateway-tls")
+                    .withReadOnly(true).build());
+            podSpec.withContainers(container.build()).withVolumes(new VolumeBuilder()
+                    .withName("agentteams-gateway-tls")
+                    .withSecret(new SecretVolumeSourceBuilder().withSecretName(spec.tlsSecret()).build())
+                    .build());
+        }
         return new DeploymentBuilder()
                 .withApiVersion("apps/v1")
                 .withKind("Deployment")
@@ -58,9 +74,7 @@ public final class WorkerResourceFactory {
                         .withSelector(new LabelSelectorBuilder().withMatchLabels(labels).build())
                         .withTemplate(new PodTemplateSpecBuilder()
                                 .withMetadata(new ObjectMetaBuilder().withLabels(labels).build())
-                                .withSpec(new PodSpecBuilder()
-                                        .withAutomountServiceAccountToken(false)
-                                        .withContainers(container.build()).build())
+                                .withSpec(podSpec.build())
                                 .build())
                         .build())
                 .build();
