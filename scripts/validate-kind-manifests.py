@@ -101,6 +101,16 @@ def main():
         fail("Gateway must use a dedicated tokenless service account")
     if 'name: {{ include "agentteams-java.operatorServiceAccountName" .' not in rbac:
         fail("Operator RBAC must bind the dedicated service account")
+    operator_rbac = rbac.split("{{- if .Values.controlPlane.teamSync.enabled }}", 1)[0]
+    if "kind: ClusterRole" in operator_rbac or "kind: ClusterRoleBinding" in operator_rbac:
+        fail("Operator RBAC must be namespace-scoped")
+    for required in ("kind: Role", "kind: RoleBinding"):
+        if required not in operator_rbac:
+            fail(f"Operator namespace RBAC missing {required}")
+    operator_app = (ROOT / "operator/src/main/java/io/agentteams/operator/AgentTeamsOperatorApplication.java").read_text(encoding="utf-8")
+    for required in ("AGENTTEAMS_OPERATOR_NAMESPACE", "settingNamespace"):
+        if required not in operator_app:
+            fail(f"Operator namespace scoping missing {required}")
     network_policy = (ROOT / "deploy/helm/agentteams-java/templates/networkpolicy.yaml").read_text(encoding="utf-8")
     kind_values = (ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8")
     for required in ("kubernetesApiCIDR", "kubernetesApiEndpointCIDR", "kubernetesApiEndpointPort",

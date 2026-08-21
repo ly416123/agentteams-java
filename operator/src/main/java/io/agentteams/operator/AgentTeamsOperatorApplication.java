@@ -11,10 +11,22 @@ public final class AgentTeamsOperatorApplication {
 
     public static void main(String[] args) {
         Operator operator = operatorFromEnvironment();
-        operator.register(new WorkerReconciler(operator.getKubernetesClient()));
-        operator.register(new TeamReconciler(operator.getKubernetesClient()));
+        registerControllers(operator);
         operator.installShutdownHook();
         operator.start();
+    }
+
+    private static void registerControllers(Operator operator) {
+        String namespace = System.getenv("AGENTTEAMS_OPERATOR_NAMESPACE");
+        if (namespace == null || namespace.isBlank()) {
+            operator.register(new WorkerReconciler(operator.getKubernetesClient()));
+            operator.register(new TeamReconciler(operator.getKubernetesClient()));
+            return;
+        }
+        operator.register(new WorkerReconciler(operator.getKubernetesClient()),
+                configuration -> configuration.settingNamespace(namespace));
+        operator.register(new TeamReconciler(operator.getKubernetesClient()),
+                configuration -> configuration.settingNamespace(namespace));
     }
 
     static Operator operatorFromEnvironment() {

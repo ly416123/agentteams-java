@@ -265,6 +265,13 @@ only the Operator receives permissions to manage Worker child resources, while
 Control Plane retains read-only Team sync access. Do not reuse the Operator
 account for Gateway when overriding chart values.
 
+The Operator RBAC is namespace-scoped: Helm creates a `Role` and `RoleBinding`
+in the release namespace, and the Operator watches only that namespace through
+`AGENTTEAMS_OPERATOR_NAMESPACE`. The Control Plane Team sync remains a separate,
+read-only cluster role because it discovers Teams across namespaces. Deployments
+that manage multiple namespaces must install one Operator release per namespace
+until an explicit multi-namespace authorization design is introduced.
+
 For a local Gateway↔Worker mTLS check, use the development-only bootstrap
 script. It creates a temporary 30-day CA and certificates under
 `.local/kind-mtls/` (ignored by Git), creates the two Kubernetes Secrets,
