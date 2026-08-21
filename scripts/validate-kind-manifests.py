@@ -33,10 +33,11 @@ def main():
         fail("kind installer does not exist")
     installer_text = installer.read_text(encoding="utf-8")
     order = ["kind-dev-infra.yaml", "kind-observability.yaml", "kind-ingress.yaml",
-             "build-images.sh", "helm upgrade --install agentteams", "bootstrap-kind-qwenpaw-worker.sh"]
+             "build-images.sh", "crds/teams.yaml", "helm upgrade --install agentteams",
+             "bootstrap-kind-qwenpaw-worker.sh"]
     positions = [installer_text.find(value) for value in order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        fail("installer steps must be ordered infra, observability, ingress, images, Helm, Worker bootstrap")
+        fail("installer steps must be ordered infra, observability, ingress, images, CRD, Helm, Worker bootstrap")
     build_script = ROOT / "deploy/build-images.sh"
     if not build_script.exists():
         fail("build image script does not exist")
@@ -75,8 +76,16 @@ def main():
         if required not in rbac:
             fail(f"Team sync RBAC missing {required}")
     network_policy = (ROOT / "deploy/helm/agentteams-java/templates/networkpolicy.yaml").read_text(encoding="utf-8")
-    if "kubernetes.io/metadata.name: default" not in network_policy or "port: 443" not in network_policy:
-        fail("Control Plane NetworkPolicy must allow Kubernetes API HTTPS")
+    kind_values = (ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8")
+    for required in ("kubernetesApiCIDR", "kubernetesApiEndpointCIDR", "kubernetesApiEndpointPort",
+                     "kubernetesApiAllowAllEgress"):
+        if required not in kind_values:
+            fail(f"Kind values missing {required}")
+    if ("kubernetesApiCIDR" not in network_policy or "kubernetesApiEndpointCIDR" not in network_policy
+            or "ipBlock:" not in network_policy or "port: 443" not in network_policy
+            or "kubernetesApiEndpointPort" not in network_policy
+            or "kubernetesApiAllowAllEgress" not in network_policy):
+        fail("Control Plane NetworkPolicy must allow Kubernetes API Service and endpoint traffic")
     print("KIND_MANIFESTS_OK")
 
 

@@ -63,6 +63,16 @@ availability:
     minAvailable: 1
 networkPolicy:
   enabled: true
+  # Some CNIs evaluate Kind Service traffic after node-level DNAT. Keep the
+  # default least-privilege rules unless a development cluster needs this
+  # explicit API-port-only exception.
+  kubernetesApiAllowAllEgress: false
+  # Kubernetes' default Service CIDR; override for clusters using another CIDR.
+  kubernetesApiCIDR: 10.96.0.0/12
+  # The Service is DNATed to the API endpoint; set this when the CNI evaluates
+  # the post-DNAT destination (Kind does this by default).
+  kubernetesApiEndpointCIDR: ""
+  kubernetesApiEndpointPort: 6443
 observability:
   serviceMonitor:
     enabled: false

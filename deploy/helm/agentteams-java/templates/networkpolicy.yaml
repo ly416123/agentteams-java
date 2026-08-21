@@ -31,11 +31,29 @@ spec:
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
+    {{- if .Values.networkPolicy.kubernetesApiAllowAllEgress }}
+    # Kind's node-level DNAT makes the API destination implementation-specific;
+    # keep this development exception limited to Kubernetes API ports.
     - to:
-        - namespaceSelector:
-            matchLabels: { kubernetes.io/metadata.name: default }
+        - ipBlock:
+            cidr: "0.0.0.0/0"
       ports:
         - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
+    {{- else }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.kubernetesApiCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: 443 }
+      {{- if .Values.networkPolicy.kubernetesApiEndpointCIDR }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.kubernetesApiEndpointCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.networkPolicy.kubernetesApiEndpointPort }} }
+      {{- end }}
+    {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

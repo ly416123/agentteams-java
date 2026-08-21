@@ -135,12 +135,12 @@ void parsesTeamWithStableIdentityAndNormalizedPolicy() {
 - [x] **步骤 1：编写失败验收。** 增加集成测试创建 Team/Agent/Task 数据，验证一个 active assignment 上限和后续任务保持 `QUEUED`；成员替换/删除由同步器集成测试覆盖。
 - [x] **步骤 2：运行红灯。** 集成测试首次运行暴露测试模块缺少 AssertJ 依赖，已改用现有 JUnit 5 断言后转绿；业务验收由真实 Spring/PostgreSQL 测试覆盖。
 - [x] **步骤 3：实现 Kind smoke。** 脚本应用包含两个 Agent UUID 的 Team CR，创建 3 个带同一 `teamId` 的任务，验证一个进入 `ASSIGNED`、两个保持 `QUEUED`，不打印完整 CRD 或凭据。
-- [ ] **步骤 4：运行绿灯。** 集成测试、脚本语法检查、Kind/Helm 校验已通过；真实 Kind smoke 仍需两个 READY Agent，当前集群只有一个 READY Agent，属于外部资源阻塞。
+- [x] **步骤 4：运行绿灯。** 集成测试、脚本语法检查、Kind/Helm 校验已通过；已准备第二个真实 QwenPaw Worker，修复 Kind Kubernetes API 出站 NetworkPolicy 和旧 CRD 自动应用顺序，并完成真实 Kind smoke：`TEAM_SCHEDULING_OK assigned=1 queued=2`。
 - [x] **步骤 5：更新文档并提交。** README 已记录最短命令和脱敏成功标记，旧垂直切片计划已校准；本任务提交为 `test(集成): 验证 Team CRD 多 Agent 调度`。
 
 ### 任务 7：完整回归与交付
 
-- [ ] **步骤 1：运行单元和集成回归。** 执行 `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test` 和 `TaskPushInfrastructureIT`、`TeamSchedulingInfrastructureIT`。
-- [ ] **步骤 2：运行静态与安全检查。** 执行全部 `bash -n`、Python validator、Helm lint/template、`git diff --check`，确认 `git ls-files apikey` 无输出且 diff 不包含凭据。
-- [ ] **步骤 3：检查工作树并提交。** 确认只包含本功能文件，保留外部未跟踪 `.qoder/` 和 `docs/architecture-map.html` 不纳入提交。
-- [ ] **步骤 4：推送功能分支。** 推送 `codex/team-crd-scheduling`；网络失败时保留本地提交并报告准确远程状态。
+- [x] **步骤 1：运行单元和集成回归。** `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test` 和 `TaskPushInfrastructureIT`、`TeamSchedulingInfrastructureIT` 均通过；集成测试命令对聚合模块使用 `-Dsurefire.failIfNoSpecifiedTests=false`。
+- [x] **步骤 2：运行静态与安全检查。** 全部 `bash -n`、Python validator、Helm lint/template、`git diff --check` 通过；`git ls-files apikey` 无输出，变更中未发现凭据。
+- [x] **步骤 3：检查工作树并提交。** 仅提交本功能文件，外部未跟踪文件不纳入提交。
+- [x] **步骤 4：推送功能分支。** 已推送 `codex/team-crd-scheduling`。

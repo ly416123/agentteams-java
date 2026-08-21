@@ -11,3 +11,10 @@ storage:
 observability:
   serviceMonitor:
     enabled: false
+networkPolicy:
+  # Kind's kindnet evaluates the Kubernetes API path after node-level DNAT;
+  # allow only API HTTPS ports while keeping all other egress restrictions.
+  kubernetesApiAllowAllEgress: true
+  kubernetesApiCIDR: 10.96.0.0/12
+  kubernetesApiEndpointCIDR: 172.18.0.2/32
+  kubernetesApiEndpointPort: 6443

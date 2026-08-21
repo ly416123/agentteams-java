@@ -101,6 +101,7 @@ kubectl apply -f deploy/kind-dev-infra.yaml
 kubectl -n agentteams wait --for=condition=available deployment/postgresql deployment/nats deployment/minio --timeout=180s
 kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=120s
 ./deploy/build-images.sh
+kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
 helm lint deploy/helm/agentteams-java
 helm upgrade --install agentteams deploy/helm/agentteams-java \
   --namespace agentteams --create-namespace --wait \
@@ -141,6 +142,16 @@ for the Worker to become Ready. To repeat that step manually:
 
 ```bash
 ./deploy/bootstrap-kind-qwenpaw-worker.sh
+```
+
+To add a second real Worker for Team scheduling tests, reuse the same
+idempotent bootstrap with a distinct Worker name and idempotency key:
+
+```bash
+AGENTTEAMS_WORKER_NAME=qwenpaw-worker-team-2 \
+AGENTTEAMS_WORKER_AGENT_NAME=qwenpaw-kind-worker-2 \
+AGENTTEAMS_WORKER_IDEMPOTENCY_KEY=qwenpaw-kind-worker-2-v1 \
+  ./deploy/bootstrap-kind-qwenpaw-worker.sh
 ```
 
 The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`; the
@@ -210,7 +221,15 @@ AGENTTEAMS_TEAM_AGENT_IDS="<ready-agent-uuid-1>,<ready-agent-uuid-2>" \
   ./scripts/smoke-kind-team-scheduling.sh
 ```
 
-The Team informer requires the Control Plane service account to have only
+The Team CRD must be applied before Helm on an existing cluster because Helm
+does not upgrade CRDs automatically:
+
+```bash
+kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
+```
+
+`deploy/install-kind-dev.sh` performs this step automatically. The Team
+informer requires the Control Plane service account to have only
 `get/list/watch` access to `teams.agentteams.io`; the chart enables this with
 `controlPlane.teamSync.enabled=true` and scopes it to the `agentteams`
 namespace by default. The deterministic PostgreSQL-backed acceptance test is
