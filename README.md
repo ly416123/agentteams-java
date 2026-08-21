@@ -133,20 +133,25 @@ Worker status, and deleting the CR removed both child resources. Worker images
 are generated with `imagePullPolicy: IfNotPresent` so locally loaded Kind images
 do not trigger a registry pull.
 
-The QwenPaw Worker image is built and loaded by `deploy/build-images.sh`. To
-connect one to the real push path, first create an Agent through the Control
-Plane API, replace the placeholder UUID in
-`deploy/examples/qwenpaw-worker.yaml`, and apply it:
+The QwenPaw Worker image is built and loaded by `deploy/build-images.sh`.
+`deploy/install-kind-dev.sh` now also runs
+`deploy/bootstrap-kind-qwenpaw-worker.sh`, which idempotently registers a
+development Agent, injects the returned UUID, applies the Worker CR, and waits
+for the Worker to become Ready. To repeat that step manually:
 
 ```bash
-kubectl apply -f deploy/examples/qwenpaw-worker.yaml
-kubectl -n agentteams wait --for=condition=available deployment/qwenpaw-worker --timeout=180s
+./deploy/bootstrap-kind-qwenpaw-worker.sh
 ```
 
 The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`; the
 Gateway and QwenPaw endpoints remain explicit Worker environment settings.
 The Worker calls QwenPaw's HTTP/SSE endpoint and reports accepted, heartbeat,
 progress, completion, or failure events over the Gateway gRPC stream.
+The development QwenPaw container starts without an active LLM provider; a
+provider/model and its credentials must be configured through QwenPaw before a
+real model task can complete. Worker readiness only proves the Agent channel
+is connected, and the bootstrap script intentionally does not invent external
+credentials.
 
 The chart resource names include both the Helm release and chart name. The
 Control Plane API can be exposed for a smoke check with:
@@ -173,6 +178,22 @@ curl -fsS "http://localhost:8080/api/v1/tasks/${TASK_ID}"
 This smoke check expects the task to remain `QUEUED`: registering an Agent via
 the API does not establish a gRPC connection. The complete push path is
 covered by the infrastructure integration test.
+
+For a local real-model check, keep the DeepSeek key in the ignored root file
+`apikey` with mode `0600`. The following commands configure the QwenPaw
+`deepseek` provider and active model, then verify Manager and the full task
+path. The scripts never print the key or send it as a command-line argument:
+
+```bash
+chmod 600 apikey
+./scripts/smoke-deepseek-manager.sh
+./scripts/configure-local-qwenpaw-deepseek.sh
+./scripts/smoke-kind-qwenpaw-deepseek.sh
+```
+
+The default model is `deepseek-v4-flash`; use `DEEPSEEK_MODEL` only for a
+deliberate local override. A successful task smoke prints
+`QWENPAW_DEEPSEEK_TASK_OK` and requires the task to reach `SUCCEEDED`.
 
 `deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
 uses an `emptyDir` volume and the database password is a local test secret.

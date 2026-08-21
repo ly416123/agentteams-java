@@ -33,10 +33,27 @@ def main():
         fail("kind installer does not exist")
     installer_text = installer.read_text(encoding="utf-8")
     order = ["kind-dev-infra.yaml", "kind-observability.yaml", "kind-ingress.yaml",
-             "build-images.sh", "helm upgrade --install agentteams"]
+             "build-images.sh", "helm upgrade --install agentteams", "bootstrap-kind-qwenpaw-worker.sh"]
     positions = [installer_text.find(value) for value in order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        fail("installer steps must be ordered infra, observability, ingress, images, Helm")
+        fail("installer steps must be ordered infra, observability, ingress, images, Helm, Worker bootstrap")
+    build_script = ROOT / "deploy/build-images.sh"
+    if not build_script.exists():
+        fail("build image script does not exist")
+    build_text = build_script.read_text(encoding="utf-8")
+    for base_image in ("maven:3.9.16-eclipse-temurin-17", "eclipse-temurin:17-jre"):
+        if base_image not in build_text:
+            fail(f"build image script must prepare base image {base_image}")
+    if "docker image inspect" not in build_text or "docker tag" not in build_text:
+        fail("build image script must support inspecting and tagging proxy-fetched base images")
+    worker_bootstrap = ROOT / "deploy/bootstrap-kind-qwenpaw-worker.sh"
+    if not worker_bootstrap.exists():
+        fail("qwenpaw worker bootstrap script does not exist")
+    worker_text = worker_bootstrap.read_text(encoding="utf-8")
+    for required in ("Idempotency-Key", "api/v1/agents", "deploy/examples/qwenpaw-worker.yaml",
+                     "kubectl apply -f -", "AGENTTEAMS_AGENT_ID"):
+        if required not in worker_text:
+            fail(f"qwenpaw worker bootstrap script missing {required}")
     print("KIND_MANIFESTS_OK")
 
 

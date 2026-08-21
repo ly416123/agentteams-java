@@ -53,5 +53,7 @@ kubectl -n "$NAMESPACE" wait --for=condition=available \
   deployment/agentteams-agentteams-java-gateway \
   deployment/agentteams-agentteams-java-operator --timeout=300s
 
+"$ROOT/deploy/bootstrap-kind-qwenpaw-worker.sh"
+
 echo "Kind 本地基础设施闭环已安装。"
 echo "入口：api.agentteams.localhost、gateway.agentteams.localhost、qwenpaw.agentteams.localhost、prometheus.agentteams.localhost、grafana.agentteams.localhost"

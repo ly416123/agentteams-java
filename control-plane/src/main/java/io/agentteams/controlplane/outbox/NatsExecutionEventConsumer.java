@@ -7,6 +7,7 @@ import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ConfigAppliedEnvelope;
 import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.PlatformEventSubjects;
+import io.agentteams.domain.task.StaleTaskVersionException;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamSubscription;
@@ -125,6 +126,13 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             } else {
                 throw new IllegalArgumentException("unsupported execution event type: " + envelope.type());
             }
+            message.ack();
+        } catch (StaleTaskVersionException stale) {
+            // The aggregate has already advanced beyond this event. Retrying
+            // it forever would poison the durable consumer and block newer
+            // execution events, so acknowledge the irrecoverably stale event.
+            LOGGER.log(Level.FINE, "Acknowledging stale Agent execution event: expected={0}, actual={1}",
+                    new Object[] {stale.expectedVersion(), stale.actualVersion()});
             message.ack();
         } catch (IOException | RuntimeException error) {
             throw new IllegalArgumentException("invalid Agent execution event", error);
