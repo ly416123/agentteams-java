@@ -29,6 +29,10 @@ import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.agentteams.controlplane.service.TaskAssignmentScheduler;
 import io.agentteams.controlplane.service.TaskAssignmentService;
 import io.agentteams.controlplane.service.TeamService;
+import io.agentteams.controlplane.team.KubernetesTeamResourceSource;
+import io.agentteams.controlplane.team.TeamCrdParser;
+import io.agentteams.controlplane.team.TeamCrdSynchronizer;
+import io.agentteams.controlplane.team.TeamResourceSource;
 import io.agentteams.controlplane.service.ExecutionEventService;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.storage.MinioObjectStorage;
@@ -42,6 +46,8 @@ import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import java.io.IOException;
 import java.time.Clock;
 import io.agentteams.domain.task.TaskTransitionService;
@@ -156,6 +162,24 @@ public class ControlPlaneConfiguration {
     @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(FoundationPersistenceService.class)
     TeamService teamService(FoundationPersistenceService persistence) {
         return new TeamService(persistence);
+    }
+
+    @Bean
+    TeamCrdSynchronizer teamCrdSynchronizer(FoundationPersistenceService persistence, Clock clock) {
+        return new TeamCrdSynchronizer(persistence, new TeamCrdParser(), clock);
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.team-sync.enabled", havingValue = "true")
+    KubernetesClient teamSyncKubernetesClient() {
+        return new KubernetesClientBuilder().build();
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.team-sync.enabled", havingValue = "true")
+    TeamResourceSource teamResourceSource(KubernetesClient client, TeamCrdSynchronizer synchronizer,
+            @Value("${agentteams.team-sync.namespace:}") String namespace) {
+        return new KubernetesTeamResourceSource(client, synchronizer, namespace);
     }
 
     @Bean
