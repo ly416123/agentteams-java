@@ -79,6 +79,10 @@
             <artifactId>jnats</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.fabric8</groupId>
+            <artifactId>kubernetes-client</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
             <version>${minio.version}</version>
