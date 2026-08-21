@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentTeams Java — 项目架构代码地图</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel2: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --orange: #f78166;
+  --purple: #bc8cff;
+  --red: #ff7b72;
+  --cyan: #79c0ff;
+  --radius: 10px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== 导航栏 ===== */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(13, 17, 23, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+nav .inner {
+  max-width: 1200px; margin: 0 auto; padding: 12px 24px;
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+}
+nav .brand { font-weight: 700; font-size: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+nav .brand .logo {
+  width: 28px; height: 28px; border-radius: 6px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; color: #fff; font-weight: 800;
+}
+nav .links { display: flex; gap: 16px; flex-wrap: wrap; }
+nav .links a { color: var(--muted); font-size: 14px; }
+nav .links a:hover { color: var(--text); text-decoration: none; }
+
+/* ===== 布局 ===== */
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+section { padding: 48px 0; border-bottom: 1px solid var(--border); }
+section:last-child { border-bottom: none; }
+h1 { font-size: 36px; font-weight: 800; letter-spacing: -0.5px; }
+h2 {
+  font-size: 24px; font-weight: 700; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 10px;
+}
+h2::before {
+  content: ""; width: 4px; height: 22px; border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent), var(--purple));
+}
+h3 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+.sub { color: var(--muted); margin-bottom: 28px; }
+.lead { font-size: 17px; color: var(--muted); max-width: 760px; }
+
+/* ===== Hero ===== */
+.hero { padding: 72px 0 48px; background:
+  radial-gradient(800px 300px at 20% 0%, rgba(88,166,255,0.08), transparent),
+  radial-gradient(800px 300px at 80% 0%, rgba(188,140,255,0.08), transparent); }
+.hero .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0; }
+.badge {
+  display: inline-block; padding: 3px 12px; border-radius: 20px;
+  font-size: 12.5px; border: 1px solid var(--border); color: var(--muted);
+  background: var(--panel);
+}
+.badge b { color: var(--text); font-weight: 600; }
+.hero .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 32px; }
+.meta-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.meta-card .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+.meta-card .v { font-size: 15px; font-weight: 600; margin-top: 4px; }
+
+/* ===== 通用卡片/表格 ===== */
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 14px;
+}
+.grid { display: grid; gap: 14px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+tr:hover td { background: rgba(88,166,255,0.04); }
+code {
+  font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  background: rgba(110,118,129,0.15); padding: 1px 6px; border-radius: 4px;
+  font-size: 13px; color: var(--cyan);
+}
+kbd {
+  font-family: "SF Mono", Menlo, monospace; font-size: 12px;
+  background: var(--panel2); border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 7px; color: var(--text);
+}
+
+/* ===== 分层架构图 ===== */
+.layer-stack { display: flex; flex-direction: column; gap: 6px; }
+.layer {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); padding: 12px 16px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.layer .tag {
+  min-width: 150px; font-weight: 700; font-size: 13.5px;
+  padding: 4px 10px; border-radius: 6px; text-align: center; color: #0d1117;
+}
+.layer .desc { color: var(--muted); font-size: 13px; flex: 1; min-width: 260px; }
+.layer .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  font-size: 11.5px; padding: 2px 9px; border-radius: 12px;
+  border: 1px solid var(--border); color: var(--muted); background: var(--panel2);
+  white-space: nowrap;
+}
+.layer-arrow { text-align: center; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 0; }
+
+/* ===== 模块卡片 ===== */
+.mod-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; margin-bottom: 16px;
+}
+.mod-head {
+  padding: 16px 20px; cursor: pointer; display: flex; align-items: center; gap: 14px;
+  user-select: none; transition: background 0.15s;
+}
+.mod-head:hover { background: var(--panel2); }
+.mod-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.mod-title { font-size: 16px; font-weight: 700; }
+.mod-path { font-size: 12.5px; color: var(--muted); font-family: "SF Mono", Menlo, monospace; margin-left: auto; }
+.mod-arrow { color: var(--muted); transition: transform 0.2s; font-size: 13px; }
+.mod-card.open .mod-arrow { transform: rotate(90deg); }
+.mod-body { display: none; padding: 0 20px 18px; border-top: 1px solid var(--border); }
+.mod-card.open .mod-body { display: block; }
+.mod-body .pos { padding-top: 16px; }
+.mod-body ul { padding-left: 20px; margin: 8px 0; }
+.mod-body li { margin-bottom: 4px; }
+.mod-body p { margin: 8px 0; color: var(--muted); }
+.tagline { font-size: 13px; color: var(--muted); }
+
+/* ===== 数据流 ===== */
+.flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; }
+.flow .node {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; font-size: 13px; font-weight: 600; text-align: center;
+}
+.flow .node.hl { border-color: var(--accent); color: var(--accent); }
+.flow .arrow { color: var(--muted); font-size: 14px; }
+.flow .note { color: var(--muted); font-size: 12px; width: 100%; margin-top: 4px; }
+
+/* ===== 模式表 ===== */
+.pattern-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+.pattern {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.pattern .p-name { font-weight: 700; color: var(--accent); font-size: 14.5px; margin-bottom: 6px; }
+.pattern .p-desc { color: var(--muted); font-size: 13.5px; }
+.pattern .p-where { font-size: 12.5px; color: var(--yellow); margin-top: 8px; font-family: "SF Mono", Menlo, monospace; }
+
+/* ===== 统计 ===== */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.stat {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  text-align: center; padding: 18px 10px;
+}
+.stat .num { font-size: 28px; font-weight: 800; color: var(--accent); }
+.stat .lbl { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* ===== 页脚 ===== */
+footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: center; }
+
+/* ===== 响应式 ===== */
+@media (max-width: 720px) {
+  h1 { font-size: 28px; }
+  .mod-path { display: none; }
+  .layer .tag { min-width: 120px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ================= 导航栏 ================= -->
+<nav>
+  <div class="inner">
+    <span class="brand"><span class="logo">AT</span>AgentTeams Java 架构地图</span>
+    <div class="links">
+      <a href="#overview">项目概览</a>
+      <a href="#layers">分层架构</a>
+      <a href="#modules">模块详解</a>
+      <a href="#flows">核心数据流</a>
+      <a href="#patterns">架构模式</a>
+      <a href="#deploy">部署架构</a>
+      <a href="#stats">规模统计</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ================= Hero ================= -->
+<header class="hero">
+  <div class="wrap">
+    <h1>AgentTeams Java</h1>
+    <p class="lead" style="margin-top:10px">
+      AgentTeams 系统的 Java 控制平面与运行时基础架构 —— 基于
+      <b>Push 式事件驱动</b> 的任务交付平台，融合 DDD 领域建模与六边形架构。
+    </p>
+    <div class="badges">
+      <span class="badge">Java <b>17</b></span>
+      <span class="badge">Spring Boot <b>3.4.5</b></span>
+      <span class="badge">gRPC <b>1.72.0</b> / Protobuf <b>4.30.2</b></span>
+      <span class="badge">PostgreSQL + Flyway <b>11.8</b></span>
+      <span class="badge">NATS JetStream <b>2.20.5</b></span>
+      <span class="badge">MinIO 对象存储</span>
+      <span class="badge">Java Operator SDK <b>4.9.2</b></span>
+      <span class="badge">Testcontainers <b>1.20.6</b></span>
+    </div>
+    <div class="meta">
+      <div class="meta-card"><div class="k">架构风格</div><div class="v">Push 式事件驱动 + 六边形架构 + DDD</div></div>
+      <div class="meta-card"><div class="k">Maven 模块</div><div class="v">10 个子模块</div></div>
+      <div class="meta-card"><div class="k">源码规模</div><div class="v">约 330 个 Java 文件（含测试）</div></div>
+      <div class="meta-card"><div class="k">部署形态</div><div class="v">Kubernetes（Helm Chart + Kind 开发集群）</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= 项目概览 ================= -->
+<section id="overview">
+  <div class="wrap">
+    <h2>项目概览</h2>
+    <p class="sub">设计理念：数据库是唯一事实来源，消息总线负责事件搬运，gRPC 负责任务交付。</p>
+    <div class="grid g3">
+      <div class="card">
+        <h3>Push 式任务交付</h3>
+        <p style="color:var(--muted);font-size:13.5px">
+          Control Plane 写数据库 + Outbox，NATS 承载持久化事件，Gateway 通过 gRPC 双向流交付任务，
+          Agent 在流上确认与上报进度。
+        </p>
+      </div>
+      <div class="card">
+        <h3>事务发件箱模式</h3>
+        <p style="color:var(--muted);font-size:13.5px">
+          领域事件与业务状态在同一本地事务内写入 <code>domain_events</code> + <code>outbox_events</code>，
+          保证至少一次投递（At-Least-Once）。
+        </p>
+      </div>
+      <div class="card">
+        <h3>全链路幂等与并发控制</h3>
+        <p style="color:var(--muted);font-size:13.5px">
+          REST 层 <code>Idempotency-Key</code>、执行事件按 <code>eventId</code> 去重、命令序列号单调递增；
+          乐观锁（version 字段）+ <code>FOR UPDATE SKIP LOCKED</code>。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 分层架构 ================= -->
+<section id="layers">
+  <div class="wrap">
+    <h2>分层架构</h2>
+    <p class="sub">六边形架构视角：核心领域在内，适配器在外，端口契约连接各方。</p>
+
+    <div class="layer-stack">
+
+      <div class="layer">
+        <span class="tag" style="background:#a5d6ff">端到端验证</span>
+        <span class="desc">integration-tests — Testcontainers 编排真实 PostgreSQL / NATS / MinIO，验证跨进程链路</span>
+        <span class="chips"><span class="chip">TaskPushE2ETest</span><span class="chip">TaskPushInfrastructureIT</span><span class="chip">FakeAgent</span></span>
+      </div>
+      <div class="layer-arrow">▼ 依赖全部模块</div>
+
+      <div class="layer">
+        <span class="tag" style="background:#7ee787">运行时工作进程</span>
+        <span class="desc">agent-worker — QwenPaw Agent 工作进程：gRPC AgentChannel ↔ QwenPaw HTTP/SSE 桥接</span>
+        <span class="chips"><span class="chip">QwenPawWorker</span><span class="chip">ConfigFileFetcher</span><span class="chip">ConfigManifestFetcher</span></span>
+      </div>
+      <div class="layer-arrow">▼ 依赖 runtime</div>
+
+      <div class="layer">
+        <span class="tag" style="background:#79c0ff;color:#0d1117">运行时 SPI</span>
+        <span class="desc">runtime — Agent 侧运行时抽象：通道协议状态机 + QwenPaw 双边界（HTTP/SSE 与进程）</span>
+        <span class="chips"><span class="chip">AgentChannelClient</span><span class="chip">GatewayRuntimeAdapter</span><span class="chip">QwenPawHttpRuntimePort</span><span class="chip">RuntimeConfigCoordinator</span></span>
+      </div>
+      <div class="layer-arrow">▼ 依赖 contracts</div>
+
+      <div class="layer">
+        <span class="tag" style="background:#f78166">业务应用层</span>
+        <span class="desc" style="flex-basis:100%;margin-bottom:6px">
+          control-plane（Spring Boot 控制平面）· agent-gateway（gRPC 网关）· manager（DeepSeek 编排）
+        </span>
+        <span class="chips">
+          <span class="chip">Task/Agent/Config REST API</span><span class="chip">Outbox Relay</span>
+          <span class="chip">任务调度与租约</span><span class="chip">gRPC 双向流</span><span class="chip">命令交付/重放</span>
+          <span class="chip">模型调用与工具授权</span>
+        </span>
+      </div>
+      <div class="layer-arrow">▼ 实现 / 依赖端口</div>
+
+      <div class="layer">
+        <span class="tag" style="background:#d29922;color:#0d1117">应用端口契约</span>
+        <span class="desc">application-contracts — 跨服务边界端口定义（零外部依赖）：TaskCommandPort / ExecutionEventPort / ConfigEventPort</span>
+        <span class="chips"><span class="chip">六边形出端口</span><span class="chip">Envelope 序列化</span><span class="chip">FailureMessageSanitizer</span></span>
+      </div>
+      <div class="layer-arrow">▼ 依赖</div>
+
+      <div class="layer">
+        <span class="tag" style="background:#3fb950;color:#0d1117">领域核心</span>
+        <span class="desc">domain — 纯 JDK 框架无关 DDD 领域层：Task 聚合根 + 状态机引擎（零运行时依赖）</span>
+        <span class="chips"><span class="chip">TaskTransitionService</span><span class="chip">TaskAttempt</span><span class="chip">FailureInfo 脱敏</span><span class="chip">CQS 命令-结果</span></span>
+      </div>
+      <div class="layer-arrow">▼ 依赖</div>
+
+      <div class="layer">
+        <span class="tag" style="background:#58a6ff;color:#0d1117">协议契约</span>
+        <span class="desc">contracts — Agent ↔ Gateway 的 gRPC 协议（agent_channel.proto）+ 版本协商规则</span>
+        <span class="chips"><span class="chip">AgentMessage × 10</span><span class="chip">ServerMessage × 5</span><span class="chip">ProtocolCompatibility</span></span>
+      </div>
+    </div>
+
+    <div style="margin-top:16px">
+      <div class="layer" style="border-style:dashed">
+        <span class="tag" style="background:#ff7b72">平台基础设施</span>
+        <span class="desc">operator — Java Operator SDK 管理 Worker / Team 自定义资源，产出 Deployment / Service / ConfigMap</span>
+        <span class="chips"><span class="chip">WorkerReconciler</span><span class="chip">TeamReconciler</span><span class="chip">Leader Election</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 模块详解 ================= -->
+<section id="modules">
+  <div class="wrap">
+    <h2>模块详解</h2>
+    <p class="sub">点击卡片展开每个模块的职责、核心组件与关键设计。</p>
+
+    <!-- contracts -->
+    <div class="mod-card open" id="m-contracts">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#58a6ff"></span>
+        <span class="mod-title">contracts — 协议契约层</span>
+        <span class="tagline">gRPC 双向流协议的唯一持有者</span>
+        <span class="mod-path">contracts/src/main/proto/agent_channel.proto</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>定义 Agent 与 Gateway 之间全部通信协议，是唯一持有 <code>agent_channel.proto</code> 的模块。protobuf 生成代码为构建产物，不入库。</p>
+          <table>
+            <tr><th style="width:200px">组件</th><th>说明</th></tr>
+            <tr><td><code>AgentMessage</code></td><td>Agent → Gateway 信封，10 种变体：hello / task_accepted / task_progress / task_heartbeat / task_completed / task_failed / config_applied / ack / error / agent_heartbeat</td></tr>
+            <tr><td><code>ServerMessage</code></td><td>Gateway → Agent 信封，5 种变体：ready / task_assigned / config_changed / ack / error</td></tr>
+            <tr><td><code>EventMetadata</code></td><td>统一事件头：event_id / agent_id / task_id / attempt_id / sequence / expected_version / lease_id / occurred_at</td></tr>
+            <tr><td><code>ProtocolCompatibility</code></td><td>版本协商：同 major 且 peer minor ≤ local minor 才兼容；新端可接受旧端，旧端拒绝新端</td></tr>
+            <tr><td><code>Connect</code> RPC</td><td><code>rpc Connect(stream AgentMessage) returns (stream ServerMessage)</code> — 单双向流承载全部通信</td></tr>
+          </table>
+          <p><b>演进策略：</b>严格追加式变更（新 tag / 新字段），删除必须 reserved；oneof 扩展不破坏旧端，由 <code>AgentChannelContractTest</code> 用未知字段模拟未来协议锁定该保证。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- domain -->
+    <div class="mod-card" id="m-domain">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#3fb950"></span>
+        <span class="mod-title">domain — 领域模型层</span>
+        <span class="tagline">纯 DDD，零依赖，非法状态不可表示</span>
+        <span class="mod-path">domain/src/main/java/io/agentteams/domain</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>纯 JDK 实现的框架无关领域层（16 主源码 + 4 测试），全部使用 Java 17 语言特性（record / sealed interface / switch 表达式）。</p>
+          <table>
+            <tr><th style="width:220px">组件</th><th>说明</th></tr>
+            <tr><td><code>Task</code>（聚合根）</td><td>不可变聚合：phase / version / attempt / processedEventIds 幂等集合；状态变更仅能经领域服务驱动（next() 包私有）</td></tr>
+            <tr><td><code>TaskTransitionService</code></td><td>状态机引擎：幂等检查 → 乐观锁 → 合法性 → 租约校验 → 失败详情规则；独立 <code>renewLease()</code> 续租路径</td></tr>
+            <tr><td><code>TaskPhase</code></td><td>DRAFT → QUEUED → ASSIGNED → ACCEPTED → RUNNING → SUCCEEDED / FAILED / CANCELLED</td></tr>
+            <tr><td><code>TaskTransitionResult</code></td><td>sealed interface：AppliedTransition / DuplicateTransition（幂等命中不抛异常）</td></tr>
+            <tr><td><code>FailureInfo</code></td><td>失败码 + 脱敏消息；内建正则脱敏器覆盖 plain / JSON / URL 三种密钥形态</td></tr>
+            <tr><td><code>AgentPhase</code></td><td>PROVISIONING / READY / BUSY / DRAINING / OFFLINE / FAILED（Agent 域观察视图）</td></tr>
+          </table>
+          <p><b>异常体系：</b>DomainException → IllegalTaskTransitionException / StaleTaskVersionException / LeaseNotActiveException，均携带结构化诊断字段，便于上层映射 HTTP / gRPC 错误码。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- application-contracts -->
+    <div class="mod-card" id="m-app">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#d29922"></span>
+        <span class="mod-title">application-contracts — 应用端口契约</span>
+        <span class="tagline">六边形架构的出端口定义</span>
+        <span class="mod-path">application-contracts/src/main/java/io/agentteams/application/api</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>零运行时依赖的纯接口 + Record 层（7 个文件），被 control-plane / agent-gateway / manager 三方共同引用。</p>
+          <table>
+            <tr><th style="width:220px">端口</th><th>方法</th><th>消费方</th></tr>
+            <tr><td><code>TaskCommandPort</code></td><td><code>create(idempotencyKey, command)</code></td><td>manager → control-plane（任务创建）</td></tr>
+            <tr><td><code>ExecutionEventPort</code></td><td><code>apply()</code> / <code>renewLease()</code></td><td>gateway → control-plane（执行事件 / 租约续期）</td></tr>
+            <tr><td><code>ConfigEventPort</code></td><td><code>applied(command)</code></td><td>gateway → control-plane（配置应用回执）</td></tr>
+          </table>
+          <p><b>关键设计：</b>命令 Record 紧凑构造器做严格防御式校验；<code>FailureMessageSanitizer</code> 在命令构建时自动脱敏；Envelope 携带 <code>schemaVersion</code> 支持协议演进。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- control-plane -->
+    <div class="mod-card" id="m-cp">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#f78166"></span>
+        <span class="mod-title">control-plane — 控制平面（核心）</span>
+        <span class="tagline">118 主源码 / 16 个包，业务 API + 持久化 + 调度 + 发件箱</span>
+        <span class="mod-path">control-plane/src/main/java/io/agentteams/controlplane</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <table>
+            <tr><th style="width:140px">包</th><th>核心类</th><th>职责</th></tr>
+            <tr><td><code>api</code></td><td>TaskController / AgentController / ConfigController / ConfigFileController / ApiErrorHandler</td><td>REST 入口：<code>/api/v1/tasks</code>、<code>/api/v1/agents</code>、<code>/api/v1/config</code>；强制 Idempotency-Key；全局异常映射（400 / 404 / 409 / 503）</td></tr>
+            <tr><td><code>application</code></td><td>ControlPlaneTaskCommandAdapter 等 3 个适配器</td><td>实现 application-contracts 端口，六边形出端口适配层</td></tr>
+            <tr><td><code>service</code></td><td>TaskService / ExecutionEventService / TaskAssignmentService / TaskAssignmentScheduler / IdempotencyService</td><td>任务编排、执行事件落地（单事务重建聚合 → 转移 → 乐观锁 → 写事件）、队列分配（SKIP LOCKED）、1s 轮询调度（数据库租约单活）</td></tr>
+            <tr><td><code>persistence</code></td><td>FoundationPersistenceService / FoundationTransaction / 9 个 Repository</td><td>JDBC 手写 SQL；appendEvent 同事务写 domain_events + outbox_events；全表 version 乐观锁；JSON 自动脱敏</td></tr>
+            <tr><td><code>outbox</code></td><td>OutboxRelay / JdbcOutboxStore / NatsEventPublisher / NatsExecutionEventConsumer</td><td>事务发件箱：1s 轮询 claimDue（<code>FOR UPDATE SKIP LOCKED</code> + 30s 租约）→ 并发发布 JetStream → 指数退避重试 / 死信</td></tr>
+            <tr><td><code>config</code></td><td>ConfigSnapshotService / ConfigDeploymentService / ConfigUploadService / CleanupJob</td><td>配置生命周期：manifest 规范化 + 指纹 → 版本化快照 → 绑定部署（ConfigChanged 事件）→ 预签名直传 + SHA-256 校验 → 保留策略清理</td></tr>
+            <tr><td><code>matrix</code></td><td>MatrixAppServiceHttpAdapter / MatrixCommandParser / MatrixDeliveryService</td><td>Matrix 聊天适配：<code>/_matrix/app/v1/transactions</code>，命令 <code>!agentteams &lt;cmd&gt;</code>，事务/事件双重幂等</td></tr>
+            <tr><td><code>security</code></td><td>ApiAuthenticationFilter / AuthorizationService / PrincipalContext</td><td>可选 Bearer 认证（OIDC 适配缝）+ 权限 / 租户 scope 授权</td></tr>
+            <tr><td><code>artifact</code> + <code>storage</code></td><td>ArtifactService / MinioObjectStorage / ObjectStoragePaths</td><td>预签名上传下载 + 流式 SHA-256 校验 + 防路径穿越</td></tr>
+            <tr><td><code>observability</code> / <code>health</code> / <code>audit</code> / <code>team</code></td><td>ControlPlaneMetrics / NatsHealthIndicator / RedactingAuditRecorder / TeamSchedulingPolicy</td><td>Micrometer 指标、NATS 健康探针、审计脱敏、团队调度策略与三层 JSON 配置叠加</td></tr>
+          </table>
+          <p><b>装配策略：</b>ControlPlaneConfiguration 用条件注解把 NATS / MinIO / 安全 / 中继全部做成可选能力（默认关闭），纯数据库模式可独立运行。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- agent-gateway -->
+    <div class="mod-card" id="m-gw">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#bc8cff"></span>
+        <span class="mod-title">agent-gateway — Agent 网关</span>
+        <span class="tagline">gRPC 双向流 + NATS 消费 + 可靠命令交付</span>
+        <span class="mod-path">agent-gateway/src/main/java/io/agentteams/gateway</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>Spring Boot 应用（44 主源码 + 20 测试），全部逻辑集中在单一包 <code>io.agentteams.gateway</code>。</p>
+          <table>
+            <tr><th style="width:200px">组件</th><th>说明</th></tr>
+            <tr><td><code>AgentChannelService</code></td><td>双向流核心：Hello → 认证 → 协议协商（v2.3）→ 连接注册（current-session 唯一）→ 命令重放 → 事件路由</td></tr>
+            <tr><td><code>ConnectionRegistry</code></td><td>连接池：per-Agent 当前连接唯一，新连接注册自动终止旧连接</td></tr>
+            <tr><td><code>CommandDeliveryService</code></td><td>At-Least-Once 交付：持久化命令 → 推送 → 确认光标（gateway_ack_cursors）；重连后只重放未确认命令</td></tr>
+            <tr><td><code>InboundEventHandler</code></td><td>入站事件统一处理：元数据校验 → event_id 幂等 → 分派 → Ack 推进</td></tr>
+            <tr><td><code>ControlPlaneGatewayApplicationHandler</code></td><td>桥接 ExecutionEventPort / ConfigEventPort，将 Agent 事件转为控制平面领域命令</td></tr>
+            <tr><td><code>SessionTokenAuthenticator</code></td><td>SHA-256 Token 认证，查 agent_sessions 表校验 agentId 匹配 + 未过期</td></tr>
+            <tr><td><code>NatsGatewayEventConsumer</code></td><td>消费 task.events.* + agent.events.*，分派到 TaskAssignedCommandHandler / ConfigChangedCommandHandler</td></tr>
+            <tr><td>4 个 Jdbc Store</td><td>AgentState / Session / CommandEvent（序列 + 交付 + 确认光标）/ InboundEvent（幂等）</td></tr>
+          </table>
+          <p><b>关键设计：</b>所有 Port 接口提供 <code>@ConditionalOnMissingBean</code> 的 Noop 实现，无外部依赖时可独立测试运行。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- runtime -->
+    <div class="mod-card" id="m-rt">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#79c0ff"></span>
+        <span class="mod-title">runtime — 运行时 SPI</span>
+        <span class="tagline">Agent 侧运行时抽象，纯 Java 库，无 Spring</span>
+        <span class="mod-path">runtime/src/main/java/io/agentteams/runtime</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <table>
+            <tr><th style="width:220px">组件</th><th>说明</th></tr>
+            <tr><td><code>AgentChannelClient</code></td><td>协议状态机：DISCONNECTED → CONNECTING → READY / RECONNECTING / REJECTED / CLOSED；租约管理（从 expiresAt 续期）；重连退避</td></tr>
+            <tr><td><code>GrpcAgentChannelPort</code></td><td>gRPC 传输层；streamGeneration 代际隔离——旧流回调不影响新流</td></tr>
+            <tr><td><code>GatewayRuntimeAdapter</code></td><td>协议 ↔ 运行时桥：expectedVersion 递增、同 attempt 去重、新 attempt 取消替换、同步完成竞态防护</td></tr>
+            <tr><td><code>QwenPawHttpRuntimePort</code></td><td>官方 QwenPaw HTTP/SSE API：POST /api/console/chat、SSE 解析、assistant 消息聚合、请求取消（terminal CAS）</td></tr>
+            <tr><td><code>JsonLinesQwenPawProcessPort</code></td><td>外部进程边界：JSON Lines stdin/stdout；三级优雅关闭（stop → waitFor → destroy）</td></tr>
+            <tr><td><code>RuntimeConfigCoordinator</code></td><td>配置两阶段协调：stage → activate / discard；同版本同 checksum 幂等、异 checksum 拒绝</td></tr>
+            <tr><td><code>FakeRuntime</code></td><td>测试 / 模拟实现，含并发上限与生命周期管理</td></tr>
+          </table>
+          <p><b>可扩展性：</b>AgentRuntimeRegistry 支持多运行时注册；QwenPawProcessPort 抽象使子进程边界可替换为 sidecar。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- agent-worker -->
+    <div class="mod-card" id="m-wk">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#7ee787"></span>
+        <span class="mod-title">agent-worker — QwenPaw Agent Worker</span>
+        <span class="tagline">轻量进程：gRPC ↔ QwenPaw HTTP/SSE 桥接</span>
+        <span class="mod-path">agent-worker/src/main/java/io/agentteams/worker</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>纯 Java + gRPC + JDK HttpClient 的轻量进程（无 Spring），核心类 <code>QwenPawWorker</code>（585 行）完成全部编排。</p>
+          <ul>
+            <li><b>任务分发：</b>resultGates（每任务锁）+ runningTasks / pendingResults 处理「任务先到 vs 结果先到」竞态；异常仍 Ack 防毒消息</li>
+            <li><b>配置闭环：</b>ConfigChanged → 拉取 / 校验 manifest（SHA-256 + 大小）→ 文件暂存（路径穿越防护 + 原子写入）→ 两阶段激活 → ConfigApplied 回执</li>
+            <li><b>可运维性：</b>WorkerHealthServer（TCP 就绪探针）、断线重连退避、优雅关闭钩子</li>
+            <li><b>配置：</b>21 个环境变量，唯一必填 <code>AGENTTEAMS_AGENT_ID</code>；协议版本固定 v2.3</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- manager -->
+    <div class="mod-card" id="m-mgr">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#ffa657"></span>
+        <span class="mod-title">manager — DeepSeek Manager 编排</span>
+        <span class="tagline">自然语言 → 结构化任务意图 → 幂等建单</span>
+        <span class="mod-path">manager/src/main/java/io/agentteams/manager</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>纯客户端库（无 Spring Boot 启动类）：将 prompt 交给 OpenAI 兼容模型，校验结构化输出后经 <code>TaskCommandPort</code> 幂等创建任务。</p>
+          <table>
+            <tr><th style="width:220px">组件</th><th>说明</th></tr>
+            <tr><td><code>ModelProvider</code> 族</td><td>OpenAICompatibleProvider + DeepSeekProvider + FallbackModelProvider（主备切换）+ RetryPolicy（指数退避 ≤5 次）</td></tr>
+            <tr><td><code>ManagerSessionService</code></td><td>核心门面：构造请求 → 调用 provider → 审计 → 解析输出 → 授权工具调用</td></tr>
+            <tr><td><code>ControlPlaneCreateTaskTool</code></td><td>CreateTaskIntent → JSON spec；SHA-256 内容哈希幂等键（manager- 前缀）</td></tr>
+            <tr><td><code>ManagerToolRegistry</code></td><td>工具调用权限检查 + 审批检查双保险</td></tr>
+            <tr><td><code>JdbcModelCallAuditor</code></td><td>审计日志：凭据先脱敏再 SHA-256 哈希，绝不落明文</td></tr>
+          </table>
+          <p><b>错误分类：</b>ModelProviderException 8 类 Category，可重试性（网络类）与不可重试性（认证 / 协议类）贯穿全链路。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- operator -->
+    <div class="mod-card" id="m-op">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#ff7b72"></span>
+        <span class="mod-title">operator — Kubernetes Operator</span>
+        <span class="tagline">Worker / Team CRD 声明式管理</span>
+        <span class="mod-path">operator/src/main/java/io/agentteams/operator</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>Java Operator SDK + Fabric8，13 主源码 + 2 测试。</p>
+          <table>
+            <tr><th style="width:220px">CRD</th><th>Reconciler</th><th>产出资源</th></tr>
+            <tr><td><code>Worker</code>（agentteams.io/v1alpha1）</td><td>WorkerReconciler</td><td>Deployment（gRPC 9090 + 双探针 + 强制注入 AGENTTEAMS_AGENT_ID）+ Service（ClusterIP）</td></tr>
+            <tr><td><code>Team</code>（agentteams.io/v1alpha1）</td><td>TeamReconciler</td><td>ConfigMap（team.json）</td></tr>
+          </table>
+          <p><b>安全设计：</b>禁用 automountServiceAccountToken、OwnerReference（blockOwnerDeletion）、镜像 IfNotPresent；Leader Election 可选（环境变量控制）。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- integration-tests -->
+    <div class="mod-card" id="m-it">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#a5d6ff"></span>
+        <span class="mod-title">integration-tests — 端到端集成验证</span>
+        <span class="tagline">真实基础设施验收测试</span>
+        <span class="mod-path">integration-tests/src/test/java/io/agentteams/it</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>纯测试模块（3 文件 / 1021 行），Testcontainers 编排 PostgreSQL 16 + NATS 2.10 + MinIO，启动真实 Control Plane + 双 Gateway 副本。</p>
+          <table>
+            <tr><th style="width:220px">测试</th><th>覆盖场景</th></tr>
+            <tr><td><code>TaskPushE2ETest</code></td><td>进程内组件集成：命令重放只重放未确认命令（内存替身，快速回归）</td></tr>
+            <tr><td><code>TaskPushInfrastructureIT</code></td><td>全链路：API 建单 → 落库断言 → 断线重连重放 → MinIO 产物上传 → accept/progress/heartbeat/complete → 重复 completion 幂等</td></tr>
+            <tr><td><code>TaskPushInfrastructureIT</code>（配置）</td><td>配置下发：快照 → 文件直传 → 部署 → 双消费者去重 → 共享 ACK cursor → ConfigApplied 持久化</td></tr>
+          </table>
+          <p><b>测试分层：</b>进程内（内存替身）→ 真实基础设施（验收级）；FakeAgent 为共享的真实 gRPC 客户端。</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ================= 核心数据流 ================= -->
+<section id="flows">
+  <div class="wrap">
+    <h2>核心数据流</h2>
+    <p class="sub">任务推送全链路：一次任务从创建到 Agent 执行的完整旅程。</p>
+
+    <div class="card">
+      <h3>任务推送链路（Push 式交付）</h3>
+      <div class="flow">
+        <span class="node hl">REST API<br><small>POST /api/v1/tasks</small></span><span class="arrow">→</span>
+        <span class="node">TaskService<br><small>领域校验 + 幂等</small></span><span class="arrow">→</span>
+        <span class="node">JDBC 事务<br><small>业务表 + domain_events<br>+ outbox_events</small></span><span class="arrow">→</span>
+        <span class="node">OutboxRelay<br><small>1s 轮询领取</small></span><span class="arrow">→</span>
+        <span class="node">NATS JetStream<br><small>task.events.*</small></span><span class="arrow">→</span>
+        <span class="node">Gateway 消费者</span><span class="arrow">→</span>
+        <span class="node">CommandDelivery<br><small>持久化 + 推送</small></span><span class="arrow">→</span>
+        <span class="node hl">gRPC 双向流<br><small>TaskAssigned</small></span><span class="arrow">→</span>
+        <span class="node hl">Agent Worker<br><small>QwenPaw 执行</small></span>
+      </div>
+      <p class="note">关键保证：DB 事务与事件写入原子；Outbox 重试 / 死信兜底；Gateway 命令重放保证至少一次交付；Agent 事件经 EventMetadata.expected_version 乐观并发回写。</p>
+    </div>
+
+    <div class="card">
+      <h3>执行事件回流链路</h3>
+      <div class="flow">
+        <span class="node hl">Agent<br><small>accepted / progress /<br>heartbeat / completed / failed</small></span><span class="arrow">→</span>
+        <span class="node">Gateway<br><small>InboundEventHandler<br>（event_id 幂等）</small></span><span class="arrow">→</span>
+        <span class="node">NATS<br><small>agent.events.*</small></span><span class="arrow">→</span>
+        <span class="node">Control Plane<br><small>ExecutionEventService<br>（单事务重建聚合 + 转移）</small></span><span class="arrow">→</span>
+        <span class="node hl">任务状态推进<br><small>ACCEPTED → RUNNING →<br>SUCCEEDED / FAILED</small></span>
+      </div>
+      <p class="note">终态时自动释放团队任务分配与 Agent 租约；租约续期独立路径处理心跳。</p>
+    </div>
+
+    <div class="card">
+      <h3>配置生命周期链路</h3>
+      <div class="flow">
+        <span class="node hl">Control Plane<br><small>创建快照（规范化 + SHA-256 指纹）</small></span><span class="arrow">→</span>
+        <span class="node">文件直传<br><small>MinIO 预签名 URL + 校验</small></span><span class="arrow">→</span>
+        <span class="node">部署<br><small>config_bindings + ConfigChanged</small></span><span class="arrow">→</span>
+        <span class="node hl">Agent Worker<br><small>拉取 manifest + 文件暂存 + 两阶段激活</small></span><span class="arrow">→</span>
+        <span class="node">ConfigApplied 回执</span><span class="arrow">→</span>
+        <span class="node">Control Plane<br><small>recordApplied（版本 / 绑定校验）</small></span>
+      </div>
+      <p class="note">manifest ≤ 64 KB 内联，否则 URN 引用；保留策略默认每 subject 最近 5 版，定时清理先删对象再删行。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 架构模式 ================= -->
+<section id="patterns">
+  <div class="wrap">
+    <h2>架构模式</h2>
+    <p class="sub">贯穿全项目的 10 个关键设计模式。</p>
+    <div class="pattern-grid">
+      <div class="pattern">
+        <div class="p-name">六边形架构（Ports &amp; Adapters）</div>
+        <div class="p-desc">application-contracts 定义端口，control-plane / gateway 实现适配器，业务服务不依赖外部框架类型。</div>
+        <div class="p-where">application-contracts / control-plane.application</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">DDD 领域驱动</div>
+        <div class="p-desc">聚合根 Task + 值对象 + 领域服务 TaskTransitionService + CQS 命令-结果模式。</div>
+        <div class="p-where">domain 模块</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">事务发件箱（Transactional Outbox）</div>
+        <div class="p-desc">同事务写业务 + domain_events + outbox_events，轮询领取发布，保证至少一次投递。</div>
+        <div class="p-where">control-plane.outbox</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">At-Least-Once 命令交付</div>
+        <div class="p-desc">命令持久化 + 交付日志 + 确认光标，重连只重放未确认命令。</div>
+        <div class="p-where">agent-gateway.CommandDeliveryService</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">三层幂等</div>
+        <div class="p-desc">REST Idempotency-Key（请求指纹 SHA-256）/ 执行事件 eventId 去重 / 命令序列单调递增。</div>
+        <div class="p-where">IdempotencyService / processedEventIds / ack_cursors</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">乐观并发 + SKIP LOCKED</div>
+        <div class="p-desc">全链路 version 字段乐观锁；任务分配 / 租约恢复 / Outbox 领取用 FOR UPDATE SKIP LOCKED。</div>
+        <div class="p-where">persistence 各 Repository</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">策略模式（Strategy）</div>
+        <div class="p-desc">CancellationPolicy / TeamSchedulingPolicy / RetryPolicy / FallbackModelProvider 均通过构造注入策略。</div>
+        <div class="p-where">domain / team / manager</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">安全内建脱敏</div>
+        <div class="p-desc">密钥在领域层 / 端口层 / 持久化层 / 审计层四道防线统一脱敏，错误消息只暴露类名。</div>
+        <div class="p-where">FailureInfo / Sanitizer / OutboxErrorSanitizer</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">条件装配（可选能力）</div>
+        <div class="p-desc">NATS / MinIO / 安全 / 中继全部条件启用，纯数据库模式可独立运行；Port 均有 Noop 默认。</div>
+        <div class="p-where">ControlPlaneConfiguration / AgentGatewayGrpcConfiguration</div>
+      </div>
+      <div class="pattern">
+        <div class="p-name">代际隔离（Generation）</div>
+        <div class="p-desc">gRPC 断线重连时旧流回调不误触新流状态，防止竞态状态污染。</div>
+        <div class="p-where">runtime.GrpcAgentChannelPort</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 部署架构 ================= -->
+<section id="deploy">
+  <div class="wrap">
+    <h2>部署架构</h2>
+    <p class="sub">Kubernetes 集群内的组件拓扑与依赖关系（Helm Chart 编排）。</p>
+    <div class="card" style="overflow-x:auto">
+      <table>
+        <tr><th style="width:150px">组件</th><th style="width:90px">形态</th><th>关键配置与职责</th></tr>
+        <tr>
+          <td><b>Control Plane</b></td><td>Deployment</td>
+          <td>Spring Boot Web（8080）；REST API + JDBC + OutboxRelay + 任务调度器；NATS / MinIO / 安全按需启用；副本间数据库租约单活调度</td>
+        </tr>
+        <tr>
+          <td><b>Gateway</b></td><td>Deployment ×2</td>
+          <td>gRPC 双向流服务（9090）；消费 task.events.* / agent.events.*；命令去重 + 共享 ACK cursor；无状态可水平扩展</td>
+        </tr>
+        <tr>
+          <td><b>Operator</b></td><td>Deployment</td>
+          <td>Worker / Team Reconciler；Leader Election 可选；为 Worker 生成 Deployment + Service</td>
+        </tr>
+        <tr>
+          <td><b>Worker</b></td><td>Operator 管理</td>
+          <td>QwenPaw Agent 进程；连接 Gateway gRPC；调用 QwenPaw HTTP/SSE；TCP 就绪探针</td>
+        </tr>
+        <tr>
+          <td><b>PostgreSQL</b></td><td>StatefulSet（外部）</td>
+          <td>控制平面权威数据源；Flyway 14 个迁移；开发环境 emptyDir，生产需持久化</td>
+        </tr>
+        <tr>
+          <td><b>NATS JetStream</b></td><td>StatefulSet（外部）</td>
+          <td>agent.events.* / task.events.* / dead-letter；durable 消费者保证至少一次</td>
+        </tr>
+        <tr>
+          <td><b>MinIO</b></td><td>StatefulSet（外部）</td>
+          <td>任务产物 + 配置文件对象存储；预签名 URL 直传</td>
+        </tr>
+        <tr>
+          <td><b>Observability</b></td><td>Prometheus</td>
+          <td>Servicemonitor 采集 Control Plane / Gateway 指标；PrometheusRule 告警</td>
+        </tr>
+      </table>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card">
+        <h3>本地开发</h3>
+        <ul style="padding-left:20px;color:var(--muted);font-size:13.5px">
+          <li>纯 Java 测试：<code>source deploy/dev-env.sh &amp;&amp; mvn clean test</code></li>
+          <li>Kind 集群：<code>kind create cluster --config deploy/kind-config.yaml</code> + Helm 安装</li>
+          <li>基础设施脚本：install-kind-dev.sh / build-images.sh / bootstrap-kind-qwenpaw-worker.sh</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>测试命令</h3>
+        <ul style="padding-left:20px;color:var(--muted);font-size:13.5px">
+          <li>单元测试：<code>mvn -q test</code></li>
+          <li>集成测试：<code>mvn -q -Pintegration-tests verify</code></li>
+          <li>真实模型冒烟：smoke-deepseek-manager.sh + smoke-kind-qwenpaw-deepseek.sh</li>
+          <li>租约恢复验证：run-kind-lease-recovery.py</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 规模统计 ================= -->
+<section id="stats">
+  <div class="wrap">
+    <h2>规模统计</h2>
+    <p class="sub">各模块源码规模概览（不含 target/ 构建产物与 protobuf 生成代码）。</p>
+    <div class="stat-row">
+      <div class="stat"><div class="num">10</div><div class="lbl">Maven 模块</div></div>
+      <div class="stat"><div class="num">258</div><div class="lbl">主源码文件</div></div>
+      <div class="stat"><div class="num">73</div><div class="lbl">测试文件</div></div>
+      <div class="stat"><div class="num">14</div><div class="lbl">Flyway 迁移</div></div>
+      <div class="stat"><div class="num">15</div><div class="lbl">Proto 消息</div></div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <table>
+        <tr><th>模块</th><th style="width:80px">主源码</th><th style="width:80px">测试</th><th>核心内容</th></tr>
+        <tr><td>contracts</td><td>1</td><td>2</td><td>agent_channel.proto + 版本协商</td></tr>
+        <tr><td>domain</td><td>16</td><td>4</td><td>Task 聚合 + 状态机 + 值对象</td></tr>
+        <tr><td>application-contracts</td><td>7</td><td>0</td><td>3 个端口 + Envelope + 脱敏器</td></tr>
+        <tr><td>control-plane</td><td>118</td><td>25</td><td>16 个包：API / 服务 / 持久化 / Outbox / Config / Matrix / 安全</td></tr>
+        <tr><td>agent-gateway</td><td>44</td><td>20</td><td>gRPC 服务 + 命令交付 + NATS + JDBC</td></tr>
+        <tr><td>runtime</td><td>33</td><td>10</td><td>通道状态机 + QwenPaw 双边界 + 配置协调</td></tr>
+        <tr><td>agent-worker</td><td>4</td><td>4</td><td>Worker 编排 + 配置拉取 / 文件下载</td></tr>
+        <tr><td>manager</td><td>22</td><td>3</td><td>模型提供 + 工具注册 + 审计</td></tr>
+        <tr><td>operator</td><td>13</td><td>2</td><td>2 个 CRD + 2 个 Reconciler + 资源工厂</td></tr>
+        <tr><td>integration-tests</td><td>0</td><td>3</td><td>E2E + 基础设施验收</td></tr>
+        <tr><td style="font-weight:700">合计</td><td style="font-weight:700">258</td><td style="font-weight:700">73</td><td>约 330 个 Java 文件</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  AgentTeams Java 架构地图 · 基于 2026-08-21 代码库分析生成 · 源码详见 <a href="https://github.com/ly416123/agentteams-java" target="_blank" rel="noopener">github.com/ly416123/agentteams-java</a>
+</footer>
+
+<script>
+// 模块卡片折叠交互
+document.querySelectorAll('.mod-card .mod-head').forEach(function (head) {
+  head.addEventListener('click', function () {
+    head.parentElement.classList.toggle('open');
+  });
+});
+</script>
+</body>
+</html>
