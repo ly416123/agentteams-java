@@ -10,7 +10,7 @@ spec:
     metadata:
       labels: { app.kubernetes.io/name: agentteams-operator }
     spec:
-      serviceAccountName: {{ include "agentteams-java.serviceAccountName" . }}
+      serviceAccountName: {{ include "agentteams-java.operatorServiceAccountName" . }}
       containers:
         - name: operator
           image: {{ .Values.images.operator }}

@@ -3,9 +3,6 @@ images:
   gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
   operator: ghcr.io/ly416123/agentteams-operator:latest
 imagePullPolicy: IfNotPresent
-serviceAccount:
-  create: true
-  name: agentteams
 controlPlane:
   replicas: 2
   port: 8080
@@ -42,6 +39,9 @@ gateway:
   replicas: 2
   port: 9090
   httpPort: 8080
+  serviceAccount:
+    create: true
+    name: agentteams-gateway
   tls:
     enabled: false
     secretName: agentteams-gateway-mtls
@@ -58,6 +58,9 @@ gateway:
     AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"
     AGENTTEAMS_GATEWAY_NATS_URL: nats://nats:4222
 operator:
+  serviceAccount:
+    create: true
+    name: agentteams-operator
   leaderElection:
     enabled: true
     leaseName: agentteams-operator

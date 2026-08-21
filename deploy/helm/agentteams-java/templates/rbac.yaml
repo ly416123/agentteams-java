@@ -26,7 +26,7 @@ roleRef:
   name: {{ include "agentteams-java.fullname" . }}-operator
 subjects:
   - kind: ServiceAccount
-    name: {{ include "agentteams-java.serviceAccountName" . }}
+    name: {{ include "agentteams-java.operatorServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- if .Values.controlPlane.teamSync.enabled }}
 ---

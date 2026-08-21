@@ -12,7 +12,7 @@ spec:
     metadata:
       labels: { app.kubernetes.io/name: agentteams-gateway }
     spec:
-      serviceAccountName: {{ include "agentteams-java.serviceAccountName" . }}
+      serviceAccountName: {{ include "agentteams-java.gatewayServiceAccountName" . }}
       automountServiceAccountToken: false
       containers:
         - name: gateway

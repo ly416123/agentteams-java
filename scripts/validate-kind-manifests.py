@@ -88,6 +88,19 @@ def main():
     for required in ("control-plane-team-sync", 'verbs: ["get", "list", "watch"]'):
         if required not in rbac:
             fail(f"Team sync RBAC missing {required}")
+    helpers = (ROOT / "deploy/helm/agentteams-java/templates/_helpers.tpl").read_text(encoding="utf-8")
+    for required in ("operatorServiceAccountName", "gatewayServiceAccountName"):
+        if required not in helpers:
+            fail(f"Dedicated service-account helper missing {required}")
+    operator = (ROOT / "deploy/helm/agentteams-java/templates/operator.yaml").read_text(encoding="utf-8")
+    if 'serviceAccountName: {{ include "agentteams-java.operatorServiceAccountName" .' not in operator:
+        fail("Operator must use its dedicated service account")
+    gateway_manifest = (ROOT / "deploy/helm/agentteams-java/templates/gateway.yaml").read_text(encoding="utf-8")
+    if ('serviceAccountName: {{ include "agentteams-java.gatewayServiceAccountName" .' not in gateway_manifest
+            or "automountServiceAccountToken: false" not in gateway_manifest):
+        fail("Gateway must use a dedicated tokenless service account")
+    if 'name: {{ include "agentteams-java.operatorServiceAccountName" .' not in rbac:
+        fail("Operator RBAC must bind the dedicated service account")
     network_policy = (ROOT / "deploy/helm/agentteams-java/templates/networkpolicy.yaml").read_text(encoding="utf-8")
     kind_values = (ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8")
     for required in ("kubernetesApiCIDR", "kubernetesApiEndpointCIDR", "kubernetesApiEndpointPort",

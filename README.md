@@ -259,6 +259,12 @@ namespace by default. The deterministic PostgreSQL-backed acceptance test is
 informer and Helm/RBAC wiring. A cluster with only one READY Agent cannot run
 this smoke without adding a second real Agent.
 
+The chart isolates workload identities: Control Plane, Gateway, and Operator
+use separate ServiceAccounts. Gateway pods do not mount a Kubernetes API token;
+only the Operator receives permissions to manage Worker child resources, while
+Control Plane retains read-only Team sync access. Do not reuse the Operator
+account for Gateway when overriding chart values.
+
 For a local Gateway↔Worker mTLS check, use the development-only bootstrap
 script. It creates a temporary 30-day CA and certificates under
 `.local/kind-mtls/` (ignored by Git), creates the two Kubernetes Secrets,
