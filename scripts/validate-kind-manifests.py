@@ -68,9 +68,11 @@ def main():
             fail(f"Team CRD schema missing {required}")
     control_plane = (ROOT / "deploy/helm/agentteams-java/templates/control-plane.yaml").read_text(encoding="utf-8")
     for required in ("controlPlaneServiceAccountName", "AGENTTEAMS_TEAM_SYNC_ENABLED",
-                     "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}"):
+                     "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
+                     "AGENTTEAMS_SECURITY_OIDC_JWK_SET_URI",
+                     "automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}"):
         if required not in control_plane:
-            fail(f"Control Plane Team sync manifest missing {required}")
+            fail(f"Control Plane security/team sync manifest missing {required}")
     rbac = (ROOT / "deploy/helm/agentteams-java/templates/rbac.yaml").read_text(encoding="utf-8")
     for required in ("control-plane-team-sync", 'verbs: ["get", "list", "watch"]'):
         if required not in rbac:

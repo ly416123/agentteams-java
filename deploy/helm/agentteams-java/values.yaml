@@ -22,6 +22,15 @@ controlPlane:
     batchSize: 16
   security:
     apiEnabled: false
+    oidc:
+      enabled: false
+      issuerUri: ""
+      jwkSetUri: ""
+      audience: ""
+      tenantClaim: tenant
+      projectClaim: project
+      teamClaim: team
+      permissionsClaim: permissions
   env:
     SPRING_PROFILES_ACTIVE: k8s
     AGENTTEAMS_NATS_ENABLED: "true"

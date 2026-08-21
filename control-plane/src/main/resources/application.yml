@@ -52,3 +52,12 @@ agentteams:
   security:
     api:
       enabled: false
+    oidc:
+      enabled: false
+      issuer-uri: ""
+      jwk-set-uri: ""
+      audience: ""
+      tenant-claim: tenant
+      project-claim: project
+      team-claim: team
+      permissions-claim: permissions

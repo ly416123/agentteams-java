@@ -72,10 +72,31 @@ sockets into the Control Plane.
 The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
 `POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. The built-in
 lease-based scheduler assigns queued work across replicas and recovers expired
-leases after restart. Set `AGENTTEAMS_SECURITY_API_ENABLED=true` only after
-providing an `IdentityTokenValidator` implementation for the deployment; this
-enables the Bearer-token boundary for `/api/*` without embedding a specific
-OIDC provider in the core services.
+leases after restart. HTTP API authentication is disabled by default. To
+enable the built-in OIDC JWT validator, provide the issuer, JWKS URI, audience,
+and scope claims together; enabling the API without a complete OIDC
+configuration fails startup rather than exposing an unauthenticated API:
+
+```yaml
+controlPlane:
+  security:
+    apiEnabled: true
+    oidc:
+      enabled: true
+      issuerUri: https://id.example.com/
+      jwkSetUri: https://id.example.com/.well-known/jwks.json
+      audience: agentteams-api
+      tenantClaim: tenant
+      projectClaim: project
+      teamClaim: team
+      permissionsClaim: permissions
+```
+
+The validator checks the JWT signature, issuer, audience, expiry and not-before
+claims, then maps `sub`, tenant/project/team claims and permissions into the
+existing authorization boundary. JWKS caching and key refresh are delegated
+to Spring Security's Nimbus decoder; no OIDC client secret is stored in the
+application configuration.
 
 Without Docker/WSL, all pure-Java tests still run. Testcontainers-based
 PostgreSQL/NATS/MinIO tests are marked `disabledWithoutDocker` and are skipped
