@@ -199,6 +199,25 @@ Worker log instead of relying on the phase alone. On 2026-08-21, the Manager
 smoke, QwenPaw Provider test, three independent real tasks, and repeated
 Idempotency-Key creation were verified in the local Kind cluster.
 
+Team CRD scheduling can be smoke-tested with two existing READY Agent UUIDs.
+The script creates a temporary Team CR, applies the stable `namespace/name`
+Team ID to three tasks, and expects one task to be `ASSIGNED` while the other
+two remain `QUEUED` under `maxConcurrentTasks: 1`. It removes only the
+temporary Team CR when it exits and never prints the CRD body or credentials:
+
+```bash
+AGENTTEAMS_TEAM_AGENT_IDS="<ready-agent-uuid-1>,<ready-agent-uuid-2>" \
+  ./scripts/smoke-kind-team-scheduling.sh
+```
+
+The Team informer requires the Control Plane service account to have only
+`get/list/watch` access to `teams.agentteams.io`; the chart enables this with
+`controlPlane.teamSync.enabled=true` and scopes it to the `agentteams`
+namespace by default. The deterministic PostgreSQL-backed acceptance test is
+`TeamSchedulingInfrastructureIT`; the Kind smoke additionally proves the
+informer and Helm/RBAC wiring. A cluster with only one READY Agent cannot run
+this smoke without adding a second real Agent.
+
 `deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
 uses an `emptyDir` volume and the database password is a local test secret.
 Production deployments must provide durable PostgreSQL, NATS JetStream and
