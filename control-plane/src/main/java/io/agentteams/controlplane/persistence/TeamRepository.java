@@ -25,6 +25,15 @@ public final class TeamRepository {
                 JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), id).stream().findFirst();
     }
 
+    public Optional<TeamRecord> findByIdForUpdate(UUID id) {
+        return jdbc.query("""
+                SELECT id, name, display_name, status, created_at, updated_at, version
+                  FROM teams WHERE id = ? FOR UPDATE
+                """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
+                        rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
+                        JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), id).stream().findFirst();
+    }
+
     public Optional<TeamRecord> findByNameForUpdate(String name) {
         return jdbc.query("""
                 SELECT id, name, display_name, status, created_at, updated_at, version

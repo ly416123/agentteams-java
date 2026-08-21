@@ -11,6 +11,10 @@ import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.TaskAssignmentRecord;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.persistence.TeamMemberRecord;
+import io.agentteams.controlplane.persistence.TeamPolicyRecord;
+import io.agentteams.controlplane.persistence.TeamRecord;
+import io.agentteams.controlplane.team.TeamSchedulingPolicy;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Duration;
@@ -72,7 +76,7 @@ public final class TaskAssignmentService {
             tx.taskAssignments().insert(assignment);
             tx.agentLeases().insert(lease);
             teamId(assigned).ifPresent(team -> {
-                tx.teams().linkTask(team, taskId, "NOT_REQUIRED", now);
+                tx.teams().linkTask(team, taskId, approvalStatus(assigned), now);
                 var member = tx.teams().findActiveMember(team, agent.id())
                         .orElseThrow(() -> new IllegalStateException("team membership disappeared during assignment"));
                 tx.teams().insertTaskAssignment(UUID.randomUUID(), team, taskId, agent.id(), member.id(),
@@ -80,8 +84,8 @@ public final class TaskAssignmentService {
             });
             UUID eventId = FoundationPersistenceService.appendEvent(tx, "task", taskId, "TaskAssigned",
                     taskAssignedPayload(assigned, agent, attempt, assignment, lease), now, assigned.version());
-            return new AssignmentResult(assigned, agent, attempt, assignment, lease, eventId);
-        });
+        return new AssignmentResult(assigned, agent, attempt, assignment, lease, eventId);
+    });
         metrics.taskAssigned();
         return result;
     }
@@ -91,11 +95,53 @@ public final class TaskAssignmentService {
             JsonNode spec = OBJECT_MAPPER.readTree(task.specJson());
             JsonNode team = spec == null ? null : spec.get("teamId");
             if (team != null && team.isTextual() && !team.asText().isBlank()) {
-                return tx.agents().findReadyMatchingForTeam(task.specJson(), UUID.fromString(team.asText()));
+                UUID teamId = UUID.fromString(team.asText());
+                TeamRecord record = tx.teams().findByIdForUpdate(teamId)
+                        .orElseThrow(() -> new IllegalStateException("team does not exist: " + teamId));
+                if (!"ACTIVE".equals(record.status())) {
+                    return java.util.Optional.empty();
+                }
+                TeamPolicyRecord policy = tx.teams().findPolicy(teamId)
+                        .orElseThrow(() -> new IllegalStateException("team policy is missing: " + teamId));
+                int activeAssignments = tx.teams().activeAssignmentCount(teamId);
+                TeamSchedulingPolicy.AssignmentRequest request = assignmentRequest(task, spec);
+                TeamSchedulingPolicy schedulingPolicy = new TeamSchedulingPolicy();
+                for (TeamMemberRecord member : tx.teams().activeMembers(teamId)) {
+                    AgentRecord agent = tx.agents().findByIdForUpdate(member.agentId()).orElse(null);
+                    TeamSchedulingPolicy.Decision decision = schedulingPolicy.evaluate(policy, member, agent,
+                            request, activeAssignments);
+                    if (decision.allowed()) {
+                        return java.util.Optional.of(agent);
+                    }
+                }
+                return java.util.Optional.empty();
             }
             return tx.agents().findReadyMatching(task.specJson());
         } catch (java.io.IOException | IllegalArgumentException error) {
             throw new IllegalArgumentException("task spec cannot be parsed for assignment", error);
+        }
+    }
+
+    private static TeamSchedulingPolicy.AssignmentRequest assignmentRequest(TaskRecord task, JsonNode spec) {
+        java.util.List<String> required = new java.util.ArrayList<>();
+        JsonNode values = spec.get("requiredCapabilities");
+        if (values != null && values.isArray()) {
+            values.elements().forEachRemaining(value -> {
+                if (value.isTextual() && !value.asText().isBlank()) {
+                    required.add(value.asText());
+                }
+            });
+        }
+        return new TeamSchedulingPolicy.AssignmentRequest(task.id(), required,
+                spec.path("approvalGranted").asBoolean(false));
+    }
+
+    private static String approvalStatus(TaskRecord task) {
+        try {
+            JsonNode spec = OBJECT_MAPPER.readTree(task.specJson());
+            return spec.path("approvalGranted").asBoolean(false) ? "APPROVED" : "NOT_REQUIRED";
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("task spec cannot be parsed for approval status", error);
         }
     }
 
