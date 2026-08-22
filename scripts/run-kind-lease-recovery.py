@@ -152,6 +152,7 @@ def main() -> int:
     parser.add_argument("--agent-id", default=os.environ.get("AGENTTEAMS_AGENT_ID"))
     parser.add_argument("--worker-deployment", default="qwenpaw-real")
     parser.add_argument("--control-plane-deployment", default="agentteams-agentteams-java-control-plane")
+    parser.add_argument("--operator-deployment", default="agentteams-agentteams-java-operator")
     parser.add_argument("--postgres-pod", default="postgresql-0")
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
     parser.add_argument("--local-port", type=int, default=18080)
@@ -164,8 +165,11 @@ def main() -> int:
         parser.error("--agent-id or AGENTTEAMS_AGENT_ID is required")
 
     worker_replicas = deployment_replicas(args.namespace, args.worker_deployment)
+    operator_replicas = deployment_replicas(args.namespace, args.operator_deployment)
     if worker_replicas <= 0:
         fail("worker deployment must have at least one replica before the test")
+    if operator_replicas <= 0:
+        fail("operator deployment must have at least one replica before the test")
     worker_agent_id = deployment_agent_id(args.namespace, args.worker_deployment)
     if worker_agent_id and worker_agent_id != args.agent_id:
         fail(f"worker deployment {args.worker_deployment} is bound to agent {worker_agent_id}, not {args.agent_id}")
@@ -180,6 +184,12 @@ def main() -> int:
         _, port_forward = wait_for_api_with_port_forward(
             base_url, port_forward, args.namespace, args.control_plane_service,
             args.local_port, args.timeout)
+        # The Operator continuously reconciles Worker.spec.replicas. Pause it
+        # before scaling the deployment down, otherwise the test worker can
+        # reconnect and complete the task before its lease is expired.
+        run("scale", "deployment", args.operator_deployment, "--replicas=0", namespace=args.namespace)
+        wait_until("Operator shutdown", lambda: deployment_ready(
+            args.namespace, args.operator_deployment, 0), args.timeout)
         run("scale", "deployment", args.worker_deployment, "--replicas=0", namespace=args.namespace)
         wait_until("Worker shutdown", lambda: deployment_ready(args.namespace, args.worker_deployment, 0), args.timeout)
 
@@ -251,6 +261,9 @@ def main() -> int:
                 f"update agents set phase='{phase}', updated_at=now() where id='{agent_id}';")
         if deployment_replicas(args.namespace, args.worker_deployment) != worker_replicas:
             run("scale", "deployment", args.worker_deployment, f"--replicas={worker_replicas}", namespace=args.namespace)
+        if deployment_replicas(args.namespace, args.operator_deployment) != operator_replicas:
+            run("scale", "deployment", args.operator_deployment,
+                f"--replicas={operator_replicas}", namespace=args.namespace)
         stop_port_forward(port_forward)
 
 
