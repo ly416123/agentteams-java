@@ -161,10 +161,13 @@ and a development-only shared token:
 ```
 
 The smoke verifies Tuwunel health, AppService shared-token rejection, accepted
-transactions, transaction-level duplicate acknowledgement, and a real local
-user/room message that creates a scoped task through `!agentteams start`. The
-local Tuwunel data, registration token, and users are development-only and
-must not be reused elsewhere.
+transactions, transaction-level duplicate acknowledgement, and real local
+user/room messages that create a scoped task through `!agentteams start` and
+deliver a scoped `!agentteams status <task-id>` command. The local Tuwunel
+data, registration token, and users are development-only and must not be reused
+elsewhere. `cancel` is implemented against the existing QUEUED/ASSIGNED task
+lifecycle; `retry`, `pause`, `approve`, and `reject` remain explicit follow-up
+work because the current domain model has no corresponding transitions.
 
 The Kind path was verified on 2026-08-18 with a two-node `v1.36.1` cluster.
 Docker Hub was not reachable from the environment, so the pinned node image

@@ -109,7 +109,7 @@ user_id="$(printf '%s' "${registration}" | json_string user_id)"
 }
 
 mapping_id="00000000-0000-0000-0000-000000000042"
-mapping_sql="INSERT INTO platform_identities(id, subject, tenant, project, team, permissions, created_at, updated_at, matrix_user_id) VALUES ('${mapping_id}', 'matrix-smoke', 'tenant-a', 'project-a', 'team-a', '[\"task:create\",\"task:read\"]'::jsonb, now(), now(), '${user_id}') ON CONFLICT (subject) DO UPDATE SET tenant=EXCLUDED.tenant, project=EXCLUDED.project, team=EXCLUDED.team, permissions=EXCLUDED.permissions, updated_at=now(), matrix_user_id=EXCLUDED.matrix_user_id"
+mapping_sql="INSERT INTO platform_identities(id, subject, tenant, project, team, permissions, created_at, updated_at, matrix_user_id) VALUES ('${mapping_id}', 'matrix-smoke', 'tenant-a', 'project-a', 'team-a', '[\"task:create\",\"task:read\",\"task:cancel\"]'::jsonb, now(), now(), '${user_id}') ON CONFLICT (subject) DO UPDATE SET tenant=EXCLUDED.tenant, project=EXCLUDED.project, team=EXCLUDED.team, permissions=EXCLUDED.permissions, updated_at=now(), matrix_user_id=EXCLUDED.matrix_user_id"
 kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
   psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "${mapping_sql}" >/dev/null
 
@@ -148,5 +148,33 @@ while [[ -z "${task_id}" ]]; do
   sleep 2
 done
 
+status_txn="kind-matrix-status-${run_id}"
+status_body="!agentteams status ${task_id}"
+status_response="$(curl --fail --silent --show-error --request PUT \
+  "${MATRIX_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${status_txn}" \
+  --header "Authorization: Bearer ${user_token}" \
+  --header 'Content-Type: application/json' \
+  --data "{\"msgtype\":\"m.text\",\"body\":\"${status_body}\"}")"
+grep -F 'event_id' <<<"${status_response}" >/dev/null || {
+  echo "Matrix status message send failed: ${status_response}" >&2
+  exit 1
+}
+
+status_seen=0
+deadline=$((SECONDS + 90))
+while [[ "${status_seen}" != "1" ]]; do
+  status_seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+    psql -At -U agentteams -d agentteams -c \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM matrix_inbox_events WHERE room_id='${room_id}' AND sender='${user_id}' AND body='${status_body}') THEN 1 ELSE 0 END" \
+    | tr -d '\r' | head -n 1)"
+  [[ "${status_seen}" == "1" ]] && break
+  if (( SECONDS >= deadline )); then
+    echo "Matrix status command was not delivered to Control Plane" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
 echo "KIND_MATRIX_APPSERVICE_OK"
 echo "KIND_MATRIX_E2E_OK task=${task_id} user=${user_id} room=${room_id}"
+echo "KIND_MATRIX_STATUS_E2E_OK task=${task_id}"

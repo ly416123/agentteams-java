@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import io.agentteams.application.api.TaskCommandPort;
+import io.agentteams.controlplane.service.TaskService;
 import java.time.Clock;
 import java.time.Duration;
 
@@ -46,7 +47,7 @@ public class MatrixAppServiceConfiguration {
     @Bean
     @ConditionalOnBean(TaskCommandPort.class)
     @ConditionalOnMissingBean(MatrixCommandHandler.class)
-    MatrixCommandHandler matrixCommandHandler(TaskCommandPort tasks) {
-        return new MatrixTaskCommandHandler(tasks);
+    MatrixCommandHandler matrixCommandHandler(TaskCommandPort tasks, TaskService taskService) {
+        return new MatrixTaskCommandHandler(tasks, taskService);
     }
 }

@@ -8,9 +8,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.agentteams.application.api.TaskCommandPort;
+import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.service.TaskService;
+import io.agentteams.domain.task.TaskPhase;
+import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -37,6 +41,60 @@ class MatrixTaskCommandHandlerTest {
         assertThatThrownBy(() -> handler.handle(identity(Set.of("task:read")),
                 new MatrixCommand.Start("forbidden")))
                 .isInstanceOf(AuthorizationException.class);
+    }
+
+    @Test
+    void returnsScopedTaskStatusForAuthorizedMatrixUser() {
+        TaskCommandPort tasks = mock(TaskCommandPort.class);
+        TaskService taskService = mock(TaskService.class);
+        UUID taskId = UUID.randomUUID();
+        TaskRecord task = task(taskId, TaskPhase.QUEUED, 2);
+        when(taskService.get(taskId)).thenReturn(task);
+        MatrixTaskCommandHandler handler = new MatrixTaskCommandHandler(tasks, taskService);
+
+        String response = handler.handle(identity(Set.of("task:read")),
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.STATUS, taskId));
+
+        assertThat(response).isEqualTo("task " + taskId + ": QUEUED v2 investigate incident");
+        verify(taskService).get(taskId);
+    }
+
+    @Test
+    void cancelsScopedTaskWithCurrentVersionForAuthorizedMatrixUser() {
+        TaskCommandPort tasks = mock(TaskCommandPort.class);
+        TaskService taskService = mock(TaskService.class);
+        UUID taskId = UUID.randomUUID();
+        TaskRecord current = task(taskId, TaskPhase.QUEUED, 3);
+        TaskRecord cancelled = task(taskId, TaskPhase.CANCELLED, 4);
+        when(taskService.get(taskId)).thenReturn(current);
+        when(taskService.cancel(any(), any(Long.class), any(), any(), any())).thenReturn(cancelled);
+        MatrixTaskCommandHandler handler = new MatrixTaskCommandHandler(tasks, taskService);
+
+        String response = handler.handle(identity(Set.of("task:cancel")),
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.CANCEL, taskId));
+
+        assertThat(response).isEqualTo("cancelled task " + taskId);
+        verify(taskService).cancel(any(), org.mockito.ArgumentMatchers.eq(3L), any(),
+                org.mockito.ArgumentMatchers.eq("alice"), org.mockito.ArgumentMatchers.eq("matrix"));
+    }
+
+    @Test
+    void rejectsUnsupportedTaskLifecycleActionWithDiagnosticError() {
+        MatrixTaskCommandHandler handler = new MatrixTaskCommandHandler(mock(TaskCommandPort.class),
+                mock(TaskService.class));
+        UUID taskId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> handler.handle(identity(Set.of("task:read")),
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.RETRY, taskId)))
+                .isInstanceOf(MatrixCommandHandlingException.class)
+                .hasMessage("Matrix task action retry is not supported by the current task lifecycle");
+    }
+
+    private static TaskRecord task(UUID id, TaskPhase phase, long version) {
+        Instant now = Instant.parse("2026-08-22T00:00:00Z");
+        return new TaskRecord(id, "investigate incident", "description", phase, 0,
+                "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}",
+                "alice", "matrix", null, null, now, now, version);
     }
 
     private static MatrixIdentity identity(Set<String> permissions) {
