@@ -44,6 +44,8 @@ helm upgrade --install ingress-nginx ingress-nginx \
 kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
 
 "$ROOT/deploy/build-images.sh"
+kubectl apply -f "$ROOT/deploy/helm/agentteams-java/crds/teams.yaml"
+kubectl apply -f "$ROOT/deploy/helm/agentteams-java/crds/workers.yaml"
 helm lint "$ROOT/deploy/helm/agentteams-java"
 helm upgrade --install agentteams "$ROOT/deploy/helm/agentteams-java" \
   --namespace "$NAMESPACE" --create-namespace --wait --timeout 5m \

@@ -22,7 +22,36 @@ public final class TeamRepository {
         return jdbc.query("SELECT id, name, display_name, status, created_at, updated_at, version FROM teams WHERE id = ?",
                 (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
                         rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
+                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), id).stream().findFirst();
+    }
+
+    public Optional<TeamRecord> findByIdForUpdate(UUID id) {
+        return jdbc.query("""
+                SELECT id, name, display_name, status, created_at, updated_at, version
+                  FROM teams WHERE id = ? FOR UPDATE
+                """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
+                        rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
                         JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), id).stream().findFirst();
+    }
+
+    public Optional<TeamRecord> findByNameForUpdate(String name) {
+        return jdbc.query("""
+                SELECT id, name, display_name, status, created_at, updated_at, version
+                  FROM teams WHERE name = ? FOR UPDATE
+                """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
+                        rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
+                        JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), name).stream().findFirst();
+    }
+
+    public void upsert(TeamRecord team) {
+        jdbc.update("""
+                INSERT INTO teams(id, name, display_name, status, created_at, updated_at, version)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (name) DO UPDATE SET id = EXCLUDED.id, display_name = EXCLUDED.display_name,
+                    status = EXCLUDED.status, updated_at = EXCLUDED.updated_at,
+                    version = teams.version + 1
+                """, team.id(), team.name(), team.displayName(), team.status(), JdbcSupport.timestamp(team.createdAt()),
+                JdbcSupport.timestamp(team.updatedAt()), team.version());
     }
 
     public void insertPolicy(TeamPolicyRecord policy) {
@@ -47,6 +76,21 @@ public final class TeamRepository {
                         JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), teamId).stream().findFirst();
     }
 
+    public void upsertPolicy(TeamPolicyRecord policy) {
+        jdbc.update("""
+                INSERT INTO team_policies(team_id, max_concurrent_tasks, require_human_approval,
+                    allowed_runtimes, required_capabilities, updated_at, version)
+                VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)
+                ON CONFLICT (team_id) DO UPDATE SET max_concurrent_tasks = EXCLUDED.max_concurrent_tasks,
+                    require_human_approval = EXCLUDED.require_human_approval,
+                    allowed_runtimes = EXCLUDED.allowed_runtimes,
+                    required_capabilities = EXCLUDED.required_capabilities,
+                    updated_at = EXCLUDED.updated_at, version = team_policies.version + 1
+                """, policy.teamId(), policy.maxConcurrentTasks(), policy.requireHumanApproval(),
+                JdbcSupport.jsonArray(policy.allowedRuntimes()), JdbcSupport.jsonArray(policy.requiredCapabilities()),
+                JdbcSupport.timestamp(policy.updatedAt()), policy.version());
+    }
+
     public void insertMember(TeamMemberRecord member) {
         jdbc.update("""
                 INSERT INTO team_memberships(id, team_id, agent_id, role, status, joined_at, updated_at, version)
@@ -60,6 +104,30 @@ public final class TeamRepository {
                 SELECT id, team_id, agent_id, role, status, joined_at, updated_at, version
                   FROM team_memberships WHERE team_id = ? AND status = 'ACTIVE' ORDER BY id
                 """, (rs, row) -> mapMember(rs), teamId);
+    }
+
+    public List<TeamMemberRecord> allMembers(UUID teamId) {
+        return jdbc.query("""
+                SELECT id, team_id, agent_id, role, status, joined_at, updated_at, version
+                  FROM team_memberships WHERE team_id = ? ORDER BY joined_at, id
+                """, (rs, row) -> mapMember(rs), teamId);
+    }
+
+    public void replaceActiveMembers(UUID teamId, List<TeamMemberRecord> members, java.time.Instant now) {
+        jdbc.update("""
+                UPDATE team_memberships SET status = 'INACTIVE', updated_at = ?, version = version + 1
+                 WHERE team_id = ? AND status = 'ACTIVE'
+                """, JdbcSupport.timestamp(now), teamId);
+        for (TeamMemberRecord member : members) {
+            jdbc.update("""
+                    INSERT INTO team_memberships(id, team_id, agent_id, role, status, joined_at, updated_at, version)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?)
+                    ON CONFLICT (team_id, agent_id) DO UPDATE SET role = EXCLUDED.role,
+                        status = 'ACTIVE', updated_at = EXCLUDED.updated_at,
+                        version = team_memberships.version + 1
+                    """, member.id(), member.teamId(), member.agentId(), member.role(),
+                    JdbcSupport.timestamp(member.joinedAt()), JdbcSupport.timestamp(member.updatedAt()), member.version());
+        }
     }
 
     public Optional<TeamMemberRecord> findActiveMember(UUID teamId, UUID agentId) {
@@ -99,6 +167,16 @@ public final class TeamRepository {
                 UPDATE team_task_assignments SET status = 'RELEASED', released_at = ?, version = version + 1
                  WHERE team_id = ? AND task_id = ? AND released_at IS NULL
                 """, JdbcSupport.timestamp(releasedAt), teamId, taskId);
+    }
+
+    public void markDeleted(UUID teamId, java.time.Instant now) {
+        jdbc.update("""
+                UPDATE teams SET status = 'DELETED', updated_at = ?, version = version + 1 WHERE id = ?
+                """, JdbcSupport.timestamp(now), teamId);
+        jdbc.update("""
+                UPDATE team_memberships SET status = 'INACTIVE', updated_at = ?, version = version + 1
+                 WHERE team_id = ? AND status = 'ACTIVE'
+                """, JdbcSupport.timestamp(now), teamId);
     }
 
     private TeamMemberRecord mapMember(java.sql.ResultSet rs) throws java.sql.SQLException {

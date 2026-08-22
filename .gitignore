@@ -24,6 +24,7 @@ target/
 *.log
 
 # Common local tool output
+.local/
 *.class
 *.tmp
 *.swp

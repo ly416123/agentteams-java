@@ -38,7 +38,9 @@ public final class WorkerReconciler implements Reconciler<Worker> {
                 ? "Worker deployment is ready" : "Waiting for Worker deployment readiness");
         resource.setStatus(status);
         UpdateControl<Worker> update = UpdateControl.updateStatus(resource);
-        return ready >= resource.getSpec().replicas()
-                ? update : update.rescheduleAfter(Duration.ofSeconds(5));
+        // A deleted or externally mutated Deployment does not necessarily
+        // enqueue its Worker owner. Keep a bounded repair loop so the CR
+        // cannot remain Ready while its child Deployment is missing.
+        return update.rescheduleAfter(Duration.ofSeconds(30));
     }
 }

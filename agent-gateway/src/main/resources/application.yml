@@ -1,5 +1,11 @@
 agentteams:
   gateway:
+    grpc:
+      tls:
+        enabled: false
+        certificate-chain: ""
+        private-key: ""
+        trust-certificate-collection: ""
     nats:
       enabled: false
       url: nats://localhost:4222

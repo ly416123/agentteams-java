@@ -72,10 +72,31 @@ sockets into the Control Plane.
 The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
 `POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. The built-in
 lease-based scheduler assigns queued work across replicas and recovers expired
-leases after restart. Set `AGENTTEAMS_SECURITY_API_ENABLED=true` only after
-providing an `IdentityTokenValidator` implementation for the deployment; this
-enables the Bearer-token boundary for `/api/*` without embedding a specific
-OIDC provider in the core services.
+leases after restart. HTTP API authentication is disabled by default. To
+enable the built-in OIDC JWT validator, provide the issuer, JWKS URI, audience,
+and scope claims together; enabling the API without a complete OIDC
+configuration fails startup rather than exposing an unauthenticated API:
+
+```yaml
+controlPlane:
+  security:
+    apiEnabled: true
+    oidc:
+      enabled: true
+      issuerUri: https://id.example.com/
+      jwkSetUri: https://id.example.com/.well-known/jwks.json
+      audience: agentteams-api
+      tenantClaim: tenant
+      projectClaim: project
+      teamClaim: team
+      permissionsClaim: permissions
+```
+
+The validator checks the JWT signature, issuer, audience, expiry and not-before
+claims, then maps `sub`, tenant/project/team claims and permissions into the
+existing authorization boundary. JWKS caching and key refresh are delegated
+to Spring Security's Nimbus decoder; no OIDC client secret is stored in the
+application configuration.
 
 Without Docker/WSL, all pure-Java tests still run. Testcontainers-based
 PostgreSQL/NATS/MinIO tests are marked `disabledWithoutDocker` and are skipped
@@ -101,6 +122,8 @@ kubectl apply -f deploy/kind-dev-infra.yaml
 kubectl -n agentteams wait --for=condition=available deployment/postgresql deployment/nats deployment/minio --timeout=180s
 kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=120s
 ./deploy/build-images.sh
+kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
+kubectl apply -f deploy/helm/agentteams-java/crds/workers.yaml
 helm lint deploy/helm/agentteams-java
 helm upgrade --install agentteams deploy/helm/agentteams-java \
   --namespace agentteams --create-namespace --wait \
@@ -141,6 +164,16 @@ for the Worker to become Ready. To repeat that step manually:
 
 ```bash
 ./deploy/bootstrap-kind-qwenpaw-worker.sh
+```
+
+To add a second real Worker for Team scheduling tests, reuse the same
+idempotent bootstrap with a distinct Worker name and idempotency key:
+
+```bash
+AGENTTEAMS_WORKER_NAME=qwenpaw-worker-team-2 \
+AGENTTEAMS_WORKER_AGENT_NAME=qwenpaw-kind-worker-2 \
+AGENTTEAMS_WORKER_IDEMPOTENCY_KEY=qwenpaw-kind-worker-2-v1 \
+  ./deploy/bootstrap-kind-qwenpaw-worker.sh
 ```
 
 The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`; the
@@ -198,6 +231,63 @@ deliberate local override. A successful task smoke prints
 Worker log instead of relying on the phase alone. On 2026-08-21, the Manager
 smoke, QwenPaw Provider test, three independent real tasks, and repeated
 Idempotency-Key creation were verified in the local Kind cluster.
+
+Team CRD scheduling can be smoke-tested with two existing READY Agent UUIDs.
+The script creates a temporary Team CR, applies the stable `namespace/name`
+Team ID to three tasks, and expects one task to be `ASSIGNED` while the other
+two remain `QUEUED` under `maxConcurrentTasks: 1`. It removes only the
+temporary Team CR when it exits and never prints the CRD body or credentials:
+
+```bash
+AGENTTEAMS_TEAM_AGENT_IDS="<ready-agent-uuid-1>,<ready-agent-uuid-2>" \
+  ./scripts/smoke-kind-team-scheduling.sh
+```
+
+The Team CRD must be applied before Helm on an existing cluster because Helm
+does not upgrade CRDs automatically:
+
+```bash
+kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
+```
+
+`deploy/install-kind-dev.sh` performs this step automatically. The Team
+informer requires the Control Plane service account to have only
+`get/list/watch` access to `teams.agentteams.io`; the chart enables this with
+`controlPlane.teamSync.enabled=true` and scopes it to the `agentteams`
+namespace by default. The deterministic PostgreSQL-backed acceptance test is
+`TeamSchedulingInfrastructureIT`; the Kind smoke additionally proves the
+informer and Helm/RBAC wiring. A cluster with only one READY Agent cannot run
+this smoke without adding a second real Agent.
+
+The chart isolates workload identities: Control Plane, Gateway, and Operator
+use separate ServiceAccounts. Gateway pods do not mount a Kubernetes API token;
+only the Operator receives permissions to manage Worker child resources, while
+Control Plane retains read-only Team sync access. Do not reuse the Operator
+account for Gateway when overriding chart values.
+
+The Operator RBAC is namespace-scoped: Helm creates a `Role` and `RoleBinding`
+in the release namespace, and the Operator watches only that namespace through
+`AGENTTEAMS_OPERATOR_NAMESPACE`. The Control Plane Team sync remains a separate,
+read-only cluster role because it discovers Teams across namespaces. Deployments
+that manage multiple namespaces must install one Operator release per namespace
+until an explicit multi-namespace authorization design is introduced.
+
+For a local Gateway↔Worker mTLS check, use the development-only bootstrap
+script. It creates a temporary 30-day CA and certificates under
+`.local/kind-mtls/` (ignored by Git), creates the two Kubernetes Secrets,
+enables Gateway TLS, and patches the selected Worker CRs with the client
+certificate mount:
+
+```bash
+AGENTTEAMS_MTLS_WORKERS=qwenpaw-worker-team-2,qwenpaw-worker-team-3 \
+  ./deploy/bootstrap-kind-mtls.sh
+```
+
+The script waits for the Gateway, Deployment, and Worker status to converge.
+The local validation used two distinct READY Agents and printed
+`TEAM_SCHEDULING_OK`. This is a Kind development path: production should use
+per-Agent certificates issued and rotated by an external CA or cert-manager;
+the repository does not commit generated keys or certificate material.
 
 `deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
 uses an `emptyDir` volume and the database password is a local test secret.

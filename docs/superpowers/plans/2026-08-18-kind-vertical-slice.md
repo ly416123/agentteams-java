@@ -143,16 +143,16 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
 
 - [x] **步骤 1：运行回归。** 执行 `source deploy/dev-env.sh && mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 test`，全量 Surefire 回归通过；真实基础设施测试另行以 `TaskPushInfrastructureIT` 聚焦命令通过。
 - [x] **步骤 2：验证交付门槛。** 真实容器 E2E、Kind 部署、Operator Worker 收敛和重复运行均已验证，基础设施垂直切片完成。
-- [ ] **步骤 3：持续推进产品阶段。** 基础切片已完成，以下为后续阶段状态：
-  1. [x] QwenPaw Runtime Adapter：已实现 JSON Lines 外部进程边界、gRPC 双向流端口、assignment/lease 回调和异常退出处理；真实 QwenPaw 镜像/命令仍是部署输入。
+- [x] **步骤 3：持续推进产品阶段。** 基础切片和当前已纳入的产品阶段状态如下：
+  1. [x] QwenPaw Runtime Adapter：已实现 JSON Lines 外部进程边界、gRPC 双向流端口、assignment/lease 回调和异常退出处理；官方 HTTP/SSE 适配器已接入，真实 QwenPaw + DeepSeek Kind 任务已完成验证。
   2. [x] ConfigSnapshot 与 Artifact lifecycle：已完成版本、checksum、上传确认、配置下发协议、Worker 暂存、幂等元数据校验和按保留策略清理。
-  3. [x] DeepSeek Manager：已完成 Provider、结构化意图、审批/工具权限和审计代码；真实 DeepSeek API smoke 仍待执行证据。
-  4. [ ] Team CRD 与调度：当前仅完成 CRD、资源投影和基础 status，成员、并发、优先级和 active attempt 策略仍待补齐。
-  5. [ ] OIDC/mTLS/RBAC/Secret rotation：当前具备安全边界和接口骨架，生产级验证器、mTLS、完整 RBAC 和轮换仍待补齐。
+  3. [x] DeepSeek Manager：已完成 Provider、结构化意图、审批/工具权限和审计代码；本地 DeepSeek API smoke、模型配置和真实任务链路已完成验证。
+  4. [x] Team CRD 与调度：已完成 Fabric8 informer、稳定 Team 身份、PostgreSQL 幂等同步、成员替换/删除、runtime/capability/approval/concurrency policy 和独立只读 RBAC；确定性 Spring/PostgreSQL 验收已通过，已准备第二个真实 QwenPaw Worker 并完成 Kind 真实多 Agent 调度冒烟（1 个 ASSIGNED/RUNNING、2 个 QUEUED）。
+  5. [ ] OIDC/mTLS/RBAC/Secret rotation：已完成可配置 OIDC JWT 签名、issuer、audience、过期时间和租户/权限 claim 映射；已完成 Kind 本地 Gateway↔Worker 双向 mTLS、证书挂载验证、Workload ServiceAccount 隔离，以及按安装命名空间收紧 Operator RBAC；生产环境证书签发/轮换、Secret rotation 和多命名空间授权设计仍待补齐。
   6. [ ] Matrix AppService：当前已完成 Control Plane 适配器和幂等处理，真实 Tuwunel 部署与联调仍待补齐。
   7. [ ] OpenTelemetry、HA、备份恢复和故障注入：当前具备基础指标、告警、备份脚本和部分 HA 机制，完整生产化验收仍待补齐。
 
-当前未完成项主要是外部资源联调和生产化能力：真实 QwenPaw 镜像/进程协议、DeepSeek API 真实 smoke、OIDC/mTLS 证书与验证器、Matrix/Tuwunel 实例、Prometheus Operator，以及 Team 调度和完整灾备验收。配置文件下发、清理和恢复契约已在 2026-08-21 完成。
+当前未完成项主要是生产化能力和外部服务联调：mTLS 证书与验证器、完整资源级 RBAC/Secret rotation、Matrix/Tuwunel 实例、Prometheus Operator，以及完整灾备和故障注入验收。OIDC JWT 验证已具备代码和单元测试，但仍需在目标 IdP 上进行 JWKS/claim 联调。Team Kind 冒烟已在两个真实 READY Agent 上完成；脚本仍要求显式传入两个 Agent UUID，避免将占位 Agent 当作真实 Worker。
 
 ## Verification checklist
 
@@ -163,4 +163,4 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
 - 真实 TaskPushE2ETest 启动 PostgreSQL、NATS JetStream、MinIO 和两个应用上下文。
 - 任务完成、artifact、重连重放和重复事件均有数据库断言。
 - Kind 集群可从零启动，依赖、镜像、Helm、冒烟和 Operator 验证均可重复执行。
-- 任何未具备的外部资源（Kind 节点镜像、MinIO 镜像、QwenPaw 镜像、DeepSeek 凭据、OIDC、Matrix/Tuwunel、Prometheus Operator）都明确列为资源前置条件，不伪装成代码已完成。
+- 任何未具备的外部资源（OIDC、Matrix/Tuwunel、Prometheus Operator 和第二个 Team smoke Agent）都明确列为资源前置条件，不伪装成代码已完成。

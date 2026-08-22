@@ -1,5 +1,5 @@
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-operator
 rules:
@@ -17,14 +17,38 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: {{ include "agentteams-java.fullname" . }}-operator
 subjects:
   - kind: ServiceAccount
-    name: {{ include "agentteams-java.serviceAccountName" . }}
+    name: {{ include "agentteams-java.operatorServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- if .Values.controlPlane.teamSync.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-team-sync
+rules:
+  - apiGroups: ["agentteams.io"]
+    resources: ["teams"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-team-sync
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-team-sync
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "agentteams-java.controlPlaneServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

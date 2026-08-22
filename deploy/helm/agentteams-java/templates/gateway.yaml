@@ -12,7 +12,7 @@ spec:
     metadata:
       labels: { app.kubernetes.io/name: agentteams-gateway }
     spec:
-      serviceAccountName: {{ include "agentteams-java.serviceAccountName" . }}
+      serviceAccountName: {{ include "agentteams-java.gatewayServiceAccountName" . }}
       automountServiceAccountToken: false
       containers:
         - name: gateway
@@ -24,6 +24,14 @@ spec:
           env:
             - name: AGENTTEAMS_GATEWAY_GRPC_PORT
               value: {{ .Values.gateway.port | quote }}
+            - name: AGENTTEAMS_GATEWAY_GRPC_TLS_ENABLED
+              value: {{ .Values.gateway.tls.enabled | quote }}
+            - name: AGENTTEAMS_GATEWAY_GRPC_TLS_CERTIFICATE_CHAIN
+              value: {{ .Values.gateway.tls.certificateChainPath | quote }}
+            - name: AGENTTEAMS_GATEWAY_GRPC_TLS_PRIVATE_KEY
+              value: {{ .Values.gateway.tls.privateKeyPath | quote }}
+            - name: AGENTTEAMS_GATEWAY_GRPC_TLS_TRUST_CERTIFICATE_COLLECTION
+              value: {{ .Values.gateway.tls.trustCertificateCollectionPath | quote }}
             - name: AGENTTEAMS_GATEWAY_NATS_ENABLED
               value: {{ .Values.gateway.env.AGENTTEAMS_GATEWAY_NATS_ENABLED | quote }}
             - name: AGENTTEAMS_GATEWAY_NATS_URL
@@ -43,6 +51,18 @@ spec:
           livenessProbe:
             httpGet: { path: /actuator/health/liveness, port: http }
           resources: {{- toYaml .Values.resources | nindent 12 }}
+{{- if .Values.gateway.tls.enabled }}
+          volumeMounts:
+            - name: agentteams-gateway-tls
+              mountPath: {{ .Values.gateway.tls.mountPath | quote }}
+              readOnly: true
+{{- end }}
+{{- if .Values.gateway.tls.enabled }}
+      volumes:
+        - name: agentteams-gateway-tls
+          secret:
+            secretName: {{ .Values.gateway.tls.secretName }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service

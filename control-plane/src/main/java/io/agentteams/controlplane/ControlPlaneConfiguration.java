@@ -29,6 +29,10 @@ import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.agentteams.controlplane.service.TaskAssignmentScheduler;
 import io.agentteams.controlplane.service.TaskAssignmentService;
 import io.agentteams.controlplane.service.TeamService;
+import io.agentteams.controlplane.team.KubernetesTeamResourceSource;
+import io.agentteams.controlplane.team.TeamCrdParser;
+import io.agentteams.controlplane.team.TeamCrdSynchronizer;
+import io.agentteams.controlplane.team.TeamResourceSource;
 import io.agentteams.controlplane.service.ExecutionEventService;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.storage.MinioObjectStorage;
@@ -38,10 +42,14 @@ import io.agentteams.controlplane.observability.ControlPlaneMetrics;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.controlplane.security.ApiAuthenticationFilter;
 import io.agentteams.controlplane.security.IdentityTokenValidator;
+import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
+import io.agentteams.controlplane.security.OidcSecurityProperties;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import java.io.IOException;
 import java.time.Clock;
 import io.agentteams.domain.task.TaskTransitionService;
@@ -49,6 +57,7 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -60,6 +69,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @Configuration
 @EnableScheduling
+@EnableConfigurationProperties(OidcSecurityProperties.class)
 public class ControlPlaneConfiguration {
 
     @Bean
@@ -93,6 +103,12 @@ public class ControlPlaneConfiguration {
         registration.addUrlPatterns("/api/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
         return registration;
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.security.api.enabled", havingValue = "true")
+    IdentityTokenValidator oidcIdentityTokenValidator(OidcSecurityProperties properties) {
+        return OidcIdentityTokenValidator.fromProperties(properties);
     }
 
     @Bean
@@ -156,6 +172,24 @@ public class ControlPlaneConfiguration {
     @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(FoundationPersistenceService.class)
     TeamService teamService(FoundationPersistenceService persistence) {
         return new TeamService(persistence);
+    }
+
+    @Bean
+    TeamCrdSynchronizer teamCrdSynchronizer(FoundationPersistenceService persistence, Clock clock) {
+        return new TeamCrdSynchronizer(persistence, new TeamCrdParser(), clock);
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.team-sync.enabled", havingValue = "true")
+    KubernetesClient teamSyncKubernetesClient() {
+        return new KubernetesClientBuilder().build();
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.team-sync.enabled", havingValue = "true")
+    TeamResourceSource teamResourceSource(KubernetesClient client, TeamCrdSynchronizer synchronizer,
+            @Value("${agentteams.team-sync.namespace:}") String namespace) {
+        return new KubernetesTeamResourceSource(client, synchronizer, namespace);
     }
 
     @Bean

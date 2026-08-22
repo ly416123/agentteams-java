@@ -32,6 +32,14 @@ public final class AgentRepository {
                 """, this::map, id).stream().findFirst();
     }
 
+    public Optional<AgentRecord> findByIdForUpdate(UUID id) {
+        return jdbc.query("""
+                SELECT id, name, phase, runtime, capabilities::text, metadata::text,
+                       created_at, updated_at, version
+                  FROM agents WHERE id = ? FOR UPDATE
+                """, this::map, id).stream().findFirst();
+    }
+
     public Optional<AgentRecord> findReadyMatching(String taskSpecJson) {
         return jdbc.query("""
                 SELECT id, name, phase, runtime, capabilities::text, metadata::text,

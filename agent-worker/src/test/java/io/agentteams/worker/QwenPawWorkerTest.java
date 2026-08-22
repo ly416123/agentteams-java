@@ -48,4 +48,13 @@ class QwenPawWorkerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("AGENTTEAMS_MAX_CONCURRENT_TASKS must be positive");
     }
+
+    @Test
+    void requiresClientCertificateMaterialWhenGatewayTlsIsEnabled() {
+        assertThatThrownBy(() -> QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_GATEWAY_TLS_ENABLED", "true")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("AGENTTEAMS_GATEWAY_TLS_CA_CERT_PATH");
+    }
 }

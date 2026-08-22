@@ -10,7 +10,7 @@ spec:
     metadata:
       labels: { app.kubernetes.io/name: agentteams-operator }
     spec:
-      serviceAccountName: {{ include "agentteams-java.serviceAccountName" . }}
+      serviceAccountName: {{ include "agentteams-java.operatorServiceAccountName" . }}
       containers:
         - name: operator
           image: {{ .Values.images.operator }}
@@ -26,4 +26,7 @@ spec:
             - name: POD_NAME
               valueFrom:
                 fieldRef: { fieldPath: metadata.name }
+            - name: AGENTTEAMS_OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef: { fieldPath: metadata.namespace }
           resources: {{- toYaml .Values.resources | nindent 12 }}

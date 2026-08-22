@@ -33,10 +33,11 @@ def main():
         fail("kind installer does not exist")
     installer_text = installer.read_text(encoding="utf-8")
     order = ["kind-dev-infra.yaml", "kind-observability.yaml", "kind-ingress.yaml",
-             "build-images.sh", "helm upgrade --install agentteams", "bootstrap-kind-qwenpaw-worker.sh"]
+             "build-images.sh", "crds/teams.yaml", "crds/workers.yaml", "helm upgrade --install agentteams",
+             "bootstrap-kind-qwenpaw-worker.sh"]
     positions = [installer_text.find(value) for value in order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        fail("installer steps must be ordered infra, observability, ingress, images, Helm, Worker bootstrap")
+        fail("installer steps must be ordered infra, observability, ingress, images, CRD, Helm, Worker bootstrap")
     build_script = ROOT / "deploy/build-images.sh"
     if not build_script.exists():
         fail("build image script does not exist")
@@ -54,6 +55,14 @@ def main():
                      "kubectl apply -f -", "AGENTTEAMS_AGENT_ID"):
         if required not in worker_text:
             fail(f"qwenpaw worker bootstrap script missing {required}")
+    mtls_script = ROOT / "deploy/bootstrap-kind-mtls.sh"
+    if not mtls_script.exists():
+        fail("Kind mTLS bootstrap script does not exist")
+    mtls_text = mtls_script.read_text(encoding="utf-8")
+    for required in ("openssl", "agentteams-gateway-mtls", "agentteams-worker-mtls",
+                     "gateway.tls.enabled=true", "AGENTTEAMS_GATEWAY_TLS_ENABLED"):
+        if required not in mtls_text:
+            fail(f"Kind mTLS bootstrap script missing {required}")
     smoke_script = ROOT / "scripts/smoke-kind-qwenpaw-deepseek.sh"
     if not smoke_script.exists():
         fail("qwenpaw DeepSeek smoke script does not exist")
@@ -61,6 +70,62 @@ def main():
     for required in ("QWENPAW_DEEPSEEK_SMOKE_OK", "kubectl logs", "Task result"):
         if required not in smoke_text:
             fail(f"qwenpaw DeepSeek smoke script must verify {required}")
+    team_crd = (ROOT / "deploy/helm/agentteams-java/crds/teams.yaml").read_text(encoding="utf-8")
+    for required in ("allowedRuntimes", "requiredCapabilities", "x-kubernetes-list-type: set"):
+        if required not in team_crd:
+            fail(f"Team CRD schema missing {required}")
+    worker_crd = (ROOT / "deploy/helm/agentteams-java/crds/workers.yaml").read_text(encoding="utf-8")
+    if "tlsSecret" not in worker_crd:
+        fail("Worker CRD schema missing tlsSecret")
+    control_plane = (ROOT / "deploy/helm/agentteams-java/templates/control-plane.yaml").read_text(encoding="utf-8")
+    for required in ("controlPlaneServiceAccountName", "AGENTTEAMS_TEAM_SYNC_ENABLED",
+                     "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
+                     "AGENTTEAMS_SECURITY_OIDC_JWK_SET_URI",
+                     "automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}"):
+        if required not in control_plane:
+            fail(f"Control Plane security/team sync manifest missing {required}")
+    rbac = (ROOT / "deploy/helm/agentteams-java/templates/rbac.yaml").read_text(encoding="utf-8")
+    for required in ("control-plane-team-sync", 'verbs: ["get", "list", "watch"]'):
+        if required not in rbac:
+            fail(f"Team sync RBAC missing {required}")
+    helpers = (ROOT / "deploy/helm/agentteams-java/templates/_helpers.tpl").read_text(encoding="utf-8")
+    for required in ("operatorServiceAccountName", "gatewayServiceAccountName"):
+        if required not in helpers:
+            fail(f"Dedicated service-account helper missing {required}")
+    operator = (ROOT / "deploy/helm/agentteams-java/templates/operator.yaml").read_text(encoding="utf-8")
+    if 'serviceAccountName: {{ include "agentteams-java.operatorServiceAccountName" .' not in operator:
+        fail("Operator must use its dedicated service account")
+    gateway_manifest = (ROOT / "deploy/helm/agentteams-java/templates/gateway.yaml").read_text(encoding="utf-8")
+    if ('serviceAccountName: {{ include "agentteams-java.gatewayServiceAccountName" .' not in gateway_manifest
+            or "automountServiceAccountToken: false" not in gateway_manifest):
+        fail("Gateway must use a dedicated tokenless service account")
+    if 'name: {{ include "agentteams-java.operatorServiceAccountName" .' not in rbac:
+        fail("Operator RBAC must bind the dedicated service account")
+    operator_rbac = rbac.split("{{- if .Values.controlPlane.teamSync.enabled }}", 1)[0]
+    if "kind: ClusterRole" in operator_rbac or "kind: ClusterRoleBinding" in operator_rbac:
+        fail("Operator RBAC must be namespace-scoped")
+    for required in ("kind: Role", "kind: RoleBinding"):
+        if required not in operator_rbac:
+            fail(f"Operator namespace RBAC missing {required}")
+    operator_app = (ROOT / "operator/src/main/java/io/agentteams/operator/AgentTeamsOperatorApplication.java").read_text(encoding="utf-8")
+    for required in ("AGENTTEAMS_OPERATOR_NAMESPACE", "settingNamespace"):
+        if required not in operator_app:
+            fail(f"Operator namespace scoping missing {required}")
+    network_policy = (ROOT / "deploy/helm/agentteams-java/templates/networkpolicy.yaml").read_text(encoding="utf-8")
+    kind_values = (ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8")
+    for required in ("kubernetesApiCIDR", "kubernetesApiEndpointCIDR", "kubernetesApiEndpointPort",
+                     "kubernetesApiAllowAllEgress"):
+        if required not in kind_values:
+            fail(f"Kind values missing {required}")
+    if ("kubernetesApiCIDR" not in network_policy or "kubernetesApiEndpointCIDR" not in network_policy
+            or "ipBlock:" not in network_policy or "port: 443" not in network_policy
+            or "kubernetesApiEndpointPort" not in network_policy
+            or "kubernetesApiAllowAllEgress" not in network_policy):
+        fail("Control Plane NetworkPolicy must allow Kubernetes API Service and endpoint traffic")
+    gateway = (ROOT / "deploy/helm/agentteams-java/templates/gateway.yaml").read_text(encoding="utf-8")
+    for required in ("AGENTTEAMS_GATEWAY_GRPC_TLS_ENABLED", "gateway.tls.enabled", "gateway.tls.secretName"):
+        if required not in gateway:
+            fail(f"Gateway mTLS manifest missing {required}")
     print("KIND_MANIFESTS_OK")
 
 

@@ -38,6 +38,16 @@ spec:
                   properties:
                     maxConcurrentTasks: { type: integer, minimum: 1, default: 1 }
                     requireApproval: { type: boolean, default: false }
+                    allowedRuntimes:
+                      type: array
+                      default: []
+                      items: { type: string, minLength: 1 }
+                      x-kubernetes-list-type: set
+                    requiredCapabilities:
+                      type: array
+                      default: []
+                      items: { type: string, minLength: 1 }
+                      x-kubernetes-list-type: set
             status:
               type: object
               properties:

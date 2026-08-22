@@ -12,8 +12,8 @@ spec:
     metadata:
       labels: { app.kubernetes.io/name: agentteams-control-plane }
     spec:
-      serviceAccountName: {{ include "agentteams-java.serviceAccountName" . }}
-      automountServiceAccountToken: false
+      serviceAccountName: {{ include "agentteams-java.controlPlaneServiceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}
       containers:
         - name: control-plane
           image: {{ .Values.images.controlPlane }}
@@ -44,6 +44,26 @@ spec:
               value: {{ .Values.controlPlane.scheduler.batchSize | quote }}
             - name: AGENTTEAMS_SECURITY_API_ENABLED
               value: {{ .Values.controlPlane.security.apiEnabled | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_ENABLED
+              value: {{ .Values.controlPlane.security.oidc.enabled | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_ISSUER_URI
+              value: {{ .Values.controlPlane.security.oidc.issuerUri | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_JWK_SET_URI
+              value: {{ .Values.controlPlane.security.oidc.jwkSetUri | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_AUDIENCE
+              value: {{ .Values.controlPlane.security.oidc.audience | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_TENANT_CLAIM
+              value: {{ .Values.controlPlane.security.oidc.tenantClaim | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_PROJECT_CLAIM
+              value: {{ .Values.controlPlane.security.oidc.projectClaim | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_TEAM_CLAIM
+              value: {{ .Values.controlPlane.security.oidc.teamClaim | quote }}
+            - name: AGENTTEAMS_SECURITY_OIDC_PERMISSIONS_CLAIM
+              value: {{ .Values.controlPlane.security.oidc.permissionsClaim | quote }}
+            - name: AGENTTEAMS_TEAM_SYNC_ENABLED
+              value: {{ .Values.controlPlane.teamSync.enabled | quote }}
+            - name: AGENTTEAMS_TEAM_SYNC_NAMESPACE
+              value: {{ .Values.controlPlane.teamSync.namespace | quote }}
 {{- if .Values.storage.enabled }}
             - name: AGENTTEAMS_STORAGE_ENDPOINT
               value: {{ .Values.storage.endpoint | quote }}
