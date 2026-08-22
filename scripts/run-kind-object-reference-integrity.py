@@ -17,6 +17,7 @@ MINIO_IMAGE = "minio/mc:RELEASE.2025-07-21T05-28-08Z"
 MINIO_BUCKET = "agentteams"
 ARTIFACT_CONTENT = b"agentteams-object-reference-artifact-v1\n"
 CONFIG_CONTENT = b"agentteams-object-reference-config-v1\n"
+UPLOAD_CONTENT = b"agentteams-object-reference-upload-v1\n"
 
 
 def fail(message: str) -> None:
@@ -104,6 +105,14 @@ def reference_rows(namespace: str, postgres_pod: str) -> list[dict]:
                                      'size_bytes', size_bytes,
                                      'checksum', checksum) as ref_json
               from config_files
+            union all
+            select 'config_upload' as kind, id::text as reference_id,
+                   json_build_object('kind', 'config_upload', 'id', id::text,
+                                     'storage_key', storage_key,
+                                     'size_bytes', expected_size_bytes,
+                                     'checksum', expected_checksum) as ref_json
+              from config_uploads
+             where status = 'COMPLETED'
           ) ref_rows;
     """)
     parsed = json.loads(rows or "[]")
@@ -147,9 +156,13 @@ def verify_reference(namespace: str, pod_name: str, reference: dict) -> tuple[in
 
 def insert_test_references(namespace: str, postgres_pod: str, artifact_id: str,
                            config_snapshot_id: str, config_file_id: str,
+                           completed_upload_id: str, pending_upload_id: str,
+                           deleted_upload_id: str,
                            task_id: str, attempt_id: str, artifact_key: str,
                            artifact_checksum: str, artifact_size: int,
-                           config_key: str, config_checksum: str, config_size: int) -> None:
+                           config_key: str, config_checksum: str, config_size: int,
+                           upload_key: str, upload_checksum: str, upload_size: int,
+                           pending_key: str, deleted_key: str) -> None:
     statement = f"""
         insert into artifacts
             (id, task_id, attempt_id, name, storage_key, content_type, size_bytes,
@@ -166,13 +179,35 @@ def insert_test_references(namespace: str, postgres_pod: str, artifact_id: str,
             (id, snapshot_id, path, storage_key, checksum, size_bytes, content_type)
         values ('{config_file_id}', '{config_snapshot_id}', 'ci-object-integrity.yaml',
                 '{config_key}', '{config_checksum}', {config_size}, 'application/yaml');
+        insert into config_uploads
+            (id, snapshot_id, path, storage_key, content_type, expected_checksum,
+             expected_size_bytes, status, created_at, expires_at, completed_at)
+        values ('{completed_upload_id}', '{config_snapshot_id}', 'ci-completed.yaml',
+                '{upload_key}', 'application/yaml', '{upload_checksum}', {upload_size},
+                'COMPLETED', now(), now() + interval '1 hour', now());
+        insert into config_uploads
+            (id, snapshot_id, path, storage_key, content_type, expected_checksum,
+             expected_size_bytes, status, created_at, expires_at)
+        values ('{pending_upload_id}', '{config_snapshot_id}', 'ci-pending.yaml',
+                '{pending_key}', 'application/yaml', '{upload_checksum}', {upload_size},
+                'PENDING', now(), now() + interval '1 hour');
+        insert into config_uploads
+            (id, snapshot_id, path, storage_key, content_type, expected_checksum,
+             expected_size_bytes, status, created_at, expires_at, deleted_at)
+        values ('{deleted_upload_id}', '{config_snapshot_id}', 'ci-deleted.yaml',
+                '{deleted_key}', 'application/yaml', '{upload_checksum}', {upload_size},
+                'DELETED', now(), now() - interval '1 hour', now());
     """
     sql(namespace, postgres_pod, statement)
 
 
 def delete_test_references(namespace: str, postgres_pod: str, artifact_id: str,
-                           config_snapshot_id: str, config_file_id: str) -> None:
+                           config_snapshot_id: str, config_file_id: str,
+                           completed_upload_id: str, pending_upload_id: str,
+                           deleted_upload_id: str) -> None:
     statement = f"""
+        delete from config_uploads where id in ('{completed_upload_id}', '{pending_upload_id}',
+                                                 '{deleted_upload_id}');
         delete from config_files where id = '{config_file_id}';
         delete from config_snapshots where id = '{config_snapshot_id}';
         delete from artifacts where id = '{artifact_id}';
@@ -193,11 +228,18 @@ def main() -> int:
     prefix = f"ci-recovery/object-integrity/{uuid.uuid4().hex}"
     artifact_key = f"{prefix}/artifact.bin"
     config_key = f"{prefix}/config.yaml"
+    upload_key = f"{prefix}/upload.yaml"
+    pending_key = f"{prefix}/pending.yaml"
+    deleted_key = f"{prefix}/deleted.yaml"
     artifact_id = str(uuid.uuid4())
     config_snapshot_id = str(uuid.uuid4())
     config_file_id = str(uuid.uuid4())
+    completed_upload_id = str(uuid.uuid4())
+    pending_upload_id = str(uuid.uuid4())
+    deleted_upload_id = str(uuid.uuid4())
     artifact_checksum = hashlib.sha256(ARTIFACT_CONTENT).hexdigest()
     config_checksum = hashlib.sha256(CONFIG_CONTENT).hexdigest()
+    upload_checksum = hashlib.sha256(UPLOAD_CONTENT).hexdigest()
     inserted = False
     pod_created = False
     try:
@@ -220,15 +262,28 @@ def main() -> int:
             pod_name,
             "printf '%b' 'agentteams-object-reference-artifact-v1\\n' > /backup/artifact-source.bin; "
             "printf '%b' 'agentteams-object-reference-config-v1\\n' > /backup/config-source.bin; "
+            "printf '%b' 'agentteams-object-reference-upload-v1\\n' > /backup/upload-source.bin; "
             f"mc cp /backup/artifact-source.bin {shlex.quote(f'local/{MINIO_BUCKET}/{artifact_key}')} >/dev/null; "
-            f"mc cp /backup/config-source.bin {shlex.quote(f'local/{MINIO_BUCKET}/{config_key}')} >/dev/null",
+            f"mc cp /backup/config-source.bin {shlex.quote(f'local/{MINIO_BUCKET}/{config_key}')} >/dev/null; "
+            f"mc cp /backup/upload-source.bin {shlex.quote(f'local/{MINIO_BUCKET}/{upload_key}')} >/dev/null",
         )
         insert_test_references(
             args.namespace, args.postgres_pod, artifact_id, config_snapshot_id, config_file_id,
+            completed_upload_id, pending_upload_id, deleted_upload_id,
             task_id, attempt_id, artifact_key, artifact_checksum, len(ARTIFACT_CONTENT),
-            config_key, config_checksum, len(CONFIG_CONTENT),
+            config_key, config_checksum, len(CONFIG_CONTENT), upload_key, upload_checksum,
+            len(UPLOAD_CONTENT), pending_key, deleted_key,
         )
         inserted = True
+        upload_statuses = sql(
+            args.namespace,
+            args.postgres_pod,
+            f"select status || '|' || count(*) from config_uploads "
+            f"where id in ('{completed_upload_id}', '{pending_upload_id}', '{deleted_upload_id}') "
+            "group by status order by status;",
+        )
+        if upload_statuses.splitlines() != ["COMPLETED|1", "DELETED|1", "PENDING|1"]:
+            fail(f"unexpected config_uploads lifecycle statuses: {upload_statuses!r}")
         references = reference_rows(args.namespace, args.postgres_pod)
         validated = 0
         for reference in references:
@@ -263,7 +318,8 @@ def main() -> int:
         if inserted:
             try:
                 delete_test_references(args.namespace, args.postgres_pod,
-                                       artifact_id, config_snapshot_id, config_file_id)
+                                       artifact_id, config_snapshot_id, config_file_id,
+                                       completed_upload_id, pending_upload_id, deleted_upload_id)
             except RuntimeError as cleanup_error:
                 print(f"failed to remove object reference test rows: {cleanup_error}", file=sys.stderr)
         if pod_created:

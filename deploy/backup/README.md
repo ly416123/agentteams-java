@@ -55,11 +55,13 @@ prefix: it mirrors the object to a temporary backup volume, deletes the live
 object, restores it from the mirror, and verifies its SHA-256 checksum before
 removing the test object and Pod.
 
-The recovery job also scans every `artifacts.storage_key` and
-`config_files.storage_key` reference in PostgreSQL, downloads each referenced
-object, and compares its size and SHA-256 checksum with the database metadata.
-It deliberately deletes one test object to verify that missing content fails
-the check, then restores and cleans up the test data.
+The recovery job also scans every `artifacts.storage_key`,
+`config_files.storage_key`, and `COMPLETED config_uploads.storage_key` reference
+in PostgreSQL, downloads each referenced object, and compares its size and
+SHA-256 checksum with the database metadata. `PENDING` and `DELETED`
+`config_uploads` are intentionally excluded. The check deliberately deletes
+one test object to verify that missing content fails, then restores and cleans
+up the test data.
 
 Both scripts honor `AGENTTEAMS_NAMESPACE`, `AGENTTEAMS_BACKUP_DIR`, and
 `MC_BIN` overrides. The Kind scripts back up the same logical content as the

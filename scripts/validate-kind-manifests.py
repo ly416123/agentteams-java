@@ -184,7 +184,8 @@ def main():
     if not object_reference_script.exists():
         fail("Kind object reference integrity script does not exist")
     object_reference_text = object_reference_script.read_text(encoding="utf-8")
-    for required in ("artifacts", "config_files", "sha256", "negative_missing_object",
+    for required in ("artifacts", "config_files", "config_uploads", "COMPLETED", "PENDING", "DELETED",
+                     "sha256", "negative_missing_object",
                      "KIND_OBJECT_REFERENCE_INTEGRITY_OK"):
         if required not in object_reference_text:
             fail(f"Kind object reference integrity validation missing {required}")
