@@ -85,13 +85,20 @@ def deployment_ready(namespace: str, deployment: str) -> bool:
     return int(status.get("readyReplicas", 0)) >= 1
 
 
-def qwenpaw_agent_ready(namespace: str, postgres_pod: str) -> bool:
+def deployment_agent_id(namespace: str, deployment: str) -> str:
+    payload = json.loads(run("get", "deployment", deployment, "-o", "json", namespace=namespace))
+    return payload.get("spec", {}).get("template", {}).get("metadata", {}).get("labels", {}).get(
+        "agentteams.io/agent-id", "")
+
+
+def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
     rows = sql(namespace, postgres_pod, """
         select count(*)
           from agents
-         where phase = 'READY'
+         where id = '{agent_id}'
+           and phase = 'READY'
            and capabilities ? 'qwenpaw';
-    """)
+    """.format(agent_id=agent_id))
     return int(rows or "0") > 0
 
 
@@ -110,6 +117,9 @@ def main() -> int:
 
     if not deployment_ready(args.namespace, args.worker_deployment):
         fail("QwenPaw worker must be ready before the idempotency test")
+    worker_agent_id = deployment_agent_id(args.namespace, args.worker_deployment)
+    if not worker_agent_id:
+        fail(f"QwenPaw worker deployment has no agentteams.io/agent-id label: {args.worker_deployment}")
 
     port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
     base_url = f"http://127.0.0.1:{args.local_port}"
@@ -148,8 +158,8 @@ def main() -> int:
         # Gateway stream and been marked READY in the Control Plane. Queue only
         # after that registration is visible, otherwise the short Kind lease
         # may expire before delivery and create a legitimate recovery attempt.
-        wait_until("QwenPaw Agent registration", lambda: qwenpaw_agent_ready(
-            args.namespace, args.postgres_pod), args.timeout)
+        wait_until(f"QwenPaw Agent registration for {worker_agent_id}", lambda: qwenpaw_agent_ready(
+            args.namespace, args.postgres_pod, worker_agent_id), args.timeout)
 
         queue_status, _ = api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},
                                       f"kind-idempotency-queue-{uuid.uuid4()}")
