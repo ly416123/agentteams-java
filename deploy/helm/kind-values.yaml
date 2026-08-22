@@ -3,6 +3,14 @@ images:
   gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
   operator: ghcr.io/ly416123/agentteams-operator:latest
 imagePullPolicy: IfNotPresent
+controlPlane:
+  scheduler:
+    # GitHub-hosted runners can take longer than the production default to
+    # reconnect the Worker and complete the first deterministic model call.
+    # Keep the recovery tests meaningful without creating a false second
+    # attempt from a short lease; the lease-recovery test expires leases
+    # explicitly and is unaffected by this value.
+    leaseDuration: 2m
 storage:
   enabled: true
   endpoint: http://minio:9000
