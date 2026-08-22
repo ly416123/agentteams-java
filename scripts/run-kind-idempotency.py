@@ -85,6 +85,16 @@ def deployment_ready(namespace: str, deployment: str) -> bool:
     return int(status.get("readyReplicas", 0)) >= 1
 
 
+def qwenpaw_agent_ready(namespace: str, postgres_pod: str) -> bool:
+    rows = sql(namespace, postgres_pod, """
+        select count(*)
+          from agents
+         where phase = 'READY'
+           and capabilities ? 'qwenpaw';
+    """)
+    return int(rows or "0") > 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
@@ -134,6 +144,13 @@ def main() -> int:
         if task_count != 1:
             fail(f"expected one task row for the duplicate key, got {task_count}")
 
+        # A Deployment can be Ready before the Worker has re-established its
+        # Gateway stream and been marked READY in the Control Plane. Queue only
+        # after that registration is visible, otherwise the short Kind lease
+        # may expire before delivery and create a legitimate recovery attempt.
+        wait_until("QwenPaw Agent registration", lambda: qwenpaw_agent_ready(
+            args.namespace, args.postgres_pod), args.timeout)
+
         queue_status, _ = api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},
                                       f"kind-idempotency-queue-{uuid.uuid4()}")
         if queue_status != 200:
@@ -149,7 +166,13 @@ def main() -> int:
         attempts = int(sql(args.namespace, args.postgres_pod,
                            f"select count(*) from task_attempts where task_id = '{task_id}'"))
         if attempts != 1:
-            fail(f"expected exactly one task attempt after duplicate create, got {attempts}")
+            details = sql(args.namespace, args.postgres_pod, f"""
+                select id || '|' || phase || '|' || lease_expires_at::text
+                  from task_attempts
+                 where task_id = '{task_id}'
+                 order by created_at;
+            """)
+            fail(f"expected exactly one task attempt after duplicate create, got {attempts}; details={details}")
         print(f"KIND_IDEMPOTENCY_OK task={task_id} attempts={attempts} phase={final['phase']}")
         return 0
     finally:
