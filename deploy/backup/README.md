@@ -44,6 +44,12 @@ backups:
 ./deploy/backup/restore-kind.sh --confirm
 ```
 
+The Kind recovery CI also performs a non-destructive PostgreSQL validation:
+it creates a custom-format dump, restores it into a temporary
+`agentteams_restore` database, compares durable table signatures, and removes
+the temporary database. The primary `agentteams` database is never overwritten
+by this check.
+
 Both scripts honor `AGENTTEAMS_NAMESPACE`, `AGENTTEAMS_BACKUP_DIR`, and
 `MC_BIN` overrides. The Kind scripts back up the same logical content as the
 production runbook above; production still uses the cluster-provided

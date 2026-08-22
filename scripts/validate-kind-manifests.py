@@ -162,6 +162,15 @@ def main():
             fail(f"Kind Gateway replay recovery script missing {required}")
     if "run-kind-gateway-replay.py --agent-id" not in oidc_workflow:
         fail("CI must execute the Kind Gateway replay recovery test")
+    postgres_restore_script = ROOT / "scripts/run-kind-postgres-restore.py"
+    if not postgres_restore_script.exists():
+        fail("Kind PostgreSQL restore validation script does not exist")
+    postgres_restore_text = postgres_restore_script.read_text(encoding="utf-8")
+    for required in ("pg_dump", "pg_restore", "agentteams_restore", "KIND_POSTGRES_RESTORE_OK"):
+        if required not in postgres_restore_text:
+            fail(f"Kind PostgreSQL restore validation missing {required}")
+    if "run-kind-postgres-restore.py" not in oidc_workflow:
+        fail("CI must execute the Kind PostgreSQL restore validation")
     if ("Configure deterministic QwenPaw model" not in oidc_workflow
             or "kind-qwenpaw-openai-mock.yaml" not in oidc_workflow
             or "agentteams-kind-mock" not in oidc_workflow

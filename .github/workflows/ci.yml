@@ -175,6 +175,8 @@ jobs:
         run: python scripts/run-kind-nats-outbox-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind Gateway replay recovery test
         run: python scripts/run-kind-gateway-replay.py --agent-id "$AGENTTEAMS_AGENT_ID"
+      - name: Run Kind PostgreSQL backup and restore validation
+        run: python scripts/run-kind-postgres-restore.py
       - name: Verify multi-replica Prometheus scraping
         run: python scripts/validate-kind-prometheus.py
       - name: Collect Kind diagnostics
