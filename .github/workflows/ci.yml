@@ -80,6 +80,8 @@ jobs:
           grep -q 'AgentTeamsLeaseRecovery' /tmp/agentteams-prometheusrule.yaml
           helm upgrade --install agentteams deploy/helm/agentteams-java \
             --namespace agentteams --create-namespace --wait --timeout 5m \
+            --set controlPlane.security.apiEnabled=false \
+            --set controlPlane.security.oidc.enabled=false \
             -f deploy/helm/kind-values.yaml
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
@@ -90,7 +92,7 @@ jobs:
           kubectl -n agentteams port-forward service/agentteams-agentteams-java-control-plane 18080:8080 >/tmp/control-plane-port-forward.log 2>&1 &
           echo $! >/tmp/control-plane-port-forward.pid
           until curl -fsS http://127.0.0.1:18080/actuator/health >/dev/null; do sleep 2; done
-          AGENT_RESPONSE=$(mktemp)
+          AGENT_RESPONSE=/tmp/agent-registration-response.json
           AGENT_STATUS=$(curl --silent --show-error --output "$AGENT_RESPONSE" --write-out '%{http_code}' \
             -X POST http://127.0.0.1:18080/api/v1/agents \
             -H 'Idempotency-Key: ci-kind-recovery-agent' \
@@ -102,7 +104,6 @@ jobs:
             exit 1
           fi
           AGENT_ID=$(jq -er '.id // empty' "$AGENT_RESPONSE")
-          rm -f "$AGENT_RESPONSE"
           sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/" \
             deploy/examples/qwenpaw-worker.yaml >/tmp/qwenpaw-real.yaml
           kubectl apply -f /tmp/qwenpaw-real.yaml
@@ -131,6 +132,8 @@ jobs:
           kubectl -n agentteams get pods -o wide > /tmp/agentteams-kind-recovery-diagnostics/pods.txt || true
           kubectl -n agentteams get deployments -o wide > /tmp/agentteams-kind-recovery-diagnostics/deployments.txt || true
           kubectl -n agentteams get events --sort-by=.lastTimestamp > /tmp/agentteams-kind-recovery-diagnostics/events.txt || true
+          cp /tmp/agent-registration-response.json /tmp/agentteams-kind-recovery-diagnostics/agent-registration-response.json 2>/dev/null || true
+          cp /tmp/control-plane-port-forward.log /tmp/agentteams-kind-recovery-diagnostics/control-plane-port-forward.log 2>/dev/null || true
           kubectl -n agentteams get prometheusrule -o yaml > /tmp/agentteams-kind-recovery-diagnostics/prometheusrules.yaml || true
           kubectl -n agentteams get worker/qwenpaw-real -o yaml > /tmp/agentteams-kind-recovery-diagnostics/worker.yaml || true
           kubectl -n agentteams describe worker/qwenpaw-real > /tmp/agentteams-kind-recovery-diagnostics/worker-describe.txt 2>&1 || true
