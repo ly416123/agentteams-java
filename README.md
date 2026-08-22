@@ -18,6 +18,14 @@ this build.
 - `operator`: Java Operator SDK and Fabric8 Kubernetes dependencies.
 - `integration-tests`: cross-module tests and Testcontainers dependencies.
 
+## Architecture map
+
+The repository's module responsibilities, dependency layers, core data flows,
+deployment topology, and important design patterns are documented in the
+[architecture code map](docs/architecture-map.html). The map is a curated
+design aid; CI checks that every Maven module has a corresponding map entry so
+module additions do not silently make it stale.
+
 ## Build
 
 The parent POM configures the Maven compiler for Java 17 (`--release 17`) and

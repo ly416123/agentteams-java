@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate architecture map
+        run: python scripts/validate-architecture-map.py
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
