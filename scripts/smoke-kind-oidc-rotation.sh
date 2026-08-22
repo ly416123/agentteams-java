@@ -116,7 +116,10 @@ token_kid() {
 }
 
 jwks_contains_kid() {
-  curl --fail --silent "${KEYCLOAK_URL}/realms/agentteams/protocol/openid-connect/certs" \
+  curl --fail --silent --show-error \
+    --header 'Cache-Control: no-cache' \
+    --header 'Pragma: no-cache' \
+    "${KEYCLOAK_URL}/realms/agentteams/protocol/openid-connect/certs?rotation_nonce=${RANDOM}-${SECONDS}" \
     | grep -F "${1}" >/dev/null
 }
 
@@ -185,19 +188,24 @@ curl --fail --silent --show-error --request PUT \
   --data "${COMPONENT_UPDATE_BODY}" >/dev/null
 
 KID_AFTER=""
-deadline=$((SECONDS + 60))
+# Keycloak persists the newly generated key synchronously, but token signing and
+# the JWKS endpoint can observe that change on different cache/refresh cycles.
+# Keep this smoke test strict about the actual kid change while allowing the
+# local Kind deployment enough time to converge under a busy CI runner.
+kid_deadline=$((SECONDS + 180))
 until [[ -n "${KID_AFTER}" && "${KID_AFTER}" != "${KID_BEFORE}" ]]; do
   TOKEN_AFTER="$(token_for alice alice-dev)"
   KID_AFTER="$(token_kid "${TOKEN_AFTER}")"
-  if (( SECONDS >= deadline )); then
+  if (( SECONDS >= kid_deadline )); then
     echo "JWKS kid 未轮换: before=${KID_BEFORE} after=${KID_AFTER}" >&2
     exit 1
   fi
   [[ "${KID_AFTER}" == "${KID_BEFORE}" ]] && sleep 2
 done
 
+jwks_deadline=$((SECONDS + 180))
 until jwks_contains_kid "${KID_AFTER}"; do
-  if (( SECONDS >= deadline )); then
+  if (( SECONDS >= jwks_deadline )); then
     echo "新 kid 未出现在 JWKS: ${KID_AFTER}" >&2
     exit 1
   fi

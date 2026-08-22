@@ -86,18 +86,39 @@ jobs:
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-operator --timeout=300s
       - name: Create real QwenPaw worker
         run: |
+          set -euo pipefail
           kubectl -n agentteams port-forward service/agentteams-agentteams-java-control-plane 18080:8080 >/tmp/control-plane-port-forward.log 2>&1 &
           echo $! >/tmp/control-plane-port-forward.pid
           until curl -fsS http://127.0.0.1:18080/actuator/health >/dev/null; do sleep 2; done
-          AGENT_ID=$(curl -fsS -X POST http://127.0.0.1:18080/api/v1/agents \
+          AGENT_RESPONSE=$(mktemp)
+          AGENT_STATUS=$(curl --silent --show-error --output "$AGENT_RESPONSE" --write-out '%{http_code}' \
+            -X POST http://127.0.0.1:18080/api/v1/agents \
             -H 'Idempotency-Key: ci-kind-recovery-agent' \
             -H 'Content-Type: application/json' \
-            -d '{"name":"ci-kind-recovery-agent","runtime":"qwenpaw","capabilities":{"qwenpaw":"true","java":"17"}}' | jq -r '.id')
-          test -n "$AGENT_ID"
+            -d '{"name":"ci-kind-recovery-agent","runtime":"qwenpaw","capabilities":{"qwenpaw":"true","java":"17"}}')
+          if [[ "$AGENT_STATUS" != "201" ]]; then
+            echo "agent registration failed with HTTP $AGENT_STATUS" >&2
+            cat "$AGENT_RESPONSE" >&2
+            exit 1
+          fi
+          AGENT_ID=$(jq -er '.id // empty' "$AGENT_RESPONSE")
+          rm -f "$AGENT_RESPONSE"
           sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/" \
             deploy/examples/qwenpaw-worker.yaml >/tmp/qwenpaw-real.yaml
           kubectl apply -f /tmp/qwenpaw-real.yaml
           kubectl -n agentteams rollout status deployment/qwenpaw-real --timeout=240s
+          kubectl -n agentteams wait --for=jsonpath='{.status.phase}'=Ready worker/qwenpaw-real --timeout=240s
+          agent_phase=""
+          agent_deadline=$((SECONDS + 240))
+          until [[ "$agent_phase" == "READY" ]]; do
+            agent_phase=$(kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -At -c \
+              "select phase from agents where id = '$AGENT_ID'" 2>/dev/null || true)
+            if (( SECONDS >= agent_deadline )); then
+              echo "registered agent did not become READY: id=$AGENT_ID phase=${agent_phase:-<missing>}" >&2
+              exit 1
+            fi
+            sleep 2
+          done
           echo "AGENTTEAMS_AGENT_ID=$AGENT_ID" >> "$GITHUB_ENV"
       - name: Run Kind lease recovery test
         run: python scripts/run-kind-lease-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
@@ -111,7 +132,12 @@ jobs:
           kubectl -n agentteams get deployments -o wide > /tmp/agentteams-kind-recovery-diagnostics/deployments.txt || true
           kubectl -n agentteams get events --sort-by=.lastTimestamp > /tmp/agentteams-kind-recovery-diagnostics/events.txt || true
           kubectl -n agentteams get prometheusrule -o yaml > /tmp/agentteams-kind-recovery-diagnostics/prometheusrules.yaml || true
+          kubectl -n agentteams get worker/qwenpaw-real -o yaml > /tmp/agentteams-kind-recovery-diagnostics/worker.yaml || true
+          kubectl -n agentteams describe worker/qwenpaw-real > /tmp/agentteams-kind-recovery-diagnostics/worker-describe.txt 2>&1 || true
           kubectl -n agentteams get deployment/qwenpaw-real -o yaml > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-real.yaml || true
+          kubectl -n agentteams logs deployment/qwenpaw-real --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/worker.log 2>&1 || true
+          kubectl -n agentteams logs deployment/agentteams-agentteams-java-operator --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/operator.log 2>&1 || true
+          kubectl -n agentteams get pods -l app.kubernetes.io/name=agentteams-worker -o yaml > /tmp/agentteams-kind-recovery-diagnostics/worker-pods.yaml || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/control-plane.log 2>&1 || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-gateway --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/gateway.log 2>&1 || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
