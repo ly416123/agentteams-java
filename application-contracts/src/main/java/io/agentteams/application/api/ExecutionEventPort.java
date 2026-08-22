@@ -21,12 +21,20 @@ public interface ExecutionEventPort {
 
     record TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
             Instant occurredAt, String agentId, String source, ExecutionPhase phase,
-            String failureCode, String failureMessage, String correlationId) {
+            String failureCode, String failureMessage, String correlationId, String traceparent,
+            String tracestate) {
         public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
                 Instant occurredAt, String agentId, String source, ExecutionPhase phase,
                 String failureCode, String failureMessage) {
             this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
-                    failureCode, failureMessage, "unknown");
+                    failureCode, failureMessage, "unknown", "", "");
+        }
+
+        public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
+                Instant occurredAt, String agentId, String source, ExecutionPhase phase,
+                String failureCode, String failureMessage, String correlationId) {
+            this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
+                    failureCode, failureMessage, correlationId, "", "");
         }
 
         public TaskExecutionCommand {
@@ -37,7 +45,10 @@ public interface ExecutionEventPort {
             requireText(agentId, "agentId");
             requireText(source, "source");
             Objects.requireNonNull(phase, "phase");
-            correlationId = normalizeCorrelationId(correlationId);
+            TraceContext context = new TraceContext(correlationId, traceparent, tracestate);
+            correlationId = context.correlationId();
+            traceparent = context.traceparent();
+            tracestate = context.tracestate();
             if (expectedVersion < 0) {
                 throw new IllegalArgumentException("expectedVersion must not be negative");
             }
@@ -47,10 +58,18 @@ public interface ExecutionEventPort {
     }
 
     record LeaseRenewalCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
-            Instant occurredAt, Instant requestedExpiry, String agentId, String source, String correlationId) {
+            Instant occurredAt, Instant requestedExpiry, String agentId, String source, String correlationId,
+            String traceparent, String tracestate) {
         public LeaseRenewalCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
                 Instant occurredAt, Instant requestedExpiry, String agentId, String source) {
-            this(eventId, expectedVersion, attemptId, leaseId, occurredAt, requestedExpiry, agentId, source, "unknown");
+            this(eventId, expectedVersion, attemptId, leaseId, occurredAt, requestedExpiry, agentId, source,
+                    "unknown", "", "");
+        }
+
+        public LeaseRenewalCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
+                Instant occurredAt, Instant requestedExpiry, String agentId, String source, String correlationId) {
+            this(eventId, expectedVersion, attemptId, leaseId, occurredAt, requestedExpiry, agentId, source,
+                    correlationId, "", "");
         }
 
         public LeaseRenewalCommand {
@@ -61,7 +80,10 @@ public interface ExecutionEventPort {
             Objects.requireNonNull(requestedExpiry, "requestedExpiry");
             requireText(agentId, "agentId");
             requireText(source, "source");
-            correlationId = normalizeCorrelationId(correlationId);
+            TraceContext context = new TraceContext(correlationId, traceparent, tracestate);
+            correlationId = context.correlationId();
+            traceparent = context.traceparent();
+            tracestate = context.tracestate();
             if (expectedVersion < 0) {
                 throw new IllegalArgumentException("expectedVersion must not be negative");
             }
@@ -89,13 +111,4 @@ public interface ExecutionEventPort {
         }
     }
 
-    private static String normalizeCorrelationId(String value) {
-        if (value == null || value.isBlank()) {
-            return "unknown";
-        }
-        if (value.length() > 128 || !value.matches("[A-Za-z0-9._:-]+")) {
-            throw new IllegalArgumentException("correlationId contains unsupported characters");
-        }
-        return value;
-    }
 }

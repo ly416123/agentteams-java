@@ -5,6 +5,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.domain.task.StaleTaskVersionException;
@@ -29,6 +30,27 @@ class NatsExecutionEventConsumerTest {
         consumer.process(message);
 
         verify(message).ack();
+    }
+
+    @Test
+    void restoresTraceContextBeforeApplyingExecutionEvent() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(taskEventJson().replace("\"artifacts\": []",
+                "\"traceparent\":\"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\","
+                        + "\"tracestate\":\"vendor=value\",\"artifacts\": []")
+                .getBytes(StandardCharsets.UTF_8));
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        var command = org.mockito.ArgumentCaptor.forClass(ExecutionEventPort.TaskExecutionCommand.class);
+        verify(executionEvents).apply(any(), command.capture(), any());
+        assertThat(command.getValue().traceparent())
+                .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+        assertThat(command.getValue().tracestate()).isEqualTo("vendor=value");
     }
 
     private static String taskEventJson() {

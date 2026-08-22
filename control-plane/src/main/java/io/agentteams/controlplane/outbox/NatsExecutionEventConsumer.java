@@ -6,6 +6,7 @@ import io.agentteams.application.api.ExecutionEventEnvelope;
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ConfigAppliedEnvelope;
 import io.agentteams.application.api.ConfigEventPort;
+import io.agentteams.application.api.TraceContext;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.nats.client.JetStream;
@@ -120,9 +121,9 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             }
             ExecutionEventEnvelope envelope = mapper.treeToValue(root, ExecutionEventEnvelope.class);
             if ("TASK".equals(envelope.type())) {
-                executionEvents.apply(envelope.taskId(), envelope.taskExecution(), envelope.artifacts());
+                executionEvents.apply(envelope.taskId(), withContext(envelope.taskExecution(), envelope), envelope.artifacts());
             } else if ("LEASE_RENEWAL".equals(envelope.type())) {
-                executionEvents.renewLease(envelope.taskId(), envelope.leaseRenewal());
+                executionEvents.renewLease(envelope.taskId(), withContext(envelope.leaseRenewal(), envelope));
             } else {
                 throw new IllegalArgumentException("unsupported execution event type: " + envelope.type());
             }
@@ -137,5 +138,25 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         } catch (IOException | RuntimeException error) {
             throw new IllegalArgumentException("invalid Agent execution event", error);
         }
+    }
+
+    private static io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand withContext(
+            io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand command,
+            ExecutionEventEnvelope envelope) {
+        TraceContext context = new TraceContext(envelope.correlationId(), envelope.traceparent(), envelope.tracestate());
+        return new io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand(command.eventId(),
+                command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
+                command.agentId(), command.source(), command.phase(), command.failureCode(), command.failureMessage(),
+                context.correlationId(), context.traceparent(), context.tracestate());
+    }
+
+    private static io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand withContext(
+            io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand command,
+            ExecutionEventEnvelope envelope) {
+        TraceContext context = new TraceContext(envelope.correlationId(), envelope.traceparent(), envelope.tracestate());
+        return new io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand(command.eventId(),
+                command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
+                command.requestedExpiry(), command.agentId(), command.source(), context.correlationId(),
+                context.traceparent(), context.tracestate());
     }
 }
