@@ -108,9 +108,9 @@ def main():
     if 'name: {{ include "agentteams-java.operatorServiceAccountName" .' not in rbac:
         fail("Operator RBAC must bind the dedicated service account")
     operator_rbac = rbac.split("{{- if .Values.controlPlane.teamSync.enabled }}", 1)[0]
-    if "kind: ClusterRole" in operator_rbac or "kind: ClusterRoleBinding" in operator_rbac:
+    if "kind: ClusterRole" in rbac or "kind: ClusterRoleBinding" in rbac:
         fail("Operator RBAC must be namespace-scoped")
-    for required in ("kind: Role", "kind: RoleBinding"):
+    for required in ("kind: Role", "kind: RoleBinding", "namespace: {{ .Release.Namespace }}"):
         if required not in operator_rbac:
             fail(f"Operator namespace RBAC missing {required}")
     operator_app = (ROOT / "operator/src/main/java/io/agentteams/operator/AgentTeamsOperatorApplication.java").read_text(encoding="utf-8")
@@ -136,6 +136,11 @@ def main():
     worker_factory = (ROOT / "operator/src/main/java/io/agentteams/operator/WorkerResourceFactory.java").read_text(encoding="utf-8")
     if "secret.reloader.stakater.com/reload" not in worker_factory:
         fail("Worker TLS deployment must expose the Secret rotation annotation")
+    auth_filter = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthenticationFilter.java").read_text(encoding="utf-8")
+    auth_policy = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthorizationPolicy.java").read_text(encoding="utf-8")
+    for required in ("ApiAuthorizationPolicy", "SC_FORBIDDEN", "Permission.TASK_READ", "Permission.CONFIG_WRITE"):
+        if required not in auth_filter + auth_policy:
+            fail(f"OIDC API authorization missing {required}")
     print("KIND_MANIFESTS_OK")
 
 

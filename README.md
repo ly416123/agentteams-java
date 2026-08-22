@@ -267,10 +267,16 @@ account for Gateway when overriding chart values.
 
 The Operator RBAC is namespace-scoped: Helm creates a `Role` and `RoleBinding`
 in the release namespace, and the Operator watches only that namespace through
-`AGENTTEAMS_OPERATOR_NAMESPACE`. The Control Plane Team sync remains a separate,
-read-only cluster role because it discovers Teams across namespaces. Deployments
-that manage multiple namespaces must install one Operator release per namespace
-until an explicit multi-namespace authorization design is introduced.
+`AGENTTEAMS_OPERATOR_NAMESPACE`. Team sync is also restricted to a read-only
+Role in the release namespace. Deployments that manage multiple namespaces must
+install one chart release per namespace; no shared ClusterRole or cluster-wide
+Operator informer is granted.
+
+When OIDC API authentication is enabled, the Control Plane maps API routes to
+the permissions carried in the configured claim (`task:read`, `task:create`,
+`task:cancel`, `agent:read`, `agent:write`, `config:read`, and `config:write`).
+Missing permissions return `403`, while missing or invalid tokens return
+`401`; unknown API routes do not receive an implicit write permission.
 
 For a local Gateway↔Worker mTLS check, use the development-only bootstrap
 script. It creates a temporary 30-day CA and certificates under

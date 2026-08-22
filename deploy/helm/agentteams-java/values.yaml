@@ -11,7 +11,9 @@ controlPlane:
     name: agentteams-control-plane
   teamSync:
     enabled: true
-    namespace: agentteams
+    # Empty means the Helm release namespace. Install one release per business
+    # namespace; do not widen this to a cluster-wide informer without a new RBAC design.
+    namespace: ""
   scheduler:
     enabled: true
     pollIntervalMs: 1000

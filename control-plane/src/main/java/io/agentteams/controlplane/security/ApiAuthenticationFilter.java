@@ -50,6 +50,14 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
         request.setAttribute(PRINCIPAL_ATTRIBUTE, principal);
         PrincipalContext.set(principal);
         try {
+            try {
+                ApiAuthorizationPolicy.requiredPermission(request)
+                        .ifPresent(permission -> new AuthorizationService().require(
+                                principal.subject(), permission, principal.permissions()));
+            } catch (AuthorizationException denied) {
+                forbidden(response);
+                return;
+            }
             filterChain.doFilter(request, response);
         } finally {
             PrincipalContext.clear();
@@ -61,5 +69,11 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
         response.setHeader("WWW-Authenticate", "Bearer");
         response.setContentType("application/json");
         response.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"authentication required\"}");
+    }
+
+    private static void forbidden(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.getWriter().write("{\"code\":\"FORBIDDEN\",\"message\":\"permission denied\"}");
     }
 }

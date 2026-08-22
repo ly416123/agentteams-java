@@ -8,10 +8,14 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 import java.time.Instant;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.sun.net.httpserver.HttpServer;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
@@ -85,12 +89,50 @@ class OidcIdentityTokenValidatorTest {
                 "permissions", "task:read"))).isEmpty();
     }
 
+    @Test
+    void refreshesJwksWhenTheIdentityProviderPublishesANewKey() throws Exception {
+        RSAKey rotatedKey = new RSAKeyGenerator(2048).keyID("rotated-key").generate();
+        AtomicReference<RSAKey> currentKey = new AtomicReference<>(signingKey);
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/jwks", exchange -> {
+            byte[] body = new JWKSet(currentKey.get().toPublicJWK()).toJSONObject().toString()
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+        try {
+            String issuer = "http://localhost:" + server.getAddress().getPort();
+            properties.setIssuerUri(issuer);
+            properties.setJwkSetUri(issuer + "/jwks");
+            OidcIdentityTokenValidator validator = OidcIdentityTokenValidator.fromProperties(properties);
+
+            assertThat(validator.validate(token(signingKey, "alice", issuer, AUDIENCE,
+                    "tenant_id", "tenant-a", "project_id", "project-a", "team_id", "team-a",
+                    "permissions", "task:read"))).isPresent();
+
+            currentKey.set(rotatedKey);
+            assertThat(validator.validate(token(rotatedKey, "alice", issuer, AUDIENCE,
+                    "tenant_id", "tenant-a", "project_id", "project-a", "team_id", "team-a",
+                    "permissions", "task:read"))).isPresent();
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private NimbusJwtDecoder decoder() throws Exception {
         return NimbusJwtDecoder.withPublicKey(signingKey.toRSAPublicKey())
                 .signatureAlgorithm(SignatureAlgorithm.RS256).build();
     }
 
     private String token(String subject, String issuer, String audience, Object... claims) throws Exception {
+        return token(signingKey, subject, issuer, audience, claims);
+    }
+
+    private String token(RSAKey key, String subject, String issuer, String audience, Object... claims) throws Exception {
         JwtClaimsSet.Builder builder = JwtClaimsSet.builder()
                 .issuer(issuer)
                 .subject(subject)
@@ -100,7 +142,7 @@ class OidcIdentityTokenValidatorTest {
         for (int index = 0; index < claims.length; index += 2) {
             builder.claim((String) claims[index], claims[index + 1]);
         }
-        JWKSource<SecurityContext> source = (selector, context) -> selector.select(new JWKSet(signingKey));
+        JWKSource<SecurityContext> source = (selector, context) -> selector.select(new JWKSet(key));
         return new NimbusJwtEncoder(source)
                 .encode(JwtEncoderParameters.from(builder.build()))
                 .getTokenValue();

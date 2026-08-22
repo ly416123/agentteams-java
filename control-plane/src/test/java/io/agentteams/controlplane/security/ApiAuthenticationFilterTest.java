@@ -42,4 +42,19 @@ class ApiAuthenticationFilterTest {
         assertThat(response.getStatus()).isEqualTo(200);
         assertThat(PrincipalContext.current()).isEmpty();
     }
+
+    @Test
+    void rejectsAuthenticatedRequestsWithoutRoutePermission() throws Exception {
+        IdentityTokenValidator validator = token -> Optional.of(new IdentityTokenValidator.IdentityPrincipal(
+                "alice", new AuthorizationService.Scope("tenant", "project", "team"), Set.of("task:read")));
+        ApiAuthenticationFilter filter = new ApiAuthenticationFilter(validator);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/tasks");
+        request.addHeader("Authorization", "Bearer test-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("FORBIDDEN");
+    }
 }

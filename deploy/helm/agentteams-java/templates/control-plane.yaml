@@ -63,7 +63,7 @@ spec:
             - name: AGENTTEAMS_TEAM_SYNC_ENABLED
               value: {{ .Values.controlPlane.teamSync.enabled | quote }}
             - name: AGENTTEAMS_TEAM_SYNC_NAMESPACE
-              value: {{ .Values.controlPlane.teamSync.namespace | quote }}
+              value: {{ default .Release.Namespace .Values.controlPlane.teamSync.namespace | quote }}
 {{- if .Values.storage.enabled }}
             - name: AGENTTEAMS_STORAGE_ENDPOINT
               value: {{ .Values.storage.endpoint | quote }}
