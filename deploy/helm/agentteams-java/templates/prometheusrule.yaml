@@ -46,9 +46,9 @@ spec:
           for: 10m
           labels:
             severity: warning
-            annotations:
-              summary: AgentTeams Outbox backlog is not draining
-              description: One or more non-terminal Outbox events have remained in the relay backlog for 10 minutes.
+          annotations:
+            summary: AgentTeams Outbox backlog is not draining
+            description: One or more non-terminal Outbox events have remained in the relay backlog for 10 minutes.
         - alert: AgentTeamsOutboxStalled
           expr: agentteams_outbox_backlog > 0 and agentteams_outbox_oldest_pending_age_seconds > 300
           for: 5m
@@ -70,9 +70,9 @@ spec:
           for: 1m
           labels:
             severity: critical
-            annotations:
-              summary: AgentTeams Gateway NATS consumer is rejecting events
-              description: The Gateway NATS consumer encountered event processing errors in the last 5 minutes.
+          annotations:
+            summary: AgentTeams Gateway NATS consumer is rejecting events
+            description: The Gateway NATS consumer encountered event processing errors in the last 5 minutes.
         - alert: AgentTeamsGatewayConnectionChurn
           expr: increase(agentteams_gateway_connections_replaced_total[10m]) > 3
           for: 5m

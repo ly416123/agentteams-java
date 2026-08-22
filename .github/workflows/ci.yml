@@ -117,6 +117,7 @@ jobs:
             --set observability.prometheusRule.enabled=true >/tmp/agentteams-prometheusrule.yaml
           grep -q 'kind: PrometheusRule' /tmp/agentteams-prometheusrule.yaml
           grep -q 'AgentTeamsLeaseRecovery' /tmp/agentteams-prometheusrule.yaml
+          python scripts/validate-prometheus-rule.py /tmp/agentteams-prometheusrule.yaml
           helm upgrade --install agentteams deploy/helm/agentteams-java \
             --namespace agentteams --create-namespace --wait --timeout 5m \
             --set controlPlane.security.apiEnabled=false \

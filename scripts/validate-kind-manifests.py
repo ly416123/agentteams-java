@@ -76,6 +76,9 @@ def main():
     for required in ("QWENPAW_DEEPSEEK_SMOKE_OK", "kubectl logs", "Task result"):
         if required not in smoke_text:
             fail(f"qwenpaw DeepSeek smoke script must verify {required}")
+    prometheus_rule_validator = ROOT / "scripts/validate-prometheus-rule.py"
+    if not prometheus_rule_validator.exists():
+        fail("PrometheusRule validator does not exist")
     team_crd = (ROOT / "deploy/helm/agentteams-java/crds/teams.yaml").read_text(encoding="utf-8")
     for required in ("allowedRuntimes", "requiredCapabilities", "x-kubernetes-list-type: set"):
         if required not in team_crd:
@@ -139,6 +142,8 @@ def main():
         if not required_path.exists():
             fail(f"OIDC Kind asset missing {required_path.relative_to(ROOT)}")
     oidc_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    if "validate-prometheus-rule.py /tmp/agentteams-prometheusrule.yaml" not in oidc_workflow:
+        fail("CI must validate the rendered PrometheusRule")
     if ("Configure deterministic QwenPaw model" not in oidc_workflow
             or "kind-qwenpaw-openai-mock.yaml" not in oidc_workflow
             or "agentteams-kind-mock" not in oidc_workflow
