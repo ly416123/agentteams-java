@@ -78,5 +78,5 @@ export SCOPE_TENANT=tenant-a
 export SCOPE_PROJECT=project-a
 export SCOPE_TEAM=team-a
 
-"${ROOT}/scripts/validate-oidc-acceptance.sh"
+bash "${ROOT}/scripts/validate-oidc-acceptance.sh"
 echo "KIND_OIDC_SMOKE_OK"

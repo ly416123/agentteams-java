@@ -92,7 +92,7 @@ jobs:
           AGENT_ID=$(curl -fsS -X POST http://127.0.0.1:18080/api/v1/agents \
             -H 'Idempotency-Key: ci-kind-recovery-agent' \
             -H 'Content-Type: application/json' \
-            -d '{"name":"ci-kind-recovery-agent","runtime":"qwenpaw","capabilities":{"ci":"kind"}}' | jq -r '.id')
+            -d '{"name":"ci-kind-recovery-agent","runtime":"qwenpaw","capabilities":{"qwenpaw":"true","java":"17"}}' | jq -r '.id')
           test -n "$AGENT_ID"
           sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/" \
             deploy/examples/qwenpaw-worker.yaml >/tmp/qwenpaw-real.yaml
