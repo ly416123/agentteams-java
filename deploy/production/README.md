@@ -76,3 +76,29 @@ For a controlled rotation, update one certificate chain first, wait for the
 Gateway and Worker rollouts to become Ready, then rotate the remaining client
 certificates. Keep the CA overlap long enough for all active streams to
 reconnect.
+
+## OIDC acceptance checks
+
+Run these checks with a token issued by the target provider. The token must
+contain the configured issuer and audience, the required permission, and the
+three scope claims (`tenant`, `project`, `team`). Replace the placeholders with
+values from the deployment and use a resource payload whose scope matches the
+token:
+
+```bash
+export API_URL=https://api.example.com
+export TOKEN='eyJ...'
+export IDEMPOTENCY_KEY="oidc-acceptance-$(date +%s)"
+curl -i -X POST "$API_URL/api/v1/tasks" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
+  -H 'Content-Type: application/json' \
+  --data '{"title":"oidc-acceptance","spec":{"scope":{"tenant":"tenant-a","project":"project-a","team":"team-a"}}}'
+```
+
+Expected results are `201` for a matching permission and scope, `401` when
+the bearer token is absent or invalid, and `403` when the permission is
+missing or the resource scope differs. During signing-key rotation, publish
+the new public key at the provider JWKS endpoint, issue a token with the new
+`kid`, and repeat the request before retiring the old key. The API must accept
+the new token without a restart and continue rejecting cross-scope requests.
