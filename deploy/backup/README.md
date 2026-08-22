@@ -50,6 +50,11 @@ it creates a custom-format dump, restores it into a temporary
 the temporary database. The primary `agentteams` database is never overwritten
 by this check.
 
+The same recovery job validates MinIO object recovery using an isolated test
+prefix: it mirrors the object to a temporary backup volume, deletes the live
+object, restores it from the mirror, and verifies its SHA-256 checksum before
+removing the test object and Pod.
+
 Both scripts honor `AGENTTEAMS_NAMESPACE`, `AGENTTEAMS_BACKUP_DIR`, and
 `MC_BIN` overrides. The Kind scripts back up the same logical content as the
 production runbook above; production still uses the cluster-provided

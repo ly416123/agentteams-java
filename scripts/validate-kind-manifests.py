@@ -171,6 +171,15 @@ def main():
             fail(f"Kind PostgreSQL restore validation missing {required}")
     if "run-kind-postgres-restore.py" not in oidc_workflow:
         fail("CI must execute the Kind PostgreSQL restore validation")
+    minio_restore_script = ROOT / "scripts/run-kind-minio-restore.py"
+    if not minio_restore_script.exists():
+        fail("Kind MinIO restore validation script does not exist")
+    minio_restore_text = minio_restore_script.read_text(encoding="utf-8")
+    for required in ("minio/mc", "mc mirror", "sha256", "KIND_MINIO_RESTORE_OK"):
+        if required not in minio_restore_text:
+            fail(f"Kind MinIO restore validation missing {required}")
+    if "run-kind-minio-restore.py" not in oidc_workflow:
+        fail("CI must execute the Kind MinIO restore validation")
     if ("Configure deterministic QwenPaw model" not in oidc_workflow
             or "kind-qwenpaw-openai-mock.yaml" not in oidc_workflow
             or "agentteams-kind-mock" not in oidc_workflow
