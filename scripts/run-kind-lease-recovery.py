@@ -114,6 +114,25 @@ def stop_port_forward(port_forward: subprocess.Popen) -> None:
             port_forward.kill()
 
 
+def wait_for_api_with_port_forward(base_url: str, port_forward: subprocess.Popen,
+                                   namespace: str, service: str, local_port: int,
+                                   timeout: float) -> tuple[dict, subprocess.Popen]:
+    """Keep reconnecting port-forward until the API is reachable after a rollout."""
+    deadline = time.monotonic() + timeout
+    last_error = ""
+    while time.monotonic() < deadline:
+        if port_forward.poll() is not None:
+            stop_port_forward(port_forward)
+            port_forward = start_port_forward(namespace, service, local_port)
+        try:
+            return api_request(f"{base_url}/actuator/health"), port_forward
+        except (RuntimeError, urllib.error.URLError, urllib.error.HTTPError,
+                http.client.RemoteDisconnected, ConnectionResetError) as error:
+            last_error = str(error)
+        time.sleep(1)
+    fail(f"timed out waiting for Control Plane API; last={last_error or '<no response>'}")
+
+
 def task_row(namespace: str, postgres_pod: str, task_id: str) -> str:
     return sql(namespace, postgres_pod, f"""
         select t.phase || '|' || t.version || '|' || coalesce(l.status, '') || '|' ||
@@ -158,7 +177,9 @@ def main() -> int:
     base_url = f"http://127.0.0.1:{args.local_port}"
     task_id = None
     try:
-        wait_until("Control Plane API", lambda: api_request(f"{base_url}/actuator/health"), args.timeout)
+        _, port_forward = wait_for_api_with_port_forward(
+            base_url, port_forward, args.namespace, args.control_plane_service,
+            args.local_port, args.timeout)
         run("scale", "deployment", args.worker_deployment, "--replicas=0", namespace=args.namespace)
         wait_until("Worker shutdown", lambda: deployment_ready(args.namespace, args.worker_deployment, 0), args.timeout)
 
@@ -200,7 +221,9 @@ def main() -> int:
         # so refresh the local port-forward before continuing the API poll.
         stop_port_forward(port_forward)
         port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
-        wait_until("Control Plane API after restart", lambda: api_request(f"{base_url}/actuator/health"), args.timeout)
+        _, port_forward = wait_for_api_with_port_forward(
+            base_url, port_forward, args.namespace, args.control_plane_service,
+            args.local_port, args.timeout)
         wait_until("TaskLeaseExpired event", lambda: "TaskLeaseExpired" in sql(
             args.namespace, args.postgres_pod,
             f"select event_type from domain_events where aggregate_id='{task_id}';"), args.timeout)
