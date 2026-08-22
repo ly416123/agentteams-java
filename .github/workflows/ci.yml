@@ -69,6 +69,45 @@ jobs:
           kubectl apply -f deploy/kind-observability.yaml
           kubectl -n agentteams rollout status deployment/prometheus --timeout=240s
           kubectl -n agentteams rollout status deployment/qwenpaw --timeout=240s
+      - name: Configure deterministic QwenPaw model
+        run: |
+          set -euo pipefail
+          kubectl -n agentteams create configmap qwenpaw-openai-mock \
+            --from-file=server.py=scripts/qwenpaw-openai-mock.py \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f deploy/kind-qwenpaw-openai-mock.yaml
+          kubectl -n agentteams rollout status deployment/qwenpaw-openai-mock --timeout=180s
+
+          kubectl -n agentteams port-forward service/qwenpaw 18088:8088 >/tmp/qwenpaw-port-forward.log 2>&1 &
+          qwenpaw_port_forward_pid=$!
+          cleanup() {
+            kill "$qwenpaw_port_forward_pid" >/dev/null 2>&1 || true
+            wait "$qwenpaw_port_forward_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          models_file=/tmp/qwenpaw-models.json
+          until curl -fsS http://127.0.0.1:18088/api/models -o "$models_file"; do sleep 2; done
+          curl -fsS -X POST http://127.0.0.1:18088/api/models/custom-providers \
+            -H 'Content-Type: application/json' \
+            -d '{"id":"agentteams-ci","name":"AgentTeams CI Mock","default_base_url":"http://qwenpaw-openai-mock:8080/v1","api_key_prefix":"","chat_model":"OpenAIChatModel","models":[{"id":"agentteams-kind-mock","name":"agentteams-kind-mock","is_free":true}]}' \
+            >/tmp/qwenpaw-custom-provider.json
+          curl -fsS -X PUT http://127.0.0.1:18088/api/models/agentteams-ci/config \
+            -H 'Content-Type: application/json' \
+            -d '{"api_key":"agentteams-ci-mock","base_url":"http://qwenpaw-openai-mock:8080/v1","auto_discover":false}' \
+            >/tmp/qwenpaw-custom-provider-config.json
+          curl -fsS -X PUT http://127.0.0.1:18088/api/models/active \
+            -H 'Content-Type: application/json' \
+            -d '{"provider_id":"agentteams-ci","model":"agentteams-kind-mock","scope":"global"}' \
+            >/tmp/qwenpaw-active-model.json
+          jq -e '(.active_llm.provider_id == "agentteams-ci") and (.active_llm.model == "agentteams-kind-mock")' \
+            /tmp/qwenpaw-active-model.json >/dev/null
+          curl -fsS -X POST http://127.0.0.1:18088/api/models/agentteams-ci/models/test \
+            -H 'Content-Type: application/json' \
+            -d '{"model_id":"agentteams-kind-mock"}' \
+            >/tmp/qwenpaw-model-test.json
+          jq -e '.success == true' /tmp/qwenpaw-model-test.json >/dev/null
+          echo 'QWENPAW_KIND_MOCK_OK provider=openai model=agentteams-kind-mock'
       - name: Build and load service images
         run: ./deploy/build-images.sh
       - name: Install AgentTeams chart
@@ -147,6 +186,8 @@ jobs:
           kubectl -n agentteams describe worker/qwenpaw-real > /tmp/agentteams-kind-recovery-diagnostics/worker-describe.txt 2>&1 || true
           kubectl -n agentteams get deployment/qwenpaw-real -o yaml > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-real.yaml || true
           kubectl -n agentteams logs deployment/qwenpaw-real --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/worker.log 2>&1 || true
+          kubectl -n agentteams logs deployment/qwenpaw --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw.log 2>&1 || true
+          kubectl -n agentteams logs deployment/qwenpaw-openai-mock --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-openai-mock.log 2>&1 || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-operator --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/operator.log 2>&1 || true
           kubectl -n agentteams get pods -l app.kubernetes.io/name=agentteams-worker -o yaml > /tmp/agentteams-kind-recovery-diagnostics/worker-pods.yaml || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/control-plane.log 2>&1 || true

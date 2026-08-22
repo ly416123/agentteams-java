@@ -83,6 +83,18 @@ def main():
     worker_crd = (ROOT / "deploy/helm/agentteams-java/crds/workers.yaml").read_text(encoding="utf-8")
     if "tlsSecret" not in worker_crd:
         fail("Worker CRD schema missing tlsSecret")
+    qwenpaw_mock_manifest = ROOT / "deploy/kind-qwenpaw-openai-mock.yaml"
+    qwenpaw_mock_script = ROOT / "scripts/qwenpaw-openai-mock.py"
+    if not qwenpaw_mock_manifest.exists() or not qwenpaw_mock_script.exists():
+        fail("Kind QwenPaw deterministic model mock assets are missing")
+    qwenpaw_mock_manifest_text = qwenpaw_mock_manifest.read_text(encoding="utf-8")
+    qwenpaw_mock_script_text = qwenpaw_mock_script.read_text(encoding="utf-8")
+    for required in ("qwenpaw-openai-mock", "python:3.12-alpine", "server.py"):
+        if required not in qwenpaw_mock_manifest_text:
+            fail(f"QwenPaw mock manifest missing {required}")
+    for required in ("/chat/completions", "KIND_LEASE_RECOVERY_OK", "stream"):
+        if required not in qwenpaw_mock_script_text:
+            fail(f"QwenPaw mock server missing {required}")
     control_plane = (ROOT / "deploy/helm/agentteams-java/templates/control-plane.yaml").read_text(encoding="utf-8")
     for required in ("controlPlaneServiceAccountName", "AGENTTEAMS_TEAM_SYNC_ENABLED",
                      "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
@@ -127,6 +139,11 @@ def main():
         if not required_path.exists():
             fail(f"OIDC Kind asset missing {required_path.relative_to(ROOT)}")
     oidc_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    if ("Configure deterministic QwenPaw model" not in oidc_workflow
+            or "kind-qwenpaw-openai-mock.yaml" not in oidc_workflow
+            or "agentteams-kind-mock" not in oidc_workflow
+            or "/api/models/custom-providers" not in oidc_workflow):
+        fail("CI recovery job must configure the deterministic QwenPaw model mock")
     oidc_values = (ROOT / "deploy/helm/kind-oidc-values.yaml").read_text(encoding="utf-8")
     matrix_values = (ROOT / "deploy/helm/kind-matrix-values.yaml").read_text(encoding="utf-8")
     if "kind-oidc:" not in oidc_workflow:
