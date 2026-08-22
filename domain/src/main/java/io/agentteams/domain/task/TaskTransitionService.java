@@ -145,7 +145,8 @@ public final class TaskTransitionService {
 
     private boolean legal(TaskPhase from, TaskPhase to) {
         return switch (from) {
-            case DRAFT -> to == TaskPhase.QUEUED || to == TaskPhase.PAUSED || to == TaskPhase.REJECTED;
+            case DRAFT -> to == TaskPhase.QUEUED || to == TaskPhase.PAUSED || to == TaskPhase.REJECTED
+                    || to == TaskPhase.CANCELLED;
             case QUEUED -> to == TaskPhase.ASSIGNED
                     || to == TaskPhase.PAUSED
                     || to == TaskPhase.REJECTED

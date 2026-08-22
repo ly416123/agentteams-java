@@ -120,6 +120,15 @@ class TaskTransitionServiceTest {
     }
 
     @Test
+    void allowsCancellingDraftTaskBeforeQueueing() {
+        Task cancelled = apply(Task.draft(UUID.randomUUID(), START), TaskTransitionCommand.simple(
+                UUID.randomUUID(), 0, TaskPhase.CANCELLED, at(4), "user-1", "matrix"));
+
+        assertEquals(TaskPhase.CANCELLED, cancelled.phase());
+        assertTrue(cancelled.phase().terminal());
+    }
+
+    @Test
     void rejectsIllegalTransitionsWithTheCurrentAndRequestedPhases() {
         Task draft = Task.draft(UUID.randomUUID(), START);
 

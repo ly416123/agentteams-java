@@ -109,7 +109,7 @@ user_id="$(printf '%s' "${registration}" | json_string user_id)"
 }
 
 mapping_id="00000000-0000-0000-0000-000000000042"
-mapping_sql="INSERT INTO platform_identities(id, subject, tenant, project, team, permissions, created_at, updated_at, matrix_user_id) VALUES ('${mapping_id}', 'matrix-smoke', 'tenant-a', 'project-a', 'team-a', '[\"task:create\",\"task:read\",\"task:cancel\"]'::jsonb, now(), now(), '${user_id}') ON CONFLICT (subject) DO UPDATE SET tenant=EXCLUDED.tenant, project=EXCLUDED.project, team=EXCLUDED.team, permissions=EXCLUDED.permissions, updated_at=now(), matrix_user_id=EXCLUDED.matrix_user_id"
+mapping_sql="INSERT INTO platform_identities(id, subject, tenant, project, team, permissions, created_at, updated_at, matrix_user_id) VALUES ('${mapping_id}', 'matrix-smoke', 'tenant-a', 'project-a', 'team-a', '[\"task:create\",\"task:read\",\"task:cancel\",\"task:retry\",\"task:pause\",\"task:approve\",\"task:reject\"]'::jsonb, now(), now(), '${user_id}') ON CONFLICT (subject) DO UPDATE SET tenant=EXCLUDED.tenant, project=EXCLUDED.project, team=EXCLUDED.team, permissions=EXCLUDED.permissions, updated_at=now(), matrix_user_id=EXCLUDED.matrix_user_id"
 kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
   psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "${mapping_sql}" >/dev/null
 
@@ -121,60 +121,199 @@ room="$(curl --fail --silent --show-error --request POST \
 room_id="$(printf '%s' "${room}" | json_string room_id)"
 [[ -n "${room_id}" ]] || { echo "Matrix room creation failed: ${room}" >&2; exit 1; }
 
-title="matrix-e2e-${run_id}"
-send_response="$(curl --fail --silent --show-error --request PUT \
-  "${MATRIX_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${run_id}" \
-  --header "Authorization: Bearer ${user_token}" \
-  --header 'Content-Type: application/json' \
-  --data "{\"msgtype\":\"m.text\",\"body\":\"!agentteams start ${title}\"}")"
-grep -F 'event_id' <<<"${send_response}" >/dev/null || {
-  echo "Matrix message send failed: ${send_response}" >&2
-  exit 1
+send_matrix_command() {
+  local transaction="$1"
+  local body="$2"
+  local send_response
+  send_response="$(curl --fail --silent --show-error --request PUT \
+    "${MATRIX_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${transaction}" \
+    --header "Authorization: Bearer ${user_token}" \
+    --header 'Content-Type: application/json' \
+    --data "{\"msgtype\":\"m.text\",\"body\":\"${body}\"}")"
+  grep -F 'event_id' <<<"${send_response}" >/dev/null || {
+    echo "Matrix message send failed for ${body}: ${send_response}" >&2
+    exit 1
+  }
 }
 
-task_id=""
-deadline=$((SECONDS + 90))
-while [[ -z "${task_id}" ]]; do
-  task_id="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+find_task_by_title() {
+  local title="$1"
+  kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
     psql -At -U agentteams -d agentteams -c \
     "SELECT id FROM tasks WHERE actor='matrix-smoke' AND source='matrix' AND title='${title}' ORDER BY created_at DESC LIMIT 1" \
-    | tr -d '\r' | head -n 1)"
-  [[ -n "${task_id}" ]] && break
-  if (( SECONDS >= deadline )); then
-    echo "Matrix command did not create a task" >&2
-    kubectl -n "${NAMESPACE}" logs deployment/tuwunel --tail=120 >&2 || true
-    exit 1
-  fi
-  sleep 2
-done
-
-status_txn="kind-matrix-status-${run_id}"
-status_body="!agentteams status ${task_id}"
-status_response="$(curl --fail --silent --show-error --request PUT \
-  "${MATRIX_URL}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${status_txn}" \
-  --header "Authorization: Bearer ${user_token}" \
-  --header 'Content-Type: application/json' \
-  --data "{\"msgtype\":\"m.text\",\"body\":\"${status_body}\"}")"
-grep -F 'event_id' <<<"${status_response}" >/dev/null || {
-  echo "Matrix status message send failed: ${status_response}" >&2
-  exit 1
+    | tr -d '\r' | head -n 1
 }
 
-status_seen=0
-deadline=$((SECONDS + 90))
-while [[ "${status_seen}" != "1" ]]; do
-  status_seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
-    psql -At -U agentteams -d agentteams -c \
-    "SELECT CASE WHEN EXISTS (SELECT 1 FROM matrix_inbox_events WHERE room_id='${room_id}' AND sender='${user_id}' AND body='${status_body}') THEN 1 ELSE 0 END" \
-    | tr -d '\r' | head -n 1)"
-  [[ "${status_seen}" == "1" ]] && break
-  if (( SECONDS >= deadline )); then
-    echo "Matrix status command was not delivered to Control Plane" >&2
-    exit 1
-  fi
-  sleep 2
-done
+start_task() {
+  local title="$1"
+  local transaction="kind-matrix-start-${RANDOM}-${SECONDS}"
+  send_matrix_command "${transaction}" "!agentteams start ${title}"
+  local task_id=""
+  local deadline=$((SECONDS + 90))
+  while [[ -z "${task_id}" ]]; do
+    task_id="$(find_task_by_title "${title}")"
+    [[ -n "${task_id}" ]] && break
+    if (( SECONDS >= deadline )); then
+      echo "Matrix command did not create task ${title}" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "${task_id}"
+}
+
+wait_task_phase() {
+  local task_id="$1"
+  local expected_phase="$2"
+  local deadline=$((SECONDS + 90))
+  local phase=""
+  while [[ "${phase}" != "${expected_phase}" ]]; do
+    phase="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+      psql -At -U agentteams -d agentteams -c "SELECT phase FROM tasks WHERE id='${task_id}'" \
+      | tr -d '\r' | head -n 1)"
+    [[ "${phase}" == "${expected_phase}" ]] && break
+    if (( SECONDS >= deadline )); then
+      echo "Task ${task_id} did not reach ${expected_phase}; current=${phase}" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+task_version() {
+  local task_id="$1"
+  kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+    psql -At -U agentteams -d agentteams -c "SELECT version FROM tasks WHERE id='${task_id}'" \
+    | tr -d '\r' | head -n 1
+}
+
+wait_task_transition() {
+  local task_id="$1"
+  local minimum_version="$2"
+  local deadline=$((SECONDS + 90))
+  local seen=0
+  while [[ "${seen}" != "1" ]]; do
+    seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+      psql -At -U agentteams -d agentteams -c \
+      "SELECT CASE WHEN EXISTS (SELECT 1 FROM domain_events WHERE aggregate_type='task' AND aggregate_id='${task_id}' AND event_type='TaskPhaseChanged' AND aggregate_version > ${minimum_version}) THEN 1 ELSE 0 END" \
+      | tr -d '\r' | head -n 1)"
+    [[ "${seen}" == "1" ]] && break
+    if (( SECONDS >= deadline )); then
+      echo "Task ${task_id} did not record a phase transition after version ${minimum_version}" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+wait_matrix_event() {
+  local body="$1"
+  local deadline=$((SECONDS + 90))
+  local seen=0
+  while [[ "${seen}" != "1" ]]; do
+    seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+      psql -At -U agentteams -d agentteams -c \
+      "SELECT CASE WHEN EXISTS (SELECT 1 FROM matrix_inbox_events WHERE room_id='${room_id}' AND sender='${user_id}' AND body='${body}') THEN 1 ELSE 0 END" \
+      | tr -d '\r' | head -n 1)"
+    [[ "${seen}" == "1" ]] && break
+    if (( SECONDS >= deadline )); then
+      echo "Matrix command was not delivered: ${body}" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+title="matrix-e2e-${run_id}"
+task_id="$(start_task "${title}")"
+
+status_body="!agentteams status ${task_id}"
+send_matrix_command "kind-matrix-status-${run_id}" "${status_body}"
+wait_matrix_event "${status_body}"
+
+approve_body="!agentteams approve ${task_id}"
+send_matrix_command "kind-matrix-approve-${run_id}" "${approve_body}"
+wait_matrix_event "${approve_body}"
+approval_seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -At -U agentteams -d agentteams -c "SELECT CASE WHEN spec->>'approvalGranted'='true' THEN 1 ELSE 0 END FROM tasks WHERE id='${task_id}'" \
+  | tr -d '\r' | head -n 1)"
+[[ "${approval_seen}" == "1" ]] || { echo "Matrix approve did not update task spec" >&2; exit 1; }
+
+pause_body="!agentteams pause ${task_id}"
+send_matrix_command "kind-matrix-pause-${run_id}" "${pause_body}"
+wait_matrix_event "${pause_body}"
+wait_task_phase "${task_id}" "PAUSED"
+resume_version="$(task_version "${task_id}")"
+send_matrix_command "kind-matrix-resume-${run_id}" "${pause_body}"
+wait_matrix_event "${pause_body}"
+wait_task_transition "${task_id}" "${resume_version}"
+
+cancel_title="matrix-e2e-cancel-${run_id}"
+cancel_task_id="$(start_task "${cancel_title}")"
+cancel_body="!agentteams cancel ${cancel_task_id}"
+send_matrix_command "kind-matrix-cancel-${run_id}" "${cancel_body}"
+wait_matrix_event "${cancel_body}"
+wait_task_phase "${cancel_task_id}" "CANCELLED"
+
+reject_title="matrix-e2e-reject-${run_id}"
+reject_task_id="$(start_task "${reject_title}")"
+reject_body="!agentteams reject ${reject_task_id}"
+send_matrix_command "kind-matrix-reject-${run_id}" "${reject_body}"
+wait_matrix_event "${reject_body}"
+wait_task_phase "${reject_task_id}" "REJECTED"
+
+retry_title="matrix-e2e-retry-${run_id}"
+retry_task_id="$(start_task "${retry_title}")"
+kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c \
+  "UPDATE tasks SET phase='FAILED', failure_code='SMOKE_FAILURE', redacted_failure_message='synthetic failure for Matrix retry smoke' WHERE id='${retry_task_id}'" >/dev/null
+retry_body="!agentteams retry ${retry_task_id}"
+retry_version="$(task_version "${retry_task_id}")"
+send_matrix_command "kind-matrix-retry-${run_id}" "${retry_body}"
+wait_matrix_event "${retry_body}"
+wait_task_transition "${retry_task_id}" "${retry_version}"
+
+denied_title="matrix-e2e-denied-${run_id}"
+denied_task_id="$(start_task "${denied_title}")"
+deny_sql="UPDATE platform_identities SET permissions='[\"task:create\",\"task:read\",\"task:cancel\",\"task:retry\",\"task:pause\",\"task:approve\"]'::jsonb, updated_at=now() WHERE subject='matrix-smoke'"
+kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "${deny_sql}" >/dev/null
+denied_transaction="kind-matrix-denied-${run_id}"
+denied_event="\$${denied_transaction}"
+denied_payload="{\"events\":[{\"event_id\":\"${denied_event}\",\"type\":\"m.room.message\",\"room_id\":\"${room_id}\",\"sender\":\"${user_id}\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"!agentteams reject ${denied_task_id}\"}}]}"
+denied_status="$(curl --silent --show-error --output "${API_LOG}.denied" --write-out '%{http_code}' \
+  --request PUT "${API_URL}/_matrix/app/v1/transactions/${denied_transaction}" \
+  --header "Authorization: Bearer ${HS_TOKEN}" --header 'Content-Type: application/json' \
+  --data "${denied_payload}")"
+[[ "${denied_status}" == "403" ]] || { echo "Matrix permission denial expected 403, got ${denied_status}" >&2; exit 1; }
+wait_task_phase "${denied_task_id}" "DRAFT"
+kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "${mapping_sql}" >/dev/null
+rm -f "${API_LOG}.denied"
+
+duplicate_transaction="kind-matrix-duplicate-pause-${run_id}"
+duplicate_event="\$${duplicate_transaction}"
+duplicate_payload="{\"events\":[{\"event_id\":\"${duplicate_event}\",\"type\":\"m.room.message\",\"room_id\":\"${room_id}\",\"sender\":\"${user_id}\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"!agentteams pause ${denied_task_id}\"}}]}"
+duplicate_first="$(curl --fail --silent --show-error --request PUT \
+  "${API_URL}/_matrix/app/v1/transactions/${duplicate_transaction}" \
+  --header "Authorization: Bearer ${HS_TOKEN}" --header 'Content-Type: application/json' \
+  --data "${duplicate_payload}")"
+grep -F '"status":"HANDLED"' <<<"${duplicate_first}" >/dev/null || {
+  echo "Matrix direct pause was not handled: ${duplicate_first}" >&2
+  exit 1
+}
+wait_task_phase "${denied_task_id}" "PAUSED"
+duplicate_second="$(curl --fail --silent --show-error --request PUT \
+  "${API_URL}/_matrix/app/v1/transactions/${duplicate_transaction}" \
+  --header "Authorization: Bearer ${HS_TOKEN}" --header 'Content-Type: application/json' \
+  --data "${duplicate_payload}")"
+grep -F '"duplicate":true' <<<"${duplicate_second}" >/dev/null || {
+  echo "Matrix duplicate mutation was not acknowledged: ${duplicate_second}" >&2
+  exit 1
+}
+wait_task_phase "${denied_task_id}" "PAUSED"
 
 echo "KIND_MATRIX_APPSERVICE_OK"
 echo "KIND_MATRIX_E2E_OK task=${task_id} user=${user_id} room=${room_id}"
-echo "KIND_MATRIX_STATUS_E2E_OK task=${task_id}"
+echo "KIND_MATRIX_LIFECYCLE_E2E_OK cancel=${cancel_task_id} reject=${reject_task_id} retry=${retry_task_id} denied=${denied_task_id}"
+echo "KIND_MATRIX_DUPLICATE_MUTATION_OK task=${denied_task_id}"
