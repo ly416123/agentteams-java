@@ -21,21 +21,21 @@ public final class OutboxEventRepository {
                 INSERT INTO outbox_events
                     (id, event_id, aggregate_type, aggregate_id, event_type, payload, aggregate_version,
                      occurred_at, status, attempts, next_attempt_at, last_error, claim_token,
-                     created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     created_at, updated_at, version, correlation_id, traceparent, tracestate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, event.id(), event.eventId(), event.aggregateType(), event.aggregateId(), event.eventType(),
                 JdbcSupport.json(event.payloadJson()), event.aggregateVersion(), JdbcSupport.timestamp(event.occurredAt()),
                 event.status(), event.attempts(),
                 JdbcSupport.timestamp(event.nextAttemptAt()), event.lastError(),
                 event.claimToken(), JdbcSupport.timestamp(event.createdAt()), JdbcSupport.timestamp(event.updatedAt()),
-                event.version());
+                event.version(), event.correlationId(), event.traceparent(), event.tracestate());
     }
 
     public Optional<OutboxEventRecord> findByEventId(UUID eventId) {
         return jdbc.query("""
                 SELECT id, event_id, aggregate_type, aggregate_id, event_type, payload::text,
                        aggregate_version, occurred_at, status, attempts, next_attempt_at, last_error,
-                       claim_token, created_at, updated_at, version
+                       claim_token, created_at, updated_at, version, correlation_id, traceparent, tracestate
                   FROM outbox_events WHERE event_id = ?
                 """, this::map, eventId).stream().findFirst();
     }
@@ -77,7 +77,7 @@ public final class OutboxEventRepository {
         return jdbc.query("""
                 SELECT id, event_id, aggregate_type, aggregate_id, event_type, payload::text,
                        aggregate_version, occurred_at, status, attempts, next_attempt_at, last_error,
-                       claim_token, created_at, updated_at, version
+                       claim_token, created_at, updated_at, version, correlation_id, traceparent, tracestate
                   FROM outbox_events
                  WHERE status = 'PENDING' AND next_attempt_at <= ?
                  ORDER BY next_attempt_at, created_at
@@ -96,7 +96,7 @@ public final class OutboxEventRepository {
         List<OutboxEventRecord> due = jdbc.query("""
                 SELECT id, event_id, aggregate_type, aggregate_id, event_type, payload::text,
                        aggregate_version, occurred_at, status, attempts, next_attempt_at, last_error,
-                       claim_token, created_at, updated_at, version
+                       claim_token, created_at, updated_at, version, correlation_id, traceparent, tracestate
                   FROM outbox_events
                  WHERE (status = 'PENDING' AND next_attempt_at <= ?)
                     OR (status = 'IN_FLIGHT' AND next_attempt_at <= ?)
@@ -118,7 +118,8 @@ public final class OutboxEventRepository {
             claimed.add(new OutboxEventRecord(event.id(), event.eventId(), event.aggregateType(), event.aggregateId(),
                     event.eventType(), event.payloadJson(), event.aggregateVersion(), event.occurredAt(),
                     "IN_FLIGHT", event.attempts() + 1, leaseUntil, event.lastError(), claimToken,
-                    event.createdAt(), now, event.version() + 1));
+                    event.createdAt(), now, event.version() + 1, event.correlationId(), event.traceparent(),
+                    event.tracestate()));
         }
         return claimed;
     }
@@ -159,6 +160,7 @@ public final class OutboxEventRepository {
                 JdbcSupport.instant(rs, "next_attempt_at"), rs.getString("last_error"),
                 rs.getObject("claim_token", UUID.class),
                 JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"),
-                rs.getLong("version"));
+                rs.getLong("version"), rs.getString("correlation_id"), rs.getString("traceparent"),
+                rs.getString("tracestate"));
     }
 }

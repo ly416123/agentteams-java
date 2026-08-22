@@ -8,6 +8,7 @@ import com.google.protobuf.Timestamp;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ServerMessage;
 import io.agentteams.contracts.v1.TaskAssigned;
+import io.agentteams.application.api.TraceContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Iterator;
@@ -35,11 +36,11 @@ public final class TaskAssignedCommandHandler {
 
     public boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt,
             KnownTaskFields taskFields) {
-        return handle(eventType, aggregateId, payloadJson, occurredAt, taskFields, 0);
+        return handle(eventType, aggregateId, payloadJson, occurredAt, taskFields, 0, TraceContext.empty());
     }
 
     private boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt,
-            KnownTaskFields taskFields, long expectedVersion) {
+            KnownTaskFields taskFields, long expectedVersion, TraceContext context) {
         if (!EVENT_TYPE.equals(eventType)) {
             return false;
         }
@@ -60,6 +61,9 @@ public final class TaskAssignedCommandHandler {
                 .setLeaseId(payload.leaseId().toString())
                 .setExpectedVersion(expectedVersion)
                 .setOccurredAt(timestamp(occurredAt))
+                .setCorrelationId(context.correlationId())
+                .setTraceparent(context.traceparent())
+                .setTracestate(context.tracestate())
                 .build();
         TaskAssigned assigned = TaskAssigned.newBuilder()
                 .setMetadata(metadata)
@@ -74,11 +78,16 @@ public final class TaskAssignedCommandHandler {
 
     /** Handles the canonical assignment payload emitted by the Control Plane outbox. */
     public boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt) {
+        return handle(eventType, aggregateId, payloadJson, occurredAt, TraceContext.empty());
+    }
+
+    public boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt,
+            TraceContext context) {
         if (!EVENT_TYPE.equals(eventType)) {
             return false;
         }
         return handle(eventType, aggregateId, payloadJson, occurredAt, parseKnownTaskFields(payloadJson),
-                parseExpectedVersion(payloadJson));
+                parseExpectedVersion(payloadJson), context == null ? TraceContext.empty() : context);
     }
 
     private long parseExpectedVersion(String payloadJson) {

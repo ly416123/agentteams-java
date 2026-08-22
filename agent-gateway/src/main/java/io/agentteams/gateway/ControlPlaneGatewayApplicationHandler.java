@@ -57,7 +57,7 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(eventId, bindingId, snapshotId,
                 uuid(connection.agentId(), "agent_id"), event.getConfigVersion(), event.getApplied(),
                 event.getErrorMessage(), occurredAt(metadata), SOURCE,
-                GrpcTransportIdentity.currentCorrelationId()));
+                correlationId(metadata)));
     }
 
     @Override
@@ -95,7 +95,7 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
                 event.getLeaseExpiresAt().getNanos());
         executionEvents.renewLease(taskId, new LeaseRenewalCommand(eventId, metadata.getExpectedVersion(),
                 attemptId, leaseId, at, requestedExpiry, connection.agentId(), SOURCE,
-                GrpcTransportIdentity.currentCorrelationId()));
+                correlationId(metadata)));
     }
 
     @Override
@@ -126,7 +126,7 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         Instant at = occurredAt(metadata);
         executionEvents.apply(taskId, new TaskExecutionCommand(eventId, metadata.getExpectedVersion(), attemptId,
                 leaseId, at, connection.agentId(), SOURCE, phase, failureCode, failureMessage,
-                GrpcTransportIdentity.currentCorrelationId()), artifacts);
+                correlationId(metadata)), artifacts);
     }
 
     private static ArtifactReference artifact(ArtifactRef ref, EventMetadata metadata, Instant at) {
@@ -146,6 +146,11 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         } catch (RuntimeException ex) {
             throw invalid("occurred_at is invalid");
         }
+    }
+
+    private static String correlationId(EventMetadata metadata) {
+        return metadata.getCorrelationId().isBlank()
+                ? GrpcTransportIdentity.currentCorrelationId() : metadata.getCorrelationId();
     }
 
     private static UUID uuid(String value, String field) {

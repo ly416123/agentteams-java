@@ -36,6 +36,9 @@ message EventMetadata {
   google.protobuf.Timestamp occurred_at = 6;
   uint64 expected_version = 7;
   string lease_id = 8;
+  string correlation_id = 9;
+  string traceparent = 10;
+  string tracestate = 11;
 }
 
 message AgentHello {

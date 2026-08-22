@@ -41,7 +41,8 @@ public final class NatsEventPublisher implements EventPublisher {
         Objects.requireNonNull(event, "event");
         Objects.requireNonNull(subject, "subject");
         EventEnvelope envelope = new EventEnvelope(event.eventId(), event.eventType(), event.aggregateType(),
-                event.aggregateId(), event.aggregateVersion(), event.occurredAt(), payload);
+                event.aggregateId(), event.aggregateVersion(), event.occurredAt(), payload,
+                event.correlationId(), event.traceparent(), event.tracestate());
         transport.publish(subject, objectMapper.writeValueAsBytes(envelope), event.eventId().toString());
     }
 

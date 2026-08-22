@@ -19,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import io.agentteams.application.api.TraceContext;
 
 /** Consumes Control Plane Outbox envelopes and turns them into durable gateway commands. */
 public final class NatsGatewayEventConsumer implements AutoCloseable {
@@ -115,10 +116,10 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         Objects.requireNonNull(message, "message");
         GatewayOutboxEvent event = parse(message.getData());
         boolean handled = commandHandler.handle(event.eventType(), event.aggregateId().toString(),
-                event.payload().toString(), event.occurredAt());
+                event.payload().toString(), event.occurredAt(), event.context());
         if (!handled) {
             handled = configHandler.handle(event.eventType(), event.aggregateId().toString(),
-                    event.payload().toString(), event.occurredAt());
+                    event.payload().toString(), event.occurredAt(), event.context());
         }
         message.ack();
         metrics.natsEventProcessed();
@@ -210,7 +211,8 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 throw new IllegalArgumentException("payload must be a JSON object");
             }
             return new GatewayOutboxEvent(eventId, eventType, aggregateType, aggregateId, version.asLong(),
-                    occurredAt, payload);
+                    occurredAt, payload, new TraceContext(optionalText(root, "correlation_id", "unknown"),
+                            optionalText(root, "traceparent", ""), optionalText(root, "tracestate", "")));
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("NATS event payload is invalid JSON", error);
         }
@@ -233,6 +235,11 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         return value.asText();
     }
 
+    private static String optionalText(JsonNode root, String field, String fallback) {
+        JsonNode value = root.get(field);
+        return value == null ? fallback : text(root, field);
+    }
+
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be blank");
@@ -241,6 +248,6 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     }
 
     private record GatewayOutboxEvent(UUID eventId, String eventType, String aggregateType, UUID aggregateId,
-            long aggregateVersion, Instant occurredAt, JsonNode payload) {
+            long aggregateVersion, Instant occurredAt, JsonNode payload, TraceContext context) {
     }
 }

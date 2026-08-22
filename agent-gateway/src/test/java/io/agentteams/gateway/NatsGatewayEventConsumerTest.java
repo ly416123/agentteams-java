@@ -37,6 +37,24 @@ class NatsGatewayEventConsumerTest {
     }
 
     @Test
+    void carriesAsyncTraceContextIntoDurableAgentCommand() {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        TaskAssignedCommandHandler commandHandler = new TaskAssignedCommandHandler(delivery);
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(commandHandler, new ObjectMapper());
+        Message message = message(eventJson().replace("\"payload\":{",
+                "\"correlation_id\":\"matrix-42\",\"traceparent\":\"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\",\"tracestate\":\"vendor=value\",\"payload\":{"));
+
+        assertThat(consumer.process(message)).isTrue();
+
+        var command = org.mockito.ArgumentCaptor.forClass(io.agentteams.contracts.v1.ServerMessage.class);
+        verify(delivery).deliver(org.mockito.ArgumentMatchers.eq(AGENT_ID.toString()), command.capture());
+        assertThat(command.getValue().getTaskAssigned().getMetadata().getCorrelationId()).isEqualTo("matrix-42");
+        assertThat(command.getValue().getTaskAssigned().getMetadata().getTraceparent())
+                .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+        assertThat(command.getValue().getTaskAssigned().getMetadata().getTracestate()).isEqualTo("vendor=value");
+    }
+
+    @Test
     void acknowledgesKnownButIrrelevantEventsWithoutDeliveringCommands() {
         CommandDeliveryService delivery = mock(CommandDeliveryService.class);
         NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(

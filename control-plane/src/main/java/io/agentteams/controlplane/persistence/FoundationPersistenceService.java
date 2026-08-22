@@ -10,6 +10,7 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.MDC;
 import java.util.function.Function;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -297,8 +298,21 @@ public final class FoundationPersistenceService {
                 eventType, payloadJson, occurredAt, aggregateVersion);
         tx.domainEvents().insert(domainEvent);
         tx.outboxEvents().insert(OutboxEventRecord.pending(eventId, aggregateType, aggregateId,
-                eventType, payloadJson, aggregateVersion, occurredAt, occurredAt));
+                eventType, payloadJson, aggregateVersion, occurredAt, occurredAt, currentTraceContext()));
         return eventId;
+    }
+
+    private static io.agentteams.application.api.TraceContext currentTraceContext() {
+        String correlationId = MDC.get("correlationId");
+        String traceId = MDC.get("traceId");
+        String spanId = MDC.get("spanId");
+        String traceparent = "";
+        if (traceId != null && traceId.matches("[0-9a-fA-F]{32}")
+                && spanId != null && spanId.matches("[0-9a-fA-F]{16}")) {
+            traceparent = "00-" + traceId.toLowerCase(java.util.Locale.ROOT) + "-"
+                    + spanId.toLowerCase(java.util.Locale.ROOT) + "-01";
+        }
+        return new io.agentteams.application.api.TraceContext(correlationId, traceparent, MDC.get("tracestate"));
     }
 
     private static String idPayload(UUID id) {

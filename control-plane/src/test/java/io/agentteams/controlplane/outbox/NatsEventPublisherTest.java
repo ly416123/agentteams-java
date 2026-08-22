@@ -9,6 +9,7 @@ import io.nats.client.JetStream;
 import io.nats.client.PublishOptions;
 import io.nats.client.api.PublishAck;
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
+import io.agentteams.application.api.TraceContext;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,26 @@ class NatsEventPublisherTest {
         assertThat(body.get("event_id").asText()).isEqualTo(event.eventId().toString());
         assertThat(body.get("aggregate_version").asLong()).isEqualTo(3);
         assertThat(body.get("payload").get("title").asText()).isEqualTo("safe");
+    }
+
+    @Test
+    void publishesPersistedAsyncTraceContextWithoutChangingThePayloadContract() throws Exception {
+        RecordingJetStreamTransport transport = new RecordingJetStreamTransport();
+        NatsEventPublisher publisher = new NatsEventPublisher(transport,
+                new ObjectMapper().findAndRegisterModules());
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        OutboxEventRecord event = OutboxEventRecord.pending(UUID.randomUUID(), "task", UUID.randomUUID(),
+                "TaskCreated", "{\"title\":\"safe\"}", 3, now, now,
+                new TraceContext("request-7",
+                        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "vendor=value"));
+
+        publisher.publish(event);
+
+        JsonNode body = new ObjectMapper().readTree(transport.payload);
+        assertThat(body.get("correlation_id").asText()).isEqualTo("request-7");
+        assertThat(body.get("traceparent").asText())
+                .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+        assertThat(body.get("tracestate").asText()).isEqualTo("vendor=value");
     }
 
     @Test

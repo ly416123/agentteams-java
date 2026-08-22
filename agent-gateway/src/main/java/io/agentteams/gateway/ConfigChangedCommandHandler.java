@@ -7,6 +7,7 @@ import io.agentteams.contracts.v1.ConfigFile;
 import io.agentteams.contracts.v1.ConfigChanged;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ServerMessage;
+import io.agentteams.application.api.TraceContext;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -24,6 +25,11 @@ public final class ConfigChangedCommandHandler {
     }
 
     public boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt) {
+        return handle(eventType, aggregateId, payloadJson, occurredAt, TraceContext.empty());
+    }
+
+    public boolean handle(String eventType, String aggregateId, String payloadJson, Instant occurredAt,
+            TraceContext context) {
         if (!EVENT_TYPE.equals(eventType)) return false;
         JsonNode root = parse(payloadJson);
         UUID agentId = uuid(root, "agentId");
@@ -43,6 +49,9 @@ public final class ConfigChangedCommandHandler {
                 .setAgentId(agentId.toString())
                 .setExpectedVersion(nonNegative(root, "expectedVersion", 0))
                 .setOccurredAt(timestamp(occurredAt))
+                .setCorrelationId(context == null ? "unknown" : context.correlationId())
+                .setTraceparent(context == null ? "" : context.traceparent())
+                .setTracestate(context == null ? "" : context.tracestate())
                 .build();
         ConfigChanged changed = ConfigChanged.newBuilder()
                 .setMetadata(metadata)
