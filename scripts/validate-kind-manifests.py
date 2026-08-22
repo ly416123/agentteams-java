@@ -153,6 +153,15 @@ def main():
             fail(f"Kind NATS Outbox recovery script missing {required}")
     if "run-kind-nats-outbox-recovery.py --agent-id" not in oidc_workflow:
         fail("CI must execute the Kind NATS Outbox recovery test")
+    gateway_replay_script = ROOT / "scripts/run-kind-gateway-replay.py"
+    if not gateway_replay_script.exists():
+        fail("Kind Gateway replay recovery script does not exist")
+    gateway_replay_text = gateway_replay_script.read_text(encoding="utf-8")
+    for required in ("gateway_commands", "gateway_command_deliveries", "rollout", "KIND_GATEWAY_REPLAY_OK"):
+        if required not in gateway_replay_text:
+            fail(f"Kind Gateway replay recovery script missing {required}")
+    if "run-kind-gateway-replay.py --agent-id" not in oidc_workflow:
+        fail("CI must execute the Kind Gateway replay recovery test")
     if ("Configure deterministic QwenPaw model" not in oidc_workflow
             or "kind-qwenpaw-openai-mock.yaml" not in oidc_workflow
             or "agentteams-kind-mock" not in oidc_workflow

@@ -173,6 +173,8 @@ jobs:
         run: python scripts/run-kind-lease-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind NATS Outbox recovery test
         run: python scripts/run-kind-nats-outbox-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
+      - name: Run Kind Gateway replay recovery test
+        run: python scripts/run-kind-gateway-replay.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Verify multi-replica Prometheus scraping
         run: python scripts/validate-kind-prometheus.py
       - name: Collect Kind diagnostics
@@ -195,6 +197,12 @@ jobs:
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select event_type,status,attempts,last_error,created_at,updated_at from outbox_events order by updated_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/outbox-events.txt 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select agent_id,sequence,event_id,created_at from gateway_commands order by created_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/gateway-commands.txt 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select agent_id,last_ack_sequence,updated_at from gateway_ack_cursors order by updated_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/gateway-ack-cursors.txt 2>&1 || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-operator --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/operator.log 2>&1 || true
           kubectl -n agentteams get pods -l app.kubernetes.io/name=agentteams-worker -o yaml > /tmp/agentteams-kind-recovery-diagnostics/worker-pods.yaml || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/control-plane.log 2>&1 || true
