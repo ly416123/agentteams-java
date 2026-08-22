@@ -41,6 +41,7 @@ import io.agentteams.controlplane.storage.ObjectStorage;
 import io.agentteams.controlplane.observability.ControlPlaneMetrics;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.controlplane.observability.AsyncConsumerTracing;
+import io.agentteams.controlplane.observability.AsyncProducerTracing;
 import io.agentteams.controlplane.security.ApiAuthenticationFilter;
 import io.agentteams.controlplane.security.IdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
@@ -312,9 +313,11 @@ public class ControlPlaneConfiguration {
     @Bean
     @ConditionalOnProperty(name = {"agentteams.nats.enabled", "agentteams.outbox.relay.enabled"},
             havingValue = "true")
-    EventPublisher natsEventPublisher(Connection connection, ObjectMapper objectMapper)
+    EventPublisher natsEventPublisher(Connection connection, ObjectMapper objectMapper,
+            ObjectProvider<Tracer> tracers, ObjectProvider<Propagator> propagators)
             throws IOException {
-        return new NatsEventPublisher(connection.jetStream(), objectMapper);
+        return new NatsEventPublisher(connection.jetStream(), objectMapper, new AsyncProducerTracing(
+                tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
     }
 
     @Bean(destroyMethod = "close")

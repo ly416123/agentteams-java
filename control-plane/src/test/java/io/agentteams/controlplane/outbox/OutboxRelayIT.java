@@ -1,20 +1,34 @@
 package io.agentteams.controlplane.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
+import io.agentteams.controlplane.observability.AsyncProducerTracing;
+import io.agentteams.application.api.TraceContext;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamManagement;
+import io.nats.client.JetStreamSubscription;
+import io.nats.client.Message;
 import io.nats.client.Nats;
 import io.nats.client.api.StorageType;
 import io.nats.client.api.StreamConfiguration;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -102,6 +116,47 @@ class OutboxRelayIT {
         publisher.publish(event);
 
         assertThat(streamMessageCount()).isEqualTo(1);
+    }
+
+    @Test
+    void carriesInjectedProducerContextThroughJetStream() throws Exception {
+        OutboxEventRecord event = event("TaskCreated", 0, new TraceContext("request-7",
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "vendor=value"));
+        Tracer tracer = mock(Tracer.class);
+        Propagator propagator = mock(Propagator.class);
+        Span.Builder builder = mock(Span.Builder.class);
+        Span span = mock(Span.class);
+        Tracer.SpanInScope scope = mock(Tracer.SpanInScope.class);
+        io.micrometer.tracing.TraceContext spanContext = mock(io.micrometer.tracing.TraceContext.class);
+        when(builder.name(anyString())).thenReturn(builder);
+        when(builder.start()).thenReturn(span);
+        when(propagator.extract(any(), any())).thenReturn(builder);
+        when(tracer.withSpan(span)).thenReturn(scope);
+        when(span.context()).thenReturn(spanContext);
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, String> carrier = invocation.getArgument(1);
+            @SuppressWarnings("unchecked")
+            Propagator.Setter<java.util.Map<String, String>> setter = invocation.getArgument(2);
+            setter.set(carrier, "traceparent",
+                    "00-4bf92f3577b34da6a3ce929d0e0e4736-1111111111111111-01");
+            setter.set(carrier, "tracestate", "producer=value");
+            return null;
+        }).when(propagator).inject(org.mockito.ArgumentMatchers.eq(spanContext), any(), any());
+
+        new NatsEventPublisher(jetStream, mapper(), new AsyncProducerTracing(tracer, propagator))
+                .publish(event);
+        JetStreamSubscription subscription = jetStream.subscribe("task.events." + event.aggregateId());
+        try {
+            Message message = subscription.nextMessage(Duration.ofSeconds(2));
+            assertThat(message).isNotNull();
+            JsonNode body = mapper().readTree(message.getData());
+            assertThat(body.get("traceparent").asText())
+                    .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-1111111111111111-01");
+            assertThat(body.get("tracestate").asText()).isEqualTo("producer=value");
+        } finally {
+            subscription.unsubscribe();
+        }
     }
 
     @Test
@@ -193,8 +248,12 @@ class OutboxRelayIT {
     }
 
     private static OutboxEventRecord event(String eventType, int attempts) {
+        return event(eventType, attempts, TraceContext.empty());
+    }
+
+    private static OutboxEventRecord event(String eventType, int attempts, TraceContext context) {
         return OutboxEventRecord.pending(UUID.randomUUID(), "task", UUID.randomUUID(), eventType,
-                "{\"description\":\"task secret\",\"token\":\"credential\"}", 3, NOW, NOW)
+                "{\"description\":\"task secret\",\"token\":\"credential\"}", 3, NOW, NOW, context)
                 .withAttempts(attempts);
     }
 
