@@ -1,0 +1,153 @@
+{
+  "realm": "agentteams",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "task:read" },
+      { "name": "task:create" },
+      { "name": "task:cancel" },
+      { "name": "agent:read" },
+      { "name": "agent:write" },
+      { "name": "config:read" },
+      { "name": "config:write" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "agentteams-api",
+      "name": "AgentTeams API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "clientAuthenticatorType": "none",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "agentteams-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "agentteams-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "project",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "project",
+            "claim.name": "project",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "team",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "team",
+            "claim.name": "team",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "permissions",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "permissions",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@agentteams.local",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "AgentTeams",
+      "requiredActions": [],
+      "attributes": {
+        "tenant": ["tenant-a"],
+        "project": ["project-a"],
+        "team": ["team-a"]
+      },
+      "credentials": [
+        { "type": "password", "value": "alice-dev", "temporary": false }
+      ],
+      "realmRoles": [
+        "task:read", "task:create", "task:cancel",
+        "agent:read", "agent:write", "config:read", "config:write"
+      ]
+    },
+    {
+      "username": "reader",
+      "enabled": true,
+      "email": "reader@agentteams.local",
+      "emailVerified": true,
+      "firstName": "Read",
+      "lastName": "Only",
+      "requiredActions": [],
+      "attributes": {
+        "tenant": ["tenant-a"],
+        "project": ["project-a"],
+        "team": ["team-a"]
+      },
+      "credentials": [
+        { "type": "password", "value": "reader-dev", "temporary": false }
+      ],
+      "realmRoles": ["task:read"]
+    },
+    {
+      "username": "tenant-b-user",
+      "enabled": true,
+      "email": "tenant-b@agentteams.local",
+      "emailVerified": true,
+      "firstName": "Tenant B",
+      "lastName": "User",
+      "requiredActions": [],
+      "attributes": {
+        "tenant": ["tenant-b"],
+        "project": ["project-a"],
+        "team": ["team-a"]
+      },
+      "credentials": [
+        { "type": "password", "value": "tenant-b-dev", "temporary": false }
+      ],
+      "realmRoles": ["task:create"]
+    }
+  ]
+}

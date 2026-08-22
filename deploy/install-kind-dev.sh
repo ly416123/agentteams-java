@@ -69,3 +69,4 @@ kubectl -n "$NAMESPACE" wait --for=condition=available \
 
 echo "Kind 本地基础设施闭环已安装。"
 echo "入口：api.agentteams.localhost、gateway.agentteams.localhost、qwenpaw.agentteams.localhost、prometheus.agentteams.localhost、grafana.agentteams.localhost"
+echo "如需启用本地 OIDC，请执行 deploy/install-kind-oidc.sh。"

@@ -31,6 +31,20 @@ spec:
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
+    {{- if .Values.controlPlane.security.oidc.enabled }}
+    # Local Kind Keycloak uses HTTP inside the namespace; external providers
+    # use the configured HTTPS egress CIDR and port below.
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: keycloak }
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.oidcEgressCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.networkPolicy.oidcEgressPort }} }
+    {{- end }}
     {{- if .Values.networkPolicy.kubernetesApiAllowAllEgress }}
     # Kind's node-level DNAT makes the API destination implementation-specific;
     # keep this development exception limited to Kubernetes API ports.

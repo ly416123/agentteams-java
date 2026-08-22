@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-for command_name in curl jq; do
+for command_name in curl; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "${command_name} is required" >&2
     exit 1
@@ -16,12 +16,22 @@ done
 
 API_URL="${API_URL%/}"
 RUN_ID="$(date +%s)-$$"
-PAYLOAD="$(jq -cn \
-  --arg title "oidc-acceptance-${RUN_ID}" \
-  --arg tenant "${SCOPE_TENANT}" \
-  --arg project "${SCOPE_PROJECT}" \
-  --arg team "${SCOPE_TEAM}" \
-  '{title: $title, spec: {scope: {tenant: $tenant, project: $project, team: $team}}}')"
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "${value}"
+}
+
+PAYLOAD="$(printf '{"title":"%s","spec":{"scope":{"tenant":"%s","project":"%s","team":"%s"}}}' \
+  "$(json_escape "oidc-acceptance-${RUN_ID}")" \
+  "$(json_escape "${SCOPE_TENANT}")" \
+  "$(json_escape "${SCOPE_PROJECT}")" \
+  "$(json_escape "${SCOPE_TEAM}")")"
 
 post_task() {
   local label="$1"
