@@ -104,8 +104,8 @@ public class AgentGatewayGrpcConfiguration {
     @Bean
     @ConditionalOnMissingBean(CommandDeliveryService.class)
     public CommandDeliveryService commandDeliveryService(ConnectionRegistry registry,
-            CommandReplayPort commands, Clock clock) {
-        return new CommandDeliveryService(registry, commands, clock);
+            CommandReplayPort commands, Clock clock, GatewayMetricsPort metrics) {
+        return new CommandDeliveryService(registry, commands, clock, metrics);
     }
 
     @Bean

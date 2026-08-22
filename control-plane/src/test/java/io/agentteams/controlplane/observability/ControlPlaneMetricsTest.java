@@ -21,6 +21,7 @@ class ControlPlaneMetricsTest {
         metrics.outboxDeadLettered();
         metrics.outboxPublishFailed();
         metrics.outboxBacklog(3);
+        metrics.outboxOldestPendingAge(Duration.ofSeconds(42));
         metrics.outboxPublish(Duration.ofMillis(12));
         metrics.taskLeaseExpired();
         metrics.taskLeaseReleased();
@@ -34,6 +35,7 @@ class ControlPlaneMetricsTest {
         assertThat(registry.counter("agentteams.outbox.dead_lettered").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.outbox.publish.failures").count()).isEqualTo(1);
         assertThat(registry.find("agentteams.outbox.backlog").gauge().value()).isEqualTo(3);
+        assertThat(registry.find("agentteams.outbox.oldest.pending.age.seconds").gauge().value()).isEqualTo(42);
         assertThat(registry.timer("agentteams.outbox.publish.latency").count()).isEqualTo(1);
     }
 }

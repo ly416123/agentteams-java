@@ -12,9 +12,11 @@ public final class GatewayMetrics implements GatewayMetricsPort {
     private final Counter opened;
     private final Counter closed;
     private final Counter registered;
+    private final Counter replaced;
     private final Counter rejected;
     private final Counter commandsAppended;
     private final Counter commandsDeduplicated;
+    private final Counter commandsReplayed;
     private final Counter natsEventsProcessed;
     private final Counter natsEventsRejected;
     private final Counter natsConsumerErrors;
@@ -26,9 +28,11 @@ public final class GatewayMetrics implements GatewayMetricsPort {
         opened = registry.counter("agentteams.gateway.connections.opened");
         closed = registry.counter("agentteams.gateway.connections.closed");
         registered = registry.counter("agentteams.gateway.connections.registered");
+        replaced = registry.counter("agentteams.gateway.connections.replaced");
         rejected = registry.counter("agentteams.gateway.events.rejected");
         commandsAppended = registry.counter("agentteams.gateway.commands.appended");
         commandsDeduplicated = registry.counter("agentteams.gateway.commands.deduplicated");
+        commandsReplayed = registry.counter("agentteams.gateway.commands.replayed");
         natsEventsProcessed = registry.counter("agentteams.gateway.nats.events.processed");
         natsEventsRejected = registry.counter("agentteams.gateway.nats.events.rejected");
         natsConsumerErrors = registry.counter("agentteams.gateway.nats.consumer.errors");
@@ -47,6 +51,9 @@ public final class GatewayMetrics implements GatewayMetricsPort {
     public void connectionRegistered() { registered.increment(); }
 
     @Override
+    public void connectionReplaced() { replaced.increment(); }
+
+    @Override
     public void eventRejected() { rejected.increment(); }
 
     @Override
@@ -54,6 +61,9 @@ public final class GatewayMetrics implements GatewayMetricsPort {
 
     @Override
     public void commandDeduplicated() { commandsDeduplicated.increment(); }
+
+    @Override
+    public void commandReplayed() { commandsReplayed.increment(); }
 
     @Override
     public void natsEventProcessed() { natsEventsProcessed.increment(); }

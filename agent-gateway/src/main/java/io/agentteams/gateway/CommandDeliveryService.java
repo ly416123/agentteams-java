@@ -13,11 +13,18 @@ public final class CommandDeliveryService {
     private final ConnectionRegistry registry;
     private final CommandReplayPort commands;
     private final Clock clock;
+    private final GatewayMetricsPort metrics;
 
     public CommandDeliveryService(ConnectionRegistry registry, CommandReplayPort commands, Clock clock) {
+        this(registry, commands, clock, GatewayMetricsPort.noop());
+    }
+
+    public CommandDeliveryService(ConnectionRegistry registry, CommandReplayPort commands, Clock clock,
+            GatewayMetricsPort metrics) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.commands = Objects.requireNonNull(commands, "commands");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     /** Appends an assignment to durable storage before attempting an active-stream delivery. */
@@ -42,6 +49,7 @@ public final class CommandDeliveryService {
                 throw new GatewayExceptions.StaleConnection("connection was replaced during replay");
             }
             sendIfCurrent(connection, command);
+            metrics.commandReplayed();
             sent++;
         }
         return sent;

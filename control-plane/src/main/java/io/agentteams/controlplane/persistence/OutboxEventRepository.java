@@ -54,6 +54,20 @@ public final class OutboxEventRepository {
         return count == null ? 0 : count;
     }
 
+    public Optional<Instant> oldestPendingAt() {
+        return jdbc.query("""
+                SELECT min(created_at) AS oldest_created_at
+                  FROM outbox_events
+                 WHERE status IN ('PENDING', 'IN_FLIGHT')
+                """, resultSet -> {
+            if (!resultSet.next()) {
+                return Optional.empty();
+            }
+            java.sql.Timestamp timestamp = resultSet.getTimestamp("oldest_created_at");
+            return timestamp == null ? Optional.empty() : Optional.of(timestamp.toInstant());
+        });
+    }
+
     public java.util.List<String> eventTypes() {
         return jdbc.query("SELECT event_type FROM outbox_events ORDER BY event_type",
                 (rs, row) -> rs.getString(1));

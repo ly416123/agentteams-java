@@ -5,9 +5,11 @@ public interface GatewayMetricsPort {
     void connectionOpened();
     void connectionClosed();
     void connectionRegistered();
+    default void connectionReplaced() { }
     void eventRejected();
     void commandAppended();
     void commandDeduplicated();
+    default void commandReplayed() { }
 
     default void natsEventProcessed() { }
     default void natsEventRejected() { }

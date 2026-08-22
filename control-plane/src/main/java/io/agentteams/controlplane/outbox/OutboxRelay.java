@@ -58,6 +58,9 @@ public final class OutboxRelay implements AutoCloseable {
         if (pending >= 0) {
             metrics.outboxBacklog(pending);
         }
+        metrics.outboxOldestPendingAge(store.oldestPendingAt()
+                .map(oldest -> Duration.between(oldest, now))
+                .orElse(Duration.ZERO));
         List<OutboxEventRecord> events;
         List<Future<Boolean>> futures = new ArrayList<>();
         synchronized (lifecycleMonitor) {

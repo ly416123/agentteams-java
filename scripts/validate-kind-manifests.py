@@ -38,6 +38,12 @@ def main():
     positions = [installer_text.find(value) for value in order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
         fail("installer steps must be ordered infra, observability, ingress, images, CRD, Helm, Worker bootstrap")
+    for required in (
+            "rollout restart deployment/prometheus",
+            "deployment/agentteams-agentteams-java-control-plane",
+            "deployment/agentteams-agentteams-java-gateway"):
+        if required not in installer_text:
+            fail(f"installer must refresh stable-tagged workload {required}")
     build_script = ROOT / "deploy/build-images.sh"
     if not build_script.exists():
         fail("build image script does not exist")

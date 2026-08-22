@@ -13,8 +13,10 @@ class GatewayMetricsTest {
 
         metrics.connectionOpened();
         metrics.connectionRegistered();
+        metrics.connectionReplaced();
         metrics.commandAppended();
         metrics.commandDeduplicated();
+        metrics.commandReplayed();
         metrics.eventRejected();
         metrics.natsEventProcessed();
         metrics.natsEventRejected();
@@ -24,6 +26,8 @@ class GatewayMetricsTest {
         assertThat(registry.find("agentteams.gateway.connections.active").gauge().value()).isZero();
         assertThat(registry.counter("agentteams.gateway.commands.appended").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.gateway.commands.deduplicated").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.gateway.commands.replayed").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.gateway.connections.replaced").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.gateway.events.rejected").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.gateway.nats.events.processed").count()).isEqualTo(1);
         assertThat(registry.counter("agentteams.gateway.nats.events.rejected").count()).isEqualTo(1);

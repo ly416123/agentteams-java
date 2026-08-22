@@ -83,6 +83,14 @@ data:
             annotations:
               summary: AgentTeams Outbox backlog is not draining
               description: One or more non-terminal Outbox events have remained in the relay backlog for 10 minutes.
+          - alert: AgentTeamsOutboxStalled
+            expr: agentteams_outbox_backlog > 0 and agentteams_outbox_oldest_pending_age_seconds > 300
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: AgentTeams Outbox has a stalled oldest event
+              description: The oldest non-terminal Outbox event has been pending for more than five minutes.
           - alert: AgentTeamsOutboxDeadLettered
             expr: increase(agentteams_outbox_dead_lettered_total[5m]) > 0
             for: 1m
@@ -99,6 +107,14 @@ data:
             annotations:
               summary: AgentTeams Gateway NATS consumer is rejecting events
               description: The Gateway NATS consumer encountered event processing errors in the last 5 minutes.
+          - alert: AgentTeamsGatewayConnectionChurn
+            expr: increase(agentteams_gateway_connections_replaced_total[10m]) > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: AgentTeams Gateway connections are churning
+              description: More than three active Agent streams were replaced in the last ten minutes.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -296,9 +312,11 @@ data:
       "panels": [
         {"id": 1, "type": "stat", "title": "Outbox backlog", "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(agentteams_outbox_backlog)", "refId": "A"}], "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}},
         {"id": 2, "type": "timeseries", "title": "Outbox retry rate", "gridPos": {"h": 5, "w": 9, "x": 6, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(rate(agentteams_outbox_retries_total[5m]))", "legendFormat": "retries/sec", "refId": "A"}]},
-        {"id": 3, "type": "stat", "title": "Dead-letter events (5m)", "gridPos": {"h": 5, "w": 9, "x": 15, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(increase(agentteams_outbox_dead_lettered_total[5m]))", "refId": "A"}], "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}},
+        {"id": 3, "type": "stat", "title": "Dead-letter events (5m)", "gridPos": {"h": 5, "w": 6, "x": 15, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(increase(agentteams_outbox_dead_lettered_total[5m]))", "refId": "A"}], "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}},
+        {"id": 6, "type": "stat", "title": "Oldest Outbox event age", "gridPos": {"h": 5, "w": 3, "x": 21, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "max(agentteams_outbox_oldest_pending_age_seconds)", "refId": "A"}], "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 300}, {"color": "red", "value": 900}]}}, "overrides": []}},
         {"id": 4, "type": "timeseries", "title": "Gateway active connections", "gridPos": {"h": 7, "w": 12, "x": 0, "y": 5}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(agentteams_gateway_connections_active)", "legendFormat": "active", "refId": "A"}]},
-        {"id": 5, "type": "timeseries", "title": "Gateway NATS consumer errors", "gridPos": {"h": 7, "w": 12, "x": 12, "y": 5}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(rate(agentteams_gateway_nats_consumer_errors_total[5m]))", "legendFormat": "errors/sec", "refId": "A"}]}
+        {"id": 5, "type": "timeseries", "title": "Gateway NATS consumer errors", "gridPos": {"h": 7, "w": 8, "x": 12, "y": 5}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(rate(agentteams_gateway_nats_consumer_errors_total[5m]))", "legendFormat": "errors/sec", "refId": "A"}]},
+        {"id": 7, "type": "timeseries", "title": "Gateway connection replacements", "gridPos": {"h": 7, "w": 4, "x": 20, "y": 5}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum(rate(agentteams_gateway_connections_replaced_total[5m]))", "legendFormat": "replacements/sec", "refId": "A"}]}
       ]
     }
 ---

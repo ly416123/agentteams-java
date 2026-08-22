@@ -37,6 +37,7 @@ def main():
         if key not in by_name:
             fail(f"missing {key[0]}/{key[1]}")
     config = by_name[("ConfigMap", "prometheus-config")]["data"].get("prometheus.yml", "")
+    alerts = by_name[("ConfigMap", "prometheus-config")]["data"].get("agentteams-alerts.yml", "")
     for job, label in (("control-plane", "agentteams-control-plane"), ("gateway", "agentteams-gateway")):
         if f"job_name: {job}" not in config or "kubernetes_sd_configs:" not in config:
             fail(f"Prometheus config missing Kubernetes discovery for {job}")
@@ -44,6 +45,15 @@ def main():
             fail(f"Prometheus config missing pod label {label}")
     if "/actuator/prometheus" not in config:
         fail("Prometheus config must scrape /actuator/prometheus")
+    for required in (
+            "AgentTeamsOutboxStalled", "agentteams_outbox_oldest_pending_age_seconds",
+            "AgentTeamsGatewayConnectionChurn", "agentteams_gateway_connections_replaced_total"):
+        if required not in alerts:
+            fail(f"alert rules missing {required}")
+    dashboard = by_name[("ConfigMap", "grafana-dashboards")]["data"].get("agentteams-overview.json", "")
+    for required in ("agentteams_outbox_oldest_pending_age_seconds", "agentteams_gateway_connections_replaced_total"):
+        if required not in dashboard:
+            fail(f"Grafana dashboard missing {required}")
     deployment = by_name[("Deployment", "prometheus")]
     pod_spec = deployment["spec"]["template"]["spec"]
     if pod_spec.get("serviceAccountName") != "prometheus":

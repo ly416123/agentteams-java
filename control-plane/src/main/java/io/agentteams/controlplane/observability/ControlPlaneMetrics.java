@@ -23,6 +23,7 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     private final Timer managerLatency;
     private final Timer outboxPublishLatency;
     private final AtomicLong outboxBacklog = new AtomicLong();
+    private final AtomicLong outboxOldestPendingAgeSeconds = new AtomicLong();
 
     public ControlPlaneMetrics(MeterRegistry registry) {
         Objects.requireNonNull(registry, "registry");
@@ -40,6 +41,7 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
         managerLatency = registry.timer("agentteams.manager.call.latency");
         outboxPublishLatency = registry.timer("agentteams.outbox.publish.latency");
         registry.gauge("agentteams.outbox.backlog", outboxBacklog);
+        registry.gauge("agentteams.outbox.oldest.pending.age.seconds", outboxOldestPendingAgeSeconds);
     }
 
     public void taskCreated() { tasksCreated.increment(); }
@@ -52,6 +54,10 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     public void outboxDeadLettered() { outboxDeadLettered.increment(); }
     public void outboxPublishFailed() { outboxPublishFailures.increment(); }
     public void outboxBacklog(long count) { outboxBacklog.set(Math.max(0, count)); }
+    public void outboxOldestPendingAge(Duration age) {
+        Objects.requireNonNull(age, "age");
+        outboxOldestPendingAgeSeconds.set(Math.max(0, age.getSeconds()));
+    }
     public void outboxPublish(Duration duration) {
         outboxPublishLatency.record(Objects.requireNonNull(duration, "duration"));
     }

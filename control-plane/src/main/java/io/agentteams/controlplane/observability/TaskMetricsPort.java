@@ -16,6 +16,7 @@ public interface TaskMetricsPort {
     default void outboxDeadLettered() { }
     default void outboxPublishFailed() { }
     default void outboxBacklog(long count) { }
+    default void outboxOldestPendingAge(Duration age) { }
     default void outboxPublish(Duration duration) { }
 
     static TaskMetricsPort noop() {

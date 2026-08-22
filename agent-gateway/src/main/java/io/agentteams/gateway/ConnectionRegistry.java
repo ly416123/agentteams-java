@@ -48,6 +48,7 @@ public final class ConnectionRegistry {
         if (replaced == null || replaced == connection) {
             return Optional.empty();
         }
+        metrics.connectionReplaced();
         try {
             termination.terminate(replaced, ConnectionTermination.Termination.stale());
         } finally {

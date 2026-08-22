@@ -30,6 +30,10 @@ kubectl -n "$NAMESPACE" wait --for=condition=complete job/nats-stream-bootstrap 
 
 kubectl apply -f "$ROOT/deploy/kind-observability.yaml"
 kubectl -n "$NAMESPACE" wait --for=condition=available deployment/prometheus deployment/grafana deployment/qwenpaw --timeout=240s
+# The development manifest uses a mounted ConfigMap and Prometheus has no
+# sidecar reloader; restart it so updated rules/config are loaded immediately.
+kubectl -n "$NAMESPACE" rollout restart deployment/prometheus
+kubectl -n "$NAMESPACE" rollout status deployment/prometheus --timeout=180s
 
 helm upgrade --install ingress-nginx ingress-nginx \
   --repo https://kubernetes.github.io/ingress-nginx \
@@ -50,6 +54,12 @@ helm lint "$ROOT/deploy/helm/agentteams-java"
 helm upgrade --install agentteams "$ROOT/deploy/helm/agentteams-java" \
   --namespace "$NAMESPACE" --create-namespace --wait --timeout 5m \
   -f "$ROOT/deploy/helm/kind-values.yaml"
+# Kind intentionally reuses stable :latest tags. Helm cannot detect a rebuilt
+# image when the tag is unchanged, so force a safe application rollout.
+kubectl -n "$NAMESPACE" rollout restart \
+  deployment/agentteams-agentteams-java-control-plane \
+  deployment/agentteams-agentteams-java-gateway \
+  deployment/agentteams-agentteams-java-operator
 kubectl -n "$NAMESPACE" wait --for=condition=available \
   deployment/agentteams-agentteams-java-control-plane \
   deployment/agentteams-agentteams-java-gateway \

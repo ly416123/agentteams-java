@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 public final class JdbcOutboxStore implements OutboxStore {
 
@@ -18,6 +19,11 @@ public final class JdbcOutboxStore implements OutboxStore {
     @Override
     public long pendingCount() {
         return persistence.inTransaction(tx -> tx.outboxEvents().pendingCount());
+    }
+
+    @Override
+    public Optional<Instant> oldestPendingAt() {
+        return persistence.inTransaction(tx -> tx.outboxEvents().oldestPendingAt());
     }
 
     @Override

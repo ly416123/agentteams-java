@@ -39,6 +39,7 @@ class OutboxRelayTest {
     void recordsBacklogAndPublishOutcomeMetrics() {
         FakeStore store = new FakeStore(event(1));
         store.pending = 4;
+        store.oldestPendingAt = NOW.minusSeconds(42);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         ControlPlaneMetrics metrics = new ControlPlaneMetrics(registry);
         try (OutboxRelay relay = relay(store, new RecordingPublisher(), metrics)) {
@@ -46,6 +47,7 @@ class OutboxRelayTest {
         }
 
         assertThat(registry.find("agentteams.outbox.backlog").gauge().value()).isEqualTo(4);
+        assertThat(registry.find("agentteams.outbox.oldest.pending.age.seconds").gauge().value()).isEqualTo(42);
         assertThat(registry.counter("agentteams.outbox.published").count()).isEqualTo(1);
         assertThat(registry.timer("agentteams.outbox.publish.latency").count()).isEqualTo(1);
     }
@@ -195,6 +197,7 @@ class OutboxRelayTest {
         private final List<String> errors = new ArrayList<>();
         private Instant nextRetryAt;
         private long pending = -1;
+        private Instant oldestPendingAt;
 
         private FakeStore(OutboxEventRecord event) {
             this.event = event;
@@ -203,6 +206,11 @@ class OutboxRelayTest {
         @Override
         public long pendingCount() {
             return pending;
+        }
+
+        @Override
+        public java.util.Optional<Instant> oldestPendingAt() {
+            return java.util.Optional.ofNullable(oldestPendingAt);
         }
 
         @Override
