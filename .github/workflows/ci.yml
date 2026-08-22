@@ -107,6 +107,14 @@ jobs:
           sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/" \
             deploy/examples/qwenpaw-worker.yaml >/tmp/qwenpaw-real.yaml
           kubectl apply -f /tmp/qwenpaw-real.yaml
+          deployment_deadline=$((SECONDS + 120))
+          until kubectl -n agentteams get deployment/qwenpaw-real >/dev/null 2>&1; do
+            if (( SECONDS >= deployment_deadline )); then
+              echo "operator did not create deployment/qwenpaw-real" >&2
+              exit 1
+            fi
+            sleep 2
+          done
           kubectl -n agentteams rollout status deployment/qwenpaw-real --timeout=240s
           kubectl -n agentteams wait --for=jsonpath='{.status.phase}'=Ready worker/qwenpaw-real --timeout=240s
           agent_phase=""

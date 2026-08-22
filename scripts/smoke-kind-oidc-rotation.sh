@@ -74,8 +74,11 @@ json_string() {
 
 json_first_string() {
   local field="$1"
-  tr ',' '\n' | grep -m 1 -F "\"${field}\"" \
-    | sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+  # Consume the complete response: grep -m/head can close the pipe early and
+  # GNU tr then reports SIGPIPE as an error under `set -o pipefail`.
+  tr ',' '\n' | awk -v field="${field}" '
+    !found && index($0, "\"" field "\"") { print; found = 1 }
+  ' | sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
 }
 
 token_for() {
@@ -145,8 +148,8 @@ find_component_id() {
   curl --fail --silent --show-error \
     --header "Authorization: Bearer ${ADMIN_TOKEN}" \
     "${KEYCLOAK_URL}/admin/realms/agentteams/components?type=org.keycloak.keys.KeyProvider" \
-    | tr '{' '\n' | grep -F "\"name\":\"${COMPONENT_NAME}\"" \
-    | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+    | tr '{' '\n' \
+    | sed -n "/\"name\":\"${COMPONENT_NAME}\"/s/.*\"id\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
 }
 
 TOKEN_BEFORE="$(token_for alice alice-dev)"
