@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestHeader;
+import io.agentteams.controlplane.security.AuthorizationException;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -59,11 +60,11 @@ public final class MatrixAppServiceHttpAdapter {
     @Autowired
     public MatrixAppServiceHttpAdapter(MatrixAppService appService,
             ObjectProvider<MatrixCommandHandler> commandHandlers,
-            ObjectProvider<MatrixIdentityBinder> identityBinders,
+            MatrixIdentityBinder identityBinder,
             MatrixAppServiceProperties properties) {
         this(appService, commandHandlers.getIfAvailable(() -> (sender, command) -> {
             throw new MatrixCommandHandlingException("no Matrix command handler is configured");
-        }), identityBinders.getIfAvailable(), properties);
+        }), identityBinder, properties);
     }
 
     public ResponseEntity<HttpResponse> receive(String transactionId, TransactionRequest request) {
@@ -123,6 +124,9 @@ public final class MatrixAppServiceHttpAdapter {
         } catch (MatrixIdentityBindingException error) {
             return error(HttpStatus.FORBIDDEN, transactionId, "IDENTITY_NOT_BOUND",
                     "Matrix sender is not bound to a platform identity");
+        } catch (AuthorizationException error) {
+            return error(HttpStatus.FORBIDDEN, transactionId, "PERMISSION_DENIED",
+                    "Matrix sender is not authorized for this command");
         } catch (MatrixIdentityServiceException error) {
             return error(HttpStatus.SERVICE_UNAVAILABLE, transactionId, "DEPENDENCY_UNAVAILABLE",
                     "Matrix identity service is unavailable");

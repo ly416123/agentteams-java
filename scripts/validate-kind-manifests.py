@@ -139,7 +139,8 @@ def main():
                 + oidc_values + matrix_values
                 + matrix_manifest.read_text(encoding="utf-8") + control_plane)
     for required in ("KIND_OIDC_SMOKE_OK", "OIDC_JWKS_ROTATION_OK", "components",
-                     "KIND_MATRIX_APPSERVICE_OK", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
+                     "KIND_MATRIX_APPSERVICE_OK", "KIND_MATRIX_E2E_OK",
+                     "AGENTTEAMS_SECURITY_OIDC_ENABLED",
                      "AGENTTEAMS_MATRIX_APPSERVICE_AUTH_ENABLED", "hs_token"):
         if required not in combined:
             fail(f"OIDC Kind automation missing {required}")

@@ -5,6 +5,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import io.agentteams.application.api.TaskCommandPort;
 import java.time.Clock;
 import java.time.Duration;
 
@@ -22,7 +24,6 @@ public class MatrixAppServiceConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(JdbcTemplate.class)
     MatrixIdentityBinder matrixIdentityBinder(JdbcTemplate jdbcTemplate) {
         return new JdbcMatrixIdentityBinder(jdbcTemplate);
     }
@@ -40,5 +41,12 @@ public class MatrixAppServiceConfiguration {
     @Bean
     MatrixDeliveryService matrixDeliveryService(MatrixOutboundRepository outbound, Clock clock) {
         return new MatrixDeliveryService(outbound, clock, Duration.ofSeconds(5));
+    }
+
+    @Bean
+    @ConditionalOnBean(TaskCommandPort.class)
+    @ConditionalOnMissingBean(MatrixCommandHandler.class)
+    MatrixCommandHandler matrixCommandHandler(TaskCommandPort tasks) {
+        return new MatrixTaskCommandHandler(tasks);
     }
 }

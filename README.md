@@ -161,8 +161,10 @@ and a development-only shared token:
 ```
 
 The smoke verifies Tuwunel health, AppService shared-token rejection, accepted
-transactions, and transaction-level duplicate acknowledgement. The local
-Tuwunel data and tokens are development-only and must not be reused elsewhere.
+transactions, transaction-level duplicate acknowledgement, and a real local
+user/room message that creates a scoped task through `!agentteams start`. The
+local Tuwunel data, registration token, and users are development-only and
+must not be reused elsewhere.
 
 The Kind path was verified on 2026-08-18 with a two-node `v1.36.1` cluster.
 Docker Hub was not reachable from the environment, so the pinned node image
