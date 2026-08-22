@@ -4,6 +4,9 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * 1"
 
 jobs:
   verify:
@@ -103,10 +106,25 @@ jobs:
       - name: Collect Kind diagnostics
         if: failure()
         run: |
-          kubectl -n agentteams get pods -o wide
-          kubectl -n agentteams get events --sort-by=.lastTimestamp | tail -n 80
-          kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=120 || true
-          kubectl -n agentteams logs deployment/agentteams-agentteams-java-gateway --tail=120 || true
+          mkdir -p /tmp/agentteams-kind-recovery-diagnostics
+          kubectl -n agentteams get pods -o wide > /tmp/agentteams-kind-recovery-diagnostics/pods.txt || true
+          kubectl -n agentteams get deployments -o wide > /tmp/agentteams-kind-recovery-diagnostics/deployments.txt || true
+          kubectl -n agentteams get events --sort-by=.lastTimestamp > /tmp/agentteams-kind-recovery-diagnostics/events.txt || true
+          kubectl -n agentteams get prometheusrule -o yaml > /tmp/agentteams-kind-recovery-diagnostics/prometheusrules.yaml || true
+          kubectl -n agentteams get deployment/qwenpaw-real -o yaml > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-real.yaml || true
+          kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/control-plane.log 2>&1 || true
+          kubectl -n agentteams logs deployment/agentteams-agentteams-java-gateway --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/gateway.log 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select event_type,aggregate_id,created_at,payload from domain_events order by created_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/domain-events.txt 2>&1 || true
+      - name: Upload Kind recovery diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-recovery-diagnostics
+          path: /tmp/agentteams-kind-recovery-diagnostics
+          if-no-files-found: warn
+          retention-days: 14
 
   kind-oidc:
     runs-on: ubuntu-latest
@@ -151,8 +169,18 @@ jobs:
       - name: Collect OIDC diagnostics
         if: failure()
         run: |
-          kubectl -n agentteams get pods -o wide
-          kubectl -n agentteams get events --sort-by=.lastTimestamp | tail -n 80
-          kubectl -n agentteams logs deployment/keycloak --tail=160 || true
-          kubectl -n agentteams logs deployment/tuwunel --tail=160 || true
-          kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=160 || true
+          mkdir -p /tmp/agentteams-kind-oidc-diagnostics
+          kubectl -n agentteams get pods -o wide > /tmp/agentteams-kind-oidc-diagnostics/pods.txt || true
+          kubectl -n agentteams get deployments -o wide > /tmp/agentteams-kind-oidc-diagnostics/deployments.txt || true
+          kubectl -n agentteams get events --sort-by=.lastTimestamp > /tmp/agentteams-kind-oidc-diagnostics/events.txt || true
+          kubectl -n agentteams logs deployment/keycloak --tail=300 > /tmp/agentteams-kind-oidc-diagnostics/keycloak.log 2>&1 || true
+          kubectl -n agentteams logs deployment/tuwunel --tail=300 > /tmp/agentteams-kind-oidc-diagnostics/tuwunel.log 2>&1 || true
+          kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=300 > /tmp/agentteams-kind-oidc-diagnostics/control-plane.log 2>&1 || true
+      - name: Upload OIDC diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-oidc-diagnostics
+          path: /tmp/agentteams-kind-oidc-diagnostics
+          if-no-files-found: warn
+          retention-days: 14
