@@ -148,7 +148,7 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
   2. [x] ConfigSnapshot 与 Artifact lifecycle：已完成版本、checksum、上传确认、配置下发协议、Worker 暂存、幂等元数据校验和按保留策略清理。
   3. [x] DeepSeek Manager：已完成 Provider、结构化意图、审批/工具权限和审计代码；本地 DeepSeek API smoke、模型配置和真实任务链路已完成验证。
   4. [x] Team CRD 与调度：已完成 Fabric8 informer、稳定 Team 身份、PostgreSQL 幂等同步、成员替换/删除、runtime/capability/approval/concurrency policy 和独立只读 RBAC；确定性 Spring/PostgreSQL 验收已通过，已准备第二个真实 QwenPaw Worker 并完成 Kind 真实多 Agent 调度冒烟（1 个 ASSIGNED/RUNNING、2 个 QUEUED）。
-  5. [ ] OIDC/mTLS/RBAC/Secret rotation：已完成可配置 OIDC JWT 签名、issuer、audience、过期时间和租户/权限 claim 映射；已完成 API 路由权限校验、Agent/Task/ConfigSnapshot/ConfigFile 资源 scope 校验、JWKS `kid` 轮换测试、Kind 本地 Gateway↔Worker 双向 mTLS、证书挂载验证、Workload ServiceAccount 隔离，以及按安装命名空间收紧 Operator/Team sync RBAC；已补齐稳定 Secret 名称、可选 Reloader 滚动刷新注解、生产 Secret 契约和 OIDC JWKS 轮换说明；真实目标 IdP 联调仍待补齐。
+  5. [ ] OIDC/mTLS/RBAC/Secret rotation：已完成可配置 OIDC JWT 签名、issuer、audience、过期时间和租户/权限 claim 映射；已完成 API 路由权限校验、Agent/Task/ConfigSnapshot/ConfigFile 资源 scope 校验、JWKS `kid` 轮换测试、Kind 本地 Gateway↔Worker 双向 mTLS、证书挂载验证、Workload ServiceAccount 隔离，以及按安装命名空间收紧 Operator/Team sync RBAC；已补齐稳定 Secret 名称、可选 Reloader 滚动刷新注解、生产 Secret 契约、OIDC JWKS 轮换说明和仓库级 OIDC 验收脚本；真实目标 IdP 联调仍待补齐。
   6. [ ] Matrix AppService：当前已完成 Control Plane 适配器和幂等处理，真实 Tuwunel 部署与联调仍待补齐。
   7. [ ] OpenTelemetry、HA、备份恢复和故障注入：当前具备基础指标、告警、备份脚本和部分 HA 机制，完整生产化验收仍待补齐。
 

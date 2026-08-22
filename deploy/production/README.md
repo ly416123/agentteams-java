@@ -102,3 +102,18 @@ missing or the resource scope differs. During signing-key rotation, publish
 the new public key at the provider JWKS endpoint, issue a token with the new
 `kid`, and repeat the request before retiring the old key. The API must accept
 the new token without a restart and continue rejecting cross-scope requests.
+
+For repeatable execution from the repository, use the acceptance script. The
+optional tokens enable the negative cases and the post-rotation check:
+
+```bash
+export API_URL=https://api.example.com
+export TOKEN='eyJ...'
+export SCOPE_TENANT=tenant-a
+export SCOPE_PROJECT=project-a
+export SCOPE_TEAM=team-a
+export TOKEN_NO_PERMISSION='eyJ...'       # optional, expected 403
+export TOKEN_CROSS_SCOPE='eyJ...'         # optional, expected 403
+export TOKEN_ROTATED='eyJ...'             # optional, expected 201 after JWKS rotation
+./scripts/validate-oidc-acceptance.sh
+```
