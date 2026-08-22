@@ -7,6 +7,7 @@ import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ConfigAppliedEnvelope;
 import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.TraceContext;
+import io.agentteams.controlplane.observability.AsyncConsumerTracing;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.nats.client.JetStream;
@@ -33,22 +34,29 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private final ConfigEventPort configEvents;
     private final ObjectMapper mapper;
     private final String durable;
+    private final AsyncConsumerTracing tracing;
     private final AtomicBoolean running = new AtomicBoolean();
     private JetStreamSubscription subscription;
     private ExecutorService executor;
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ObjectMapper mapper, String durable) {
-        this(jetStream, executionEvents, command -> { }, mapper, durable);
+        this(jetStream, executionEvents, command -> { }, mapper, durable, AsyncConsumerTracing.noop());
     }
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, ObjectMapper mapper, String durable) {
+        this(jetStream, executionEvents, configEvents, mapper, durable, AsyncConsumerTracing.noop());
+    }
+
+    public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
         this.configEvents = Objects.requireNonNull(configEvents, "configEvents");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
         this.durable = durable == null || durable.isBlank() ? "control-plane-execution-events" : durable;
+        this.tracing = Objects.requireNonNull(tracing, "tracing");
     }
 
     public synchronized void start() throws IOException, JetStreamApiException {
@@ -96,6 +104,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     }
 
     void process(Message message) {
+        AsyncConsumerTracing.Scope span = null;
         try {
             JsonNode root = mapper.readTree(message.getData());
             if (root == null || !root.isObject()) {
@@ -107,11 +116,16 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             if (!root.hasNonNull("type") && root.hasNonNull("event_type")
                     && root.hasNonNull("aggregate_type") && root.hasNonNull("aggregate_id")
                     && root.hasNonNull("payload")) {
+                span = tracing.start("agentteams.nats.execution.consume", TraceContext.empty())
+                        .tag("agentteams.consumer.result", "ignored");
                 message.ack();
                 return;
             }
             if ("CONFIG_APPLIED".equals(root.path("type").asText())) {
                 ConfigAppliedEnvelope envelope = mapper.treeToValue(root, ConfigAppliedEnvelope.class);
+                span = tracing.start("agentteams.nats.execution.consume",
+                        new TraceContext(envelope.correlationId(), "", ""));
+                span.tag("agentteams.event.type", envelope.type()).tag("agentteams.consumer.result", "ack");
                 configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(envelope.eventId(),
                         envelope.bindingId(), envelope.snapshotId(), envelope.agentId(), envelope.configVersion(),
                         envelope.applied(), envelope.errorMessage(), envelope.occurredAt(), envelope.source(),
@@ -120,6 +134,10 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 return;
             }
             ExecutionEventEnvelope envelope = mapper.treeToValue(root, ExecutionEventEnvelope.class);
+            TraceContext context = new TraceContext(envelope.correlationId(), envelope.traceparent(),
+                    envelope.tracestate());
+            span = tracing.start("agentteams.nats.execution.consume", context);
+            span.tag("agentteams.event.type", envelope.type());
             if ("TASK".equals(envelope.type())) {
                 executionEvents.apply(envelope.taskId(), withContext(envelope.taskExecution(), envelope), envelope.artifacts());
             } else if ("LEASE_RENEWAL".equals(envelope.type())) {
@@ -128,6 +146,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 throw new IllegalArgumentException("unsupported execution event type: " + envelope.type());
             }
             message.ack();
+            span.tag("agentteams.consumer.result", "ack");
         } catch (StaleTaskVersionException stale) {
             // The aggregate has already advanced beyond this event. Retrying
             // it forever would poison the durable consumer and block newer
@@ -135,8 +154,18 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             LOGGER.log(Level.FINE, "Acknowledging stale Agent execution event: expected={0}, actual={1}",
                     new Object[] {stale.expectedVersion(), stale.actualVersion()});
             message.ack();
+            if (span != null) {
+                span.tag("agentteams.consumer.result", "stale");
+            }
         } catch (IOException | RuntimeException error) {
+            if (span != null) {
+                span.error(error).tag("agentteams.consumer.result", "redeliver");
+            }
             throw new IllegalArgumentException("invalid Agent execution event", error);
+        } finally {
+            if (span != null) {
+                span.close();
+            }
         }
     }
 

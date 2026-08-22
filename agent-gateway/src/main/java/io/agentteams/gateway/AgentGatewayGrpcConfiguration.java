@@ -24,6 +24,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.beans.factory.ObjectProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 
 /** Default process wiring; production deployments can replace each port adapter with a durable bean. */
 @Configuration(proxyBeanMethods = false)
@@ -154,10 +156,12 @@ public class AgentGatewayGrpcConfiguration {
     public NatsGatewayEventConsumer natsGatewayEventConsumer(JetStream gatewayJetStream,
             TaskAssignedCommandHandler commandHandler, ConfigChangedCommandHandler configHandler,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-            NatsGatewayProperties properties, GatewayMetricsPort metrics) {
+            NatsGatewayProperties properties, GatewayMetricsPort metrics, ObjectProvider<Tracer> tracers,
+            ObjectProvider<Propagator> propagators) {
         return new NatsGatewayEventConsumer(gatewayJetStream, commandHandler, configHandler, objectMapper,
                 properties.getSubject(), properties.taskConsumerDurable(), properties.getConfigSubject(),
-                properties.configConsumerDurable(), metrics);
+                properties.configConsumerDurable(), metrics, new AsyncConsumerTracing(
+                        tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
     }
 
     @Bean

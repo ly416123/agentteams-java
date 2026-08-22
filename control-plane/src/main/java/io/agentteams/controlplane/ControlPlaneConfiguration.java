@@ -40,6 +40,7 @@ import io.agentteams.controlplane.storage.MinioObjectStorageConfig;
 import io.agentteams.controlplane.storage.ObjectStorage;
 import io.agentteams.controlplane.observability.ControlPlaneMetrics;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.controlplane.observability.AsyncConsumerTracing;
 import io.agentteams.controlplane.security.ApiAuthenticationFilter;
 import io.agentteams.controlplane.security.IdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
@@ -66,6 +67,8 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 
 @Configuration
 @EnableScheduling
@@ -298,10 +301,12 @@ public class ControlPlaneConfiguration {
     @Bean(initMethod = "start", destroyMethod = "close")
     @ConditionalOnProperty(name = "agentteams.nats.enabled", havingValue = "true")
     NatsExecutionEventConsumer natsExecutionEventConsumer(Connection connection,
-            ExecutionEventPort executionEvents, ConfigEventPort configEvents, ObjectMapper objectMapper)
+            ExecutionEventPort executionEvents, ConfigEventPort configEvents, ObjectMapper objectMapper,
+            ObjectProvider<Tracer> tracers, ObjectProvider<Propagator> propagators)
             throws IOException {
         return new NatsExecutionEventConsumer(connection.jetStream(), executionEvents, configEvents, objectMapper,
-                "control-plane-execution-events");
+                "control-plane-execution-events", new AsyncConsumerTracing(
+                        tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
     }
 
     @Bean

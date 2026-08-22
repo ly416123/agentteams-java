@@ -36,6 +36,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private final String configSubject;
     private final String configDurable;
     private final GatewayMetricsPort metrics;
+    private final AsyncConsumerTracing tracing;
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object lifecycleMonitor = new Object();
     private JetStreamSubscription subscription;
@@ -59,12 +60,19 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable) {
         this(jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
-                GatewayMetricsPort.noop());
+                GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable, GatewayMetricsPort metrics) {
+        this(jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
+                metrics, AsyncConsumerTracing.noop());
+    }
+
+    public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
+            ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
+            String configSubject, String configDurable, GatewayMetricsPort metrics, AsyncConsumerTracing tracing) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
         this.configHandler = Objects.requireNonNull(configHandler, "configHandler");
@@ -74,6 +82,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.configSubject = requireText(configSubject, "configSubject");
         this.configDurable = requireText(configDurable, "configDurable");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
+        this.tracing = Objects.requireNonNull(tracing, "tracing");
     }
 
     /** Testable constructor for envelope processing without starting a NATS subscription. */
@@ -87,6 +96,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.configSubject = null;
         this.configDurable = null;
         this.metrics = GatewayMetricsPort.noop();
+        this.tracing = AsyncConsumerTracing.noop();
     }
 
     public void start() throws IOException, JetStreamApiException {
@@ -114,16 +124,31 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     /** Parses, handles, and ACKs one message. Invalid messages are deliberately left unacked. */
     public boolean process(Message message) {
         Objects.requireNonNull(message, "message");
-        GatewayOutboxEvent event = parse(message.getData());
-        boolean handled = commandHandler.handle(event.eventType(), event.aggregateId().toString(),
-                event.payload().toString(), event.occurredAt(), event.context());
-        if (!handled) {
-            handled = configHandler.handle(event.eventType(), event.aggregateId().toString(),
+        AsyncConsumerTracing.Scope span = null;
+        try {
+            GatewayOutboxEvent event = parse(message.getData());
+            span = tracing.start("agentteams.nats.gateway.consume", event.context())
+                    .tag("agentteams.event.type", event.eventType());
+            boolean handled = commandHandler.handle(event.eventType(), event.aggregateId().toString(),
                     event.payload().toString(), event.occurredAt(), event.context());
+            if (!handled) {
+                handled = configHandler.handle(event.eventType(), event.aggregateId().toString(),
+                        event.payload().toString(), event.occurredAt(), event.context());
+            }
+            message.ack();
+            metrics.natsEventProcessed();
+            span.tag("agentteams.consumer.result", "ack");
+            return handled;
+        } catch (RuntimeException error) {
+            if (span != null) {
+                span.error(error).tag("agentteams.consumer.result", "redeliver");
+            }
+            throw error;
+        } finally {
+            if (span != null) {
+                span.close();
+            }
         }
-        message.ack();
-        metrics.natsEventProcessed();
-        return handled;
     }
 
     @Override
