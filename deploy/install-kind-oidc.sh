@@ -18,10 +18,17 @@ kind get clusters | grep -Fxq agentteams || {
 "${ROOT}/deploy/bootstrap-kind-keycloak.sh"
 
 helm lint "${ROOT}/deploy/helm/agentteams-java"
+HELM_VALUES=(
+  -f "${ROOT}/deploy/helm/kind-values.yaml"
+  -f "${ROOT}/deploy/helm/kind-oidc-values.yaml"
+)
+if kubectl -n "${NAMESPACE}" get secret matrix-appservice >/dev/null 2>&1; then
+  # Preserve Matrix AppService authentication when the Matrix dev link is already installed.
+  HELM_VALUES+=( -f "${ROOT}/deploy/helm/kind-matrix-values.yaml" )
+fi
 helm upgrade --install agentteams "${ROOT}/deploy/helm/agentteams-java" \
   --namespace "${NAMESPACE}" --create-namespace --wait --timeout 5m \
-  -f "${ROOT}/deploy/helm/kind-values.yaml" \
-  -f "${ROOT}/deploy/helm/kind-oidc-values.yaml"
+  "${HELM_VALUES[@]}"
 
 kubectl -n "${NAMESPACE}" rollout status \
   deployment/agentteams-agentteams-java-control-plane --timeout=180s
