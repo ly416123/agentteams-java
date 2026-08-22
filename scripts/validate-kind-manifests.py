@@ -113,6 +113,27 @@ def main():
     for required in ("kind: Role", "kind: RoleBinding", "namespace: {{ .Release.Namespace }}"):
         if required not in operator_rbac:
             fail(f"Operator namespace RBAC missing {required}")
+    oidc_installer = (ROOT / "deploy/install-kind-oidc.sh")
+    keycloak_bootstrap = (ROOT / "deploy/bootstrap-kind-keycloak.sh")
+    keycloak_manifest = (ROOT / "deploy/kind-keycloak.yaml")
+    oidc_smoke = (ROOT / "scripts/smoke-kind-oidc.sh")
+    rotation_smoke = (ROOT / "scripts/smoke-kind-oidc-rotation.sh")
+    for required_path in (oidc_installer, keycloak_bootstrap, keycloak_manifest,
+                          oidc_smoke, rotation_smoke):
+        if not required_path.exists():
+            fail(f"OIDC Kind asset missing {required_path.relative_to(ROOT)}")
+    oidc_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    oidc_values = (ROOT / "deploy/helm/kind-oidc-values.yaml").read_text(encoding="utf-8")
+    if "kind-oidc:" not in oidc_workflow:
+        fail("CI must define the isolated kind-oidc job")
+    combined = (oidc_installer.read_text(encoding="utf-8")
+                + oidc_smoke.read_text(encoding="utf-8")
+                + rotation_smoke.read_text(encoding="utf-8")
+                + oidc_values + control_plane)
+    for required in ("KIND_OIDC_SMOKE_OK", "OIDC_JWKS_ROTATION_OK", "components",
+                     "AGENTTEAMS_SECURITY_OIDC_ENABLED"):
+        if required not in combined:
+            fail(f"OIDC Kind automation missing {required}")
     operator_app = (ROOT / "operator/src/main/java/io/agentteams/operator/AgentTeamsOperatorApplication.java").read_text(encoding="utf-8")
     for required in ("AGENTTEAMS_OPERATOR_NAMESPACE", "settingNamespace"):
         if required not in operator_app:

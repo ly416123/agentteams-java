@@ -140,6 +140,7 @@ deploy the development-only Keycloak realm and apply the OIDC Helm overlay:
 ```bash
 ./deploy/install-kind-oidc.sh
 ./scripts/smoke-kind-oidc.sh
+./scripts/smoke-kind-oidc-rotation.sh
 ```
 
 The smoke script obtains tokens from Keycloak and verifies missing/invalid
@@ -147,7 +148,9 @@ authentication (`401`), missing permission and cross-scope access (`403`),
 and matching permission plus scope (`201`). Development users are
 `alice/alice-dev`, `reader/reader-dev`, and `tenant-b-user/tenant-b-dev`.
 Keycloak uses temporary development storage and credentials; do not reuse
-them outside the local Kind cluster.
+them outside the local Kind cluster. The rotation smoke creates a temporary
+RSA signing provider, verifies a changed JWT `kid`, confirms the new key is
+published in JWKS, and checks both the new token and the old token overlap.
 
 The Kind path was verified on 2026-08-18 with a two-node `v1.36.1` cluster.
 Docker Hub was not reachable from the environment, so the pinned node image
