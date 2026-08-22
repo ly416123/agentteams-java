@@ -179,6 +179,8 @@ jobs:
         run: python scripts/run-kind-postgres-restore.py
       - name: Run Kind MinIO backup and restore validation
         run: python scripts/run-kind-minio-restore.py
+      - name: Run Kind object reference integrity validation
+        run: python scripts/run-kind-object-reference-integrity.py
       - name: Verify multi-replica Prometheus scraping
         run: python scripts/validate-kind-prometheus.py
       - name: Collect Kind diagnostics
