@@ -94,7 +94,29 @@ class TaskTransitionServiceTest {
         Task accepted = acceptedTask();
         assertThrows(IllegalTaskTransitionException.class, () ->
                 service.transition(accepted, TaskTransitionCommand.simple(UUID.randomUUID(), accepted.version(),
-                        TaskPhase.CANCELLED, at(4), "user-1", "api")));
+                TaskPhase.CANCELLED, at(4), "user-1", "api")));
+    }
+
+    @Test
+    void supportsPauseResumeRetryAndRejectionBeforeExecution() {
+        Task paused = apply(Task.draft(UUID.randomUUID(), START), TaskTransitionCommand.simple(
+                UUID.randomUUID(), 0, TaskPhase.PAUSED, at(1), "user-1", "matrix"));
+        assertEquals(TaskPhase.PAUSED, paused.phase());
+
+        Task resumed = apply(paused, TaskTransitionCommand.simple(UUID.randomUUID(), paused.version(),
+                TaskPhase.QUEUED, at(2), "user-1", "matrix"));
+        assertEquals(TaskPhase.QUEUED, resumed.phase());
+
+        Task failed = failedTask();
+        Task retried = apply(failed, TaskTransitionCommand.simple(UUID.randomUUID(), failed.version(),
+                TaskPhase.QUEUED, at(9), "user-1", "matrix"));
+        assertEquals(TaskPhase.QUEUED, retried.phase());
+        assertEquals(6, retried.version());
+
+        Task rejected = apply(Task.draft(UUID.randomUUID(), START), TaskTransitionCommand.simple(
+                UUID.randomUUID(), 0, TaskPhase.REJECTED, at(3), "reviewer", "matrix"));
+        assertEquals(TaskPhase.REJECTED, rejected.phase());
+        assertTrue(rejected.phase().terminal());
     }
 
     @Test
@@ -286,6 +308,13 @@ class TaskTransitionServiceTest {
     private Task runningTask() {
         Task task = acceptedTask();
         return apply(task, execution(task, TaskPhase.RUNNING, at(4)));
+    }
+
+    private Task failedTask() {
+        Task task = runningTask();
+        return apply(task, TaskTransitionCommand.failed(UUID.randomUUID(), task.version(),
+                task.attempt().id(), task.attempt().leaseId(), at(8), "agent-1", "agent",
+                FailureInfo.redacted("RUNTIME_ERROR", "execution failed")));
     }
 
     private Task acceptedTask() {

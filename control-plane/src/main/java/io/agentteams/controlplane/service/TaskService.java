@@ -1,5 +1,9 @@
 package io.agentteams.controlplane.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.controlplane.persistence.CreateTaskCommand;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
@@ -22,6 +26,11 @@ public final class TaskService {
 
     private static final String QUEUE_TASK = "QUEUE_TASK";
     private static final String CANCEL_TASK = "CANCEL_TASK";
+    private static final String RETRY_TASK = "RETRY_TASK";
+    private static final String PAUSE_TASK = "PAUSE_TASK";
+    private static final String APPROVE_TASK = "APPROVE_TASK";
+    private static final String REJECT_TASK = "REJECT_TASK";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final FoundationPersistenceService persistence;
     private final IdempotencyService idempotency;
@@ -89,6 +98,33 @@ public final class TaskService {
                 defaultText(actor, "api"), defaultText(source, "rest"), CANCEL_TASK);
     }
 
+    public TaskRecord retry(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source) {
+        return transition(id, TaskPhase.QUEUED, expectedVersion, idempotencyKey,
+                defaultText(actor, "api"), defaultText(source, "rest"), RETRY_TASK);
+    }
+
+    /** Pause toggles QUEUED to PAUSED and PAUSED back to QUEUED. */
+    public TaskRecord pause(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source) {
+        TaskRecord current = get(id);
+        TaskPhase target = current.phase() == TaskPhase.PAUSED ? TaskPhase.QUEUED : TaskPhase.PAUSED;
+        return transition(id, target, expectedVersion, idempotencyKey,
+                defaultText(actor, "api"), defaultText(source, "rest"), PAUSE_TASK);
+    }
+
+    public TaskRecord approve(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source) {
+        return updateApproval(id, expectedVersion, idempotencyKey,
+                defaultText(actor, "api"), defaultText(source, "rest"), true, APPROVE_TASK);
+    }
+
+    public TaskRecord reject(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source) {
+        return updateApproval(id, expectedVersion, idempotencyKey,
+                defaultText(actor, "api"), defaultText(source, "rest"), false, REJECT_TASK);
+    }
+
     public record TaskInput(String title, String description, String specJson, String actor, String source) {
     }
 
@@ -120,6 +156,43 @@ public final class TaskService {
             throw error;
         }
         return persistence.transitionTask(id, target, expectedVersion, now, key, requestHash, operation);
+    }
+
+    private TaskRecord updateApproval(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source, boolean granted, String operation) {
+        Objects.requireNonNull(id, "id");
+        TaskRecord current = get(id);
+        if (current.phase() != TaskPhase.DRAFT && current.phase() != TaskPhase.QUEUED
+                && current.phase() != TaskPhase.PAUSED) {
+            throw new IllegalArgumentException("task approval is only available before assignment");
+        }
+        TaskPhase target = operation.equals(REJECT_TASK) ? TaskPhase.REJECTED : current.phase();
+        ObjectNode spec = approvalSpec(current.specJson(), granted);
+        String specJson;
+        try {
+            specJson = JSON.writeValueAsString(spec);
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task approval spec could not be encoded", error);
+        }
+        String key = idempotency.requireKey(idempotencyKey);
+        String requestHash = idempotency.requestHash(id.toString(), target.name(), Long.toString(expectedVersion),
+                specJson, actor, source, Boolean.toString(granted));
+        return persistence.transitionTaskWithSpec(id, target, specJson, expectedVersion, clock.instant(), key,
+                requestHash, operation, granted ? "APPROVED" : "REJECTED");
+    }
+
+    private static ObjectNode approvalSpec(String specJson, boolean granted) {
+        try {
+            JsonNode root = JSON.readTree(specJson == null ? "{}" : specJson);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("task spec must be a JSON object");
+            }
+            ObjectNode object = (ObjectNode) root;
+            object.put("approvalGranted", granted);
+            return object;
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task spec is invalid JSON", error);
+        }
     }
 
     private static String required(String value, String field) {

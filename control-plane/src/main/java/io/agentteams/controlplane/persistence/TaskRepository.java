@@ -57,10 +57,10 @@ public final class TaskRepository {
     public TaskRecord updateState(TaskRecord next, long expectedVersion) {
         int updated = jdbc.update("""
                 UPDATE tasks
-                   SET phase = ?, failure_code = ?, redacted_failure_message = ?,
+                   SET phase = ?, spec = ?, failure_code = ?, redacted_failure_message = ?,
                        updated_at = ?, version = version + 1
                  WHERE id = ? AND version = ?
-                """, next.phase().name(), next.failureCode(),
+                """, next.phase().name(), JdbcSupport.json(next.specJson()), next.failureCode(),
                 JdbcSupport.failureMessage(next.redactedFailureMessage()),
                 JdbcSupport.timestamp(next.updatedAt()), next.id(), expectedVersion);
         if (updated == 0) {

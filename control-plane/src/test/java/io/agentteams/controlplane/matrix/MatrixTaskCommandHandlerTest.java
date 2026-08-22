@@ -79,21 +79,55 @@ class MatrixTaskCommandHandlerTest {
     }
 
     @Test
-    void rejectsUnsupportedTaskLifecycleActionWithDiagnosticError() {
+    void mapsRetryPauseApproveAndRejectToAuthorizedTaskOperations() {
+        TaskCommandPort tasks = mock(TaskCommandPort.class);
+        TaskService taskService = mock(TaskService.class);
+        UUID taskId = UUID.randomUUID();
+        when(taskService.get(taskId)).thenReturn(task(taskId, TaskPhase.FAILED, 4));
+        when(taskService.retry(any(), any(Long.class), any(), any(), any()))
+                .thenReturn(task(taskId, TaskPhase.QUEUED, 5));
+        when(taskService.pause(any(), any(Long.class), any(), any(), any()))
+                .thenReturn(task(taskId, TaskPhase.PAUSED, 5));
+        when(taskService.approve(any(), any(Long.class), any(), any(), any()))
+                .thenReturn(task(taskId, TaskPhase.DRAFT, 5,
+                        "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"},\"approvalGranted\":true}"));
+        when(taskService.reject(any(), any(Long.class), any(), any(), any()))
+                .thenReturn(task(taskId, TaskPhase.REJECTED, 5));
+        MatrixTaskCommandHandler handler = new MatrixTaskCommandHandler(tasks, taskService);
+
+        assertThat(handler.handle(identity(Set.of("task:retry")),
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.RETRY, taskId)))
+                .isEqualTo("retried task " + taskId);
+        assertThat(handler.handle(identity(Set.of("task:pause")),
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.PAUSE, taskId)))
+                .isEqualTo("paused task " + taskId);
+        assertThat(handler.handle(identity(Set.of("task:approve")),
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.APPROVE, taskId)))
+                .isEqualTo("approved task " + taskId);
+        assertThat(handler.handle(identity(Set.of("task:reject")),
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.REJECT, taskId)))
+                .isEqualTo("rejected task " + taskId);
+    }
+
+    @Test
+    void rejectsLifecycleMutationWithoutItsSpecificPermission() {
         MatrixTaskCommandHandler handler = new MatrixTaskCommandHandler(mock(TaskCommandPort.class),
                 mock(TaskService.class));
-        UUID taskId = UUID.randomUUID();
 
         assertThatThrownBy(() -> handler.handle(identity(Set.of("task:read")),
-                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.RETRY, taskId)))
-                .isInstanceOf(MatrixCommandHandlingException.class)
-                .hasMessage("Matrix task action retry is not supported by the current task lifecycle");
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.RETRY, UUID.randomUUID())))
+                .isInstanceOf(AuthorizationException.class);
     }
 
     private static TaskRecord task(UUID id, TaskPhase phase, long version) {
+        return task(id, phase, version,
+                "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}");
+    }
+
+    private static TaskRecord task(UUID id, TaskPhase phase, long version, String specJson) {
         Instant now = Instant.parse("2026-08-22T00:00:00Z");
         return new TaskRecord(id, "investigate incident", "description", phase, 0,
-                "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}",
+                specJson,
                 "alice", "matrix", null, null, now, now, version);
     }
 

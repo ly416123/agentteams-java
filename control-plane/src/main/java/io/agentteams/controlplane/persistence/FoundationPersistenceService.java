@@ -166,6 +166,53 @@ public final class FoundationPersistenceService {
         });
     }
 
+    public TaskRecord transitionTaskWithSpec(UUID id, TaskPhase phase, String specJson, long expectedVersion,
+            Instant at, String idempotencyKey, String requestHash, String operation, String approvalStatus) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(phase, "phase");
+        Objects.requireNonNull(specJson, "specJson");
+        Objects.requireNonNull(at, "at");
+        requireIdempotencyInput(idempotencyKey, requestHash);
+        if (operation == null || operation.isBlank()) {
+            throw new IllegalArgumentException("operation must not be blank");
+        }
+        return inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(idempotencyKey);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), operation, requestHash, idempotencyKey);
+                return tx.tasks().findById(existing.get().resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
+            }
+
+            TaskRecord current = tx.tasks().findByIdForUpdate(id)
+                    .orElseThrow(() -> new IllegalArgumentException("task does not exist: " + id));
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), idempotencyKey,
+                    operation, requestHash, "task", id, idPayload(id), at, at, 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(idempotencyKey)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, operation, requestHash, idempotencyKey);
+                return tx.tasks().findById(winner.resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
+            }
+
+            TaskRecord next = new TaskRecord(current.id(), current.title(), current.description(), phase,
+                    current.priority(), specJson, current.actor(), current.source(),
+                    phase == TaskPhase.FAILED ? current.failureCode() : null,
+                    phase == TaskPhase.FAILED ? current.redactedFailureMessage() : null,
+                    current.createdAt(), at, current.version());
+            TaskRecord updated = tx.tasks().updateState(next, expectedVersion);
+            if (approvalStatus != null) {
+                tx.teams().updateApprovalStatus(id, approvalStatus, at);
+            }
+            appendEvent(tx, "task", id, "TaskStateChanged",
+                    "{\"id\":\"" + id + "\",\"phase\":\"" + phase
+                            + "\",\"approvalStatus\":" + (approvalStatus == null ? "null" : "\"" + approvalStatus + "\"") + "}",
+                    at, updated.version());
+            return updated;
+        });
+    }
+
     public UUID createFoundation(AgentRecord agent, TaskRecord task, TaskAttemptRecord attempt,
             TaskAssignmentRecord assignment, AgentLeaseRecord lease, Instant occurredAt) {
         Objects.requireNonNull(agent, "agent");

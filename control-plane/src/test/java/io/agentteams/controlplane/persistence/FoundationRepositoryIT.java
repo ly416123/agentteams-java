@@ -171,6 +171,36 @@ class FoundationRepositoryIT {
     }
 
     @Test
+    void updatesApprovalSpecAndTeamLinkIdempotently() {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        UUID taskId = UUID.randomUUID();
+        UUID teamId = UUID.randomUUID();
+        TaskRecord task = new TaskRecord(taskId, "approval task", "description", TaskPhase.DRAFT, 0,
+                "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}",
+                "actor", "matrix", null, null, now, now, 0);
+        TeamRecord team = TeamRecord.create(teamId, "approval-team", "Approval team", now);
+        persistence.inTransaction(tx -> {
+            tx.tasks().insert(task);
+            tx.teams().insert(team);
+            tx.teams().linkTask(teamId, taskId, "PENDING", now);
+            return null;
+        });
+
+        String approvedSpec = "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"},\"approvalGranted\":true}";
+        TaskRecord approved = persistence.transitionTaskWithSpec(taskId, TaskPhase.DRAFT, approvedSpec, 0,
+                now.plusSeconds(1), "approve-once", "approval-hash", "APPROVE_TASK", "APPROVED");
+        TaskRecord duplicate = persistence.transitionTaskWithSpec(taskId, TaskPhase.DRAFT, approvedSpec, 0,
+                now.plusSeconds(2), "approve-once", "approval-hash", "APPROVE_TASK", "APPROVED");
+
+        assertThat(approved.specJson()).contains("\"approvalGranted\": true");
+        assertThat(approved.version()).isEqualTo(1);
+        assertThat(duplicate).isEqualTo(approved);
+        Optional<String> approvalStatus = persistence.inTransaction(
+                tx -> tx.teams().findApprovalStatusByTaskId(taskId));
+        assertThat(approvalStatus).contains("APPROVED");
+    }
+
+    @Test
     void rollsBackAllFoundationRowsAndEventsWhenTheTransactionFails() {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         UUID agentId = UUID.randomUUID();

@@ -31,7 +31,11 @@ public final class TaskTransitionService {
         }
 
         TaskAttempt nextAttempt = task.attempt();
-        if (to == TaskPhase.ASSIGNED) {
+        if (to == TaskPhase.QUEUED || to == TaskPhase.PAUSED || to == TaskPhase.REJECTED) {
+            // A retry or administrative pause/rejection detaches the previous
+            // execution attempt; its terminal row remains available for audit.
+            nextAttempt = null;
+        } else if (to == TaskPhase.ASSIGNED) {
             nextAttempt = createAttempt(task, command);
         } else if (requiresExecutionAttempt(to)) {
             nextAttempt = requireActiveExecutionAttempt(task, command);
@@ -141,14 +145,18 @@ public final class TaskTransitionService {
 
     private boolean legal(TaskPhase from, TaskPhase to) {
         return switch (from) {
-            case DRAFT -> to == TaskPhase.QUEUED;
+            case DRAFT -> to == TaskPhase.QUEUED || to == TaskPhase.PAUSED || to == TaskPhase.REJECTED;
             case QUEUED -> to == TaskPhase.ASSIGNED
+                    || to == TaskPhase.PAUSED
+                    || to == TaskPhase.REJECTED
                     || (to == TaskPhase.CANCELLED && cancellationPolicy.allows(from));
+            case PAUSED -> to == TaskPhase.QUEUED || to == TaskPhase.REJECTED;
             case ASSIGNED -> to == TaskPhase.ACCEPTED
                     || (to == TaskPhase.CANCELLED && cancellationPolicy.allows(from));
             case ACCEPTED -> to == TaskPhase.RUNNING;
             case RUNNING -> to == TaskPhase.SUCCEEDED || to == TaskPhase.FAILED;
-            case SUCCEEDED, FAILED, CANCELLED -> false;
+            case SUCCEEDED, CANCELLED, REJECTED -> false;
+            case FAILED -> to == TaskPhase.QUEUED;
         };
     }
 

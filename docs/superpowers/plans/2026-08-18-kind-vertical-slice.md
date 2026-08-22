@@ -149,7 +149,7 @@ kind load docker-image ghcr.io/ly416123/agentteams-operator:latest --name agentt
   3. [x] DeepSeek Manager：已完成 Provider、结构化意图、审批/工具权限和审计代码；本地 DeepSeek API smoke、模型配置和真实任务链路已完成验证。
   4. [x] Team CRD 与调度：已完成 Fabric8 informer、稳定 Team 身份、PostgreSQL 幂等同步、成员替换/删除、runtime/capability/approval/concurrency policy 和独立只读 RBAC；确定性 Spring/PostgreSQL 验收已通过，已准备第二个真实 QwenPaw Worker 并完成 Kind 真实多 Agent 调度冒烟（1 个 ASSIGNED/RUNNING、2 个 QUEUED）。
   5. [ ] OIDC/mTLS/RBAC/Secret rotation：已完成可配置 OIDC JWT 签名、issuer、audience、过期时间和租户/权限 claim 映射；已完成 API 路由权限校验、Agent/Task/ConfigSnapshot/ConfigFile 资源 scope 校验、JWKS `kid` 轮换测试、Kind 本地 Gateway↔Worker 双向 mTLS、证书挂载验证、Workload ServiceAccount 隔离，以及按安装命名空间收紧 Operator/Team sync RBAC；已补齐稳定 Secret 名称、可选 Reloader 滚动刷新注解、生产 Secret 契约、OIDC JWKS 轮换说明、仓库级 OIDC 验收脚本、Kind Keycloak 本地签发端、实时 `kid` 轮换 smoke 和 CI job；真实目标 IdP 联调仍待补齐。
-  6. [ ] Matrix AppService：已完成 Control Plane 适配器和幂等处理，并补齐本地 Tuwunel、文件式 AppService registration、shared-token 校验、真实用户/房间 `start/status` 命令 smoke 和 Kind CI；`cancel` 已接入现有 QUEUED/ASSIGNED 生命周期并有单测，`retry/pause/approve/reject` 需先扩展领域状态模型，生产部署仍待补齐。
+  6. [ ] Matrix AppService：已完成 Control Plane 适配器和幂等处理，并补齐本地 Tuwunel、文件式 AppService registration、shared-token 校验、真实用户/房间 `start/status` 命令 smoke 和 Kind CI；`cancel/retry/pause/approve/reject` 已接入带 scope、权限、版本和幂等保护的任务生命周期，生产部署与完整命令 smoke 仍待补齐。
   7. [ ] OpenTelemetry、HA、备份恢复和故障注入：当前具备基础指标、告警、备份脚本和部分 HA 机制，完整生产化验收仍待补齐。
 
 当前未完成项主要是生产化能力和外部服务联调：mTLS 证书与验证器、完整资源级 RBAC/Secret rotation、Matrix/Tuwunel 实例、Prometheus Operator，以及完整灾备和故障注入验收。OIDC JWT 验证已具备代码和单元测试，但仍需在目标 IdP 上进行 JWKS/claim 联调。Team Kind 冒烟已在两个真实 READY Agent 上完成；脚本仍要求显式传入两个 Agent UUID，避免将占位 Agent 当作真实 Worker。

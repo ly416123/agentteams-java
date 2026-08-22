@@ -165,9 +165,10 @@ transactions, transaction-level duplicate acknowledgement, and real local
 user/room messages that create a scoped task through `!agentteams start` and
 deliver a scoped `!agentteams status <task-id>` command. The local Tuwunel
 data, registration token, and users are development-only and must not be reused
-elsewhere. `cancel` is implemented against the existing QUEUED/ASSIGNED task
-lifecycle; `retry`, `pause`, `approve`, and `reject` remain explicit follow-up
-work because the current domain model has no corresponding transitions.
+elsewhere. Matrix task actions now use scoped permissions and optimistic
+versions: `cancel`, `retry`, `pause` (toggle), `approve`, and `reject` are
+persisted through the task lifecycle; approval also updates the task spec and
+team approval link.
 
 The Kind path was verified on 2026-08-18 with a two-node `v1.36.1` cluster.
 Docker Hub was not reachable from the environment, so the pinned node image

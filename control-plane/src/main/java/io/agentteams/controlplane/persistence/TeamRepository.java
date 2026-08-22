@@ -154,6 +154,19 @@ public final class TeamRepository {
                 """, teamId, taskId, approvalStatus, JdbcSupport.timestamp(now), JdbcSupport.timestamp(now));
     }
 
+    public void updateApprovalStatus(UUID taskId, String approvalStatus, java.time.Instant now) {
+        jdbc.update("""
+                UPDATE team_tasks
+                   SET approval_status = ?, updated_at = ?, version = version + 1
+                 WHERE task_id = ?
+                """, approvalStatus, JdbcSupport.timestamp(now), taskId);
+    }
+
+    public Optional<String> findApprovalStatusByTaskId(UUID taskId) {
+        return jdbc.query("SELECT approval_status FROM team_tasks WHERE task_id = ?",
+                (rs, row) -> rs.getString(1), taskId).stream().findFirst();
+    }
+
     public void insertTaskAssignment(UUID id, UUID teamId, UUID taskId, UUID agentId, UUID membershipId,
             String status, java.time.Instant assignedAt) {
         jdbc.update("""
