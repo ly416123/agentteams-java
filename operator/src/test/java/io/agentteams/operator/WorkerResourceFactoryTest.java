@@ -68,5 +68,7 @@ class WorkerResourceFactoryTest {
                 .anySatisfy(volume -> assertThat(volume.getSecret().getSecretName()).isEqualTo("agentteams-worker-mtls"));
         assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts())
                 .anySatisfy(mount -> assertThat(mount.getMountPath()).isEqualTo("/etc/agentteams/gateway-tls"));
+        assertThat(deployment.getMetadata().getAnnotations())
+                .containsEntry("secret.reloader.stakater.com/reload", "agentteams-worker-mtls");
     }
 }

@@ -25,6 +25,7 @@ import java.util.Map;
 
 public final class WorkerResourceFactory {
     private static final int GRPC_PORT = 9090;
+    private static final String SECRET_RELOADER_ANNOTATION = "secret.reloader.stakater.com/reload";
 
     private WorkerResourceFactory() { }
 
@@ -65,10 +66,17 @@ public final class WorkerResourceFactory {
                     .withSecret(new SecretVolumeSourceBuilder().withSecretName(spec.tlsSecret()).build())
                     .build());
         }
+        Map<String, String> deploymentAnnotations = new LinkedHashMap<>();
+        if (!spec.tlsSecret().isBlank()) {
+            // Reloader is optional. When installed, this stable annotation
+            // turns an external Secret update into a rolling restart so the
+            // gRPC TLS context cannot keep serving the old certificate.
+            deploymentAnnotations.put(SECRET_RELOADER_ANNOTATION, spec.tlsSecret());
+        }
         return new DeploymentBuilder()
                 .withApiVersion("apps/v1")
                 .withKind("Deployment")
-                .withMetadata(metadata(worker, labels))
+                .withMetadata(metadata(worker, labels, deploymentAnnotations))
                 .withSpec(new DeploymentSpecBuilder()
                         .withReplicas(spec.replicas())
                         .withSelector(new LabelSelectorBuilder().withMatchLabels(labels).build())
@@ -96,8 +104,16 @@ public final class WorkerResourceFactory {
     }
 
     private static io.fabric8.kubernetes.api.model.ObjectMeta metadata(Worker worker, Map<String, String> labels) {
+        return metadata(worker, labels, Map.of());
+    }
+
+    private static io.fabric8.kubernetes.api.model.ObjectMeta metadata(
+            Worker worker, Map<String, String> labels, Map<String, String> annotations) {
         ObjectMetaBuilder builder = new ObjectMetaBuilder()
                 .withName(name(worker)).withNamespace(namespace(worker)).withLabels(labels);
+        if (!annotations.isEmpty()) {
+            builder.withAnnotations(annotations);
+        }
         if (worker.getMetadata().getUid() != null && !worker.getMetadata().getUid().isBlank()) {
             builder.withOwnerReferences(new OwnerReferenceBuilder()
                     .withApiVersion("agentteams.io/v1alpha1").withKind("Worker")

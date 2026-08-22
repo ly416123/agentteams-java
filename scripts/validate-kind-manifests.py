@@ -129,9 +129,13 @@ def main():
             or "kubernetesApiAllowAllEgress" not in network_policy):
         fail("Control Plane NetworkPolicy must allow Kubernetes API Service and endpoint traffic")
     gateway = (ROOT / "deploy/helm/agentteams-java/templates/gateway.yaml").read_text(encoding="utf-8")
-    for required in ("AGENTTEAMS_GATEWAY_GRPC_TLS_ENABLED", "gateway.tls.enabled", "gateway.tls.secretName"):
+    for required in ("AGENTTEAMS_GATEWAY_GRPC_TLS_ENABLED", "gateway.tls.enabled", "gateway.tls.secretName",
+                     "secret.reloader.stakater.com/reload"):
         if required not in gateway:
             fail(f"Gateway mTLS manifest missing {required}")
+    worker_factory = (ROOT / "operator/src/main/java/io/agentteams/operator/WorkerResourceFactory.java").read_text(encoding="utf-8")
+    if "secret.reloader.stakater.com/reload" not in worker_factory:
+        fail("Worker TLS deployment must expose the Secret rotation annotation")
     print("KIND_MANIFESTS_OK")
 
 

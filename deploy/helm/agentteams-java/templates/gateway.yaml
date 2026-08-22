@@ -4,6 +4,9 @@ metadata:
   name: {{ include "agentteams-java.fullname" . }}-gateway
   labels:
     app.kubernetes.io/part-of: agentteams
+{{ if .Values.gateway.tls.enabled }}  annotations:
+    secret.reloader.stakater.com/reload: {{ .Values.gateway.tls.secretName | quote }}
+{{ end }}
 spec:
   replicas: {{ .Values.gateway.replicas }}
   selector:

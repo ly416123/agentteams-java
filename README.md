@@ -287,7 +287,10 @@ The script waits for the Gateway, Deployment, and Worker status to converge.
 The local validation used two distinct READY Agents and printed
 `TEAM_SCHEDULING_OK`. This is a Kind development path: production should use
 per-Agent certificates issued and rotated by an external CA or cert-manager;
-the repository does not commit generated keys or certificate material.
+the repository does not commit generated keys or certificate material. For the
+production Secret contract, stable-name rotation, optional Stakater Reloader
+rollouts, and OIDC JWKS key overlap, see
+[`deploy/production/README.md`](deploy/production/README.md).
 
 `deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
 uses an `emptyDir` volume and the database password is a local test secret.
