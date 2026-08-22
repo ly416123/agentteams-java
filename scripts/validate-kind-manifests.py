@@ -153,6 +153,15 @@ def main():
             fail(f"Kind NATS Outbox recovery script missing {required}")
     if "run-kind-nats-outbox-recovery.py --agent-id" not in oidc_workflow:
         fail("CI must execute the Kind NATS Outbox recovery test")
+    idempotency_script = ROOT / "scripts/run-kind-idempotency.py"
+    if not idempotency_script.exists():
+        fail("Kind task idempotency script does not exist")
+    idempotency_text = idempotency_script.read_text(encoding="utf-8")
+    for required in ("idempotency_keys", "task_attempts", "KIND_IDEMPOTENCY_OK"):
+        if required not in idempotency_text:
+            fail(f"Kind task idempotency validation missing {required}")
+    if "run-kind-idempotency.py" not in oidc_workflow:
+        fail("CI must execute the Kind task idempotency test")
     gateway_replay_script = ROOT / "scripts/run-kind-gateway-replay.py"
     if not gateway_replay_script.exists():
         fail("Kind Gateway replay recovery script does not exist")

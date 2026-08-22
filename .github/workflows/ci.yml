@@ -173,6 +173,8 @@ jobs:
           echo "AGENTTEAMS_AGENT_ID=$AGENT_ID" >> "$GITHUB_ENV"
       - name: Run Kind lease recovery test
         run: python scripts/run-kind-lease-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
+      - name: Run Kind task idempotency test
+        run: python scripts/run-kind-idempotency.py
       - name: Run Kind NATS Outbox recovery test
         run: python scripts/run-kind-nats-outbox-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind Gateway replay recovery test
