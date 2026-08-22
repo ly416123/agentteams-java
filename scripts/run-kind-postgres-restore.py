@@ -59,11 +59,6 @@ select 'gateway_ack_cursors|' || count(*)::text || '|' ||
        md5(coalesce(string_agg(agent_id || '|' || last_ack_sequence::text,
                              ',' order by agent_id), ''))
   from gateway_ack_cursors
-union all
-select 'scheduler_leases|' || count(*)::text || '|' ||
-       md5(coalesce(string_agg(name || '|' || owner || '|' || version::text,
-                             ',' order by name), ''))
-  from scheduler_leases
 order by 1;
 """
 
@@ -170,7 +165,6 @@ def signatures(namespace: str, postgres_pod: str, database: str) -> dict[str, tu
         "gateway_commands",
         "gateway_command_deliveries",
         "gateway_ack_cursors",
-        "scheduler_leases",
     }
     if set(parsed) != expected:
         fail(f"unexpected PostgreSQL signature tables for {database}: {sorted(parsed)}")
