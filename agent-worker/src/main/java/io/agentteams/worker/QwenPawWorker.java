@@ -15,6 +15,7 @@ import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
 import io.agentteams.contracts.v1.TaskAssigned;
 import io.agentteams.runtime.AgentChannelClient;
+import io.agentteams.runtime.GrpcClientTracingInterceptor;
 import io.agentteams.runtime.AgentChannelState;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.CompletionStatus;
@@ -72,6 +73,7 @@ public final class QwenPawWorker implements AutoCloseable {
 
     private final WorkerConfiguration configuration;
     private final Clock clock;
+    private final WorkerTracing.Bridge tracing;
     private final ManagedChannel gatewayChannel;
     private final ScheduledExecutorService scheduler;
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -93,12 +95,13 @@ public final class QwenPawWorker implements AutoCloseable {
     private QwenPawWorker(WorkerConfiguration configuration) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.clock = Clock.systemUTC();
+        this.tracing = WorkerTracing.create();
         this.scheduler = Executors.newScheduledThreadPool(2, runnable -> {
             Thread thread = new Thread(runnable, "qwenpaw-worker-scheduler");
             thread.setDaemon(true);
             return thread;
         });
-        this.gatewayChannel = gatewayChannel(configuration);
+        this.gatewayChannel = gatewayChannel(configuration, tracing.grpcClientInterceptor());
         this.channelPort = new GrpcAgentChannelPort(gatewayChannel, this::onServerMessage,
                 this::onDisconnected);
         this.channelClient = new AgentChannelClient(configuration.agentId(), channelPort, clock,
@@ -136,10 +139,11 @@ public final class QwenPawWorker implements AutoCloseable {
         return new QwenPawWorker(WorkerConfiguration.fromEnvironment());
     }
 
-    private static ManagedChannel gatewayChannel(WorkerConfiguration configuration) {
+    private static ManagedChannel gatewayChannel(WorkerConfiguration configuration,
+            GrpcClientTracingInterceptor tracing) {
         if (!configuration.gatewayTlsEnabled()) {
             return ManagedChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
-                    .usePlaintext().build();
+                    .intercept(tracing).usePlaintext().build();
         }
         try {
             SslContext sslContext = GrpcSslContexts.forClient()
@@ -148,7 +152,7 @@ public final class QwenPawWorker implements AutoCloseable {
                             new File(configuration.gatewayTlsClientKeyPath()))
                     .build();
             return NettyChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
-                    .sslContext(sslContext).build();
+                    .sslContext(sslContext).intercept(tracing).build();
         } catch (Exception error) {
             throw new IllegalStateException("failed to build Gateway mTLS channel", error);
         }
@@ -190,6 +194,8 @@ public final class QwenPawWorker implements AutoCloseable {
         if (closed.get()) {
             return;
         }
+        WorkerTracing.Scope span = tracing.start("agentteams.worker.grpc.consume", metadata(message))
+                .tag("agentteams.event.type", message.getPayloadCase().name());
         try {
             if (message.hasReady()) {
                 onReady(message.getReady());
@@ -202,8 +208,22 @@ public final class QwenPawWorker implements AutoCloseable {
                         message.getError().getCode(), message.getError().getMessage());
             }
         } catch (RuntimeException error) {
+            span.error(error);
             System.err.printf("Unable to process Agent Gateway message: %s%n", rootMessage(error));
+        } finally {
+            span.close();
         }
+    }
+
+    private static EventMetadata metadata(ServerMessage message) {
+        return switch (message.getPayloadCase()) {
+            case READY -> message.getReady().getMetadata();
+            case TASK_ASSIGNED -> message.getTaskAssigned().getMetadata();
+            case CONFIG_CHANGED -> message.getConfigChanged().getMetadata();
+            case ACK -> message.getAck().getMetadata();
+            case ERROR -> message.getError().getMetadata();
+            case PAYLOAD_NOT_SET -> EventMetadata.getDefaultInstance();
+        };
     }
 
     private void onConfigChanged(ConfigChanged changed) {

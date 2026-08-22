@@ -206,9 +206,11 @@ public class AgentGatewayGrpcConfiguration {
 
     @Bean(initMethod = "start", destroyMethod = "stop")
     public AgentGatewayGrpcServer agentGatewayGrpcServer(GrpcServerProperties properties,
-            GrpcTlsProperties tlsProperties, AgentChannelService channelService) {
+            GrpcTlsProperties tlsProperties, AgentChannelService channelService, ObjectProvider<Tracer> tracers,
+            ObjectProvider<Propagator> propagators) {
         return new AgentGatewayGrpcServer(properties.getPort(), properties.getShutdownTimeout(), channelService,
-                tlsProperties);
+                tlsProperties, new GrpcServerTracingInterceptor(
+                        tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
     }
 
     private static final class NoopAgentStatePort implements AgentStatePort {

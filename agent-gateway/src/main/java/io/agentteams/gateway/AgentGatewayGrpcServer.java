@@ -17,15 +17,24 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
     private final Duration shutdownTimeout;
     private final AgentChannelService channelService;
     private final GrpcTlsProperties tlsProperties;
+    private final GrpcServerTracingInterceptor tracingInterceptor;
     private volatile Server server;
 
     public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
             AgentChannelService channelService) {
-        this(configuredPort, shutdownTimeout, channelService, new GrpcTlsProperties());
+        this(configuredPort, shutdownTimeout, channelService, new GrpcTlsProperties(),
+                new GrpcServerTracingInterceptor(null, null));
     }
 
     public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
             AgentChannelService channelService, GrpcTlsProperties tlsProperties) {
+        this(configuredPort, shutdownTimeout, channelService, tlsProperties,
+                new GrpcServerTracingInterceptor(null, null));
+    }
+
+    public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
+            AgentChannelService channelService, GrpcTlsProperties tlsProperties,
+            GrpcServerTracingInterceptor tracingInterceptor) {
         if (configuredPort < 0 || configuredPort > 65_535) {
             throw new IllegalArgumentException("gRPC port must be between 0 and 65535");
         }
@@ -36,6 +45,7 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
         }
         this.channelService = Objects.requireNonNull(channelService, "channelService");
         this.tlsProperties = Objects.requireNonNull(tlsProperties, "tlsProperties");
+        this.tracingInterceptor = Objects.requireNonNull(tracingInterceptor, "tracingInterceptor");
     }
 
     public synchronized void start() throws IOException {
@@ -45,6 +55,7 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
         tlsProperties.validate();
         NettyServerBuilder builder = NettyServerBuilder.forPort(configuredPort)
                 .intercept(new GrpcTransportIdentity.Interceptor())
+                .intercept(tracingInterceptor)
                 .addService(channelService);
         if (tlsProperties.isEnabled()) {
             SslContext sslContext = GrpcSslContexts.forServer(
