@@ -179,10 +179,14 @@ def main() -> int:
             "TaskAssigned Outbox event published after NATS recovery",
             lambda: published_outbox_state(args.namespace, args.postgres_pod, task_id),
             args.timeout)
+
+        def terminal_task():
+            task = api_request(f"{base_url}/api/v1/tasks/{task_id}")
+            return task if task.get("phase") in {"SUCCEEDED", "FAILED", "CANCELLED"} else None
+
         final = wait_until(
             "task completion after NATS recovery",
-            lambda: (task := api_request(f"{base_url}/api/v1/tasks/{task_id}"))
-            if task.get("phase") in {"SUCCEEDED", "FAILED", "CANCELLED"} else None,
+            terminal_task,
             args.timeout)
         if final.get("phase") != "SUCCEEDED":
             fail(f"task did not succeed after NATS recovery: {final}")
