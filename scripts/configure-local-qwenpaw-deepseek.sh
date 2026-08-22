@@ -7,6 +7,7 @@ NAMESPACE="${KIND_NAMESPACE:-agentteams}"
 MODEL="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
 LOCAL_PORT="${QWENPAW_LOCAL_PORT:-18088}"
 BASE_URL="${QWENPAW_BASE_URL:-http://127.0.0.1:${LOCAL_PORT}}"
+TMP_DIR="${TMPDIR:-/tmp}"
 PORT_FORWARD_PID=""
 MODELS_FILE=""
 
@@ -25,15 +26,38 @@ if [[ ! -f "${APIKEY_FILE}" ]]; then
   echo "DeepSeek API key file not found: ${APIKEY_FILE}" >&2
   exit 1
 fi
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  KEY_MODE="$(stat -f '%Lp' "${APIKEY_FILE}")"
-else
-  KEY_MODE="$(stat -c '%a' "${APIKEY_FILE}")"
-fi
-if (( (8#${KEY_MODE} & 77) != 0 )); then
-  echo "DeepSeek API key file must not be group/world accessible: ${APIKEY_FILE}" >&2
-  exit 1
-fi
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    command -v icacls >/dev/null || {
+      echo "icacls is required to validate Windows API key permissions" >&2
+      exit 1
+    }
+    command -v cygpath >/dev/null || {
+      echo "cygpath is required to validate Windows API key permissions" >&2
+      exit 1
+    }
+    WINDOWS_APIKEY_FILE="$(cygpath -w "${APIKEY_FILE}")"
+    KEY_ACL="$(icacls "${WINDOWS_APIKEY_FILE}" 2>&1)" || {
+      echo "could not inspect Windows API key permissions: ${APIKEY_FILE}" >&2
+      exit 1
+    }
+    if printf '%s\n' "${KEY_ACL}" | grep -Eiq '(^|[[:space:]])(Everyone|Authenticated Users|BUILTIN\\Users|Users):'; then
+      echo "DeepSeek API key file must not be readable by broad Windows principals: ${APIKEY_FILE}" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      KEY_MODE="$(stat -f '%Lp' "${APIKEY_FILE}")"
+    else
+      KEY_MODE="$(stat -c '%a' "${APIKEY_FILE}")"
+    fi
+    if (( (8#${KEY_MODE} & 77) != 0 )); then
+      echo "DeepSeek API key file must not be group/world accessible: ${APIKEY_FILE}" >&2
+      exit 1
+    fi
+    ;;
+esac
 KEY_LINE_COUNT=0
 DEEPSEEK_API_KEY=""
 while IFS= read -r KEY_LINE || [[ -n "${KEY_LINE}" ]]; do
@@ -54,7 +78,7 @@ command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
 if [[ -z "${QWENPAW_BASE_URL:-}" ]]; then
   command -v kubectl >/dev/null || { echo "kubectl is required" >&2; exit 1; }
-  PF_LOG="${TMPDIR:-/private/tmp}/agentteams-qwenpaw-port-forward.log"
+  PF_LOG="${TMP_DIR}/agentteams-qwenpaw-port-forward.log"
   kubectl -n "${NAMESPACE}" port-forward "svc/qwenpaw" "${LOCAL_PORT}:8088" >"${PF_LOG}" 2>&1 &
   PORT_FORWARD_PID=$!
 fi
@@ -85,7 +109,7 @@ request() {
   fi
 }
 
-MODELS_FILE="$(mktemp "${TMPDIR:-/private/tmp}/agentteams-qwenpaw-models.XXXXXX")"
+MODELS_FILE="$(mktemp "${TMP_DIR}/agentteams-qwenpaw-models.XXXXXX")"
 for _ in {1..60}; do
   if request GET /api/models "${MODELS_FILE}"; then
     break
@@ -98,7 +122,7 @@ if ! jq -e 'if type == "array" then . else (.providers // []) end | any(.[]; (.i
   exit 1
 fi
 
-CONFIG_FILE="$(mktemp "${TMPDIR:-/private/tmp}/agentteams-qwenpaw-config.XXXXXX")"
+CONFIG_FILE="$(mktemp "${TMP_DIR}/agentteams-qwenpaw-config.XXXXXX")"
 trap 'rm -f "${CONFIG_FILE}" "${MODELS_FILE}"; if [[ -n "${PORT_FORWARD_PID}" ]]; then kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true; wait "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true; fi' EXIT
 jq -n --arg key "${DEEPSEEK_API_KEY}" '{api_key: $key, auto_discover: false}' >"${CONFIG_FILE}"
 request PUT /api/models/deepseek/config "${CONFIG_FILE}" "$(<"${CONFIG_FILE}")"
@@ -112,7 +136,7 @@ if ! jq -e --arg model "${MODEL}" '
   ' "${MODELS_FILE}" >/dev/null; then
   ADD_MODEL_BODY="$(jq -n --arg id "${MODEL}" --arg name "${MODEL}" \
     '{id: $id, name: $name, is_free: false}')"
-  ADD_MODEL_FILE="$(mktemp "${TMPDIR:-/private/tmp}/agentteams-qwenpaw-add-model.XXXXXX")"
+  ADD_MODEL_FILE="$(mktemp "${TMP_DIR}/agentteams-qwenpaw-add-model.XXXXXX")"
   if ! request POST /api/models/deepseek/models "${ADD_MODEL_FILE}" "${ADD_MODEL_BODY}"; then
     echo "QwenPaw could not add model ${MODEL}" >&2
     exit 1
@@ -122,7 +146,7 @@ fi
 
 ACTIVE_BODY="$(jq -n --arg model "${MODEL}" \
   '{provider_id: "deepseek", model: $model, scope: "global"}')"
-ACTIVE_FILE="$(mktemp "${TMPDIR:-/private/tmp}/agentteams-qwenpaw-active.XXXXXX")"
+ACTIVE_FILE="$(mktemp "${TMP_DIR}/agentteams-qwenpaw-active.XXXXXX")"
 request PUT /api/models/active "${ACTIVE_FILE}" "${ACTIVE_BODY}"
 if ! jq -e --arg model "${MODEL}" '
     (.active_llm.provider_id == "deepseek") and (.active_llm.model == $model)
@@ -132,7 +156,7 @@ if ! jq -e --arg model "${MODEL}" '
 fi
 rm -f "${ACTIVE_FILE}"
 
-TEST_FILE="$(mktemp "${TMPDIR:-/private/tmp}/agentteams-qwenpaw-test.XXXXXX")"
+TEST_FILE="$(mktemp "${TMP_DIR}/agentteams-qwenpaw-test.XXXXXX")"
 request POST /api/models/deepseek/models/test "${TEST_FILE}" \
   "$(jq -n --arg model "${MODEL}" '{model_id: $model}')"
 if ! jq -e '.success == true' "${TEST_FILE}" >/dev/null; then

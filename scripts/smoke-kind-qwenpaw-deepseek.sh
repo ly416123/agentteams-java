@@ -7,8 +7,17 @@ WORKER_NAME="${AGENTTEAMS_WORKER_NAME:-qwenpaw-worker}"
 LOCAL_PORT="${AGENTTEAMS_CONTROL_PLANE_LOCAL_PORT:-18080}"
 TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-180}"
 SUCCESS_MARKER="QWENPAW_DEEPSEEK_SMOKE_OK"
-PORT_FORWARD_LOG="${TMPDIR:-/private/tmp}/agentteams-control-plane-smoke.log"
+TMP_DIR="${TMPDIR:-/tmp}"
+PORT_FORWARD_LOG="${TMP_DIR}/agentteams-control-plane-smoke.log"
 PORT_FORWARD_PID=""
+API_AUTH_ARGS=()
+SCOPE_TENANT="${AGENTTEAMS_SCOPE_TENANT:-tenant-a}"
+SCOPE_PROJECT="${AGENTTEAMS_SCOPE_PROJECT:-project-a}"
+SCOPE_TEAM="${AGENTTEAMS_SCOPE_TEAM:-team-a}"
+
+if [[ -n "${AGENTTEAMS_API_TOKEN:-}" ]]; then
+  API_AUTH_ARGS=(-H "Authorization: Bearer ${AGENTTEAMS_API_TOKEN}")
+fi
 
 cleanup() {
   if [[ -n "${PORT_FORWARD_PID}" ]]; then
@@ -34,7 +43,7 @@ PORT_FORWARD_PID=$!
 BASE_URL="http://127.0.0.1:${LOCAL_PORT}"
 
 deadline=$((SECONDS + TIMEOUT_SECONDS))
-until curl --fail --silent "${BASE_URL}/actuator/health" >/dev/null; do
+until curl --fail --silent "${API_AUTH_ARGS[@]}" "${BASE_URL}/actuator/health" >/dev/null; do
   if (( SECONDS >= deadline )); then
     echo "Control Plane API did not become ready" >&2
     exit 1
@@ -43,18 +52,24 @@ until curl --fail --silent "${BASE_URL}/actuator/health" >/dev/null; do
 done
 
 IDEMPOTENCY_KEY="kind-qwenpaw-deepseek-create-${RANDOM}-${SECONDS}"
-TASK_BODY='{"title":"kind-qwenpaw-deepseek","description":"DeepSeek QwenPaw end-to-end smoke","spec":{"taskType":"qwenpaw","inputJson":{"prompt":"Reply with exactly QWENPAW_DEEPSEEK_SMOKE_OK and nothing else."},"requiredCapabilities":["qwenpaw"]}}'
+TASK_BODY="$(jq -cn \
+  --arg tenant "${SCOPE_TENANT}" \
+  --arg project "${SCOPE_PROJECT}" \
+  --arg team "${SCOPE_TEAM}" \
+  '{title:"kind-qwenpaw-deepseek",description:"DeepSeek QwenPaw end-to-end smoke",spec:{scope:{tenant:$tenant,project:$project,team:$team},taskType:"qwenpaw",inputJson:{prompt:"Reply with exactly QWENPAW_DEEPSEEK_SMOKE_OK and nothing else."},requiredCapabilities:["qwenpaw"]}}')"
 TASK_JSON="$(curl --fail --silent -X POST "${BASE_URL}/api/v1/tasks" \
+  "${API_AUTH_ARGS[@]}" \
   -H "Idempotency-Key: ${IDEMPOTENCY_KEY}" -H 'Content-Type: application/json' \
   --data-binary "${TASK_BODY}")"
 TASK_ID="$(jq -er '.id' <<<"${TASK_JSON}")"
 
 curl --fail --silent -X POST "${BASE_URL}/api/v1/tasks/${TASK_ID}/queue" \
+  "${API_AUTH_ARGS[@]}" \
   -H "Idempotency-Key: kind-qwenpaw-deepseek-queue-${RANDOM}-${SECONDS}" \
   -H 'Content-Type: application/json' --data-binary '{}' >/dev/null
 
 while :; do
-  TASK_JSON="$(curl --fail --silent "${BASE_URL}/api/v1/tasks/${TASK_ID}")"
+  TASK_JSON="$(curl --fail --silent "${API_AUTH_ARGS[@]}" "${BASE_URL}/api/v1/tasks/${TASK_ID}")"
   PHASE="$(jq -r '.phase' <<<"${TASK_JSON}")"
   case "${PHASE}" in
     SUCCEEDED)
