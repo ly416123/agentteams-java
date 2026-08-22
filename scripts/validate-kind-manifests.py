@@ -144,6 +144,15 @@ def main():
     oidc_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     if "validate-prometheus-rule.py /tmp/agentteams-prometheusrule.yaml" not in oidc_workflow:
         fail("CI must validate the rendered PrometheusRule")
+    nats_recovery_script = ROOT / "scripts/run-kind-nats-outbox-recovery.py"
+    if not nats_recovery_script.exists():
+        fail("Kind NATS Outbox recovery script does not exist")
+    nats_recovery_text = nats_recovery_script.read_text(encoding="utf-8")
+    for required in ("statefulset", "PENDING", "PUBLISHED", "KIND_NATS_OUTBOX_RECOVERY_OK"):
+        if required not in nats_recovery_text:
+            fail(f"Kind NATS Outbox recovery script missing {required}")
+    if "run-kind-nats-outbox-recovery.py --agent-id" not in oidc_workflow:
+        fail("CI must execute the Kind NATS Outbox recovery test")
     if ("Configure deterministic QwenPaw model" not in oidc_workflow
             or "kind-qwenpaw-openai-mock.yaml" not in oidc_workflow
             or "agentteams-kind-mock" not in oidc_workflow
