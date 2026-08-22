@@ -37,6 +37,7 @@ public final class ConfigController {
                 || request.manifest() == null || !request.manifest().isObject()) {
             throw new IllegalArgumentException("subject and object manifest are required");
         }
+        PrincipalContext.requireScope(request.manifest().toString());
         String actor = PrincipalContext.actorOr(request.actor());
         ConfigSnapshot snapshot = snapshots.create(request.subject(), request.manifest().toString(), actor);
         return ResponseEntity.status(201).body(SnapshotResponse.from(snapshot));
@@ -46,6 +47,7 @@ public final class ConfigController {
     public DeploymentResponse deploy(@PathVariable UUID snapshotId, @PathVariable UUID agentId) {
         ConfigSnapshot snapshot = snapshotRepository.findById(snapshotId)
                 .orElseThrow(() -> new IllegalArgumentException("config snapshot does not exist"));
+        PrincipalContext.requireScope(snapshot.manifestJson());
         ConfigDeploymentService.ConfigDeployment deployment = deployments.deploy(agentId, snapshot.subject(), snapshot);
         return DeploymentResponse.from(deployment);
     }
@@ -54,6 +56,7 @@ public final class ConfigController {
     public ResponseEntity<String> manifest(@PathVariable UUID snapshotId) {
         ConfigSnapshot snapshot = snapshotRepository.findById(snapshotId)
                 .orElseThrow(() -> new IllegalArgumentException("config snapshot does not exist"));
+        PrincipalContext.requireScope(snapshot.manifestJson());
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(snapshot.manifestJson());
     }
 

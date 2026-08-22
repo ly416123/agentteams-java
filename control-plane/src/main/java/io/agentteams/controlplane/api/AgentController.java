@@ -3,6 +3,7 @@ package io.agentteams.controlplane.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.service.AgentService;
+import io.agentteams.controlplane.security.PrincipalContext;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -32,13 +33,16 @@ public final class AgentController {
             @RequestBody CreateAgentRequest request) {
         requireRequest(request);
         requireIdempotencyKey(idempotencyKey);
+        PrincipalContext.requireScope(request.metadata() == null ? null : request.metadata().toString());
         AgentRecord agent = service.create(idempotencyKey, request.toServiceInput());
         return ResponseEntity.status(201).body(AgentResponse.from(agent));
     }
 
     @GetMapping("/{id}")
     public AgentResponse get(@PathVariable UUID id) {
-        return AgentResponse.from(service.get(id));
+        AgentRecord agent = service.get(id);
+        PrincipalContext.requireScope(agent.metadataJson());
+        return AgentResponse.from(agent);
     }
 
     public record CreateAgentRequest(String name, String runtime, JsonNode capabilities, JsonNode metadata) {

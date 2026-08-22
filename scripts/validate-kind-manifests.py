@@ -140,9 +140,13 @@ def main():
     auth_policy = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthorizationPolicy.java").read_text(encoding="utf-8")
     authorization = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/AuthorizationService.java").read_text(encoding="utf-8")
     task_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/TaskController.java").read_text(encoding="utf-8")
+    agent_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/AgentController.java").read_text(encoding="utf-8")
+    config_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/ConfigController.java").read_text(encoding="utf-8")
+    config_file_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/ConfigFileController.java").read_text(encoding="utf-8")
     for required in ("ApiAuthorizationPolicy", "SC_FORBIDDEN", "Permission.TASK_READ", "Permission.CONFIG_WRITE",
-                     "requireScope", "request.spec", "task.specJson"):
-        if required not in auth_filter + auth_policy + authorization + task_controller:
+                     "requireScope", "request.spec", "task.specJson", "request.metadata", "snapshot.manifestJson",
+                     "requireSnapshotScope"):
+        if required not in auth_filter + auth_policy + authorization + task_controller + agent_controller + config_controller + config_file_controller:
             fail(f"OIDC API authorization missing {required}")
     print("KIND_MANIFESTS_OK")
 

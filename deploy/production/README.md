@@ -52,6 +52,15 @@ The API still fails closed: enabling OIDC requires a complete issuer, JWKS, and
 audience configuration. Rotate provider keys at the identity provider rather
 than placing JWKS private material in Helm values.
 
+## Resource scope contract
+
+OIDC claims are mapped to the same three-part scope for every API resource:
+`tenant`, `project`, and `team`. Authenticated requests must carry that scope
+inside the resource payload: Agent metadata uses `metadata.scope`, tasks use
+`spec.scope`, and ConfigSnapshot/ConfigFile manifests use `scope`. The values
+must exactly match the caller's claims; missing or cross-scope access returns
+`403`.
+
 ## Rollout verification
 
 After installing or updating the external secret controller, verify that the

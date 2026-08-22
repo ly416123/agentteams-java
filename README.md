@@ -277,9 +277,11 @@ the permissions carried in the configured claim (`task:read`, `task:create`,
 `task:cancel`, `agent:read`, `agent:write`, `config:read`, and `config:write`).
 Missing permissions return `403`, while missing or invalid tokens return
 `401`; unknown API routes do not receive an implicit write permission.
-Authenticated task resources must also carry a `spec.scope` object containing
-the same `tenant`, `project`, and `team` values as the caller's claims. Missing
-or cross-scope task create/read/queue/cancel requests are rejected with `403`.
+Authenticated Agent resources must carry `metadata.scope`, while Task resources
+must carry `spec.scope`; ConfigSnapshot and ConfigFile resources carry the same
+`scope` object in their manifest. Each object must contain the same `tenant`,
+`project`, and `team` values as the caller's claims. Missing or cross-scope
+create/read/update requests are rejected with `403`.
 
 For a local Gateway↔Worker mTLS check, use the development-only bootstrap
 script. It creates a temporary 30-day CA and certificates under

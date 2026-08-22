@@ -121,6 +121,25 @@ class ControlPlaneControllerTest {
     }
 
     @Test
+    void rejectsAuthenticatedAgentOutsidePrincipalScope() throws Exception {
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                java.util.Set.of("agent:write")));
+        try {
+            mockMvc.perform(post("/api/v1/agents")
+                            .header("Idempotency-Key", "scoped-agent-key")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"worker-1\",\"runtime\":\"qwenpaw\",\"metadata\":{\"scope\":{"
+                                    + "\"tenant\":\"tenant-b\",\"project\":\"project-a\",\"team\":\"team-a\"}}}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+            verifyNoInteractions(agents);
+        } finally {
+            PrincipalContext.clear();
+        }
+    }
+
+    @Test
     void permitsAuthenticatedTaskWithinPrincipalScope() throws Exception {
         UUID id = UUID.randomUUID();
         TaskRecord task = new TaskRecord(id, "Build API", "description", TaskPhase.DRAFT, 0,
