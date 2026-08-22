@@ -29,6 +29,12 @@ spec:
                 secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: password }
             - name: AGENTTEAMS_NATS_URL
               value: {{ .Values.nats.url | quote }}
+            - name: AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED
+              value: {{ .Values.observability.tracing.enabled | quote }}
+            - name: AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY
+              value: {{ .Values.observability.tracing.samplingProbability | quote }}
+            - name: AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.observability.tracing.otlpEndpoint | quote }}
             - name: AGENTTEAMS_STORAGE_ENABLED
               value: {{ .Values.storage.enabled | quote }}
             - name: POD_NAME

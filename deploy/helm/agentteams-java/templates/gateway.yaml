@@ -37,6 +37,12 @@ spec:
               value: {{ .Values.gateway.tls.trustCertificateCollectionPath | quote }}
             - name: AGENTTEAMS_GATEWAY_NATS_ENABLED
               value: {{ .Values.gateway.env.AGENTTEAMS_GATEWAY_NATS_ENABLED | quote }}
+            - name: AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED
+              value: {{ .Values.observability.tracing.enabled | quote }}
+            - name: AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY
+              value: {{ .Values.observability.tracing.samplingProbability | quote }}
+            - name: AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.observability.tracing.otlpEndpoint | quote }}
             - name: AGENTTEAMS_GATEWAY_NATS_URL
               value: {{ .Values.nats.url | quote }}
             - name: AGENTTEAMS_GATEWAY_NATS_INSTANCE_ID

@@ -104,6 +104,12 @@ networkPolicy:
   kubernetesApiEndpointCIDR: ""
   kubernetesApiEndpointPort: 6443
 observability:
+  tracing:
+    enabled: false
+    samplingProbability: 0.1
+    # Full OTLP HTTP traces endpoint, for example:
+    # http://otel-collector:4318/v1/traces
+    otlpEndpoint: ""
   serviceMonitor:
     enabled: false
     interval: 30s

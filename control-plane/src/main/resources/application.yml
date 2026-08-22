@@ -1,4 +1,13 @@
 management:
+  tracing:
+    enabled: ${AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED:false}
+    sampling:
+      probability: ${AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY:0.1}
+    propagation:
+      type: w3c
+  otlp:
+    tracing:
+      endpoint: ${AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT:}
   endpoints:
     web:
       exposure:
@@ -21,7 +30,7 @@ management:
 
 logging:
   pattern:
-    level: "%5p [corr:%X{correlationId:-unknown}]"
+    level: "%5p [corr:%X{correlationId:-unknown}] [trace:%X{traceId:-unknown} span:%X{spanId:-unknown}]"
 
 agentteams:
   storage:

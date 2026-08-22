@@ -1,5 +1,9 @@
 # Production Secret rotation
 
+Operational metrics, tracing configuration, alert actions, and recovery
+commands are documented in
+[`observability-runbook.md`](observability-runbook.md).
+
 The chart deliberately consumes stable Kubernetes Secret names. An external
 secret issuer owns the Secret data; AgentTeams only mounts the Secret and never
 generates or stores production private keys.

@@ -5,6 +5,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "deploy" / "kind-observability.yaml"
+RUNBOOK = ROOT / "deploy" / "production" / "observability-runbook.md"
 
 
 def fail(message):
@@ -15,6 +16,27 @@ def fail(message):
 def main():
     if not MANIFEST.exists():
         fail("manifest does not exist")
+    if not RUNBOOK.exists():
+        fail("production observability runbook does not exist")
+    runbook = RUNBOOK.read_text(encoding="utf-8")
+    for required in (
+            "AgentTeamsOutboxStalled", "AgentTeamsOutboxDeadLettered",
+            "AgentTeamsLeaseRecovery", "AgentTeamsGatewayRejectedEvents",
+            "run-kind-postgres-restore.py", "OTLP", "traceparent"):
+        if required not in runbook:
+            fail(f"production observability runbook missing {required}")
+    for module in ("control-plane", "agent-gateway"):
+        application = ROOT / module / "src" / "main" / "resources" / "application.yml"
+        if not application.exists():
+            fail(f"{module} application configuration does not exist")
+        application_text = application.read_text(encoding="utf-8")
+        for required in (
+                "AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED",
+                "AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY",
+                "AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT",
+                "traceId", "spanId", "type: w3c"):
+            if required not in application_text:
+                fail(f"{module} tracing configuration missing {required}")
     try:
         resources = [item for item in yaml.safe_load_all(MANIFEST.read_text(encoding="utf-8")) if item]
     except Exception as exc:
