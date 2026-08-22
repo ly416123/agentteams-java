@@ -33,6 +33,7 @@ public final class TaskController {
             @RequestBody CreateTaskRequest request) {
         requireRequest(request);
         requireIdempotencyKey(idempotencyKey);
+        PrincipalContext.requireScope(request.spec() == null ? null : request.spec().toString());
         TaskRecord task = service.create(idempotencyKey,
                 request.toServiceInput(PrincipalContext.actorOr(request.actor())));
         return ResponseEntity.status(201).body(TaskResponse.from(task));
@@ -40,7 +41,9 @@ public final class TaskController {
 
     @GetMapping("/{id}")
     public TaskResponse get(@PathVariable UUID id) {
-        return TaskResponse.from(service.get(id));
+        TaskRecord task = service.get(id);
+        PrincipalContext.requireScope(task.specJson());
+        return TaskResponse.from(task);
     }
 
     @PostMapping("/{id}/cancel")
@@ -50,6 +53,7 @@ public final class TaskController {
             @RequestBody(required = false) CancelTaskRequest request) {
         requireIdempotencyKey(idempotencyKey);
         CancelTaskRequest input = request == null ? new CancelTaskRequest(null, null, null) : request;
+        requireExistingTaskScope(id);
         long expectedVersion = input.expectedVersion() == null ? 0 : input.expectedVersion();
         TaskRecord task = service.cancel(id, expectedVersion, idempotencyKey,
                 PrincipalContext.actorOr(input.actor()), input.source());
@@ -63,6 +67,7 @@ public final class TaskController {
             @RequestBody(required = false) QueueTaskRequest request) {
         requireIdempotencyKey(idempotencyKey);
         QueueTaskRequest input = request == null ? new QueueTaskRequest(null) : request;
+        requireExistingTaskScope(id);
         long expectedVersion = input.expectedVersion() == null ? 0 : input.expectedVersion();
         TaskRecord queued = PrincipalContext.current().isPresent()
                 ? service.queue(id, expectedVersion, idempotencyKey, PrincipalContext.actorOr("api"))
@@ -100,6 +105,12 @@ public final class TaskController {
         static TaskResponse from(TaskRecord task) {
             return new TaskResponse(task.id(), task.title(), task.description(), task.phase().name(),
                     task.priority(), task.createdAt(), task.updatedAt(), task.version());
+        }
+    }
+
+    private void requireExistingTaskScope(UUID id) {
+        if (PrincipalContext.current().isPresent()) {
+            PrincipalContext.requireScope(service.get(id).specJson());
         }
     }
 

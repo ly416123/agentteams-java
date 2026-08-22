@@ -23,4 +23,19 @@ class AuthorizationServiceTest {
                 new AuthorizationService.Scope("tenant-a", "project-b", "team-a")))
                 .isInstanceOf(AuthorizationException.class);
     }
+
+    @Test
+    void requiresCompleteMatchingScopeOnJsonResources() {
+        AuthorizationService service = new AuthorizationService();
+        Principal principal = new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of("task:create"));
+
+        service.requireScope(principal,
+                "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}");
+        assertThatThrownBy(() -> service.requireScope(principal,
+                "{\"scope\":{\"tenant\":\"tenant-b\",\"project\":\"project-a\",\"team\":\"team-a\"}}"))
+                .isInstanceOf(AuthorizationException.class);
+        assertThatThrownBy(() -> service.requireScope(principal, "{}"))
+                .isInstanceOf(AuthorizationException.class);
+    }
 }

@@ -1,9 +1,13 @@
 package io.agentteams.controlplane.security;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Objects;
 import java.util.Set;
 
 public final class AuthorizationService {
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     public void require(String actor, Permission permission, Set<String> grantedPermissions) {
         if (actor == null || actor.isBlank()) throw new AuthorizationException("actor is required");
         Objects.requireNonNull(permission, "permission");
@@ -20,6 +24,32 @@ public final class AuthorizationService {
                 || !principal.team().equals(resource.team())) {
             throw new AuthorizationException("resource is outside the caller scope");
         }
+    }
+
+    /** Requires an authenticated resource to carry the caller's complete scope. */
+    public void requireScope(Principal principal, String resourceJson) {
+        Objects.requireNonNull(principal, "principal");
+        try {
+            JsonNode root = JSON.readTree(resourceJson == null ? "{}" : resourceJson);
+            JsonNode scope = root == null ? null : root.get("scope");
+            if (scope == null || !scope.isObject()) {
+                throw new AuthorizationException("resource scope is required");
+            }
+            requireScope(principal.scope(), new Scope(text(scope, "tenant"),
+                    text(scope, "project"), text(scope, "team")));
+        } catch (AuthorizationException denied) {
+            throw denied;
+        } catch (Exception invalidJson) {
+            throw new AuthorizationException("resource scope is invalid");
+        }
+    }
+
+    private static String text(JsonNode scope, String field) {
+        JsonNode value = scope.get(field);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            throw new AuthorizationException("resource scope is incomplete");
+        }
+        return value.asText();
     }
 
     public record Scope(String tenant, String project, String team) {

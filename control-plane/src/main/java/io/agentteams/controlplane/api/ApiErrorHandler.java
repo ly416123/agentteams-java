@@ -4,6 +4,7 @@ import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.persistence.OptimisticLockFailure;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.UnavailableDependencyException;
+import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import org.springframework.dao.DataAccessException;
@@ -52,6 +53,11 @@ public final class ApiErrorHandler {
     ResponseEntity<ApiError> unavailable(Exception ignored) {
         return error(HttpStatus.SERVICE_UNAVAILABLE, "UNAVAILABLE_DEPENDENCY",
                 "required dependency is unavailable");
+    }
+
+    @ExceptionHandler(AuthorizationException.class)
+    ResponseEntity<ApiError> forbidden(AuthorizationException ignored) {
+        return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "permission denied");
     }
 
     @ExceptionHandler(Exception.class)

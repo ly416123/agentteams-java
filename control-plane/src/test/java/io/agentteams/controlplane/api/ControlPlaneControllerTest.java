@@ -19,6 +19,9 @@ import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.service.UnavailableDependencyException;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.domain.agent.AgentPhase;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.TaskPhase;
@@ -96,6 +99,48 @@ class ControlPlaneControllerTest {
         mockMvc.perform(get("/api/v1/tasks/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.phase").value("DRAFT"));
+    }
+
+    @Test
+    void rejectsAuthenticatedTaskOutsidePrincipalScope() throws Exception {
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                java.util.Set.of("task:create")));
+        try {
+            mockMvc.perform(post("/api/v1/tasks")
+                            .header("Idempotency-Key", "scoped-task-key")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"title\":\"Build API\",\"spec\":{\"scope\":{"
+                                    + "\"tenant\":\"tenant-b\",\"project\":\"project-a\",\"team\":\"team-a\"}}}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+            verifyNoInteractions(tasks);
+        } finally {
+            PrincipalContext.clear();
+        }
+    }
+
+    @Test
+    void permitsAuthenticatedTaskWithinPrincipalScope() throws Exception {
+        UUID id = UUID.randomUUID();
+        TaskRecord task = new TaskRecord(id, "Build API", "description", TaskPhase.DRAFT, 0,
+                "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}",
+                "alice", "rest", null, null, Instant.now(), Instant.now(), 0);
+        when(tasks.create(eq("scoped-task-key"), any())).thenReturn(task);
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                java.util.Set.of("task:create")));
+        try {
+            mockMvc.perform(post("/api/v1/tasks")
+                            .header("Idempotency-Key", "scoped-task-key")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"title\":\"Build API\",\"spec\":{\"scope\":{"
+                                    + "\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.id").value(id.toString()));
+        } finally {
+            PrincipalContext.clear();
+        }
     }
 
     @Test

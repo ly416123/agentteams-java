@@ -20,6 +20,14 @@ public final class PrincipalContext {
         return CURRENT.get() == null ? fallback : CURRENT.get().subject();
     }
 
+    /** No-op for internal/unauthenticated development calls; strict for OIDC requests. */
+    public static void requireScope(String resourceJson) {
+        Principal principal = CURRENT.get();
+        if (principal != null) {
+            new AuthorizationService().requireScope(principal, resourceJson);
+        }
+    }
+
     public static void clear() {
         CURRENT.remove();
     }
