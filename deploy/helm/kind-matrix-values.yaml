@@ -1,0 +1,6 @@
+controlPlane:
+  matrix:
+    appservice:
+      authEnabled: true
+      hsTokenSecret: matrix-appservice
+      hsTokenKey: hs-token

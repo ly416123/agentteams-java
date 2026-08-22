@@ -60,6 +60,18 @@ spec:
               value: {{ .Values.controlPlane.security.oidc.teamClaim | quote }}
             - name: AGENTTEAMS_SECURITY_OIDC_PERMISSIONS_CLAIM
               value: {{ .Values.controlPlane.security.oidc.permissionsClaim | quote }}
+            - name: AGENTTEAMS_MATRIX_APPSERVICE_AUTH_ENABLED
+              value: {{ .Values.controlPlane.matrix.appservice.authEnabled | quote }}
+{{- if .Values.controlPlane.matrix.appservice.hsTokenSecret }}
+            - name: AGENTTEAMS_MATRIX_APPSERVICE_HS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.matrix.appservice.hsTokenSecret }}
+                  key: {{ .Values.controlPlane.matrix.appservice.hsTokenKey }}
+{{- else }}
+            - name: AGENTTEAMS_MATRIX_APPSERVICE_HS_TOKEN
+              value: ""
+{{- end }}
             - name: AGENTTEAMS_TEAM_SYNC_ENABLED
               value: {{ .Values.controlPlane.teamSync.enabled | quote }}
             - name: AGENTTEAMS_TEAM_SYNC_NAMESPACE

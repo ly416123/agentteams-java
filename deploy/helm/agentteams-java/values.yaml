@@ -30,6 +30,11 @@ controlPlane:
       projectClaim: project
       teamClaim: team
       permissionsClaim: permissions
+  matrix:
+    appservice:
+      authEnabled: false
+      hsTokenSecret: ""
+      hsTokenKey: hs-token
   env:
     SPRING_PROFILES_ACTIVE: k8s
     AGENTTEAMS_NATS_ENABLED: "true"

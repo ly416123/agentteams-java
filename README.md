@@ -152,6 +152,18 @@ them outside the local Kind cluster. The rotation smoke creates a temporary
 RSA signing provider, verifies a changed JWT `kid`, confirms the new key is
 published in JWKS, and checks both the new token and the old token overlap.
 
+The local Matrix path uses Tuwunel with a file-based AppService registration
+and a development-only shared token:
+
+```bash
+./deploy/install-kind-matrix.sh
+./scripts/smoke-kind-matrix.sh
+```
+
+The smoke verifies Tuwunel health, AppService shared-token rejection, accepted
+transactions, and transaction-level duplicate acknowledgement. The local
+Tuwunel data and tokens are development-only and must not be reused elsewhere.
+
 The Kind path was verified on 2026-08-18 with a two-node `v1.36.1` cluster.
 Docker Hub was not reachable from the environment, so the pinned node image
 and dependency images were preloaded into Kind; the application manifests keep

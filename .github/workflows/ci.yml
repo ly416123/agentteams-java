@@ -144,10 +144,15 @@ jobs:
           ./deploy/install-kind-oidc.sh
       - name: Verify live JWKS key rotation
         run: ./scripts/smoke-kind-oidc-rotation.sh
+      - name: Install and verify local Tuwunel AppService
+        run: |
+          ./deploy/install-kind-matrix.sh
+          ./scripts/smoke-kind-matrix.sh
       - name: Collect OIDC diagnostics
         if: failure()
         run: |
           kubectl -n agentteams get pods -o wide
           kubectl -n agentteams get events --sort-by=.lastTimestamp | tail -n 80
           kubectl -n agentteams logs deployment/keycloak --tail=160 || true
+          kubectl -n agentteams logs deployment/tuwunel --tail=160 || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=160 || true

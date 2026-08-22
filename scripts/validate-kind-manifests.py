@@ -118,20 +118,29 @@ def main():
     keycloak_manifest = (ROOT / "deploy/kind-keycloak.yaml")
     oidc_smoke = (ROOT / "scripts/smoke-kind-oidc.sh")
     rotation_smoke = (ROOT / "scripts/smoke-kind-oidc-rotation.sh")
+    matrix_installer = (ROOT / "deploy/install-kind-matrix.sh")
+    matrix_manifest = (ROOT / "deploy/kind-tuwunel.yaml")
+    matrix_smoke = (ROOT / "scripts/smoke-kind-matrix.sh")
     for required_path in (oidc_installer, keycloak_bootstrap, keycloak_manifest,
-                          oidc_smoke, rotation_smoke):
+                          oidc_smoke, rotation_smoke, matrix_installer,
+                          matrix_manifest, matrix_smoke):
         if not required_path.exists():
             fail(f"OIDC Kind asset missing {required_path.relative_to(ROOT)}")
     oidc_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     oidc_values = (ROOT / "deploy/helm/kind-oidc-values.yaml").read_text(encoding="utf-8")
+    matrix_values = (ROOT / "deploy/helm/kind-matrix-values.yaml").read_text(encoding="utf-8")
     if "kind-oidc:" not in oidc_workflow:
         fail("CI must define the isolated kind-oidc job")
     combined = (oidc_installer.read_text(encoding="utf-8")
                 + oidc_smoke.read_text(encoding="utf-8")
                 + rotation_smoke.read_text(encoding="utf-8")
-                + oidc_values + control_plane)
+                + matrix_installer.read_text(encoding="utf-8")
+                + matrix_smoke.read_text(encoding="utf-8")
+                + oidc_values + matrix_values
+                + matrix_manifest.read_text(encoding="utf-8") + control_plane)
     for required in ("KIND_OIDC_SMOKE_OK", "OIDC_JWKS_ROTATION_OK", "components",
-                     "AGENTTEAMS_SECURITY_OIDC_ENABLED"):
+                     "KIND_MATRIX_APPSERVICE_OK", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
+                     "AGENTTEAMS_MATRIX_APPSERVICE_AUTH_ENABLED", "hs_token"):
         if required not in combined:
             fail(f"OIDC Kind automation missing {required}")
     operator_app = (ROOT / "operator/src/main/java/io/agentteams/operator/AgentTeamsOperatorApplication.java").read_text(encoding="utf-8")

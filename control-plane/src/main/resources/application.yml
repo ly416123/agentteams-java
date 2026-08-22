@@ -61,3 +61,7 @@ agentteams:
       project-claim: project
       team-claim: team
       permissions-claim: permissions
+  matrix:
+    appservice:
+      auth-enabled: false
+      hs-token: ${AGENTTEAMS_MATRIX_APPSERVICE_HS_TOKEN:}

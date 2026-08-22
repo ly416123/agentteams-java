@@ -168,6 +168,26 @@ class MatrixAppServiceHttpAdapterTest {
         assertThat(received).hasValue(bound);
     }
 
+    @Test
+    void requiresHomeserverTokenWhenAppserviceAuthenticationIsEnabled() {
+        MatrixAppServiceProperties properties = new MatrixAppServiceProperties();
+        properties.setAuthEnabled(true);
+        properties.setHsToken("hs-token");
+        adapter = new MatrixAppServiceHttpAdapter(new MatrixAppService(new MatrixInboxRepository(jdbc)),
+                (sender, command) -> "accepted", null, properties);
+
+        var missing = adapter.receive("transaction-auth-missing", null,
+                new MatrixAppServiceHttpAdapter.TransactionRequest(List.of(event("$auth-1", "hello"))));
+        var invalid = adapter.receive("transaction-auth-invalid", "Bearer wrong",
+                new MatrixAppServiceHttpAdapter.TransactionRequest(List.of(event("$auth-2", "hello"))));
+        var valid = adapter.receive("transaction-auth-valid", "Bearer hs-token",
+                new MatrixAppServiceHttpAdapter.TransactionRequest(List.of(event("$auth-3", "hello"))));
+
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(valid.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     private static MatrixAppServiceHttpAdapter.EventRequest event(String eventId, String body) {
         return new MatrixAppServiceHttpAdapter.EventRequest(
                 eventId, "m.room.message", "!room:example.org", "@alice:example.org", text(body));

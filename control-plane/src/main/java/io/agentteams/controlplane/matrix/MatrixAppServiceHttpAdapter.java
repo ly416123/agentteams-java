@@ -5,12 +5,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,32 +37,48 @@ public final class MatrixAppServiceHttpAdapter {
     private final MatrixAppService appService;
     private final MatrixCommandHandler commandHandler;
     private final MatrixIdentityBinder identityBinder;
+    private final MatrixAppServiceProperties properties;
 
     public MatrixAppServiceHttpAdapter(MatrixAppService appService, MatrixCommandHandler commandHandler) {
-        this(appService, commandHandler, null);
+        this(appService, commandHandler, null, new MatrixAppServiceProperties());
     }
 
     public MatrixAppServiceHttpAdapter(MatrixAppService appService, MatrixCommandHandler commandHandler,
             MatrixIdentityBinder identityBinder) {
+        this(appService, commandHandler, identityBinder, new MatrixAppServiceProperties());
+    }
+
+    MatrixAppServiceHttpAdapter(MatrixAppService appService, MatrixCommandHandler commandHandler,
+            MatrixIdentityBinder identityBinder, MatrixAppServiceProperties properties) {
         this.appService = Objects.requireNonNull(appService, "appService");
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
         this.identityBinder = identityBinder;
+        this.properties = Objects.requireNonNull(properties, "properties");
     }
 
     @Autowired
     public MatrixAppServiceHttpAdapter(MatrixAppService appService,
             ObjectProvider<MatrixCommandHandler> commandHandlers,
-            ObjectProvider<MatrixIdentityBinder> identityBinders) {
+            ObjectProvider<MatrixIdentityBinder> identityBinders,
+            MatrixAppServiceProperties properties) {
         this(appService, commandHandlers.getIfAvailable(() -> (sender, command) -> {
             throw new MatrixCommandHandlingException("no Matrix command handler is configured");
-        }), identityBinders.getIfAvailable());
+        }), identityBinders.getIfAvailable(), properties);
+    }
+
+    public ResponseEntity<HttpResponse> receive(String transactionId, TransactionRequest request) {
+        return receive(transactionId, null, request);
     }
 
     @PutMapping(path = "/{transactionId}", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<HttpResponse> receive(@PathVariable String transactionId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody TransactionRequest request) {
         try {
+            if (!authorized(authorization)) {
+                return unauthorized(transactionId);
+            }
             validateTransaction(transactionId, request);
             for (EventRequest event : request.events()) {
                 validateEvent(event);
@@ -171,6 +190,22 @@ public final class MatrixAppServiceHttpAdapter {
 
     private static ResponseEntity<HttpResponse> ok(HttpResponse response) {
         return ResponseEntity.ok(response);
+    }
+
+    private static ResponseEntity<HttpResponse> unauthorized(String transactionId) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header("WWW-Authenticate", "Bearer")
+                .body(HttpResponse.error(safeTransactionId(transactionId), "UNAUTHORIZED",
+                        "Matrix AppService authentication required"));
+    }
+
+    private boolean authorized(String authorization) {
+        if (!properties.isAuthEnabled()) return true;
+        if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) return false;
+        String token = authorization.substring(7).trim();
+        byte[] actual = token.getBytes(StandardCharsets.UTF_8);
+        byte[] expected = properties.getHsToken().getBytes(StandardCharsets.UTF_8);
+        return expected.length > 0 && MessageDigest.isEqual(actual, expected);
     }
 
     private static ResponseEntity<HttpResponse> error(HttpStatus status, String transactionId,
