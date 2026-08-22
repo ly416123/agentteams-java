@@ -9,8 +9,12 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Message;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +56,38 @@ class NatsGatewayEventConsumerTest {
         assertThat(command.getValue().getTaskAssigned().getMetadata().getTraceparent())
                 .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
         assertThat(command.getValue().getTaskAssigned().getMetadata().getTracestate()).isEqualTo("vendor=value");
+    }
+
+    @Test
+    void bridgesPropagatedContextIntoConsumerSpan() {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        Tracer tracer = mock(Tracer.class);
+        Propagator propagator = mock(Propagator.class);
+        Span.Builder builder = mock(Span.Builder.class);
+        Span span = mock(Span.class);
+        Tracer.SpanInScope scope = mock(Tracer.SpanInScope.class);
+        when(builder.name(org.mockito.ArgumentMatchers.anyString())).thenReturn(builder);
+        when(builder.start()).thenReturn(span);
+        when(propagator.extract(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(builder);
+        when(tracer.withSpan(span)).thenReturn(scope);
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(new TaskAssignedCommandHandler(delivery),
+                new ObjectMapper(), new AsyncConsumerTracing(tracer, propagator));
+        Message message = message(eventJson().replace("\"payload\":{",
+                "\"correlation_id\":\"matrix-42\",\"traceparent\":\"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\","
+                        + "\"tracestate\":\"vendor=value\",\"payload\":{"));
+
+        assertThat(consumer.process(message)).isTrue();
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<Map<String, String>> carrier = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(propagator).extract(carrier.capture(), org.mockito.ArgumentMatchers.any());
+        assertThat(carrier.getValue()).containsEntry("traceparent",
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+                .containsEntry("tracestate", "vendor=value");
+        verify(builder).name("agentteams.nats.gateway.consume");
+        verify(scope).close();
+        verify(span).end();
     }
 
     @Test

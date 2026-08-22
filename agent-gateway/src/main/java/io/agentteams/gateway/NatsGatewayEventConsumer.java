@@ -87,6 +87,11 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
 
     /** Testable constructor for envelope processing without starting a NATS subscription. */
     public NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper) {
+        this(commandHandler, objectMapper, AsyncConsumerTracing.noop());
+    }
+
+    NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper,
+            AsyncConsumerTracing tracing) {
         this.jetStream = null;
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
         this.configHandler = new ConfigChangedCommandHandler(commandHandler.delivery(), objectMapper);
@@ -96,7 +101,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.configSubject = null;
         this.configDurable = null;
         this.metrics = GatewayMetricsPort.noop();
-        this.tracing = AsyncConsumerTracing.noop();
+        this.tracing = Objects.requireNonNull(tracing, "tracing");
     }
 
     public void start() throws IOException, JetStreamApiException {
