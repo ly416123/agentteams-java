@@ -14,9 +14,12 @@ import tempfile
 PRIMARY_DATABASE = "agentteams"
 RESTORE_DATABASE = "agentteams_restore"
 POSTGRES_USER = "agentteams"
+# Agent rows receive heartbeat/version updates while the backup is being
+# validated. Compare stable identity and lifecycle state instead of treating
+# that expected liveness churn as restore corruption.
 POSTGRES_TABLE_SIGNATURES = """
 select 'agents|' || count(*)::text || '|' ||
-       md5(coalesce(string_agg(id::text || '|' || name || '|' || phase || '|' || version::text,
+       md5(coalesce(string_agg(id::text || '|' || name || '|' || phase,
                              ',' order by id), ''))
   from agents
 union all

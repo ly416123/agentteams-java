@@ -34,6 +34,7 @@ kubectl -n "$NAMESPACE" wait --for=condition=available deployment/prometheus dep
 # sidecar reloader; restart it so updated rules/config are loaded immediately.
 kubectl -n "$NAMESPACE" rollout restart deployment/prometheus
 kubectl -n "$NAMESPACE" rollout status deployment/prometheus --timeout=180s
+kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=180s
 
 helm upgrade --install ingress-nginx ingress-nginx \
   --repo https://kubernetes.github.io/ingress-nginx \

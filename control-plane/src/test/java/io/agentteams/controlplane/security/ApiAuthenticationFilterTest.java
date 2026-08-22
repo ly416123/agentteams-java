@@ -57,4 +57,23 @@ class ApiAuthenticationFilterTest {
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentAsString()).contains("FORBIDDEN");
     }
+
+    @Test
+    void mapsTaskLifecycleAndArtifactRoutesToTheirSpecificPermissions() {
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("POST", "/api/v1/tasks/id/retry")))
+                .contains(Permission.TASK_RETRY);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("POST", "/api/v1/tasks/id/pause")))
+                .contains(Permission.TASK_PAUSE);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("POST", "/api/v1/tasks/id/approve")))
+                .contains(Permission.TASK_APPROVE);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("POST", "/api/v1/tasks/id/reject")))
+                .contains(Permission.TASK_REJECT);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(
+                request("POST", "/api/v1/tasks/id/attempts/attempt/artifacts/uploads")))
+                .contains(Permission.ARTIFACT_WRITE);
+    }
+
+    private static MockHttpServletRequest request(String method, String path) {
+        return new MockHttpServletRequest(method, path);
+    }
 }

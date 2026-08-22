@@ -75,6 +75,54 @@ public final class TaskController {
         return TaskResponse.from(queued);
     }
 
+    @PostMapping("/{id}/retry")
+    public TaskResponse retry(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody(required = false) TaskLifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        TaskLifecycleRequest input = request == null ? new TaskLifecycleRequest(null, null, null) : request;
+        requireExistingTaskScope(id);
+        TaskRecord retried = service.retry(id, expectedVersion(input), idempotencyKey,
+                PrincipalContext.actorOr(input.actor()), input.source());
+        return TaskResponse.from(retried);
+    }
+
+    @PostMapping("/{id}/pause")
+    public TaskResponse pause(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody(required = false) TaskLifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        TaskLifecycleRequest input = request == null ? new TaskLifecycleRequest(null, null, null) : request;
+        requireExistingTaskScope(id);
+        TaskRecord paused = service.pause(id, expectedVersion(input), idempotencyKey,
+                PrincipalContext.actorOr(input.actor()), input.source());
+        return TaskResponse.from(paused);
+    }
+
+    @PostMapping("/{id}/approve")
+    public TaskResponse approve(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody(required = false) TaskLifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        TaskLifecycleRequest input = request == null ? new TaskLifecycleRequest(null, null, null) : request;
+        requireExistingTaskScope(id);
+        TaskRecord approved = service.approve(id, expectedVersion(input), idempotencyKey,
+                PrincipalContext.actorOr(input.actor()), input.source());
+        return TaskResponse.from(approved);
+    }
+
+    @PostMapping("/{id}/reject")
+    public TaskResponse reject(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody(required = false) TaskLifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        TaskLifecycleRequest input = request == null ? new TaskLifecycleRequest(null, null, null) : request;
+        requireExistingTaskScope(id);
+        TaskRecord rejected = service.reject(id, expectedVersion(input), idempotencyKey,
+                PrincipalContext.actorOr(input.actor()), input.source());
+        return TaskResponse.from(rejected);
+    }
+
     public record CreateTaskRequest(String title, String description, JsonNode spec,
             String actor, String source) {
 
@@ -97,6 +145,9 @@ public final class TaskController {
     }
 
     public record QueueTaskRequest(Long expectedVersion) {
+    }
+
+    public record TaskLifecycleRequest(Long expectedVersion, String actor, String source) {
     }
 
     public record TaskResponse(UUID id, String title, String description, String phase,
@@ -127,5 +178,9 @@ public final class TaskController {
         if (idempotencyKey.length() > 255) {
             throw new IllegalArgumentException("Idempotency-Key must be at most 255 characters");
         }
+    }
+
+    private static long expectedVersion(TaskLifecycleRequest request) {
+        return request.expectedVersion() == null ? 0 : request.expectedVersion();
     }
 }

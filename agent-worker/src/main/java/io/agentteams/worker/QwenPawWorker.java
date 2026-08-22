@@ -187,6 +187,7 @@ public final class QwenPawWorker implements AutoCloseable {
             gatewayChannel.shutdownNow();
         } finally {
             scheduler.shutdownNow();
+            tracing.close();
         }
     }
 

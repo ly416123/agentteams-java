@@ -24,11 +24,17 @@ class GrpcServerTracingInterceptorTest {
         Propagator propagator = mock(Propagator.class);
         Span.Builder builder = mock(Span.Builder.class);
         Span span = mock(Span.class);
+        Span callbackSpan = mock(Span.class);
         Tracer.SpanInScope scope = mock(Tracer.SpanInScope.class);
+        Tracer.SpanInScope callbackScope = mock(Tracer.SpanInScope.class);
         when(builder.name(anyString())).thenReturn(builder);
         when(builder.start()).thenReturn(span);
+        when(callbackSpan.name(anyString())).thenReturn(callbackSpan);
+        when(callbackSpan.start()).thenReturn(callbackSpan);
         when(propagator.extract(any(), any())).thenReturn(builder);
+        when(tracer.nextSpan()).thenReturn(callbackSpan);
         when(tracer.withSpan(span)).thenReturn(scope);
+        when(tracer.withSpan(callbackSpan)).thenReturn(callbackScope);
         ServerCall<Object, Object> call = mock(ServerCall.class);
         @SuppressWarnings("unchecked")
         ServerCallHandler<Object, Object> next = mock(ServerCallHandler.class);
@@ -46,6 +52,7 @@ class GrpcServerTracingInterceptorTest {
         assertThat(traced).isNotNull();
         verify(propagator).extract(any(), any());
         verify(listener).onComplete();
+        verify(callbackSpan).end();
         verify(span).end();
     }
 }

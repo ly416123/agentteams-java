@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.persistence;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -45,6 +46,22 @@ public final class ArtifactRepository {
                        sha256, status, metadata::text, created_at, updated_at, version
                   FROM artifacts WHERE id = ?
                 """, this::map, id).stream().findFirst();
+    }
+
+    public List<ArtifactRecord> findByTaskId(UUID taskId) {
+        return jdbc.query("""
+                SELECT id, task_id, attempt_id, name, storage_key, content_type, size_bytes,
+                       sha256, status, metadata::text, created_at, updated_at, version
+                  FROM artifacts WHERE task_id = ? ORDER BY created_at, id
+        """, this::map, taskId);
+    }
+
+    public List<ArtifactRecord> findByTaskIdAndAttemptId(UUID taskId, UUID attemptId) {
+        return jdbc.query("""
+                SELECT id, task_id, attempt_id, name, storage_key, content_type, size_bytes,
+                       sha256, status, metadata::text, created_at, updated_at, version
+                  FROM artifacts WHERE task_id = ? AND attempt_id = ? ORDER BY created_at, id
+                """, this::map, taskId, attemptId);
     }
 
     public Optional<ArtifactRecord> findByAttemptIdNameSha256(UUID attemptId, String name, String sha256) {

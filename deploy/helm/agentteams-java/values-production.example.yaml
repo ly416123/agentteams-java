@@ -1,0 +1,90 @@
+# Copy this file to an environment-owned values file and replace every
+# RELEASE_TAG/placeholder before installing. Do not commit rendered Secrets.
+images:
+  controlPlane: ghcr.io/ly416123/agentteams-control-plane:RELEASE_TAG
+  gateway: ghcr.io/ly416123/agentteams-agent-gateway:RELEASE_TAG
+  operator: ghcr.io/ly416123/agentteams-operator:RELEASE_TAG
+imagePullPolicy: IfNotPresent
+
+controlPlane:
+  replicas: 3
+  security:
+    apiEnabled: true
+    oidc:
+      enabled: true
+      issuerUri: https://idp.example.com/realms/agentteams
+      jwkSetUri: https://idp.example.com/realms/agentteams/protocol/openid-connect/certs
+      audience: agentteams-api
+      tenantClaim: tenant
+      projectClaim: project
+      teamClaim: team
+      permissionsClaim: permissions
+  matrix:
+    appservice:
+      authEnabled: true
+      hsTokenSecret: agentteams-matrix-appservice
+      hsTokenKey: hs-token
+  env:
+    SPRING_PROFILES_ACTIVE: k8s
+    AGENTTEAMS_NATS_ENABLED: "true"
+    AGENTTEAMS_OUTBOX_RELAY_ENABLED: "true"
+
+gateway:
+  replicas: 3
+  tls:
+    enabled: true
+    secretName: agentteams-gateway-mtls
+    mountPath: /etc/agentteams/gateway-tls
+    certificateChainPath: /etc/agentteams/gateway-tls/tls.crt
+    privateKeyPath: /etc/agentteams/gateway-tls/tls.key
+    trustCertificateCollectionPath: /etc/agentteams/gateway-tls/ca.crt
+  env:
+    AGENTTEAMS_GATEWAY_GRPC_PORT: "9090"
+    AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"
+    AGENTTEAMS_GATEWAY_NATS_URL: nats://nats.example.internal:4222
+
+operator:
+  replicas: 2
+  leaderElection:
+    enabled: true
+    leaseName: agentteams-operator
+
+database:
+  jdbcUrl: jdbc:postgresql://postgresql.example.internal:5432/agentteams
+  username: agentteams
+  existingSecret: agentteams-database
+
+storage:
+  enabled: true
+  endpoint: https://s3.example.internal
+  bucket: agentteams
+  existingSecret: agentteams-storage
+
+nats:
+  url: nats://nats.example.internal:4222
+
+availability:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+networkPolicy:
+  enabled: true
+  oidcEgressCIDR: 198.51.100.0/24 # replace with the IdP egress range
+  oidcEgressPort: 443
+  kubernetesApiAllowAllEgress: false
+
+observability:
+  tracing:
+    enabled: true
+    samplingProbability: 0.1
+    otlpEndpoint: https://otel-collector.telemetry.example.com/v1/traces
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    labels:
+      release: prometheus
+  prometheusRule:
+    enabled: true
+    labels:
+      release: prometheus

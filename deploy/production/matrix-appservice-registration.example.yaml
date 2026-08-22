@@ -1,0 +1,18 @@
+# Environment-owned Matrix AppService registration. Replace placeholders and
+# store the rendered registration through External Secrets; do not commit it
+# with real as_token/hs_token values.
+id: agentteams
+url: http://agentteams-control-plane.agentteams.svc:8080
+as_token: REPLACE_WITH_EXTERNAL_SECRET
+hs_token: REPLACE_WITH_EXTERNAL_SECRET
+sender_localpart: agentteams
+namespaces:
+  users:
+    - exclusive: true
+      regex: '@agentteams_.*:example.com'
+  aliases:
+    - exclusive: true
+      regex: '#agentteams_.*:example.com'
+  rooms:
+    - exclusive: false
+      regex: '^!.*:example.com$'

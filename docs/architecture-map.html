@@ -439,7 +439,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <div class="pos">
           <table>
             <tr><th style="width:140px">包</th><th>核心类</th><th>职责</th></tr>
-            <tr><td><code>api</code></td><td>TaskController / AgentController / ConfigController / ConfigFileController / ApiErrorHandler</td><td>REST 入口：<code>/api/v1/tasks</code>、<code>/api/v1/agents</code>、<code>/api/v1/config</code>；强制 Idempotency-Key；全局异常映射（400 / 404 / 409 / 503）</td></tr>
+            <tr><td><code>api</code></td><td>TaskController / ArtifactController / AgentController / ConfigController / ConfigFileController / ApiErrorHandler</td><td>REST 入口：任务生命周期命令、任务产物上传/列表/详情、短期下载 URL、<code>/api/v1/agents</code>、<code>/api/v1/config</code>；强制 Idempotency-Key；全局异常映射（400 / 404 / 409 / 503）</td></tr>
             <tr><td><code>application</code></td><td>ControlPlaneTaskCommandAdapter 等 3 个适配器</td><td>实现 application-contracts 端口，六边形出端口适配层</td></tr>
             <tr><td><code>service</code></td><td>TaskService / ExecutionEventService / TaskAssignmentService / TaskAssignmentScheduler / IdempotencyService</td><td>任务编排、执行事件落地（单事务重建聚合 → 转移 → 乐观锁 → 写事件）、队列分配（SKIP LOCKED）、1s 轮询调度（数据库租约单活）</td></tr>
             <tr><td><code>persistence</code></td><td>FoundationPersistenceService / FoundationTransaction / 9 个 Repository</td><td>JDBC 手写 SQL；appendEvent 同事务写 domain_events + outbox_events；全表 version 乐观锁；JSON 自动脱敏</td></tr>

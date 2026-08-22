@@ -78,9 +78,18 @@ boundaries are deliberately runtime-specific and do not move QwenPaw files or
 sockets into the Control Plane.
 
 The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
-`POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. The built-in
-lease-based scheduler assigns queued work across replicas and recovers expired
-leases after restart. HTTP API authentication is disabled by default. To
+`POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. Lifecycle commands
+are exposed as `POST /retry`, `/pause`, `/approve`, `/reject`, and `/cancel`
+under the task resource; each command requires its own idempotency key and
+enforces the corresponding OIDC permission. Task artifacts use direct
+object-storage transfer: call
+`POST /api/v1/tasks/{taskId}/attempts/{attemptId}/artifacts/uploads`, upload to
+the returned pre-signed URL, then call the sibling `/artifacts/complete`
+endpoint with the size and SHA-256 checksum. The built-in lease-based
+scheduler assigns queued work across replicas and recovers expired leases
+after restart. Existing artifacts can be listed or fetched through the task
+artifact resource, which returns a fresh short-lived download URL. HTTP API
+authentication is disabled by default. To
 enable the built-in OIDC JWT validator, provide the issuer, JWKS URI, audience,
 and scope claims together; enabling the API without a complete OIDC
 configuration fails startup rather than exposing an unauthenticated API:
@@ -351,3 +360,11 @@ rollouts, and OIDC JWKS key overlap, see
 uses an `emptyDir` volume and the database password is a local test secret.
 Production deployments must provide durable PostgreSQL, NATS JetStream and
 Secrets through the target cluster or its operators.
+
+For a production starting point, copy
+[`deploy/helm/agentteams-java/values-production.example.yaml`](deploy/helm/agentteams-java/values-production.example.yaml)
+to an environment-owned values file, replace the release tag and endpoint
+placeholders, and provision the referenced Secrets through cert-manager,
+External Secrets, or the platform secret manager. The repository validates the
+example contract with `python scripts/validate-production-values.py`; it never
+contains production credentials.

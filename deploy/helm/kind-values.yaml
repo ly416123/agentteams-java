@@ -19,6 +19,8 @@ storage:
 observability:
   serviceMonitor:
     enabled: false
+operator:
+  replicas: 2
 networkPolicy:
   # Kind's kindnet evaluates the Kubernetes API path after node-level DNAT;
   # allow only API HTTPS ports while keeping all other egress restrictions.

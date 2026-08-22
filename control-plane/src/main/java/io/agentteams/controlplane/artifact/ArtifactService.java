@@ -21,6 +21,13 @@ public final class ArtifactService {
                 storage.presignPut(key, contentType, expiry), storage.presignGet(key, expiry));
     }
 
+    public java.net.URL prepareDownload(String storageKey, Duration expiry) {
+        if (storageKey == null || storageKey.isBlank()) {
+            throw new IllegalArgumentException("storageKey is required");
+        }
+        return storage.presignGet(storageKey, expiry);
+    }
+
     public ArtifactVerification verifyUploadedObject(String storageKey, String expectedSha256, long expectedSize) {
         if (storageKey == null || storageKey.isBlank()) throw new IllegalArgumentException("storageKey is required");
         if (expectedSha256 == null || expectedSha256.isBlank()) throw new IllegalArgumentException("expectedSha256 is required");

@@ -257,6 +257,40 @@ class ControlPlaneControllerTest {
     }
 
     @Test
+    void exposesTheRemainingTaskLifecycleCommands() throws Exception {
+        UUID id = UUID.randomUUID();
+        TaskRecord retried = task(id, TaskPhase.QUEUED, 1);
+        TaskRecord paused = task(id, TaskPhase.PAUSED, 2);
+        TaskRecord approved = task(id, TaskPhase.DRAFT, 3);
+        TaskRecord rejected = task(id, TaskPhase.REJECTED, 4);
+        when(tasks.retry(eq(id), eq(0L), eq("retry-key"), any(), any())).thenReturn(retried);
+        when(tasks.pause(eq(id), eq(1L), eq("pause-key"), any(), any())).thenReturn(paused);
+        when(tasks.approve(eq(id), eq(2L), eq("approve-key"), any(), any())).thenReturn(approved);
+        when(tasks.reject(eq(id), eq(3L), eq("reject-key"), any(), any())).thenReturn(rejected);
+
+        mockMvc.perform(post("/api/v1/tasks/{id}/retry", id)
+                        .header("Idempotency-Key", "retry-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.phase").value("QUEUED"));
+        mockMvc.perform(post("/api/v1/tasks/{id}/pause", id)
+                        .header("Idempotency-Key", "pause-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.phase").value("PAUSED"));
+        mockMvc.perform(post("/api/v1/tasks/{id}/approve", id)
+                        .header("Idempotency-Key", "approve-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":2}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.phase").value("DRAFT"));
+        mockMvc.perform(post("/api/v1/tasks/{id}/reject", id)
+                        .header("Idempotency-Key", "reject-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":3}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.phase").value("REJECTED"));
+    }
+
+    @Test
     void reportsOptimisticConflictWithoutInternalDetails() throws Exception {
         UUID id = UUID.randomUUID();
         when(tasks.cancel(eq(id), eq(0L), eq("cancel-key"), any(), any()))
@@ -293,5 +327,10 @@ class ControlPlaneControllerTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("UNAVAILABLE_DEPENDENCY"))
                 .andExpect(jsonPath("$.message").value("required dependency is unavailable"));
+    }
+
+    private static TaskRecord task(UUID id, TaskPhase phase, long version) {
+        return new TaskRecord(id, "Build API", "description", phase, 0, "{}",
+                "api", "rest", null, null, Instant.now(), Instant.now(), version);
     }
 }

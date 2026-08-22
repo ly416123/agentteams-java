@@ -16,4 +16,13 @@ spec:
   minAvailable: {{ .Values.availability.podDisruptionBudget.minAvailable }}
   selector:
     matchLabels: { app.kubernetes.io/name: agentteams-gateway }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-operator
+spec:
+  minAvailable: {{ .Values.availability.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentteams-operator }
 {{- end }}

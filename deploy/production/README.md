@@ -81,6 +81,33 @@ Gateway and Worker rollouts to become Ready, then rotate the remaining client
 certificates. Keep the CA overlap long enough for all active streams to
 reconnect.
 
+## Matrix AppService production contract
+
+Keep Matrix outside the task database and use an environment-owned AppService
+registration. [`matrix-appservice-registration.example.yaml`](matrix-appservice-registration.example.yaml)
+is a non-secret template for the URL, sender namespace, and room namespace
+contract. Store `as_token` and `hs_token` in the external Secret referenced by
+`controlPlane.matrix.appservice.hsTokenSecret`; never put either token in Helm
+values or Git. The homeserver must use durable storage and route AppService
+transactions to the Control Plane Service. Verify transaction/event
+deduplication and outbound replay after a homeserver or Control Plane restart.
+
+Before rendering a release, run `python scripts/validate-matrix-registration.py`
+and replace only the URL, namespaces, and external-secret placeholders through
+the deployment pipeline.
+
+Before a production rollout, run the endpoint preflight with environment-owned
+URLs. It checks API readiness, OIDC discovery/JWKS reachability, and optionally
+the Matrix homeserver without printing credentials:
+
+```bash
+export API_HEALTH_URL=https://api.example.com/actuator/health/readiness
+export OIDC_ISSUER_URI=https://idp.example.com/realms/agentteams
+export OIDC_JWKS_URI=https://idp.example.com/realms/agentteams/protocol/openid-connect/certs
+export MATRIX_HOMESERVER_URL=https://matrix.example.com # optional
+./scripts/validate-production-endpoints.sh
+```
+
 ## OIDC acceptance checks
 
 Run these checks with a token issued by the target provider. The token must

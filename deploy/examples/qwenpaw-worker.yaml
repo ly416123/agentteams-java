@@ -17,6 +17,12 @@ spec:
     AGENTTEAMS_CONFIG_MANIFEST_BASE_URL: http://agentteams-agentteams-java-control-plane:8080
     AGENTTEAMS_CONFIG_DIRECTORY: /tmp/agentteams-config
     AGENTTEAMS_MAX_CONFIG_FILE_BYTES: "16777216"
+    # Worker tracing is disabled by default. Set the endpoint to the same
+    # OTLP/HTTP collector used by Control Plane and Gateway to enable it.
+    AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: "false"
+    AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: "0.1"
+    AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: ""
+    AGENTTEAMS_OBSERVABILITY_SERVICE_NAME: agentteams-agent-worker
     QWENPAW_ENDPOINT: http://qwenpaw:8088
     QWENPAW_AGENT_ID: default
     QWENPAW_USER_ID: agentteams

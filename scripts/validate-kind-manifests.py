@@ -40,6 +40,7 @@ def main():
         fail("installer steps must be ordered infra, observability, ingress, images, CRD, Helm, Worker bootstrap")
     for required in (
             "rollout restart deployment/prometheus",
+            "rollout status deployment/otel-collector",
             "deployment/agentteams-agentteams-java-control-plane",
             "deployment/agentteams-agentteams-java-gateway"):
         if required not in installer_text:
@@ -95,9 +96,17 @@ def main():
     for required in ("qwenpaw-openai-mock", "python:3.12-alpine", "server.py"):
         if required not in qwenpaw_mock_manifest_text:
             fail(f"QwenPaw mock manifest missing {required}")
-    for required in ("/chat/completions", "KIND_LEASE_RECOVERY_OK", "stream"):
+    for required in ("/chat/completions", "KIND_LEASE_RECOVERY_OK", "KIND_WORKER_RESTART_OK",
+                     "QWENPAW_MOCK_RESPONSE_DELAY_SECONDS", "stream"):
         if required not in qwenpaw_mock_script_text:
             fail(f"QwenPaw mock server missing {required}")
+    otel_validator = ROOT / "scripts/validate-kind-otel.py"
+    if not otel_validator.exists():
+        fail("Kind OTel validator does not exist")
+    observability_manifest = (ROOT / "deploy/kind-observability.yaml").read_text(encoding="utf-8")
+    for required in ("otel-collector", "otel/opentelemetry-collector-contrib:0.123.0"):
+        if required not in observability_manifest:
+            fail(f"Kind OTel collector manifest missing {required}")
     control_plane = (ROOT / "deploy/helm/agentteams-java/templates/control-plane.yaml").read_text(encoding="utf-8")
     for required in ("controlPlaneServiceAccountName", "AGENTTEAMS_TEAM_SYNC_ENABLED",
                      "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
@@ -114,6 +123,14 @@ def main():
         if required not in helpers:
             fail(f"Dedicated service-account helper missing {required}")
     operator = (ROOT / "deploy/helm/agentteams-java/templates/operator.yaml").read_text(encoding="utf-8")
+    operator_pdb = (ROOT / "deploy/helm/agentteams-java/templates/poddisruptionbudget.yaml").read_text(encoding="utf-8")
+    kind_values = (ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8")
+    if "replicas: {{ .Values.operator.replicas }}" not in operator:
+        fail("Operator replicas must be configurable from Helm values")
+    if "-operator" not in operator_pdb or "app.kubernetes.io/name: agentteams-operator" not in operator_pdb:
+        fail("Operator must have a PodDisruptionBudget")
+    if "operator:\n  replicas: 2" not in kind_values:
+        fail("Kind HA values must run two Operator replicas")
     if 'serviceAccountName: {{ include "agentteams-java.operatorServiceAccountName" .' not in operator:
         fail("Operator must use its dedicated service account")
     gateway_manifest = (ROOT / "deploy/helm/agentteams-java/templates/gateway.yaml").read_text(encoding="utf-8")
@@ -142,6 +159,18 @@ def main():
         if not required_path.exists():
             fail(f"OIDC Kind asset missing {required_path.relative_to(ROOT)}")
     oidc_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    api_contract = ROOT / "scripts/validate-api-contract.py"
+    if not api_contract.exists() or "validate-api-contract.py" not in oidc_workflow:
+        fail("CI must execute the API contract validation")
+    task_api_smoke = ROOT / "scripts/smoke-kind-task-api.sh"
+    if not task_api_smoke.exists():
+        fail("Kind Task and Artifact API smoke script does not exist")
+    task_api_smoke_text = task_api_smoke.read_text(encoding="utf-8")
+    for required in ("approve", "pause", "reject", "/artifacts", "KIND_TASK_API_OK"):
+        if required not in task_api_smoke_text:
+            fail(f"Kind Task and Artifact API smoke missing {required}")
+    if "smoke-kind-task-api.sh" not in oidc_workflow:
+        fail("CI must execute the Kind Task and Artifact API smoke")
     if "validate-prometheus-rule.py /tmp/agentteams-prometheusrule.yaml" not in oidc_workflow:
         fail("CI must validate the rendered PrometheusRule")
     nats_recovery_script = ROOT / "scripts/run-kind-nats-outbox-recovery.py"
@@ -166,11 +195,21 @@ def main():
     if not gateway_replay_script.exists():
         fail("Kind Gateway replay recovery script does not exist")
     gateway_replay_text = gateway_replay_script.read_text(encoding="utf-8")
-    for required in ("gateway_commands", "gateway_command_deliveries", "rollout", "KIND_GATEWAY_REPLAY_OK"):
+    for required in ("gateway_commands", "gateway_command_deliveries", "delete", "gateway_pod_names",
+                     "KIND_GATEWAY_POD_FAILOVER_OK", "KIND_GATEWAY_REPLAY_OK"):
         if required not in gateway_replay_text:
             fail(f"Kind Gateway replay recovery script missing {required}")
     if "run-kind-gateway-replay.py --agent-id" not in oidc_workflow:
         fail("CI must execute the Kind Gateway replay recovery test")
+    worker_restart_script = ROOT / "scripts/run-kind-worker-restart.py"
+    if not worker_restart_script.exists():
+        fail("Kind in-flight Worker restart recovery script does not exist")
+    worker_restart_text = worker_restart_script.read_text(encoding="utf-8")
+    for required in ("RUNNING", "delete", "agent_leases", "KIND_WORKER_RESTART_OK"):
+        if required not in worker_restart_text:
+            fail(f"Kind in-flight Worker restart script missing {required}")
+    if "run-kind-worker-restart.py --agent-id" not in oidc_workflow:
+        fail("CI must execute the Kind in-flight Worker restart recovery test")
     postgres_restore_script = ROOT / "scripts/run-kind-postgres-restore.py"
     if not postgres_restore_script.exists():
         fail("Kind PostgreSQL restore validation script does not exist")
@@ -246,6 +285,13 @@ def main():
     worker_factory = (ROOT / "operator/src/main/java/io/agentteams/operator/WorkerResourceFactory.java").read_text(encoding="utf-8")
     if "secret.reloader.stakater.com/reload" not in worker_factory:
         fail("Worker TLS deployment must expose the Secret rotation annotation")
+    worker_example = (ROOT / "deploy/examples/qwenpaw-worker.yaml").read_text(encoding="utf-8")
+    for required in ("AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED",
+                     "AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY",
+                     "AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT",
+                     "AGENTTEAMS_OBSERVABILITY_SERVICE_NAME"):
+        if required not in worker_example:
+            fail(f"Worker example missing OTel configuration {required}")
     auth_filter = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthenticationFilter.java").read_text(encoding="utf-8")
     auth_policy = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthorizationPolicy.java").read_text(encoding="utf-8")
     authorization = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/AuthorizationService.java").read_text(encoding="utf-8")
@@ -253,10 +299,13 @@ def main():
     agent_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/AgentController.java").read_text(encoding="utf-8")
     config_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/ConfigController.java").read_text(encoding="utf-8")
     config_file_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/ConfigFileController.java").read_text(encoding="utf-8")
+    artifact_controller = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/api/ArtifactController.java").read_text(encoding="utf-8")
     for required in ("ApiAuthorizationPolicy", "SC_FORBIDDEN", "Permission.TASK_READ", "Permission.CONFIG_WRITE",
                      "requireScope", "request.spec", "task.specJson", "request.metadata", "snapshot.manifestJson",
-                     "requireSnapshotScope"):
-        if required not in auth_filter + auth_policy + authorization + task_controller + agent_controller + config_controller + config_file_controller:
+                     "requireSnapshotScope", "ArtifactController", "@PostMapping(\"/complete\")",
+                     "Permission.ARTIFACT_WRITE"):
+        if required not in (auth_filter + auth_policy + authorization + task_controller + agent_controller
+                            + config_controller + config_file_controller + artifact_controller):
             fail(f"OIDC API authorization missing {required}")
     print("KIND_MANIFESTS_OK")
 

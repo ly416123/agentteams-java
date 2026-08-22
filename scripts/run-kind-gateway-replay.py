@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that Gateway restart replays an unacknowledged durable command."""
+"""Verify Gateway single-Pod failover replays an unacknowledged durable command."""
 
 from __future__ import annotations
 
@@ -99,6 +99,13 @@ def deployment_ready(namespace: str, deployment: str, expected: int) -> bool:
     return int(status.get("readyReplicas", 0)) == expected
 
 
+def gateway_pod_names(namespace: str) -> list[str]:
+    pods = kubectl_json("get", "pods", "-l", "app.kubernetes.io/name=agentteams-gateway",
+                        namespace=namespace)
+    return [item["metadata"]["name"] for item in pods.get("items", [])
+            if item.get("status", {}).get("phase") == "Running"]
+
+
 def qwenpaw_agent_phases(namespace: str, postgres_pod: str) -> dict[str, str]:
     rows = sql(namespace, postgres_pod, """
         select id || '|' || phase
@@ -161,8 +168,8 @@ def main() -> int:
 
     worker_replicas = deployment_replicas(args.namespace, args.worker_deployment)
     gateway_replicas = deployment_replicas(args.namespace, args.gateway_deployment)
-    if worker_replicas <= 0 or gateway_replicas <= 0:
-        fail("Worker and Gateway deployments must have replicas before the test")
+    if worker_replicas <= 0 or gateway_replicas < 2:
+        fail("Worker must have a replica and Gateway must have at least two replicas for HA failover")
     worker_agent_id = deployment_agent_id(args.namespace, args.worker_deployment)
     if worker_agent_id and worker_agent_id != args.agent_id:
         fail(f"worker deployment is bound to agent {worker_agent_id}, not {args.agent_id}")
@@ -207,9 +214,14 @@ def main() -> int:
             fail("Gateway command was delivered before the restart; Worker shutdown race was not controlled")
         print(f"KIND_GATEWAY_COMMAND_DURABLE task={task_id} sequence={command_sequence}")
 
-        run("rollout", "restart", f"deployment/{args.gateway_deployment}", namespace=args.namespace)
-        run("rollout", "status", f"deployment/{args.gateway_deployment}",
-            f"--timeout={int(args.timeout)}s", namespace=args.namespace)
+        gateway_pods = gateway_pod_names(args.namespace)
+        if len(gateway_pods) < gateway_replicas:
+            fail(f"expected {gateway_replicas} running Gateway Pods before fault injection, got {gateway_pods}")
+        failed_gateway_pod = gateway_pods[0]
+        run("delete", "pod", failed_gateway_pod, "--wait=true", namespace=args.namespace)
+        wait_until("Gateway single-pod failover", lambda: deployment_ready(
+            args.namespace, args.gateway_deployment, gateway_replicas), args.timeout)
+        print(f"KIND_GATEWAY_POD_FAILOVER_OK deleted={failed_gateway_pod} replicas={gateway_replicas}")
         wait_until("Gateway recovery", lambda: deployment_ready(
             args.namespace, args.gateway_deployment, gateway_replicas), args.timeout)
         run("scale", "deployment", args.worker_deployment, f"--replicas={worker_replicas}",

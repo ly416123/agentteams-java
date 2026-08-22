@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-operator
 spec:
-  replicas: 1
+  replicas: {{ .Values.operator.replicas }}
   selector:
     matchLabels: { app.kubernetes.io/name: agentteams-operator }
   template:

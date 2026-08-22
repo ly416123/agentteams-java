@@ -77,8 +77,16 @@ public final class GrpcServerTracingInterceptor implements ServerInterceptor {
                 }
 
                 private void inSpan(Runnable callback) {
-                    try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
-                        callback.run();
+                    try (Tracer.SpanInScope parentScope = tracer.withSpan(span)) {
+                        Span callbackSpan = tracer.nextSpan().name("agentteams.grpc.agentchannel.server").start();
+                        try (Tracer.SpanInScope callbackScope = tracer.withSpan(callbackSpan)) {
+                            callback.run();
+                        } catch (RuntimeException error) {
+                            callbackSpan.error(error);
+                            throw error;
+                        } finally {
+                            callbackSpan.end();
+                        }
                     }
                 }
 

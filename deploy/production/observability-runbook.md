@@ -24,6 +24,27 @@ includes `correlationId`, `traceId`, and `spanId`; use `task_id`, `attempt_id`,
 business event to its trace. Do not add raw prompts, tokens, artifact content,
 or tenant identifiers as metric labels or span attributes.
 
+Workers are Operator-managed `Worker` resources, so configure the same tracing
+values in `spec.env` rather than expecting Helm to render a Worker Deployment:
+
+```yaml
+spec:
+  env:
+    AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: "true"
+    AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: "0.1"
+    AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector.telemetry.svc:4318/v1/traces
+    AGENTTEAMS_OBSERVABILITY_SERVICE_NAME: agentteams-agent-worker
+```
+
+The Worker creates its SDK only when tracing is enabled and an endpoint is
+present. Export runs asynchronously and is best effort; an unavailable
+collector must not block task execution.
+
+The Operator uses a namespace-scoped leader-election lease. For reconciliation
+availability during pod disruption, configure at least two Operator replicas;
+only the elected replica performs reconciliation. The Kind HA overlay enables
+two replicas and applies a matching PodDisruptionBudget.
+
 ## First response
 
 1. Open the active alert and record its start time, affected namespace, pod,
@@ -75,12 +96,18 @@ editing task state directly. Use the recovery scripts from the repository for
 validation after an incident:
 
 ```bash
+export AGENTTEAMS_API_BEARER_TOKEN='eyJ...'
 python scripts/run-kind-lease-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
 python scripts/run-kind-nats-outbox-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
 python scripts/run-kind-gateway-replay.py --agent-id "$AGENTTEAMS_AGENT_ID"
 python scripts/run-kind-postgres-restore.py
 python scripts/run-kind-object-reference-integrity.py
 ```
+
+When API OIDC is enabled, the recovery scripts send this bearer token on
+their HTTP calls. In CI the recovery job disables API authentication; in a
+local OIDC-enabled Kind cluster, obtain the token from the configured IdP and
+do not place it in repository files.
 
 Escalate when a dead-letter event contains a non-retryable business error,
 when restored object checksums differ from PostgreSQL metadata, when leases

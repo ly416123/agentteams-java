@@ -8,6 +8,12 @@
       { "name": "task:read" },
       { "name": "task:create" },
       { "name": "task:cancel" },
+      { "name": "task:retry" },
+      { "name": "task:pause" },
+      { "name": "task:approve" },
+      { "name": "task:reject" },
+      { "name": "artifact:read" },
+      { "name": "artifact:write" },
       { "name": "agent:read" },
       { "name": "agent:write" },
       { "name": "config:read" },
@@ -109,7 +115,8 @@
         { "type": "password", "value": "alice-dev", "temporary": false }
       ],
       "realmRoles": [
-        "task:read", "task:create", "task:cancel",
+        "task:read", "task:create", "task:cancel", "task:retry", "task:pause",
+        "task:approve", "task:reject", "artifact:read", "artifact:write",
         "agent:read", "agent:write", "config:read", "config:write"
       ]
     },

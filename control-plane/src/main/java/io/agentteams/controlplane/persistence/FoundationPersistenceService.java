@@ -7,6 +7,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -81,6 +82,22 @@ public final class FoundationPersistenceService {
 
     public Optional<TaskRecord> findTask(UUID id) {
         return inTransaction(tx -> tx.tasks().findById(id));
+    }
+
+    public Optional<ArtifactRecord> findArtifact(UUID id) {
+        return inTransaction(tx -> tx.artifacts().findById(id));
+    }
+
+    public Optional<TaskAttemptRecord> findTaskAttempt(UUID id) {
+        return inTransaction(tx -> tx.taskAttempts().findById(id));
+    }
+
+    public List<ArtifactRecord> findArtifactsByTaskId(UUID taskId) {
+        return inTransaction(tx -> tx.artifacts().findByTaskId(taskId));
+    }
+
+    public List<ArtifactRecord> findArtifactsByTaskIdAndAttemptId(UUID taskId, UUID attemptId) {
+        return inTransaction(tx -> tx.artifacts().findByTaskIdAndAttemptId(taskId, attemptId));
     }
 
     public Optional<IdempotencyKeyRecord> findIdempotencyKey(String key) {

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,6 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = "agentteams-kind-mock"
 RESPONSE_TEXT = "KIND_LEASE_RECOVERY_OK"
+RESTART_RESPONSE_TEXT = "KIND_WORKER_RESTART_OK"
+RESPONSE_DELAY_SECONDS = max(0.0, float(os.environ.get("QWENPAW_MOCK_RESPONSE_DELAY_SECONDS", "0")))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -45,6 +48,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", "0"))
         request = json.loads(self.rfile.read(length) or b"{}")
+        request_text = json.dumps(request, separators=(",", ":"))
+        response_text = (RESTART_RESPONSE_TEXT if "KIND_WORKER_RESTART_OK" in request_text
+                         else RESPONSE_TEXT)
+        if RESPONSE_DELAY_SECONDS:
+            time.sleep(RESPONSE_DELAY_SECONDS)
         response_id = f"chatcmpl-{uuid.uuid4()}"
         completion = {
             "id": response_id,
@@ -54,7 +62,7 @@ class Handler(BaseHTTPRequestHandler):
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": RESPONSE_TEXT},
+                    "message": {"role": "assistant", "content": response_text},
                     "finish_reason": "stop",
                 }
             ],
@@ -67,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
                     "object": "chat.completion.chunk",
                     "created": completion["created"],
                     "model": completion["model"],
-                    "choices": [{"index": 0, "delta": {"role": "assistant", "content": RESPONSE_TEXT},
+                    "choices": [{"index": 0, "delta": {"role": "assistant", "content": response_text},
                                  "finish_reason": "stop"}],
                 },
                 separators=(",", ":"),

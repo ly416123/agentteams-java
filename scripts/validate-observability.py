@@ -6,6 +6,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "deploy" / "kind-observability.yaml"
 RUNBOOK = ROOT / "deploy" / "production" / "observability-runbook.md"
+NETWORK_POLICY = ROOT / "deploy" / "helm" / "agentteams-java" / "templates" / "networkpolicy.yaml"
 
 
 def fail(message):
@@ -18,6 +19,15 @@ def main():
         fail("manifest does not exist")
     if not RUNBOOK.exists():
         fail("production observability runbook does not exist")
+    if not NETWORK_POLICY.exists():
+        fail("Helm network policy does not exist")
+    network_policy = NETWORK_POLICY.read_text(encoding="utf-8")
+    for required in ("observability.tracing.enabled", "otel-collector", "4318"):
+        if required not in network_policy:
+            fail(f"Helm network policy missing OTLP egress rule {required}")
+    otel_collector_validator = ROOT / "scripts" / "validate-kind-otel.py"
+    if not otel_collector_validator.exists():
+        fail("Kind OTel collector validator does not exist")
     runbook = RUNBOOK.read_text(encoding="utf-8")
     for required in (
             "AgentTeamsOutboxStalled", "AgentTeamsOutboxDeadLettered",
@@ -37,6 +47,15 @@ def main():
                 "traceId", "spanId", "type: w3c"):
             if required not in application_text:
                 fail(f"{module} tracing configuration missing {required}")
+    worker_example = ROOT / "deploy" / "examples" / "qwenpaw-worker.yaml"
+    worker_text = worker_example.read_text(encoding="utf-8")
+    for required in (
+            "AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED",
+            "AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY",
+            "AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT",
+            "AGENTTEAMS_OBSERVABILITY_SERVICE_NAME"):
+        if required not in worker_text:
+            fail(f"Worker tracing configuration missing {required}")
     try:
         resources = [item for item in yaml.safe_load_all(MANIFEST.read_text(encoding="utf-8")) if item]
     except Exception as exc:
@@ -54,6 +73,9 @@ def main():
         ("Service", "grafana"),
         ("PersistentVolumeClaim", "grafana-data"),
         ("ConfigMap", "grafana-datasources"),
+        ("ConfigMap", "otel-collector-config"),
+        ("Deployment", "otel-collector"),
+        ("Service", "otel-collector"),
     ]
     for key in required:
         if key not in by_name:
@@ -83,6 +105,10 @@ def main():
     datasource = by_name[("ConfigMap", "grafana-datasources")]["data"].get("datasources.yaml", "")
     if "http://prometheus:9090" not in datasource:
         fail("Grafana datasource must point to Prometheus")
+    collector = by_name[("ConfigMap", "otel-collector-config")]["data"].get("config.yaml", "")
+    for required in ("health_check", "otlp", "4318", "debug"):
+        if required not in collector:
+            fail(f"OTLP collector configuration missing {required}")
     print("OBSERVABILITY_OK")
 
 

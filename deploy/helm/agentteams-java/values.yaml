@@ -65,6 +65,7 @@ gateway:
     AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"
     AGENTTEAMS_GATEWAY_NATS_URL: nats://nats:4222
 operator:
+  replicas: 1
   serviceAccount:
     create: true
     name: agentteams-operator

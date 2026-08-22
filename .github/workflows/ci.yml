@@ -21,6 +21,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate architecture map
         run: python scripts/validate-architecture-map.py
+      - name: Validate API contract
+        run: python scripts/validate-api-contract.py
+      - name: Validate production values contract
+        run: |
+          python -m pip install --disable-pip-version-check pyyaml
+          python scripts/validate-production-values.py
+          python scripts/validate-matrix-registration.py
+      - name: Validate backup and restore scripts
+        run: bash scripts/validate-backup-scripts.sh
+      - name: Validate production endpoint preflight script
+        run: bash -n scripts/validate-production-endpoints.sh
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -80,6 +91,7 @@ jobs:
           kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=180s
           kubectl apply -f deploy/kind-observability.yaml
           kubectl -n agentteams rollout status deployment/prometheus --timeout=240s
+          kubectl -n agentteams rollout status deployment/otel-collector --timeout=240s
           kubectl -n agentteams rollout status deployment/qwenpaw --timeout=240s
       - name: Configure deterministic QwenPaw model
         run: |
@@ -134,6 +146,9 @@ jobs:
             --namespace agentteams --create-namespace --wait --timeout 5m \
             --set controlPlane.security.apiEnabled=false \
             --set controlPlane.security.oidc.enabled=false \
+            --set observability.tracing.enabled=true \
+            --set observability.tracing.samplingProbability=1.0 \
+            --set observability.tracing.otlpEndpoint=http://otel-collector:4318/v1/traces \
             -f deploy/helm/kind-values.yaml
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
@@ -156,7 +171,7 @@ jobs:
             exit 1
           fi
           AGENT_ID=$(jq -er '.id // empty' "$AGENT_RESPONSE")
-          sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/" \
+          sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/; s/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"false\"/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"true\"/; s#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: \"\"#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces#" \
             deploy/examples/qwenpaw-worker.yaml >/tmp/qwenpaw-real.yaml
           kubectl apply -f /tmp/qwenpaw-real.yaml
           deployment_deadline=$((SECONDS + 120))
@@ -189,14 +204,20 @@ jobs:
         run: python scripts/run-kind-nats-outbox-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind Gateway replay recovery test
         run: python scripts/run-kind-gateway-replay.py --agent-id "$AGENTTEAMS_AGENT_ID"
+      - name: Run Kind in-flight Worker restart recovery test
+        run: python scripts/run-kind-worker-restart.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind PostgreSQL backup and restore validation
         run: python scripts/run-kind-postgres-restore.py
       - name: Run Kind MinIO backup and restore validation
         run: python scripts/run-kind-minio-restore.py
       - name: Run Kind object reference integrity validation
         run: python scripts/run-kind-object-reference-integrity.py
+      - name: Verify OTLP trace continuity
+        run: python scripts/validate-kind-otel.py
       - name: Verify multi-replica Prometheus scraping
         run: python scripts/validate-kind-prometheus.py
+      - name: Run Kind Task and Artifact API smoke
+        run: ./scripts/smoke-kind-task-api.sh
       - name: Collect Kind diagnostics
         if: failure()
         run: |
@@ -213,6 +234,7 @@ jobs:
           kubectl -n agentteams logs deployment/qwenpaw-real --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/worker.log 2>&1 || true
           kubectl -n agentteams logs deployment/qwenpaw --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw.log 2>&1 || true
           kubectl -n agentteams logs deployment/qwenpaw-openai-mock --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-openai-mock.log 2>&1 || true
+          kubectl -n agentteams logs deployment/otel-collector --tail=1000 > /tmp/agentteams-kind-recovery-diagnostics/otel-collector.log 2>&1 || true
           kubectl -n agentteams logs statefulset/nats --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/nats.log 2>&1 || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select event_type,status,attempts,last_error,created_at,updated_at from outbox_events order by updated_at desc limit 200" \

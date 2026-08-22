@@ -22,6 +22,16 @@ Gateway, then Operator/Workers. Pending Outbox rows and unexpired leases are
 reconciled by the Control Plane after restart; Matrix delivery is replayable
 from its Inbox/Outbox tables.
 
+## Production RPO/RTO contract
+
+The production baseline is an operator-owned PostgreSQL backup plus
+versioned/retained object storage. Set the organization's targets explicitly;
+the recommended starting point is RPO <= 15 minutes and RTO <= 60 minutes for
+the Control Plane, with NATS rebuilt from the durable PostgreSQL Outbox rather
+than treated as the source of truth. Record the PostgreSQL dump and object
+storage snapshot/version as one recovery point, validate both before traffic
+returns, and keep the previous application release available for rollback.
+
 ## Kind development cluster backup
 
 For the local Kind cluster (installed by `deploy/install-kind-dev.sh`), use
@@ -41,7 +51,7 @@ Restoration requires an explicit confirmation and never deletes existing
 backups:
 
 ```bash
-./deploy/backup/restore-kind.sh --confirm
+./deploy/backup/restore-kind.sh --confirm backups
 ```
 
 The Kind recovery CI also performs a non-destructive PostgreSQL validation:
