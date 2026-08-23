@@ -14,6 +14,8 @@ public final class FoundationTransaction {
     private final IdempotencyKeyRepository idempotencyKeys;
     private final TeamRepository teams;
     private final io.agentteams.controlplane.config.ConfigLifecycleRepository configLifecycle;
+    private final ModelProviderRepository modelProviders;
+    private final ModelRepository models;
 
     FoundationTransaction(org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -28,6 +30,8 @@ public final class FoundationTransaction {
         idempotencyKeys = new IdempotencyKeyRepository(jdbc);
         teams = new TeamRepository(jdbc);
         configLifecycle = new io.agentteams.controlplane.config.ConfigLifecycleRepository(jdbc);
+        modelProviders = new ModelProviderRepository(jdbc);
+        models = new ModelRepository(jdbc);
     }
 
     public AgentRepository agents() {
@@ -72,6 +76,14 @@ public final class FoundationTransaction {
 
     public io.agentteams.controlplane.config.ConfigLifecycleRepository configLifecycle() {
         return configLifecycle;
+    }
+
+    public ModelProviderRepository modelProviders() {
+        return modelProviders;
+    }
+
+    public ModelRepository models() {
+        return models;
     }
 
     public java.util.List<java.util.UUID> expiredActiveLeaseIds(java.time.Instant now) {

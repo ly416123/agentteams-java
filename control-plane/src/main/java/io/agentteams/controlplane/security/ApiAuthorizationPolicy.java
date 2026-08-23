@@ -28,6 +28,9 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/config")) {
             return Optional.of("GET".equals(method) ? Permission.CONFIG_READ : Permission.CONFIG_WRITE);
         }
+        if (path.startsWith("/api/v1/model-providers")) {
+            return Optional.of("GET".equals(method) ? Permission.MODEL_READ : Permission.MODEL_WRITE);
+        }
         return Optional.empty();
     }
 }

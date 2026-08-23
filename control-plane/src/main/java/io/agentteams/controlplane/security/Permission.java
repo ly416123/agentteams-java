@@ -17,6 +17,8 @@ public enum Permission {
     TEAM_APPROVE("team:approve"),
     CONFIG_READ("config:read"),
     CONFIG_WRITE("config:write"),
+    MODEL_READ("model:read"),
+    MODEL_WRITE("model:write"),
     AUDIT_READ("audit:read");
 
     private final String value;

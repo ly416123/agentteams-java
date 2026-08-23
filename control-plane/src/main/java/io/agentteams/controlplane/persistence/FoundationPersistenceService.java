@@ -22,6 +22,8 @@ public final class FoundationPersistenceService {
 
     private static final String CREATE_TASK = "CREATE_TASK";
     private static final String CREATE_AGENT = "CREATE_AGENT";
+    private static final String CREATE_MODEL_PROVIDER = "CREATE_MODEL_PROVIDER";
+    private static final String CREATE_MODEL = "CREATE_MODEL";
 
     private final TransactionTemplate transactionTemplate;
     private final FoundationTransaction repositories;
@@ -78,6 +80,80 @@ public final class FoundationPersistenceService {
 
     public Optional<AgentRecord> findAgent(UUID id) {
         return inTransaction(tx -> tx.agents().findById(id));
+    }
+
+    public ModelProviderRecord createModelProvider(ModelProviderRecord provider, String idempotencyKey,
+            String requestHash) {
+        Objects.requireNonNull(provider, "provider");
+        requireIdempotencyInput(idempotencyKey, requestHash);
+        return inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(idempotencyKey);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), CREATE_MODEL_PROVIDER, requestHash, idempotencyKey);
+                return tx.modelProviders().findById(existing.get().resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent model provider is missing"));
+            }
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), idempotencyKey,
+                    CREATE_MODEL_PROVIDER, requestHash, "model_provider", provider.id(), idPayload(provider.id()),
+                    provider.createdAt(), provider.createdAt(), 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(idempotencyKey)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, CREATE_MODEL_PROVIDER, requestHash, idempotencyKey);
+                return tx.modelProviders().findById(winner.resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent model provider is missing"));
+            }
+            tx.modelProviders().insert(provider);
+            appendEvent(tx, "model_provider", provider.id(), "ModelProviderCreated", idPayload(provider.id()),
+                    provider.updatedAt(), provider.version());
+            return provider;
+        });
+    }
+
+    public Optional<ModelProviderRecord> findModelProvider(UUID id) {
+        return inTransaction(tx -> tx.modelProviders().findById(id));
+    }
+
+    public List<ModelProviderRecord> findModelProviders() {
+        return inTransaction(tx -> tx.modelProviders().findAll());
+    }
+
+    public ModelRecord createModel(ModelRecord model, String idempotencyKey, String requestHash) {
+        Objects.requireNonNull(model, "model");
+        requireIdempotencyInput(idempotencyKey, requestHash);
+        return inTransaction(tx -> {
+            if (tx.modelProviders().findById(model.providerId()).isEmpty()) {
+                throw new IllegalArgumentException("model provider does not exist: " + model.providerId());
+            }
+            var existing = tx.idempotencyKeys().findByKey(idempotencyKey);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), CREATE_MODEL, requestHash, idempotencyKey);
+                return tx.models().findById(existing.get().resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent model is missing"));
+            }
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), idempotencyKey,
+                    CREATE_MODEL, requestHash, "model", model.id(), idPayload(model.id()),
+                    model.createdAt(), model.createdAt(), 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(idempotencyKey)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, CREATE_MODEL, requestHash, idempotencyKey);
+                return tx.models().findById(winner.resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent model is missing"));
+            }
+            tx.models().insert(model);
+            appendEvent(tx, "model", model.id(), "ModelCreated", idPayload(model.id()),
+                    model.updatedAt(), model.version());
+            return model;
+        });
+    }
+
+    public Optional<ModelRecord> findModel(UUID id) {
+        return inTransaction(tx -> tx.models().findById(id));
+    }
+
+    public List<ModelRecord> findModelsByProvider(UUID providerId) {
+        return inTransaction(tx -> tx.models().findByProviderId(providerId));
     }
 
     public Optional<TaskRecord> findTask(UUID id) {
