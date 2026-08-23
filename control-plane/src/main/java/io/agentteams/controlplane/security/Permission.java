@@ -19,6 +19,13 @@ public enum Permission {
     CONFIG_WRITE("config:write"),
     MODEL_READ("model:read"),
     MODEL_WRITE("model:write"),
+    AGENT_SPEC_READ("agent-spec:read"),
+    AGENT_SPEC_WRITE("agent-spec:write"),
+    SKILL_READ("skill:read"),
+    SKILL_WRITE("skill:write"),
+    MCP_READ("mcp:read"),
+    MCP_WRITE("mcp:write"),
+    USAGE_READ("usage:read"),
     AUDIT_READ("audit:read");
 
     private final String value;

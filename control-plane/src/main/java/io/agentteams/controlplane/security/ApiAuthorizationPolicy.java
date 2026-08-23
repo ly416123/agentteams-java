@@ -31,6 +31,21 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/model-providers")) {
             return Optional.of("GET".equals(method) ? Permission.MODEL_READ : Permission.MODEL_WRITE);
         }
+        if (path.startsWith("/api/v1/agent-specs")) {
+            return Optional.of("GET".equals(method) ? Permission.AGENT_SPEC_READ : Permission.AGENT_SPEC_WRITE);
+        }
+        if (path.startsWith("/api/v1/skills")) {
+            return Optional.of("GET".equals(method) ? Permission.SKILL_READ : Permission.SKILL_WRITE);
+        }
+        if (path.startsWith("/api/v1/mcp-servers")) {
+            return Optional.of("GET".equals(method) ? Permission.MCP_READ : Permission.MCP_WRITE);
+        }
+        if (path.startsWith("/api/v1/usage")) {
+            return Optional.of(Permission.USAGE_READ);
+        }
+        if (path.startsWith("/api/v1/audit-events")) {
+            return Optional.of(Permission.AUDIT_READ);
+        }
         return Optional.empty();
     }
 }

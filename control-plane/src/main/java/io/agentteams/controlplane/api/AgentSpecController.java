@@ -1,0 +1,70 @@
+package io.agentteams.controlplane.api;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import io.agentteams.controlplane.agentspec.AgentSpecRecord;
+import io.agentteams.controlplane.agentspec.AgentSpecService;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1/agent-specs")
+public final class AgentSpecController {
+
+    @PostMapping
+    public ResponseEntity<AgentSpecResponse> create(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody CreateAgentSpecRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        requireIdempotencyKey(idempotencyKey);
+        AgentSpecRecord record = service.create(idempotencyKey, request.toInput());
+        return ResponseEntity.status(201).body(AgentSpecResponse.from(record));
+    }
+
+    @GetMapping
+    public List<AgentSpecResponse> list() {
+        return service.list().stream().map(AgentSpecResponse::from).toList();
+    }
+
+    @GetMapping("/{id}")
+    public AgentSpecResponse get(@PathVariable UUID id) {
+        return AgentSpecResponse.from(service.get(id));
+    }
+
+    private final AgentSpecService service;
+
+    public AgentSpecController(AgentSpecService service) {
+        this.service = service;
+    }
+
+    public record CreateAgentSpecRequest(String name, String runtime, String modelProvider,
+            String modelName, String teamRef, String desiredState, JsonNode spec) {
+        AgentSpecService.Input toInput() {
+            return new AgentSpecService.Input(name, runtime, modelProvider, modelName, teamRef, desiredState,
+                    spec == null || spec.isNull() ? "{}" : spec.toString());
+        }
+    }
+
+    public record AgentSpecResponse(UUID id, String name, String runtime, String modelProvider,
+            String modelName, String teamRef, String desiredState, String lifecycleStatus,
+            String spec, Instant createdAt, Instant updatedAt, long version) {
+        static AgentSpecResponse from(AgentSpecRecord record) {
+            return new AgentSpecResponse(record.id(), record.name(), record.runtime(), record.modelProvider(),
+                    record.modelName(), record.teamRef(), record.desiredState(), record.lifecycleStatus(),
+                    record.specJson(), record.createdAt(), record.updatedAt(), record.version());
+        }
+    }
+
+    private static void requireIdempotencyKey(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("Idempotency-Key is required");
+        if (value.length() > 255) throw new IllegalArgumentException("Idempotency-Key must be at most 255 characters");
+    }
+}
