@@ -15,15 +15,21 @@ import org.springframework.stereotype.Service;
 @Service
 public final class AgentSpecService {
 
+    private static final String DRAFT = "DRAFT";
+    private static final String PUBLISHED = "PUBLISHED";
+    private static final String DISABLED = "DISABLED";
+
     private final AgentSpecRepository repository;
+    private final AgentSpecModelCatalog modelCatalog;
     private final Clock clock;
 
-    public AgentSpecService(AgentSpecRepository repository) {
-        this(repository, Clock.systemUTC());
+    public AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog) {
+        this(repository, modelCatalog, Clock.systemUTC());
     }
 
-    AgentSpecService(AgentSpecRepository repository, Clock clock) {
+    AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock) {
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.modelCatalog = Objects.requireNonNull(modelCatalog, "modelCatalog");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -40,11 +46,17 @@ public final class AgentSpecService {
             return get(existing.get().specId());
         }
 
+        String name = required(input.name(), "name");
+        String runtime = required(input.runtime(), "runtime");
+        String providerName = required(input.modelProvider(), "modelProvider");
+        String modelId = required(input.modelName(), "modelName");
+        String desiredState = normalizeState(input.desiredState());
+        String specJson = objectJson(input.specJson());
+        validateModelReference(providerName, modelId);
+
         Instant now = clock.instant();
-        AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), required(input.name(), "name"),
-                required(input.runtime(), "runtime"), required(input.modelProvider(), "modelProvider"),
-                required(input.modelName(), "modelName"), optional(input.teamRef()),
-                normalizeState(input.desiredState()), "DRAFT", objectJson(input.specJson()), now, now, 1);
+        AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), name, runtime, providerName, modelId,
+                optional(input.teamRef()), desiredState, DRAFT, specJson, now, now, 1);
         if (!repository.insertIdempotency(new AgentSpecRepository.IdempotencyRecord(key, hash, record.id(), now))) {
             var winner = repository.findIdempotency(key).orElseThrow();
             if (!winner.requestHash().equals(hash)) {
@@ -63,6 +75,16 @@ public final class AgentSpecService {
     public AgentSpecRecord get(UUID id) {
         return repository.findById(Objects.requireNonNull(id, "id"))
                 .orElseThrow(() -> new IllegalArgumentException("agent spec does not exist: " + id));
+    }
+
+    @Transactional
+    public AgentSpecRecord publish(String idempotencyKey, UUID id) {
+        return transition(idempotencyKey, id, "PUBLISH", PUBLISHED, DRAFT);
+    }
+
+    @Transactional
+    public AgentSpecRecord deactivate(String idempotencyKey, UUID id) {
+        return transition(idempotencyKey, id, "DEACTIVATE", DISABLED, PUBLISHED);
     }
 
     public record Input(String name, String runtime, String modelProvider, String modelName,
@@ -92,6 +114,72 @@ public final class AgentSpecService {
 
     private static String optional(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private void validateModelReference(String providerName, String modelId) {
+        AgentSpecModelCatalog.ProviderReference provider = modelCatalog.findProviderByName(providerName)
+                .orElseThrow(() -> new IllegalArgumentException("model provider does not exist: " + providerName));
+        if (!provider.enabled()) {
+            throw new IllegalArgumentException("model provider is disabled: " + providerName);
+        }
+        AgentSpecModelCatalog.ModelReference model = modelCatalog.findModelById(provider.id(), modelId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "model does not exist for provider: " + providerName + "/" + modelId));
+        if (!model.enabled()) {
+            throw new IllegalArgumentException("model is disabled for provider: " + providerName + "/" + modelId);
+        }
+    }
+
+    private AgentSpecRecord transition(String idempotencyKey, UUID id, String operation, String target,
+            String requiredCurrent) {
+        String key = required(idempotencyKey, "Idempotency-Key");
+        UUID specId = Objects.requireNonNull(id, "id");
+        String requestHash = transitionHash(operation, specId);
+        var existing = repository.findIdempotency(key);
+        if (existing.isPresent()) {
+            if (!existing.get().requestHash().equals(requestHash)) {
+                throw new IllegalArgumentException("Idempotency-Key was already used with a different request");
+            }
+            return get(existing.get().specId());
+        }
+
+        AgentSpecRecord current = get(specId);
+        if (!requiredCurrent.equals(current.lifecycleStatus())) {
+            throw new IllegalArgumentException("cannot " + operation.toLowerCase()
+                    + " agent spec from lifecycle status: " + current.lifecycleStatus());
+        }
+
+        Instant now = clock.instant();
+        AgentSpecRecord next = new AgentSpecRecord(current.id(), current.name(), current.runtime(),
+                current.modelProvider(), current.modelName(), current.teamRef(), current.desiredState(), target,
+                current.specJson(), current.createdAt(), now, current.version() + 1);
+        if (!repository.insertIdempotency(new AgentSpecRepository.IdempotencyRecord(key, requestHash,
+                current.id(), now))) {
+            return resolveTransitionWinner(key, requestHash);
+        }
+        repository.updateLifecycle(next, current.version());
+        return next;
+    }
+
+    private AgentSpecRecord resolveTransitionWinner(String key, String requestHash) {
+        var winner = repository.findIdempotency(key).orElseThrow();
+        if (!winner.requestHash().equals(requestHash)) {
+            throw new IllegalArgumentException("Idempotency-Key was already used with a different request");
+        }
+        return get(winner.specId());
+    }
+
+    private static String transitionHash(String operation, UUID id) {
+        return hashValue(operation + "\u0000" + id);
+    }
+
+    private static String hashValue(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 
     private static String hash(Input input) {

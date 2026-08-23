@@ -32,6 +32,19 @@ public final class JdbcAgentSpecRepository implements AgentSpecRepository {
     }
 
     @Override
+    public void updateLifecycle(AgentSpecRecord record, long expectedVersion) {
+        int updated = jdbc.update("""
+                UPDATE agent_specs
+                   SET lifecycle_status = ?, updated_at = ?, version = ?
+                 WHERE id = ? AND version = ?
+                """, record.lifecycleStatus(), timestamp(record.updatedAt()), record.version(), record.id(),
+                expectedVersion);
+        if (updated != 1) {
+            throw new AgentSpecVersionConflictException(record.id(), expectedVersion);
+        }
+    }
+
+    @Override
     public Optional<AgentSpecRecord> findById(UUID id) {
         return jdbc.query(selectSql() + " WHERE id = ?", this::map, id).stream().findFirst();
     }

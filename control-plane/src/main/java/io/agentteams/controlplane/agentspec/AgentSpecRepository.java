@@ -7,6 +7,8 @@ import java.util.UUID;
 public interface AgentSpecRepository {
     void insert(AgentSpecRecord record);
 
+    void updateLifecycle(AgentSpecRecord record, long expectedVersion);
+
     Optional<AgentSpecRecord> findById(UUID id);
 
     List<AgentSpecRecord> findAll();

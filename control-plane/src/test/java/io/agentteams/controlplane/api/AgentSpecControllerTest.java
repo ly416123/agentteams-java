@@ -2,6 +2,7 @@ package io.agentteams.controlplane.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -64,5 +65,38 @@ class AgentSpecControllerTest {
         mockMvc.perform(get("/api/v1/agent-specs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].name").value("analyst"));
+    }
+
+    @Test
+    void publishesAndDeactivatesAgentSpecWithIdempotencyKeys() throws Exception {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        AgentSpecRecord published = new AgentSpecRecord(id, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+                null, "RUNNING", "PUBLISHED", "{}", now, now, 2);
+        AgentSpecRecord disabled = new AgentSpecRecord(id, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+                null, "RUNNING", "DISABLED", "{}", now, now, 3);
+        when(service.publish("publish-key", id)).thenReturn(published);
+        when(service.deactivate("deactivate-key", id)).thenReturn(disabled);
+
+        mockMvc.perform(post("/api/v1/agent-specs/{id}/publish", id)
+                        .header("Idempotency-Key", "publish-key"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lifecycleStatus").value("PUBLISHED"))
+                .andExpect(jsonPath("$.version").value(2));
+        mockMvc.perform(post("/api/v1/agent-specs/{id}/deactivate", id)
+                        .header("Idempotency-Key", "deactivate-key"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lifecycleStatus").value("DISABLED"))
+                .andExpect(jsonPath("$.version").value(3));
+
+        verify(service).publish("publish-key", id);
+        verify(service).deactivate("deactivate-key", id);
+    }
+
+    @Test
+    void rejectsLifecycleTransitionWithoutIdempotencyKey() throws Exception {
+        mockMvc.perform(post("/api/v1/agent-specs/{id}/publish", UUID.randomUUID()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 }

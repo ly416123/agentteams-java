@@ -41,6 +41,20 @@ public final class AgentSpecController {
         return AgentSpecResponse.from(service.get(id));
     }
 
+    @PostMapping("/{id}/publish")
+    public AgentSpecResponse publish(@PathVariable UUID id,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        requireIdempotencyKey(idempotencyKey);
+        return AgentSpecResponse.from(service.publish(idempotencyKey, id));
+    }
+
+    @PostMapping("/{id}/deactivate")
+    public AgentSpecResponse deactivate(@PathVariable UUID id,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        requireIdempotencyKey(idempotencyKey);
+        return AgentSpecResponse.from(service.deactivate(idempotencyKey, id));
+    }
+
     @PostMapping("/{id}/deployments/{agentId}")
     public DeploymentResponse deploy(@PathVariable UUID id, @PathVariable UUID agentId,
             @RequestHeader(value = "X-Actor", required = false) String actor) {
