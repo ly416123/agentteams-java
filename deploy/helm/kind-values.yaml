@@ -12,7 +12,7 @@ controlPlane:
     # Keep the recovery tests meaningful without creating a false second
     # attempt from a short lease; the lease-recovery test expires leases
     # explicitly and is unaffected by this value.
-    leaseDuration: 5m
+    leaseDuration: 10m
 storage:
   enabled: true
   endpoint: http://minio:9000

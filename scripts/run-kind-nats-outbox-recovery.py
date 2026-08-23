@@ -93,6 +93,17 @@ def deployment_ready(namespace: str, name: str, expected: int) -> bool:
     return int(status.get("readyReplicas", 0)) == expected
 
 
+def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
+    rows = sql(namespace, postgres_pod, """
+        select count(*)
+          from agents
+         where id = '{agent_id}'
+           and phase = 'READY'
+           and capabilities ? 'qwenpaw';
+    """.format(agent_id=agent_id))
+    return int(rows or "0") > 0
+
+
 def outbox_state(namespace: str, postgres_pod: str, task_id: str) -> str:
     return sql(namespace, postgres_pod, f"""
         select status || '|' || attempts || '|' || coalesce(last_error, '')
@@ -140,6 +151,11 @@ def main() -> int:
         fail("NATS StatefulSet must have at least one replica before the test")
     if not deployment_ready(args.namespace, args.worker_deployment, 1):
         fail("QwenPaw worker must be ready before the NATS outage test")
+    wait_until(
+        f"QwenPaw Agent registration for {args.agent_id}",
+        lambda: qwenpaw_agent_ready(args.namespace, args.postgres_pod, args.agent_id),
+        args.timeout,
+    )
 
     port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
     base_url = f"http://127.0.0.1:{args.local_port}"
