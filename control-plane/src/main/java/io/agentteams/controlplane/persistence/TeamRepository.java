@@ -40,7 +40,16 @@ public final class TeamRepository {
                   FROM teams WHERE name = ? FOR UPDATE
                 """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
                         rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
-                        JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), name).stream().findFirst();
+                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), name).stream().findFirst();
+    }
+
+    public List<TeamRecord> findAll() {
+        return jdbc.query("""
+                SELECT id, name, display_name, status, created_at, updated_at, version
+                  FROM teams ORDER BY name, id
+                """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
+                rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
+                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")));
     }
 
     public void upsert(TeamRecord team) {
@@ -95,8 +104,18 @@ public final class TeamRepository {
         jdbc.update("""
                 INSERT INTO team_memberships(id, team_id, agent_id, role, status, joined_at, updated_at, version)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (team_id, agent_id) DO UPDATE SET role = EXCLUDED.role,
+                    status = EXCLUDED.status, updated_at = EXCLUDED.updated_at,
+                    version = team_memberships.version + 1
                 """, member.id(), member.teamId(), member.agentId(), member.role(), member.status(),
                 JdbcSupport.timestamp(member.joinedAt()), JdbcSupport.timestamp(member.updatedAt()), member.version());
+    }
+
+    public void deactivateMember(UUID teamId, UUID agentId, java.time.Instant now) {
+        jdbc.update("""
+                UPDATE team_memberships SET status = 'INACTIVE', updated_at = ?, version = version + 1
+                 WHERE team_id = ? AND agent_id = ? AND status = 'ACTIVE'
+                """, JdbcSupport.timestamp(now), teamId, agentId);
     }
 
     public List<TeamMemberRecord> activeMembers(UUID teamId) {

@@ -9,6 +9,7 @@ import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.controlplane.team.TeamSchedulingPolicy;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -60,7 +61,41 @@ public final class TeamService {
             tx.teams().findById(teamId).orElseThrow(() -> new ResourceNotFoundException("team", teamId));
             tx.agents().findById(agentId).orElseThrow(() -> new ResourceNotFoundException("agent", agentId));
             tx.teams().insertMember(member);
-            return member;
+            return tx.teams().findActiveMember(teamId, agentId).orElse(member);
+        });
+    }
+
+    public TeamRecord get(UUID teamId) {
+        Objects.requireNonNull(teamId, "teamId");
+        requireVisible(teamId);
+        return persistence.inTransaction(tx -> tx.teams().findById(teamId)
+                .orElseThrow(() -> new ResourceNotFoundException("team", teamId)));
+    }
+
+    public List<TeamRecord> list() {
+        return persistence.inTransaction(tx -> tx.teams().findAll()).stream()
+                .filter(team -> isVisible(team.id())).toList();
+    }
+
+    public List<TeamMemberRecord> members(UUID teamId) {
+        get(teamId);
+        return persistence.inTransaction(tx -> tx.teams().allMembers(teamId));
+    }
+
+    public void removeMember(UUID teamId, UUID agentId, Instant now) {
+        Objects.requireNonNull(agentId, "agentId");
+        get(teamId);
+        persistence.inTransaction(tx -> {
+            tx.teams().deactivateMember(teamId, agentId, now);
+            return null;
+        });
+    }
+
+    public void delete(UUID teamId, Instant now) {
+        get(teamId);
+        persistence.inTransaction(tx -> {
+            tx.teams().markDeleted(teamId, now);
+            return null;
         });
     }
 
@@ -102,6 +137,15 @@ public final class TeamService {
     private void requireVisible(UUID resourceId) {
         if (resourceScopes != null) {
             resourceScopes.requireVisible("TEAM", resourceId);
+        }
+    }
+
+    private boolean isVisible(UUID resourceId) {
+        try {
+            requireVisible(resourceId);
+            return true;
+        } catch (RuntimeException ignored) {
+            return false;
         }
     }
 
