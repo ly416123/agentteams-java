@@ -89,7 +89,9 @@ public final class QwenPawWorker implements AutoCloseable {
     private final ConfigManifestFetcher manifestFetcher;
     private final ConfigFileFetcher configFileFetcher;
     private final Path configDirectory;
-    private final RuntimeConfigCoordinator configCoordinator;
+    /** Configuration versions are scoped to a Control Plane binding. */
+    private final Map<UUID, RuntimeConfigCoordinator> configCoordinators = new ConcurrentHashMap<>();
+    private final Object configApplyLock = new Object();
     private final GatewayRuntimeAdapter runtimeAdapter;
     private final AgentHello hello;
     private final WorkerHealthServer healthServer;
@@ -128,17 +130,6 @@ public final class QwenPawWorker implements AutoCloseable {
         this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigFileBytes());
         this.configDirectory = configuration.configDirectory();
-        this.configCoordinator = new RuntimeConfigCoordinator((snapshot, current) ->
-                new RuntimeConfigPrepared() {
-                    @Override
-                    public void activate() {
-                        runtime.applyConfig(snapshot);
-                    }
-
-                    @Override
-                    public void discard() {
-                    }
-                });
         this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock);
         RuntimeResultSink resultSink = this::onRuntimeResult;
         this.hello = hello(configuration, clock);
@@ -274,9 +265,13 @@ public final class QwenPawWorker implements AutoCloseable {
                     ? manifestFetcher.fetch(changed.getManifestUri(), changed.getSnapshotId(),
                             changed.getManifestSha256(), changed.getSizeBytes())
                     : changed.getManifestJson();
-            configCoordinator.apply(buildConfigSnapshot(changed, manifestJson, configFileFetcher,
-                    configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion())),
-                    changed.getRollback());
+            UUID bindingId = UUID.fromString(changed.getBindingId());
+            RuntimeConfigSnapshot snapshot = buildConfigSnapshot(changed, manifestJson, configFileFetcher,
+                    configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion()));
+            synchronized (configApplyLock) {
+                configCoordinators.computeIfAbsent(bindingId, ignored -> newConfigCoordinator())
+                        .apply(snapshot, changed.getRollback());
+            }
             applied = true;
         } catch (Exception failure) {
             errorMessage = truncate(rootMessage(failure));
@@ -288,6 +283,19 @@ public final class QwenPawWorker implements AutoCloseable {
         if (input.getSequence() > 0) {
             acknowledge(input);
         }
+    }
+
+    private RuntimeConfigCoordinator newConfigCoordinator() {
+        return new RuntimeConfigCoordinator((snapshot, current) -> new RuntimeConfigPrepared() {
+            @Override
+            public void activate() {
+                runtime.applyConfig(snapshot);
+            }
+
+            @Override
+            public void discard() {
+            }
+        });
     }
 
     /**
