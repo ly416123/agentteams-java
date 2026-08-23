@@ -26,6 +26,9 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     private final Counter skillScansFailed;
     private final Counter skillReviewsApproved;
     private final Counter skillReviewsRejected;
+    private final Counter configApplyAcknowledged;
+    private final Counter configApplyFailed;
+    private final Counter configRollbackRequested;
     private final Timer managerLatency;
     private final Timer outboxPublishLatency;
     private final AtomicLong outboxBacklog = new AtomicLong();
@@ -50,6 +53,9 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
         skillScansFailed = registry.counter("agentteams.skills.security_scans.failed");
         skillReviewsApproved = registry.counter("agentteams.skills.reviews.approved");
         skillReviewsRejected = registry.counter("agentteams.skills.reviews.rejected");
+        configApplyAcknowledged = registry.counter("agentteams.config.apply.acknowledged");
+        configApplyFailed = registry.counter("agentteams.config.apply.failed");
+        configRollbackRequested = registry.counter("agentteams.config.rollback.requested");
         managerLatency = registry.timer("agentteams.manager.call.latency");
         outboxPublishLatency = registry.timer("agentteams.outbox.publish.latency");
         registry.gauge("agentteams.outbox.backlog", outboxBacklog);
@@ -81,5 +87,8 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     public void skillScanFailed() { skillScansFailed.increment(); }
     public void skillReviewApproved() { skillReviewsApproved.increment(); }
     public void skillReviewRejected() { skillReviewsRejected.increment(); }
+    public void configApplyAcknowledged() { configApplyAcknowledged.increment(); }
+    public void configApplyFailed() { configApplyFailed.increment(); }
+    public void configRollbackRequested() { configRollbackRequested.increment(); }
     public void managerCall(Duration duration) { managerLatency.record(Objects.requireNonNull(duration, "duration")); }
 }

@@ -7,6 +7,8 @@ import io.agentteams.controlplane.persistence.OptimisticLockFailure;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.OutboundPolicy;
 import io.agentteams.controlplane.security.OutboundPolicyValidator;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
+import io.agentteams.controlplane.security.CredentialReferenceValidator;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -32,30 +34,38 @@ public final class McpServerService {
     private final Clock clock;
     private final AuditRecorder auditRecorder;
     private final OutboundPolicyValidator outboundPolicyValidator;
+    private final ResourceScopeRepository resourceScopes;
 
     public McpServerService(McpServerRepository repository) {
-        this(repository, Clock.systemUTC(), event -> { }, new OutboundPolicyValidator());
+        this(repository, Clock.systemUTC(), event -> { }, new OutboundPolicyValidator(), null);
     }
 
     @Autowired
-    public McpServerService(McpServerRepository repository, AuditRecorder auditRecorder) {
-        this(repository, Clock.systemUTC(), auditRecorder, new OutboundPolicyValidator());
+    public McpServerService(McpServerRepository repository, AuditRecorder auditRecorder,
+            org.springframework.beans.factory.ObjectProvider<ResourceScopeRepository> scopes) {
+        this(repository, Clock.systemUTC(), auditRecorder, new OutboundPolicyValidator(), scopes.getIfAvailable());
     }
 
     McpServerService(McpServerRepository repository, Clock clock) {
-        this(repository, clock, event -> { }, new OutboundPolicyValidator());
+        this(repository, clock, event -> { }, new OutboundPolicyValidator(), null);
     }
 
     McpServerService(McpServerRepository repository, Clock clock, AuditRecorder auditRecorder) {
-        this(repository, clock, auditRecorder, new OutboundPolicyValidator());
+        this(repository, clock, auditRecorder, new OutboundPolicyValidator(), null);
     }
 
     McpServerService(McpServerRepository repository, Clock clock, AuditRecorder auditRecorder,
             OutboundPolicyValidator outboundPolicyValidator) {
+        this(repository, clock, auditRecorder, outboundPolicyValidator, null);
+    }
+
+    McpServerService(McpServerRepository repository, Clock clock, AuditRecorder auditRecorder,
+            OutboundPolicyValidator outboundPolicyValidator, ResourceScopeRepository resourceScopes) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
         this.outboundPolicyValidator = Objects.requireNonNull(outboundPolicyValidator, "outboundPolicyValidator");
+        this.resourceScopes = resourceScopes;
     }
 
     @Transactional
@@ -88,6 +98,7 @@ public final class McpServerService {
             resourceId = server.id();
             repository.insert(server);
             repository.bindIdempotency(key, server.id());
+            bindIfAuthenticated(server.id());
             record(actor, CREATE_OPERATION, server.id(), "SUCCESS");
             return server;
         } catch (RuntimeException error) {
@@ -97,12 +108,14 @@ public final class McpServerService {
     }
 
     public List<McpServerRecord> list() {
-        return repository.findAll();
+        return repository.findAll().stream().filter(server -> visible(server.id())).toList();
     }
 
     public McpServerRecord get(UUID id) {
-        return repository.findById(Objects.requireNonNull(id, "id"))
+        McpServerRecord server = repository.findById(Objects.requireNonNull(id, "id"))
                 .orElseThrow(() -> new ResourceNotFoundException("MCP server", id));
+        if (resourceScopes != null) resourceScopes.requireVisible("MCP_SERVER", server.id());
+        return server;
     }
 
     @Transactional
@@ -153,12 +166,14 @@ public final class McpServerService {
 
     @Transactional
     public void delete(UUID id) {
-        String actor = PrincipalContext.actorOr("api");
+            String actor = PrincipalContext.actorOr("api");
         try {
-            if (repository.delete(Objects.requireNonNull(id, "id")) != 1) {
+            UUID serverId = Objects.requireNonNull(id, "id");
+            if (PrincipalContext.current().isPresent()) get(serverId);
+            if (repository.delete(serverId) != 1) {
                 throw new ResourceNotFoundException("MCP server", id);
             }
-            record(actor, "DELETE_MCP_SERVER", id, "SUCCESS");
+            record(actor, "DELETE_MCP_SERVER", serverId, "SUCCESS");
         } catch (RuntimeException error) {
             record(actor, "DELETE_MCP_SERVER", id, "FAILURE");
             throw error;
@@ -182,6 +197,17 @@ public final class McpServerService {
     }
 
     public record HealthInput(String healthStatus, Instant lastCheckedAt) {
+    }
+
+    private void bindIfAuthenticated(UUID resourceId) {
+        if (resourceScopes != null) {
+            PrincipalContext.current().ifPresent(principal ->
+                    resourceScopes.bind("MCP_SERVER", resourceId, principal, clock.instant()));
+        }
+    }
+
+    private boolean visible(UUID resourceId) {
+        return resourceScopes == null || resourceScopes.visible("MCP_SERVER", resourceId);
     }
 
     private void record(String actor, String action, UUID resourceId, String result) {
@@ -226,10 +252,7 @@ public final class McpServerService {
                 ? OutboundPolicy.legacyCompatible() : outboundPolicy;
         String normalizedEndpoint = outboundPolicyValidator.validateEndpoint(required(endpoint, "endpoint"),
                 normalizedPolicy).toString();
-        String normalizedCredentialRef = optional(credentialRef);
-        if (normalizedCredentialRef != null && normalizedCredentialRef.length() > 500) {
-            throw new IllegalArgumentException("credentialRef must be at most 500 characters");
-        }
+        String normalizedCredentialRef = CredentialReferenceValidator.normalize(credentialRef);
         McpHealthStatus normalizedHealthStatus = McpHealthStatus.parse(healthStatus);
         return new NormalizedInput(normalizedName, normalizedTransport, normalizedEndpoint,
                 normalizedCredentialRef, enabled == null || enabled, normalizedHealthStatus, lastCheckedAt,

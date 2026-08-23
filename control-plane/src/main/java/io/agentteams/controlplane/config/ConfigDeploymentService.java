@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
+import io.agentteams.controlplane.observability.ControlPlaneMetrics;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -20,13 +21,20 @@ public final class ConfigDeploymentService {
     private final ConfigSnapshotRepository snapshots;
     private final Clock clock;
     private final ObjectMapper mapper;
+    private final ControlPlaneMetrics metrics;
 
     public ConfigDeploymentService(FoundationPersistenceService persistence, ConfigSnapshotRepository snapshots,
             Clock clock, ObjectMapper mapper) {
+        this(persistence, snapshots, clock, mapper, null);
+    }
+
+    public ConfigDeploymentService(FoundationPersistenceService persistence, ConfigSnapshotRepository snapshots,
+            Clock clock, ObjectMapper mapper, ControlPlaneMetrics metrics) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.snapshots = Objects.requireNonNull(snapshots, "snapshots");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
+        this.metrics = metrics;
     }
 
     public ConfigDeployment deploy(UUID agentId, String subject, ConfigSnapshot snapshot) {
@@ -98,6 +106,10 @@ public final class ConfigDeploymentService {
                     command.snapshotId(), phase, command.errorMessage(), appliedAt, now, command.configVersion(),
                     ConfigFailureClassifier.classify(command.errorMessage()));
             tx.configLifecycle().recordApply(record);
+            if (metrics != null) {
+                if (command.applied()) metrics.configApplyAcknowledged();
+                else metrics.configApplyFailed();
+            }
             return null;
         });
     }
@@ -150,6 +162,7 @@ public final class ConfigDeploymentService {
             }
             tx.configLifecycle().upsertBinding(target);
             tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), stable.id(), eventId, clock.instant());
+            if (metrics != null) metrics.configRollbackRequested();
             String payload = payload(eventId, target, stable, tx.configLifecycle().findFiles(stable.id()));
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
                     clock.instant(), stable.version());

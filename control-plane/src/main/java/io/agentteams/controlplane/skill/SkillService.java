@@ -3,6 +3,8 @@ package io.agentteams.controlplane.skill;
 import io.agentteams.controlplane.service.IdempotencyService;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.observability.ControlPlaneMetrics;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -24,6 +26,7 @@ public final class SkillService {
     private final SkillPackageValidator packageValidator;
     private final SkillSecurityScanner securityScanner;
     private final ControlPlaneMetrics metrics;
+    private final ResourceScopeRepository resourceScopes;
 
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner) {
@@ -33,20 +36,28 @@ public final class SkillService {
     private SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner,
             ControlPlaneMetrics metrics) {
+        this(repository, idempotency, clock, packageValidator, securityScanner, metrics, null);
+    }
+
+    private SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
+            SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner,
+            ControlPlaneMetrics metrics, ResourceScopeRepository resourceScopes) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.packageValidator = Objects.requireNonNull(packageValidator, "packageValidator");
         this.securityScanner = Objects.requireNonNull(securityScanner, "securityScanner");
         this.metrics = metrics;
+        this.resourceScopes = resourceScopes;
     }
 
     @Autowired
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, ObjectProvider<SkillSecurityScanner> scanners,
-            ObjectProvider<ControlPlaneMetrics> metrics) {
+            ObjectProvider<ControlPlaneMetrics> metrics, ObjectProvider<ResourceScopeRepository> scopes) {
         this(repository, idempotency, clock, packageValidator,
-                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new), metrics.getIfAvailable());
+                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new), metrics.getIfAvailable(),
+                scopes.getIfAvailable());
     }
 
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock) {
@@ -69,17 +80,21 @@ public final class SkillService {
         Instant now = clock.instant();
         SkillRecord skill = new SkillRecord(UUID.randomUUID(), name, displayName, description, visibility, DRAFT,
                 now, now, 0);
-        return repository.createSkill(skill, key,
+        SkillRecord created = repository.createSkill(skill, key,
                 idempotency.requestHash(name, displayName, description, visibility));
+        bindIfAuthenticated(created.id());
+        return created;
     }
 
     public List<SkillRecord> listSkills() {
-        return repository.findAll();
+        return repository.findAll().stream().filter(skill -> visible(skill.id())).toList();
     }
 
     public SkillRecord getSkill(UUID skillId) {
-        return repository.findById(Objects.requireNonNull(skillId, "skillId"))
+        SkillRecord skill = repository.findById(Objects.requireNonNull(skillId, "skillId"))
                 .orElseThrow(() -> new ResourceNotFoundException("skill", skillId));
+        if (resourceScopes != null) resourceScopes.requireVisible("SKILL", skill.id());
+        return skill;
     }
 
     @Transactional
@@ -154,6 +169,17 @@ public final class SkillService {
     }
 
     public record VersionInput(String version, String digest, String manifestJson, String visibility) {
+    }
+
+    private void bindIfAuthenticated(UUID resourceId) {
+        if (resourceScopes != null) {
+            PrincipalContext.current().ifPresent(principal ->
+                    resourceScopes.bind("SKILL", resourceId, principal, clock.instant()));
+        }
+    }
+
+    private boolean visible(UUID resourceId) {
+        return resourceScopes == null || resourceScopes.visible("SKILL", resourceId);
     }
 
     private static String visibility(String value) {

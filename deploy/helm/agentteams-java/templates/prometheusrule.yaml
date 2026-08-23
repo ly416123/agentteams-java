@@ -81,4 +81,12 @@ spec:
           annotations:
             summary: AgentTeams Gateway connections are churning
             description: More than three active Agent streams were replaced in the last ten minutes.
+        - alert: AgentTeamsConfigApplyFailures
+          expr: increase(agentteams_config_apply_failed_total[10m]) > 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: AgentTeams configuration apply failed
+            description: A Worker rejected or failed to apply configuration in the last ten minutes.
 {{- end }}

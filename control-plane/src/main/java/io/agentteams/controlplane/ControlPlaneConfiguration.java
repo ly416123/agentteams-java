@@ -134,8 +134,9 @@ public class ControlPlaneConfiguration {
 
     @Bean
     ConfigDeploymentService configDeploymentService(FoundationPersistenceService persistence,
-            ConfigSnapshotRepository snapshots, Clock clock, ObjectMapper objectMapper) {
-        return new ConfigDeploymentService(persistence, snapshots, clock, objectMapper);
+            ConfigSnapshotRepository snapshots, Clock clock, ObjectMapper objectMapper,
+            ControlPlaneMetrics metrics) {
+        return new ConfigDeploymentService(persistence, snapshots, clock, objectMapper, metrics);
     }
 
     @Bean

@@ -380,7 +380,7 @@ agentteams.audit.events
 - 增加 Model 与 AgentSpec/Worker 的绑定表和绑定查询。
 - 补齐 OpenAPI、权限矩阵、契约测试和迁移回滚说明。
 
-当前状态：目录、AgentSpec 基础、配置 ACK/重试、项目 IAM 基线和 Dashboard Summary 已落地；本轮补齐了配置 observed revision/失败分类、AgentSpec tenant/project 归属以及 MCP/Skill 运行时治理指标。真实 Worker 回滚、Secret Manager 和全资源授权仍需继续。
+当前状态：目录、AgentSpec 基础、配置 ACK/重试、项目 IAM 基线和 Dashboard Summary 已落地；本轮补齐了配置 observed revision/失败分类、AgentSpec tenant/project 归属、Model/MCP/Skill 资源归属和 Provider credentialRef 校验。真实 Worker 回滚、Secret Manager 和全资源授权仍需继续。
 
 **出口条件**：创建 Provider → 创建 Model → 连接测试 → 创建 AgentSpec → 发布 revision 的链路可通过自动化测试。
 
@@ -401,7 +401,7 @@ agentteams.audit.events
 - OWNER/ADMIN/OPERATOR/DEVELOPER/VIEWER 角色和资源级鉴权。
 - 变更前后 revision 审计、Secret 操作审计和查询 API。
 - 租户隔离集成测试，覆盖越权读取、越权发布和跨项目事件。
-- AgentSpec 已按认证主体写入并校验 tenant/project 归属；仍需将项目角色校验接入 Model、Worker、Team、Skill、MCP、Task 和 Usage 全部资源端点。
+- AgentSpec 已按认证主体写入并校验 tenant/project 归属；Model Provider/Model、MCP Server、Skill 已通过统一 `resource_scopes` 表实现项目可见性，仍需将同一策略推广到 Worker、Team、Task、Usage 和 Audit 资源端点。
 
 ### 阶段 P3：Skill Registry（注册基线已落地，继续完善）
 
@@ -423,7 +423,7 @@ agentteams.audit.events
 - PostgreSQL 小规模聚合表、查询 API、Grafana Dashboard。
 - Worker/Task/Team/Model/Tool 维度、时间范围和 Token/估算成本。
 - Prometheus 告警与审计事件关联。
-- 已补齐 MCP/Skill 基础治理指标；仍需增加 Worker/Task/Team/Tool 聚合、估算成本/配额和可直接导入的告警规则。
+- 已补齐 MCP/Skill 基础治理指标，并增加配置 apply failure 告警；仍需增加 Worker/Task/Team/Tool 聚合、估算成本/配额和完整可直接导入的告警规则。
 
 ### 阶段 P6：模板、渠道和商业扩展
 
@@ -487,15 +487,17 @@ agentteams.audit.events
 
 - 配置 ACK 持久化 `observed_version` 和 `failure_code`，绑定状态 API 直接返回观测 revision 与失败分类；新增 V27 迁移。
 - AgentSpec 增加 tenant/project 归属，认证请求按项目过滤资源，部署 manifest 统一输出 `scope`；新增 V28 迁移。
+- 新增通用 `resource_scopes` 归属表（V29），Model Provider/Model、MCP Server、Skill 创建时绑定认证主体的 tenant/project/team，读取、更新和删除执行可见性校验。
+- Provider 的 `credentialRef` 仅允许 Secret 引用格式，拒绝 inline API Key/密码；配置 apply ACK、失败和 rollback 请求增加 Prometheus 计数器，并新增 `AgentTeamsConfigApplyFailures` 告警。
 - MCP 策略放行/拒绝、Skill 安全扫描和审核结果接入 Control Plane Micrometer 指标。
-- 从空库执行 28 个 Flyway migration，Control Plane 全量测试 **194/194 通过**。
+- 从空库执行 29 个 Flyway migration，Control Plane 全量测试 **195/195 通过**。
 
 本轮实现仍保持旧构造器和未认证内部调用兼容；认证请求对无归属的历史 AgentSpec 默认不可见，避免把遗留全局数据误暴露给项目用户。
 
 下一项应执行 **P1-B：Worker 实际回滚执行确认与全资源归属迁移**，并行推进 MCP/Skill 真实运行时安全：
 
 1. 将当前稳定 revision 回滚事件接到 Worker 实际回滚执行确认，补充成功/超时/拒绝的 Kind 验收和 Prometheus 告警。
-2. 把项目角色校验覆盖到 Model、Worker、Team、Skill、MCP、Task、Usage 和 Audit API；AgentSpec 的归属实现作为统一模板推广。
+2. 把项目角色校验覆盖到 Worker、Team、Task、Usage 和 Audit API；Model/MCP/Skill 的 `resource_scopes` 实现作为统一模板推广，并补充跨项目集成测试。
 3. 为 Provider 接入可插拔真实连接探针和 Secret Resolver，保留当前默认的 validation-only 安全模式。
 4. 为 MCP 接入真实工具发现/健康探针、限流熔断和调用审计；为 Skill 接入包存储与安全扫描器。
 5. 扩展 Dashboard 到 Worker/Task/Team/Tool、成本/配额与 Prometheus 告警规则。
