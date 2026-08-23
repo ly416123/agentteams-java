@@ -155,7 +155,8 @@
                             <user.language>en</user.language>
                             <user.country>US</user.country>
                             <user.timezone>UTC</user.timezone>
-                            <api.version>1.40</api.version>
+                            <!-- Docker Engine 29 rejects clients below API 1.44. -->
+                            <api.version>1.44</api.version>
                         </systemPropertyVariables>
                     </configuration>
                 </plugin>
