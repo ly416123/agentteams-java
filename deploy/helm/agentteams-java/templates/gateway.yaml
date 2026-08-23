@@ -48,6 +48,14 @@ spec:
             - name: AGENTTEAMS_GATEWAY_NATS_INSTANCE_ID
               valueFrom:
                 fieldRef: { fieldPath: metadata.name }
+            - name: AGENTTEAMS_GATEWAY_QUOTA_REMOTE_ENABLED
+              value: {{ .Values.gateway.quota.remoteEnabled | quote }}
+            - name: AGENTTEAMS_GATEWAY_QUOTA_CONTROL_PLANE_URL
+              value: {{ default (printf "http://%s-control-plane:%d" (include "agentteams-java.fullname" .) (int .Values.controlPlane.port)) .Values.gateway.quota.controlPlaneUrl | quote }}
+            - name: AGENTTEAMS_GATEWAY_QUOTA_INTERNAL_TOKEN
+              value: {{ .Values.gateway.quota.internalToken | quote }}
+            - name: AGENTTEAMS_GATEWAY_QUOTA_REQUEST_TIMEOUT
+              value: {{ .Values.gateway.quota.requestTimeout | quote }}
             - name: SPRING_DATASOURCE_URL
               value: {{ .Values.database.jdbcUrl | quote }}
             - name: SPRING_DATASOURCE_USERNAME

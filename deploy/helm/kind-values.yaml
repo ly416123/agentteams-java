@@ -4,6 +4,8 @@ images:
   operator: ghcr.io/ly416123/agentteams-operator:latest
 imagePullPolicy: IfNotPresent
 controlPlane:
+  env:
+    AGENTTEAMS_QUOTA_INTERNAL_TOKEN: kind-quota-internal
   scheduler:
     # GitHub-hosted runners can take longer than the production default to
     # reconnect the Worker and complete the first deterministic model call.
@@ -21,6 +23,10 @@ observability:
     enabled: false
 operator:
   replicas: 2
+gateway:
+  quota:
+    remoteEnabled: true
+    internalToken: kind-quota-internal
 networkPolicy:
   # Kind's kindnet evaluates the Kubernetes API path after node-level DNAT;
   # allow only API HTTPS ports while keeping all other egress restrictions.

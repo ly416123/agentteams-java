@@ -12,6 +12,7 @@ import io.nats.client.Nats;
 import java.time.Clock;
 import java.time.Instant;
 import java.io.IOException;
+import java.net.http.HttpClient;
 import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -36,8 +37,19 @@ import io.opentelemetry.context.propagation.TextMapPropagator;
 
 /** Default process wiring; production deployments can replace each port adapter with a durable bean. */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({GrpcServerProperties.class, GrpcTlsProperties.class, NatsGatewayProperties.class})
+@EnableConfigurationProperties({GrpcServerProperties.class, GrpcTlsProperties.class, NatsGatewayProperties.class,
+        GatewayQuotaProperties.class})
 public class AgentGatewayGrpcConfiguration {
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.gateway.quota.remote-enabled", havingValue = "true")
+    @ConditionalOnMissingBean(QuotaReservationPort.class)
+    public QuotaReservationPort controlPlaneQuotaReservationPort(GatewayQuotaProperties properties,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new ControlPlaneQuotaReservationClient(HttpClient.newBuilder()
+                .connectTimeout(properties.getRequestTimeout())
+                .build(), objectMapper, properties);
+    }
 
     @Bean
     @ConditionalOnMissingBean(Clock.class)

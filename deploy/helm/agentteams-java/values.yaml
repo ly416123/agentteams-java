@@ -64,6 +64,13 @@ gateway:
     AGENTTEAMS_GATEWAY_GRPC_PORT: "9090"
     AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"
     AGENTTEAMS_GATEWAY_NATS_URL: nats://nats:4222
+  quota:
+    # The Gateway exposes the gRPC quota contract only when this bridge is
+    # enabled. Reservations remain durable in the Control Plane database.
+    remoteEnabled: false
+    controlPlaneUrl: ""
+    internalToken: ""
+    requestTimeout: 3s
 operator:
   replicas: 1
   serviceAccount:
