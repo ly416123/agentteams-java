@@ -59,11 +59,11 @@
 
 | 优先级 | 任务 | 依赖 | 当前状态 |
 |---|---|---|---|
-| P0 | AgentSpec 引用 Model Catalog、发布前校验和生命周期 | Model Catalog、AgentSpec | 执行中 |
-| P0 | Skill manifest/digest/版本发布校验 | Skill Registry | 执行中 |
-| P1 | Model/MCP 写操作接入持久化审计 | Audit、Model/MCP Registry | 执行中 |
-| P1 | Usage 增加 Dashboard/Prometheus 稳定分组契约 | model_call_audits、Usage API | 执行中 |
-| P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成第一段，继续补齐 |
+| P0 | AgentSpec 引用 Model Catalog、发布前校验和生命周期 | Model Catalog、AgentSpec | 已完成：校验、幂等发布/停用、版本冲突 |
+| P0 | Skill manifest/digest/版本发布校验 | Skill Registry | 已完成：manifest、SemVer、digest、入口和大小校验 |
+| P1 | Model/MCP 写操作接入持久化审计 | Audit、Model/MCP Registry | 已完成：成功/失败事件、脱敏、REQUIRES_NEW |
+| P1 | Usage 增加 Dashboard/Prometheus 稳定分组契约 | model_call_audits、Usage API | 已完成：provider/model/status 分组和 limit |
+| P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成第一段：Snapshot/Outbox/ACK 适配；旧版本拒绝和回滚待下一波 |
 
 推荐的依赖关键路径为：
 
