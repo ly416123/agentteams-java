@@ -689,7 +689,7 @@ python3 scripts/run-kind-quota-recovery.py
 
 1. **P0：执行真实 Kind 验收。** 先执行 quota recovery，再执行 resource-binding ACK，确认 Worker 重启、数据库持久化和失败状态都能被外部 API 观察到。
 2. **P1：接入实际审计调用方。** 将 Worker/Task/Team/Tool/Quota 标识从 Manager/Runtime 的真实调用上下文传入 `ModelCallAudit.Dimensions`，避免只依赖 `unknown` 回退。
-3. **P1：配置实际 Skill 沙箱和审批服务。** 仅通过显式配置开启，保留 fail-closed 和元数据脱敏；完成审批回调的端到端验收。
+3. **当前版本不启用企业 Skill 审批/沙箱。** 保留已有 SPI、默认关闭和 fail-closed 边界，不接入具体供应商，也不纳入本轮验收。
 4. **P2：根据新鲜 GitHub Actions 结果调优。** 只在 Kind recovery 实际稳定后调整超时、缓存和诊断，避免为节省分钟数而削弱验收覆盖。
 
 ### 本轮剩余任务继续推进（2026-08-23）
@@ -705,4 +705,14 @@ python3 scripts/run-kind-quota-recovery.py
 
 1. GitHub Actions 中执行 quota recovery、config rollback、resource binding ACK，确认真实 Worker 与数据库状态。
 2. 使用真实任务上下文填充 task/team/quota 维度；当前 Manager 已支持透传，Control Plane/Worker 业务编排仍需提供这些标识。
-3. 配置具体企业 Skill 沙箱和审批服务并执行端到端回调验收。
+3. 企业 Skill 审批/沙箱不属于当前版本范围，暂不配置、不接入、不纳入 CI 验收。
+
+### 范围决策：企业 Skill 审批与沙箱（2026-08-23）
+
+经项目范围确认，当前版本不需要启用企业级 Skill 审批或沙箱能力：
+
+- 不接入具体企业审批系统、沙箱供应商或外部回调服务；
+- 现有扫描 SPI、HTTP adapter 和 approval callback 保持可选实现，但默认关闭；
+- 保留 fail-closed、超时分类和供应商错误脱敏等安全边界；
+- 不为该能力新增部署配置、Kind 验收步骤或 CI 资源消耗；
+- 后续若确有企业接入需求，再单独立项完成供应商适配和端到端验收。
