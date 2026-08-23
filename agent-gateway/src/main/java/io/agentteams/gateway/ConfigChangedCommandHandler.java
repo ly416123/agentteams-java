@@ -43,6 +43,7 @@ public final class ConfigChangedCommandHandler {
         String manifestUri = optionalText(root, "manifestUri", "urn:agentteams:config:" + snapshotId);
         String checksum = text(root, "manifestSha256");
         long size = nonNegative(root, "sizeBytes");
+        boolean rollback = root.path("rollback").asBoolean(false);
         UUID eventId = uuid(root, "eventId");
         EventMetadata metadata = EventMetadata.newBuilder()
                 .setEventId(eventId.toString())
@@ -61,6 +62,7 @@ public final class ConfigChangedCommandHandler {
                 .setSizeBytes(size)
                 .setBindingId(bindingId.toString())
                 .setSnapshotId(snapshotId.toString())
+                .setRollback(rollback)
                 .build();
         JsonNode files = root.get("files");
         if (files != null) {

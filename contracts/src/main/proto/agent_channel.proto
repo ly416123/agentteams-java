@@ -135,6 +135,8 @@ message ConfigChanged {
   // manifest_uri and an object-storage reader supplied by the runtime.
   string manifest_json = 8;
   repeated ConfigFile files = 9;
+  // A rollback may intentionally activate an older immutable snapshot.
+  bool rollback = 10;
 }
 
 message ConfigFile {

@@ -76,7 +76,7 @@ class ConfigDeploymentServiceTest {
     }
 
     @Test
-    void rollsBackToNewestPreviouslyAppliedSnapshot() {
+    void rollsBackToNewestPreviouslyAppliedSnapshot() throws Exception {
         FoundationPersistenceService persistence = mock(FoundationPersistenceService.class);
         FoundationTransaction tx = mock(FoundationTransaction.class);
         ConfigLifecycleRepository lifecycle = mock(ConfigLifecycleRepository.class);
@@ -113,5 +113,8 @@ class ConfigDeploymentServiceTest {
         org.mockito.Mockito.verify(lifecycle).upsertBinding(any(ConfigBindingRecord.class));
         org.mockito.Mockito.verify(lifecycle).markApplyPending(eq(bindingId), eq(agentId), eq(stable.id()),
                 eq(result.eventId()), eq(NOW));
+        var event = org.mockito.ArgumentCaptor.forClass(OutboxEventRecord.class);
+        org.mockito.Mockito.verify(outbox).insert(event.capture());
+        assertThat(MAPPER.readTree(event.getValue().payloadJson()).path("rollback").asBoolean()).isTrue();
     }
 }

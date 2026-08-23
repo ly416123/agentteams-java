@@ -112,6 +112,20 @@ class RuntimeConfigCoordinatorTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void rollbackActivatesAnOlderImmutableSnapshotAndKeepsFutureVersionsValid() {
+        RecordingApplier applier = new RecordingApplier();
+        RuntimeConfigCoordinator coordinator = new RuntimeConfigCoordinator(applier);
+        RuntimeConfigSnapshot first = snapshot(1, "sha-1");
+        RuntimeConfigSnapshot second = snapshot(2, "sha-2");
+        coordinator.apply(first);
+        coordinator.apply(second);
+
+        assertThat(coordinator.apply(first, true).activeSnapshot()).isEqualTo(first);
+        assertThat(coordinator.activeSnapshot()).contains(first);
+        assertThat(coordinator.apply(snapshot(3, "sha-3")).activeSnapshot().version()).isEqualTo(3);
+    }
+
     private static RuntimeConfigSnapshot snapshot(long version, String checksum) {
         return new RuntimeConfigSnapshot(version, checksum, Map.of("version", Long.toString(version)));
     }

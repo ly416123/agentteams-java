@@ -73,7 +73,7 @@ public final class ConfigDeploymentService {
             ConfigApplyRecord pending = new ConfigApplyRecord(eventId, currentBinding.id(), agentId, snapshot.id(),
                     "PENDING", null, null, now);
             tx.configLifecycle().recordApply(pending);
-            String payload = payload(eventId, currentBinding, snapshot, tx.configLifecycle().findFiles(snapshot.id()));
+            String payload = payload(eventId, currentBinding, snapshot, tx.configLifecycle().findFiles(snapshot.id()), false);
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", agentId, CONFIG_CHANGED, payload,
                     now, snapshot.version());
             return new ConfigDeployment(binding, snapshot, eventId);
@@ -140,7 +140,7 @@ public final class ConfigDeploymentService {
             if (tx.outboxEvents().findByEventId(eventId).isPresent()) {
                 return new ConfigDeployment(binding, snapshot, eventId);
             }
-            String payload = payload(eventId, binding, snapshot, tx.configLifecycle().findFiles(snapshot.id()));
+            String payload = payload(eventId, binding, snapshot, tx.configLifecycle().findFiles(snapshot.id()), false);
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
                     clock.instant(), snapshot.version());
             return new ConfigDeployment(binding, snapshot, eventId);
@@ -168,7 +168,7 @@ public final class ConfigDeploymentService {
             tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), stable.id(), eventId, clock.instant());
             tx.configLifecycle().markRollbackRequested(binding.id(), stable.id());
             if (metrics != null) metrics.configRollbackRequested();
-            String payload = payload(eventId, target, stable, tx.configLifecycle().findFiles(stable.id()));
+            String payload = payload(eventId, target, stable, tx.configLifecycle().findFiles(stable.id()), true);
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
                     clock.instant(), stable.version());
             return new ConfigDeployment(target, stable, eventId);
@@ -176,7 +176,7 @@ public final class ConfigDeploymentService {
     }
 
     private String payload(UUID eventId, ConfigBindingRecord binding, ConfigSnapshot snapshot,
-            List<ConfigFileRecord> files) {
+            List<ConfigFileRecord> files, boolean rollback) {
         try {
             ObjectNode root = mapper.createObjectNode();
             root.put("eventId", eventId.toString());
@@ -184,6 +184,7 @@ public final class ConfigDeploymentService {
             root.put("bindingId", binding.id().toString());
             root.put("snapshotId", snapshot.id().toString());
             root.put("configVersion", snapshot.version());
+            root.put("rollback", rollback);
             root.put("manifestUri", "urn:agentteams:config:" + snapshot.id());
             byte[] manifestBytes = snapshot.manifestJson().getBytes(StandardCharsets.UTF_8);
             if (manifestBytes.length <= INLINE_MANIFEST_LIMIT_BYTES) {

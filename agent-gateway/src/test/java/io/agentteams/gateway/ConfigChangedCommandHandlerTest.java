@@ -44,6 +44,7 @@ class ConfigChangedCommandHandlerTest {
 
         ArgumentCaptor<ServerMessage> message = ArgumentCaptor.forClass(ServerMessage.class);
         verify(delivery).deliver(eq(agentId.toString()), message.capture());
+        assertThat(message.getValue().getConfigChanged().getRollback()).isFalse();
         assertThat(message.getValue().getConfigChanged().getFilesList()).hasSize(1);
         assertThat(message.getValue().getConfigChanged().getFiles(0).getPath()).isEqualTo("models/default.json");
         assertThat(message.getValue().getConfigChanged().getFiles(0).getUri())

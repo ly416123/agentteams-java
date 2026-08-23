@@ -24,8 +24,12 @@ public final class RuntimeConfigCoordinator {
     }
 
     public synchronized RuntimeConfigStage stage(RuntimeConfigSnapshot snapshot) {
+        return stage(snapshot, false);
+    }
+
+    private RuntimeConfigStage stage(RuntimeConfigSnapshot snapshot, boolean rollback) {
         Objects.requireNonNull(snapshot, "snapshot");
-        validateNextVersion(snapshot);
+        validateNextVersion(snapshot, rollback);
         final RuntimeConfigPrepared prepared;
         try {
             prepared = Objects.requireNonNull(applier.stage(snapshot, activeSnapshot()),
@@ -34,7 +38,7 @@ public final class RuntimeConfigCoordinator {
             throw new RuntimeConfigApplyException("configuration staging failed", error);
         }
         RuntimeConfigStage stage = new RuntimeConfigStage(UUID.randomUUID(), snapshot);
-        pending.put(stage.id(), new PendingStage(snapshot, prepared));
+        pending.put(stage.id(), new PendingStage(snapshot, prepared, rollback));
         return stage;
     }
 
@@ -45,7 +49,7 @@ public final class RuntimeConfigCoordinator {
             throw new IllegalArgumentException("unknown or mismatched configuration stage");
         }
         try {
-            validateNextVersion(pendingStage.snapshot());
+            validateNextVersion(pendingStage.snapshot(), pendingStage.rollback());
         } catch (RuntimeException error) {
             discardQuietly(pendingStage.prepared(), error);
             throw error;
@@ -70,6 +74,10 @@ public final class RuntimeConfigCoordinator {
     }
 
     public synchronized RuntimeConfigApplyResult apply(RuntimeConfigSnapshot snapshot) {
+        return apply(snapshot, false);
+    }
+
+    public synchronized RuntimeConfigApplyResult apply(RuntimeConfigSnapshot snapshot, boolean rollback) {
         Objects.requireNonNull(snapshot, "snapshot");
         if (active != null && active.version() == snapshot.version()) {
             if (active.checksum().equals(snapshot.checksum())) {
@@ -77,12 +85,18 @@ public final class RuntimeConfigCoordinator {
             }
             throw new IllegalArgumentException("configuration version already has another checksum");
         }
-        return activate(stage(snapshot));
+        return activate(stage(snapshot, rollback));
     }
 
-    private void validateNextVersion(RuntimeConfigSnapshot snapshot) {
-        if (active != null && snapshot.version() <= active.version()) {
+    private void validateNextVersion(RuntimeConfigSnapshot snapshot, boolean rollback) {
+        if (active == null && rollback) {
+            throw new IllegalArgumentException("cannot roll back without an active configuration");
+        }
+        if (!rollback && active != null && snapshot.version() <= active.version()) {
             throw new IllegalArgumentException("configuration version must be newer than active version");
+        }
+        if (rollback && active != null && snapshot.version() >= active.version()) {
+            throw new IllegalArgumentException("rollback version must be older than active version");
         }
     }
 
@@ -94,6 +108,6 @@ public final class RuntimeConfigCoordinator {
         }
     }
 
-    private record PendingStage(RuntimeConfigSnapshot snapshot, RuntimeConfigPrepared prepared) {
+    private record PendingStage(RuntimeConfigSnapshot snapshot, RuntimeConfigPrepared prepared, boolean rollback) {
     }
 }

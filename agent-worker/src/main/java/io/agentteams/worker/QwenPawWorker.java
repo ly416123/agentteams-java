@@ -275,7 +275,8 @@ public final class QwenPawWorker implements AutoCloseable {
                             changed.getManifestSha256(), changed.getSizeBytes())
                     : changed.getManifestJson();
             configCoordinator.apply(buildConfigSnapshot(changed, manifestJson, configFileFetcher,
-                    configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion())));
+                    configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion())),
+                    changed.getRollback());
             applied = true;
         } catch (Exception failure) {
             errorMessage = truncate(rootMessage(failure));
