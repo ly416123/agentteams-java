@@ -311,7 +311,7 @@ public class ControlPlaneConfiguration {
             ExecutionEventPort executionEvents, ConfigEventPort configEvents, ObjectMapper objectMapper,
             ObjectProvider<Tracer> tracers, ObjectProvider<Propagator> propagators)
             throws IOException {
-        return new NatsExecutionEventConsumer(connection.jetStream(), executionEvents, configEvents, objectMapper,
+        return new NatsExecutionEventConsumer(connection, executionEvents, configEvents, objectMapper,
                 "control-plane-execution-events", new AsyncConsumerTracing(
                         tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
     }

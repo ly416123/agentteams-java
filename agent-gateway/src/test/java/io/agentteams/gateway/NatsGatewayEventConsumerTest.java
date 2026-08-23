@@ -9,13 +9,20 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Message;
+import io.nats.client.Connection;
+import io.nats.client.ConnectionListener;
+import io.nats.client.JetStream;
+import io.nats.client.JetStreamSubscription;
+import io.nats.client.PushSubscribeOptions;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.Test;
 
 class NatsGatewayEventConsumerTest {
@@ -116,6 +123,45 @@ class NatsGatewayEventConsumerTest {
 
         org.mockito.Mockito.verify(message, org.mockito.Mockito.never()).ack();
         verifyNoInteractions(delivery);
+    }
+
+    @Test
+    void rebuildsDurableSubscriptionsAfterNatsResubscribedEvent() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        Connection connection = mock(Connection.class);
+        JetStream jetStream = mock(JetStream.class);
+        JetStreamSubscription firstTaskSubscription = mock(JetStreamSubscription.class);
+        JetStreamSubscription firstConfigSubscription = mock(JetStreamSubscription.class);
+        JetStreamSubscription secondTaskSubscription = mock(JetStreamSubscription.class);
+        JetStreamSubscription secondConfigSubscription = mock(JetStreamSubscription.class);
+        CountDownLatch consumerStopped = new CountDownLatch(1);
+        when(connection.jetStream()).thenReturn(jetStream);
+        when(jetStream.subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class)))
+                .thenReturn(firstTaskSubscription, firstConfigSubscription, secondTaskSubscription,
+                        secondConfigSubscription);
+        when(firstTaskSubscription.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+        when(secondTaskSubscription.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(connection,
+                new TaskAssignedCommandHandler(delivery), new ConfigChangedCommandHandler(delivery, new ObjectMapper()),
+                new ObjectMapper(), "task.events.*", "gateway-tasks", "agent.events.*", "gateway-config",
+                GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
+        consumer.start();
+
+        var listener = org.mockito.ArgumentCaptor.forClass(ConnectionListener.class);
+        verify(connection).addConnectionListener(listener.capture());
+        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
+
+        verify(firstTaskSubscription).unsubscribe();
+        verify(firstConfigSubscription).unsubscribe();
+        verify(jetStream, org.mockito.Mockito.times(4)).subscribe(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
+        consumer.close();
+        consumerStopped.countDown();
     }
 
     private static Message message(String payload) {

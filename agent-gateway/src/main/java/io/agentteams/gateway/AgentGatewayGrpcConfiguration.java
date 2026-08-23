@@ -159,12 +159,12 @@ public class AgentGatewayGrpcConfiguration {
 
     @Bean(initMethod = "start", destroyMethod = "stop")
     @ConditionalOnProperty(name = "agentteams.gateway.nats.enabled", havingValue = "true")
-    public NatsGatewayEventConsumer natsGatewayEventConsumer(JetStream gatewayJetStream,
+    public NatsGatewayEventConsumer natsGatewayEventConsumer(Connection gatewayNatsConnection,
             TaskAssignedCommandHandler commandHandler, ConfigChangedCommandHandler configHandler,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             NatsGatewayProperties properties, GatewayMetricsPort metrics, ObjectProvider<Tracer> tracers,
-            ObjectProvider<Propagator> propagators) {
-        return new NatsGatewayEventConsumer(gatewayJetStream, commandHandler, configHandler, objectMapper,
+            ObjectProvider<Propagator> propagators) throws IOException {
+        return new NatsGatewayEventConsumer(gatewayNatsConnection, commandHandler, configHandler, objectMapper,
                 properties.getSubject(), properties.taskConsumerDurable(), properties.getConfigSubject(),
                 properties.configConsumerDurable(), metrics, new AsyncConsumerTracing(
                         tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));

@@ -9,9 +9,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.domain.task.StaleTaskVersionException;
+import io.nats.client.Connection;
+import io.nats.client.ConnectionListener;
 import io.nats.client.JetStream;
+import io.nats.client.JetStreamSubscription;
 import io.nats.client.Message;
+import io.nats.client.PushSubscribeOptions;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.Test;
 
 class NatsExecutionEventConsumerTest {
@@ -51,6 +57,39 @@ class NatsExecutionEventConsumerTest {
         assertThat(command.getValue().traceparent())
                 .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
         assertThat(command.getValue().tracestate()).isEqualTo("vendor=value");
+    }
+
+    @Test
+    void rebuildsDurableSubscriptionAfterNatsResubscribedEvent() throws Exception {
+        Connection connection = mock(Connection.class);
+        JetStream jetStream = mock(JetStream.class);
+        JetStreamSubscription firstSubscription = mock(JetStreamSubscription.class);
+        JetStreamSubscription secondSubscription = mock(JetStreamSubscription.class);
+        CountDownLatch consumerStopped = new CountDownLatch(1);
+        when(connection.jetStream()).thenReturn(jetStream);
+        when(jetStream.subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class)))
+                .thenReturn(firstSubscription, secondSubscription);
+        when(firstSubscription.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+        when(secondSubscription.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(connection,
+                mock(ExecutionEventPort.class), command -> { }, new com.fasterxml.jackson.databind.ObjectMapper(),
+                "control-plane-execution-events", io.agentteams.controlplane.observability.AsyncConsumerTracing.noop());
+        consumer.start();
+
+        var listener = org.mockito.ArgumentCaptor.forClass(ConnectionListener.class);
+        verify(connection).addConnectionListener(listener.capture());
+        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
+
+        verify(firstSubscription).unsubscribe();
+        verify(jetStream, org.mockito.Mockito.times(2)).subscribe(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
+        consumer.close();
+        consumerStopped.countDown();
     }
 
     private static String taskEventJson() {

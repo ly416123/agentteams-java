@@ -15,6 +15,8 @@ import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamSubscription;
 import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
+import io.nats.client.Connection;
+import io.nats.client.ConnectionListener;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
@@ -30,28 +32,55 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(500);
 
     private final JetStream jetStream;
+    private final Connection connection;
     private final ExecutionEventPort executionEvents;
     private final ConfigEventPort configEvents;
     private final ObjectMapper mapper;
     private final String durable;
     private final AsyncConsumerTracing tracing;
     private final AtomicBoolean running = new AtomicBoolean();
+    private final ConnectionListener connectionListener = this::onConnectionEvent;
     private JetStreamSubscription subscription;
     private ExecutorService executor;
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ObjectMapper mapper, String durable) {
-        this(jetStream, executionEvents, command -> { }, mapper, durable, AsyncConsumerTracing.noop());
+        this(null, jetStream, executionEvents, command -> { }, mapper, durable, AsyncConsumerTracing.noop());
+    }
+
+    public NatsExecutionEventConsumer(Connection connection, ExecutionEventPort executionEvents,
+            ObjectMapper mapper, String durable) throws IOException {
+        this(connection, connection.jetStream(), executionEvents, command -> { }, mapper, durable,
+                AsyncConsumerTracing.noop());
     }
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, ObjectMapper mapper, String durable) {
-        this(jetStream, executionEvents, configEvents, mapper, durable, AsyncConsumerTracing.noop());
+        this(null, jetStream, executionEvents, configEvents, mapper, durable, AsyncConsumerTracing.noop());
+    }
+
+    public NatsExecutionEventConsumer(Connection connection, ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable) throws IOException {
+        this(connection, connection.jetStream(), executionEvents, configEvents, mapper, durable,
+                AsyncConsumerTracing.noop());
     }
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing) {
+        this(null, jetStream, executionEvents, configEvents, mapper, durable, tracing);
+    }
+
+    public NatsExecutionEventConsumer(Connection connection, ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing)
+            throws IOException {
+        this(connection, connection.jetStream(), executionEvents, configEvents, mapper, durable, tracing);
+    }
+
+    private NatsExecutionEventConsumer(Connection connection, JetStream jetStream,
+            ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
+        this.connection = connection;
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
         this.configEvents = Objects.requireNonNull(configEvents, "configEvents");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
@@ -66,6 +95,9 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         subscription = jetStream.subscribe(PlatformEventSubjects.AGENT_EXECUTION_EVENTS, durable,
                 PushSubscribeOptions.builder().durable(durable).build());
         running.set(true);
+        if (connection != null) {
+            connection.addConnectionListener(connectionListener);
+        }
         executor = Executors.newSingleThreadExecutor(runnable -> {
             Thread thread = new Thread(runnable, "control-plane-agent-events");
             thread.setDaemon(true);
@@ -77,6 +109,9 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     @Override
     public synchronized void close() {
         running.set(false);
+        if (connection != null) {
+            connection.removeConnectionListener(connectionListener);
+        }
         if (subscription != null) {
             subscription.unsubscribe();
             subscription = null;
@@ -166,6 +201,32 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             if (span != null) {
                 span.close();
             }
+        }
+    }
+
+    private void onConnectionEvent(Connection ignored, ConnectionListener.Events event) {
+        if (event != ConnectionListener.Events.RESUBSCRIBED || !running.get()) {
+            return;
+        }
+        synchronized (this) {
+            if (!running.get()) {
+                return;
+            }
+            unsubscribe(subscription);
+            try {
+                subscription = jetStream.subscribe(PlatformEventSubjects.AGENT_EXECUTION_EVENTS, durable,
+                        PushSubscribeOptions.builder().durable(durable).build());
+                LOGGER.info("Control Plane NATS execution subscription restored after reconnect");
+            } catch (IOException | JetStreamApiException error) {
+                LOGGER.log(Level.WARNING,
+                        "Unable to restore Control Plane NATS execution subscription after reconnect", error);
+            }
+        }
+    }
+
+    private static void unsubscribe(JetStreamSubscription candidate) {
+        if (candidate != null) {
+            candidate.unsubscribe();
         }
     }
 

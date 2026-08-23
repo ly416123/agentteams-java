@@ -7,6 +7,8 @@ import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamSubscription;
 import io.nats.client.Message;
+import io.nats.client.Connection;
+import io.nats.client.ConnectionListener;
 import io.nats.client.PushSubscribeOptions;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +30,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(500);
 
     private final JetStream jetStream;
+    private final Connection connection;
     private final TaskAssignedCommandHandler commandHandler;
     private final ConfigChangedCommandHandler configHandler;
     private final ObjectMapper objectMapper;
@@ -39,41 +42,59 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private final AsyncConsumerTracing tracing;
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object lifecycleMonitor = new Object();
+    private final ConnectionListener connectionListener = this::onConnectionEvent;
     private JetStreamSubscription subscription;
     private JetStreamSubscription configSubscription;
     private ExecutorService executor;
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ObjectMapper objectMapper, String subject, String durable) {
-        this(jetStream, commandHandler, new ConfigChangedCommandHandler(
+        this((Connection) null, jetStream, commandHandler, new ConfigChangedCommandHandler(
                 commandHandler.delivery(), objectMapper), objectMapper, subject, durable,
-                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop());
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
+    }
+
+    public NatsGatewayEventConsumer(Connection connection, TaskAssignedCommandHandler commandHandler,
+            ObjectMapper objectMapper, String subject, String durable) throws IOException {
+        this(connection, connection.jetStream(), commandHandler, new ConfigChangedCommandHandler(
+                commandHandler.delivery(), objectMapper), objectMapper, subject, durable,
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable) {
-        this(jetStream, commandHandler, configHandler, objectMapper, subject, durable,
-                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop());
+        this((Connection) null, jetStream, commandHandler, configHandler, objectMapper, subject, durable,
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable) {
-        this(jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
+        this((Connection) null, jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
                 GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable, GatewayMetricsPort metrics) {
-        this(jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
+        this((Connection) null, jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
                 metrics, AsyncConsumerTracing.noop());
     }
 
-    public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
+    public NatsGatewayEventConsumer(Connection connection, TaskAssignedCommandHandler commandHandler,
+            ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
+            String configSubject, String configDurable, GatewayMetricsPort metrics,
+            AsyncConsumerTracing tracing) throws IOException {
+        this(connection, connection.jetStream(), commandHandler, configHandler, objectMapper, subject, durable,
+                configSubject, configDurable, metrics, tracing);
+    }
+
+    private NatsGatewayEventConsumer(Connection connection, JetStream jetStream,
+            TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable, GatewayMetricsPort metrics, AsyncConsumerTracing tracing) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
+        this.connection = connection;
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
         this.configHandler = Objects.requireNonNull(configHandler, "configHandler");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
@@ -92,6 +113,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
 
     NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper,
             AsyncConsumerTracing tracing) {
+        this.connection = null;
         this.jetStream = null;
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
         this.configHandler = new ConfigChangedCommandHandler(commandHandler.delivery(), objectMapper);
@@ -117,6 +139,9 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             configSubscription = jetStream.subscribe(configSubject, configDurable,
                     PushSubscribeOptions.builder().durable(configDurable).build());
             running.set(true);
+            if (connection != null) {
+                connection.addConnectionListener(connectionListener);
+            }
             executor = Executors.newSingleThreadExecutor(runnable -> {
                 Thread thread = new Thread(runnable, "agent-gateway-nats-consumer");
                 thread.setDaemon(true);
@@ -166,6 +191,9 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             if (!running.getAndSet(false)) {
                 return;
             }
+            if (connection != null) {
+                connection.removeConnectionListener(connectionListener);
+            }
             if (subscription != null) {
                 subscription.unsubscribe();
                 subscription = null;
@@ -178,6 +206,34 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 executor.shutdownNow();
                 executor = null;
             }
+        }
+    }
+
+    private void onConnectionEvent(Connection ignored, ConnectionListener.Events event) {
+        if (event != ConnectionListener.Events.RESUBSCRIBED || !running.get()) {
+            return;
+        }
+        synchronized (lifecycleMonitor) {
+            if (!running.get()) {
+                return;
+            }
+            unsubscribe(subscription);
+            unsubscribe(configSubscription);
+            try {
+                subscription = jetStream.subscribe(subject, durable,
+                        PushSubscribeOptions.builder().durable(durable).build());
+                configSubscription = jetStream.subscribe(configSubject, configDurable,
+                        PushSubscribeOptions.builder().durable(configDurable).build());
+                LOGGER.info("Agent Gateway NATS subscriptions restored after reconnect");
+            } catch (IOException | JetStreamApiException error) {
+                LOGGER.log(Level.WARNING, "Unable to restore Agent Gateway NATS subscriptions after reconnect", error);
+            }
+        }
+    }
+
+    private static void unsubscribe(JetStreamSubscription candidate) {
+        if (candidate != null) {
+            candidate.unsubscribe();
         }
     }
 
