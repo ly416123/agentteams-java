@@ -43,6 +43,9 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/usage")) {
             return Optional.of(Permission.USAGE_READ);
         }
+        if (path.startsWith("/api/v1/dashboard")) {
+            return Optional.of(Permission.USAGE_READ);
+        }
         if (path.startsWith("/api/v1/audit-events")) {
             return Optional.of(Permission.AUDIT_READ);
         }
