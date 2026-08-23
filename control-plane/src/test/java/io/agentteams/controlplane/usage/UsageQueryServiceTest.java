@@ -79,6 +79,37 @@ class UsageQueryServiceTest {
                 .hasMessage("usage time range must not exceed 31 days");
     }
 
+    @Test
+    void groupsByStatusAndAppliesAnExplicitLimit() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
+                .thenReturn(new UsageQueryService.UsageTotals(8, 3, 100, 40, 42.5));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    RowMapper<UsageQueryService.UsageGroup> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(statusResult(), 0));
+                });
+
+        UsageQueryService.UsageSummary summary = service().summarize(null, NOW, "status", 10);
+
+        assertThat(summary.groups()).containsExactly(new UsageQueryService.UsageGroup(
+                null, null, 5, 1, 100, 40, 42.5, "SUCCESS"));
+        verify(jdbc).query(org.mockito.ArgumentMatchers.contains("GROUP BY outcome"),
+                ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any(), eq(10));
+    }
+
+    @Test
+    void rejectsUnknownGroupByAndOutOfBoundsLimitBeforeQuerying() {
+        assertThatThrownBy(() -> service().summarize(null, NOW, "team", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("groupBy must be provider, model, or status");
+        assertThatThrownBy(() -> service().summarize(null, NOW, "provider", 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be between 1 and " + UsageQueryService.MAX_LIMIT);
+        assertThatThrownBy(() -> service().summarize(null, NOW, "provider", UsageQueryService.MAX_LIMIT + 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be between 1 and " + UsageQueryService.MAX_LIMIT);
+    }
+
     private UsageQueryService service() {
         return new UsageQueryService(jdbc, Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -97,6 +128,17 @@ class UsageQueryServiceTest {
         ResultSet resultSet = mock(ResultSet.class);
         when(resultSet.getString("provider")).thenReturn("deepseek");
         when(resultSet.getString("model")).thenReturn("deepseek-chat");
+        when(resultSet.getLong("calls")).thenReturn(5L);
+        when(resultSet.getLong("failures")).thenReturn(1L);
+        when(resultSet.getLong("prompt_tokens")).thenReturn(100L);
+        when(resultSet.getLong("completion_tokens")).thenReturn(40L);
+        when(resultSet.getDouble("average_latency_millis")).thenReturn(42.5D);
+        return resultSet;
+    }
+
+    private static ResultSet statusResult() throws java.sql.SQLException {
+        ResultSet resultSet = mock(ResultSet.class);
+        when(resultSet.getString("status")).thenReturn("SUCCESS");
         when(resultSet.getLong("calls")).thenReturn(5L);
         when(resultSet.getLong("failures")).thenReturn(1L);
         when(resultSet.getLong("prompt_tokens")).thenReturn(100L);

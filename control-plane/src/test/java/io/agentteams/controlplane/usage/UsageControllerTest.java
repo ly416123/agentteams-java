@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.usage;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -54,5 +55,25 @@ class UsageControllerTest {
     void rejectsMalformedTimeParameters() throws Exception {
         mockMvc.perform(get("/api/v1/usage/summary").param("from", "not-an-instant"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void returnsExplicitStatusGroupingWithLimit() throws Exception {
+        Instant from = Instant.parse("2026-08-23T00:00:00Z");
+        Instant to = Instant.parse("2026-08-23T01:00:00Z");
+        when(service.summarize(from, to, "status", 1)).thenReturn(new UsageQueryService.UsageSummary(from, to,
+                new UsageQueryService.UsageTotals(3, 1, 60, 20, 18.25),
+                List.of(new UsageQueryService.UsageGroup(null, null, 3, 1, 60, 20, 18.25, "SUCCESS"))));
+
+        mockMvc.perform(get("/api/v1/usage/summary")
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("groupBy", "status")
+                        .param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupBy").value("status"))
+                .andExpect(jsonPath("$.groups[0].status").value("SUCCESS"))
+                .andExpect(jsonPath("$.groups[0].calls").value(3));
+        verify(service).summarize(from, to, "status", 1);
     }
 }

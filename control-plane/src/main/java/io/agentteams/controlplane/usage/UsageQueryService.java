@@ -16,6 +16,7 @@ public final class UsageQueryService {
 
     static final Duration DEFAULT_RANGE = Duration.ofHours(24);
     static final Duration MAX_RANGE = Duration.ofDays(31);
+    static final int MAX_LIMIT = 1000;
 
     private static final String TOTALS_SQL = """
             SELECT COUNT(*) AS calls,
@@ -28,8 +29,7 @@ public final class UsageQueryService {
             """;
 
     private static final String GROUPS_SQL = """
-            SELECT provider,
-                   model,
+            SELECT %s,
                    COUNT(*) AS calls,
                    COUNT(*) FILTER (WHERE outcome = 'FAILURE') AS failures,
                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
@@ -37,8 +37,8 @@ public final class UsageQueryService {
                    COALESCE(AVG(latency_millis), 0) AS average_latency_millis
               FROM model_call_audits
              WHERE occurred_at >= ? AND occurred_at < ?
-             GROUP BY provider, model
-             ORDER BY provider, model
+             GROUP BY %s
+             ORDER BY %s
             """;
 
     private final JdbcTemplate jdbc;
@@ -54,7 +54,13 @@ public final class UsageQueryService {
     }
 
     public UsageSummary summarize(Instant from, Instant to) {
+        return summarize(from, to, null, null);
+    }
+
+    public UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit) {
         UsageRange range = UsageRange.resolve(from, to, clock.instant());
+        GroupBy grouping = GroupBy.parse(groupBy);
+        int validatedLimit = validateLimit(limit);
         Timestamp start = Timestamp.from(range.from());
         Timestamp end = Timestamp.from(range.to());
 
@@ -68,15 +74,69 @@ public final class UsageQueryService {
             throw new IllegalStateException("usage totals query returned no row");
         }
 
-        List<UsageGroup> groups = jdbc.query(GROUPS_SQL, (resultSet, rowNum) -> new UsageGroup(
-                resultSet.getString("provider"),
-                resultSet.getString("model"),
+        String groupsSql = GROUPS_SQL.formatted(grouping.selectExpression(), grouping.groupExpression(),
+                grouping.orderExpression()) + (limit == null ? "" : " LIMIT ?");
+        List<UsageGroup> groups = jdbc.query(groupsSql, (resultSet, rowNum) -> new UsageGroup(
+                grouping == GroupBy.PROVIDER_MODEL || grouping == GroupBy.PROVIDER
+                        ? resultSet.getString("provider") : null,
+                grouping == GroupBy.PROVIDER_MODEL || grouping == GroupBy.MODEL
+                        ? resultSet.getString("model") : null,
                 resultSet.getLong("calls"),
                 resultSet.getLong("failures"),
                 resultSet.getLong("prompt_tokens"),
                 resultSet.getLong("completion_tokens"),
-                resultSet.getDouble("average_latency_millis")), start, end);
+                resultSet.getDouble("average_latency_millis"),
+                grouping == GroupBy.STATUS ? resultSet.getString("status") : null),
+                limit == null ? new Object[] {start, end} : new Object[] {start, end, validatedLimit});
         return new UsageSummary(range.from(), range.to(), totals, groups);
+    }
+
+    private static int validateLimit(Integer limit) {
+        if (limit != null && (limit < 1 || limit > MAX_LIMIT)) {
+            throw new IllegalArgumentException("limit must be between 1 and " + MAX_LIMIT);
+        }
+        return limit == null ? 0 : limit;
+    }
+
+    enum GroupBy {
+        PROVIDER_MODEL(null, "provider, model", "provider, model"),
+        PROVIDER("provider, NULL::text AS model, NULL::text AS status", "provider", "provider"),
+        MODEL("NULL::text AS provider, model, NULL::text AS status", "model", "model"),
+        STATUS("NULL::text AS provider, NULL::text AS model, outcome AS status", "outcome", "status");
+
+        private final String selectExpression;
+        private final String groupExpression;
+        private final String orderExpression;
+
+        GroupBy(String selectExpression, String groupExpression, String orderExpression) {
+            this.selectExpression = selectExpression;
+            this.groupExpression = groupExpression;
+            this.orderExpression = orderExpression;
+        }
+
+        String selectExpression() {
+            return selectExpression == null ? "provider, model, NULL::text AS status" : selectExpression;
+        }
+
+        String groupExpression() {
+            return groupExpression;
+        }
+
+        String orderExpression() {
+            return orderExpression;
+        }
+
+        static GroupBy parse(String value) {
+            if (value == null) {
+                return PROVIDER_MODEL;
+            }
+            return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "provider" -> PROVIDER;
+                case "model" -> MODEL;
+                case "status" -> STATUS;
+                default -> throw new IllegalArgumentException("groupBy must be provider, model, or status");
+            };
+        }
     }
 
     record UsageRange(Instant from, Instant to) {
@@ -98,7 +158,11 @@ public final class UsageQueryService {
     }
 
     public record UsageGroup(String provider, String model, long calls, long failures, long promptTokens,
-            long completionTokens, double averageLatencyMillis) {
+            long completionTokens, double averageLatencyMillis, String status) {
+        public UsageGroup(String provider, String model, long calls, long failures, long promptTokens,
+                long completionTokens, double averageLatencyMillis) {
+            this(provider, model, calls, failures, promptTokens, completionTokens, averageLatencyMillis, null);
+        }
     }
 
     public record UsageSummary(Instant from, Instant to, UsageTotals totals, List<UsageGroup> groups) {

@@ -2,6 +2,7 @@ package io.agentteams.controlplane.usage;
 
 import java.time.Instant;
 import java.util.List;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,19 +20,29 @@ public final class UsageController {
 
     @GetMapping("/summary")
     public UsageSummaryResponse summary(@RequestParam(name = "from", required = false) Instant from,
-            @RequestParam(name = "to", required = false) Instant to) {
-        return UsageSummaryResponse.from(service.summarize(from, to));
+            @RequestParam(name = "to", required = false) Instant to,
+            @RequestParam(name = "groupBy", required = false) String groupBy,
+            @RequestParam(name = "limit", required = false) Integer limit) {
+        UsageQueryService.UsageSummary summary = groupBy == null && limit == null
+                ? service.summarize(from, to)
+                : service.summarize(from, to, groupBy, limit);
+        return UsageSummaryResponse.from(summary, UsageQueryService.GroupBy.parse(groupBy));
     }
 
     public record UsageSummaryResponse(Instant from, Instant to, long calls, long failures,
             long promptTokens, long completionTokens, double averageLatencyMillis,
-            List<ProviderModelUsageResponse> byProviderModel) {
+            List<ProviderModelUsageResponse> byProviderModel,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String groupBy,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<UsageGroupResponse> groups) {
 
-        static UsageSummaryResponse from(UsageQueryService.UsageSummary summary) {
+        static UsageSummaryResponse from(UsageQueryService.UsageSummary summary, UsageQueryService.GroupBy groupBy) {
             UsageQueryService.UsageTotals totals = summary.totals();
+            boolean legacyGrouping = groupBy == UsageQueryService.GroupBy.PROVIDER_MODEL;
             return new UsageSummaryResponse(summary.from(), summary.to(), totals.calls(), totals.failures(),
                     totals.promptTokens(), totals.completionTokens(), totals.averageLatencyMillis(),
-                    summary.groups().stream().map(ProviderModelUsageResponse::from).toList());
+                    legacyGrouping ? summary.groups().stream().map(ProviderModelUsageResponse::from).toList() : List.of(),
+                    legacyGrouping ? null : groupBy.name().toLowerCase(java.util.Locale.ROOT),
+                    legacyGrouping ? null : summary.groups().stream().map(UsageGroupResponse::from).toList());
         }
     }
 
@@ -41,6 +52,15 @@ public final class UsageController {
         static ProviderModelUsageResponse from(UsageQueryService.UsageGroup group) {
             return new ProviderModelUsageResponse(group.provider(), group.model(), group.calls(), group.failures(),
                     group.promptTokens(), group.completionTokens(), group.averageLatencyMillis());
+        }
+    }
+
+    public record UsageGroupResponse(String provider, String model, String status, long calls, long failures,
+            long promptTokens, long completionTokens, double averageLatencyMillis) {
+
+        static UsageGroupResponse from(UsageQueryService.UsageGroup group) {
+            return new UsageGroupResponse(group.provider(), group.model(), group.status(), group.calls(),
+                    group.failures(), group.promptTokens(), group.completionTokens(), group.averageLatencyMillis());
         }
     }
 }
