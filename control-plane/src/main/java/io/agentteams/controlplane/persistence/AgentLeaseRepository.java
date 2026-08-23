@@ -37,6 +37,14 @@ public final class AgentLeaseRepository {
         return count == null ? 0 : count;
     }
 
+    public long countActiveForAgent(UUID agentId) {
+        Long count = jdbc.queryForObject("""
+                SELECT count(*) FROM agent_leases
+                 WHERE agent_id = ? AND status = 'ACTIVE' AND released_at IS NULL
+                """, Long.class, agentId);
+        return count == null ? 0 : count;
+    }
+
     public AgentLeaseRecord updateStatus(UUID id, String status, Instant releasedAt,
             long expectedVersion, Instant updatedAt) {
         int updated = jdbc.update("""

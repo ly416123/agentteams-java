@@ -64,9 +64,22 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         if (owned == 0) {
             return false;
         }
-        updateCanonicalAgent(canonicalAgentId(connection.agentId()), "OFFLINE", connection.runtime(),
-                connection.capabilities(), at, "'PROVISIONING', 'READY', 'BUSY', 'DRAINING', 'OFFLINE'");
+        updateCanonicalAgentOnDisconnect(canonicalAgentId(connection.agentId()), connection.runtime(),
+                connection.capabilities(), at);
         return true;
+    }
+
+    private void updateCanonicalAgentOnDisconnect(UUID agentId, String runtime,
+            Map<String, String> capabilities, Instant at) {
+        int updated = jdbc.update("""
+                UPDATE agents
+                   SET phase = CASE WHEN phase = 'TERMINATED' THEN 'TERMINATED' ELSE 'OFFLINE' END,
+                       runtime = ?, capabilities = ?::jsonb, updated_at = ?, version = version + 1
+                 WHERE id = ? AND phase IN ('PROVISIONING', 'READY', 'BUSY', 'DRAINING', 'TERMINATED', 'OFFLINE')
+                """, runtime, capabilitiesJson(capabilities), Timestamp.from(at), agentId);
+        if (updated == 0) {
+            throw unknownOrInvalidAgent(agentId);
+        }
     }
 
     private void updateCanonicalAgent(UUID agentId, String phase, String runtime,

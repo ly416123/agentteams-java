@@ -63,7 +63,7 @@ class JdbcAgentStateStoreTest {
         ArgumentCaptor<Object[]> canonicalArgs = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc, org.mockito.Mockito.times(2)).update(contains("UPDATE agents"),
                 canonicalArgs.capture());
-        assertThat(canonicalArgs.getAllValues().get(1)).contains(agentId, "OFFLINE");
+        assertThat(canonicalArgs.getAllValues().get(1)).contains(agentId);
     }
 
     @Test

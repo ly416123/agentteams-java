@@ -45,6 +45,19 @@ public final class AgentController {
         return AgentResponse.from(agent);
     }
 
+    @PostMapping("/{id}/drain")
+    public AgentResponse drain(@PathVariable UUID id, @RequestBody LifecycleRequest request) {
+        return AgentResponse.from(service.drain(id, expectedVersion(request)));
+    }
+
+    @PostMapping("/{id}/terminate")
+    public AgentResponse terminate(@PathVariable UUID id, @RequestBody LifecycleRequest request) {
+        return AgentResponse.from(service.terminate(id, expectedVersion(request)));
+    }
+
+    public record LifecycleRequest(Long expectedVersion) {
+    }
+
     public record CreateAgentRequest(String name, String runtime, JsonNode capabilities, JsonNode metadata) {
 
         AgentService.AgentInput toServiceInput() {
@@ -84,5 +97,12 @@ public final class AgentController {
         if (idempotencyKey.length() > 255) {
             throw new IllegalArgumentException("Idempotency-Key must be at most 255 characters");
         }
+    }
+
+    private static long expectedVersion(LifecycleRequest request) {
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new IllegalArgumentException("expectedVersion is required");
+        }
+        return request.expectedVersion();
     }
 }

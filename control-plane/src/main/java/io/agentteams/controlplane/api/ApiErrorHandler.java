@@ -5,6 +5,7 @@ import io.agentteams.controlplane.persistence.OptimisticLockFailure;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.ModelCatalogDependencyException;
 import io.agentteams.controlplane.service.UnavailableDependencyException;
+import io.agentteams.controlplane.service.WorkerLifecycleConflictException;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.quota.QuotaExceededException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
@@ -54,6 +55,11 @@ public final class ApiErrorHandler {
     @ExceptionHandler({OptimisticLockFailure.class, StaleTaskVersionException.class})
     ResponseEntity<ApiError> optimisticConflict(Exception ignored) {
         return error(HttpStatus.CONFLICT, "CONFLICT", "resource version does not match");
+    }
+
+    @ExceptionHandler(WorkerLifecycleConflictException.class)
+    ResponseEntity<ApiError> workerLifecycleConflict(WorkerLifecycleConflictException error) {
+        return error(HttpStatus.CONFLICT, error.code(), "worker lifecycle transition is not allowed");
     }
 
     @ExceptionHandler(IllegalTaskTransitionException.class)

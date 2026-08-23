@@ -81,6 +81,31 @@ class ControlPlaneControllerTest {
     }
 
     @Test
+    void drainsAndTerminatesAgentWithOptimisticVersion() throws Exception {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        AgentRecord draining = new AgentRecord(id, "worker-1", AgentPhase.DRAINING, "qwenpaw", "{}", "{}",
+                now, now, 1);
+        AgentRecord terminated = new AgentRecord(id, "worker-1", AgentPhase.TERMINATED, "qwenpaw", "{}", "{}",
+                now, now, 2);
+        when(agents.drain(id, 0L)).thenReturn(draining);
+        when(agents.terminate(id, 1L)).thenReturn(terminated);
+
+        mockMvc.perform(post("/api/v1/agents/{id}/drain", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phase").value("DRAINING"));
+        mockMvc.perform(post("/api/v1/agents/{id}/terminate", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phase").value("TERMINATED"));
+        verify(agents).drain(id, 0L);
+        verify(agents).terminate(id, 1L);
+    }
+
+    @Test
     void createsAndReadsATaskInDraft() throws Exception {
         UUID id = UUID.randomUUID();
         TaskRecord task = new TaskRecord(id, "Build API", "description", TaskPhase.DRAFT, 0, "{}",

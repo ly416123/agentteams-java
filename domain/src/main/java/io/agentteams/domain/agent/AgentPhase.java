@@ -6,6 +6,7 @@ public enum AgentPhase {
     READY,
     BUSY,
     DRAINING,
+    TERMINATED,
     OFFLINE,
     FAILED;
 
