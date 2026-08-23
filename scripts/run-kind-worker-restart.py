@@ -109,6 +109,11 @@ def agent_phase(namespace: str, postgres_pod: str, agent_id: str) -> str:
                f"select phase from agents where id = '{agent_id}';").strip()
 
 
+def gateway_connection_id(namespace: str, postgres_pod: str, agent_id: str) -> str:
+    return sql(namespace, postgres_pod,
+               f"select connection_id from gateway_agent_state where agent_id = '{agent_id}';").strip()
+
+
 def task_phase(namespace: str, postgres_pod: str, task_id: str) -> str:
     return sql(namespace, postgres_pod,
                f"select phase from tasks where id = '{task_id}';").strip()
@@ -196,6 +201,9 @@ def main() -> int:
         print(f"KIND_WORKER_RESTART_RUNNING task={task_id} pod={pods[0]}")
 
         failed_worker_pod = pods[0]
+        previous_connection_id = gateway_connection_id(args.namespace, args.postgres_pod, args.agent_id)
+        if not previous_connection_id:
+            fail("could not find the active Gateway connection before Worker restart")
         run("delete", "pod", failed_worker_pod, "--wait=true", namespace=args.namespace)
         wait_until(
             "replacement Worker Pod",
@@ -205,9 +213,12 @@ def main() -> int:
         )
         wait_until("Worker Deployment ready after restart", lambda: deployment_ready(
             args.namespace, args.worker_deployment, worker_replicas), args.timeout)
-        wait_until("Worker registration after restart",
-                   lambda: agent_phase(args.namespace, args.postgres_pod, args.agent_id) == "READY",
-                   args.timeout)
+        def restarted_worker_ready():
+            current_connection_id = gateway_connection_id(args.namespace, args.postgres_pod, args.agent_id)
+            return (current_connection_id if current_connection_id and current_connection_id != previous_connection_id
+                    and agent_phase(args.namespace, args.postgres_pod, args.agent_id) == "READY" else None)
+
+        wait_until("new Worker Gateway registration after restart", restarted_worker_ready, args.timeout)
 
         updated = sql(args.namespace, args.postgres_pod, f"""
             update agent_leases l set expires_at=now()-interval '1 second', updated_at=now()
