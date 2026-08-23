@@ -618,6 +618,7 @@ public final class QwenPawWorker implements AutoCloseable {
 
         Map<String, String> runtimeConfiguration() {
             Map<String, String> values = new LinkedHashMap<>(Map.of(
+                    "worker_id", agentId,
                     "gatewayHost", gatewayHost,
                     "gatewayPort", Integer.toString(gatewayPort),
                     "qwenPawEndpoint", qwenPawEndpoint,

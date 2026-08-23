@@ -83,6 +83,29 @@ class QwenPawRuntimeTest {
     }
 
     @Test
+    void carriesWorkerTaskTeamToolAndQuotaDimensionsIntoAdmissionRequest() {
+        RecordingProcessPort port = new RecordingProcessPort();
+        AtomicReference<RuntimeModelCallAdmissionRequest> request = new AtomicReference<>();
+        QwenPawRuntime runtime = new QwenPawRuntime(port, value -> {
+            request.set(value);
+            return RuntimeModelCallLease.noop();
+        });
+        runtime.start(new AgentRuntimeContext("qwenpaw", 1, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), result -> { },
+                Map.of("worker_id", "worker-a", "tenant_id", "tenant-a", "project_id", "project-a")));
+        UUID taskId = UUID.randomUUID();
+
+        runtime.submit(new RuntimeTask(taskId, "chat", "{}", Map.of(
+                "teamId", "team-a", "toolId", "create_task", "quotaId", "quota-a",
+                "quotaDimension", "daily_tokens")));
+
+        assertThat(request).hasValueSatisfying(value -> {
+            assertThat(value.dimensions()).isEqualTo(new RuntimeModelCallDimensions(
+                    "worker-a", taskId.toString(), "team-a", "create_task", "quota-a", "daily_tokens"));
+        });
+        runtime.stop();
+    }
+
+    @Test
     void admissionRejectionDoesNotSubmitToProvider() {
         RecordingProcessPort port = new RecordingProcessPort();
         QwenPawRuntime runtime = new QwenPawRuntime(port,

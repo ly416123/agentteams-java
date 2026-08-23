@@ -37,9 +37,18 @@ public final class GatewayRuntimeAdapter {
         Objects.requireNonNull(assignment, "assignment");
         EventMetadata input = assignment.getMetadata();
         UUID taskId = uuid(input.getTaskId(), "task_id");
+        Map<String, String> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("agentId", agentId);
+        metadata.put("attemptId", input.getAttemptId());
+        metadata.put("leaseId", input.getLeaseId());
+        putIfPresent(metadata, "tenantId", assignment.getTenantId());
+        putIfPresent(metadata, "projectId", assignment.getProjectId());
+        putIfPresent(metadata, "teamId", assignment.getTeamId());
+        putIfPresent(metadata, "toolId", assignment.getToolId());
+        putIfPresent(metadata, "quotaId", assignment.getQuotaId());
+        putIfPresent(metadata, "quotaDimension", assignment.getQuotaDimension());
         RuntimeTask task = new RuntimeTask(taskId, assignment.getTaskType(),
-                assignment.getInputJson().toStringUtf8(), Map.of("agentId", agentId,
-                        "attemptId", input.getAttemptId(), "leaseId", input.getLeaseId()));
+                assignment.getInputJson().toStringUtf8(), metadata);
         AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt());
         AssignmentContext existing = assignments.putIfAbsent(taskId, assignmentContext);
         boolean registered = existing == null;
@@ -179,6 +188,12 @@ public final class GatewayRuntimeAdapter {
         private boolean matches(EventMetadata input) {
             return metadata.getAttemptId().equals(input.getAttemptId())
                     && metadata.getLeaseId().equals(input.getLeaseId());
+        }
+    }
+
+    private static void putIfPresent(Map<String, String> metadata, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            metadata.put(key, value.trim());
         }
     }
 }

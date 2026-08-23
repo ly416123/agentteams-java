@@ -4,10 +4,16 @@ import java.util.Objects;
 
 /** Immutable model-call estimate passed from a runtime task to admission. */
 public record RuntimeModelCallAdmissionRequest(String provider, String model, int maxTokens,
-        String tenantId, String projectId) {
+        String tenantId, String projectId, RuntimeModelCallDimensions dimensions) {
     /** Compatibility constructor for callers that do not carry project scope. */
     public RuntimeModelCallAdmissionRequest(String provider, String model, int maxTokens) {
-        this(provider, model, maxTokens, null, null);
+        this(provider, model, maxTokens, null, null, RuntimeModelCallDimensions.empty());
+    }
+
+    /** Compatibility constructor for callers that carry only project scope. */
+    public RuntimeModelCallAdmissionRequest(String provider, String model, int maxTokens,
+            String tenantId, String projectId) {
+        this(provider, model, maxTokens, tenantId, projectId, RuntimeModelCallDimensions.empty());
     }
 
     public RuntimeModelCallAdmissionRequest {
@@ -23,6 +29,7 @@ public record RuntimeModelCallAdmissionRequest(String provider, String model, in
             tenantId = requireText(tenantId, "tenantId");
             projectId = requireText(projectId, "projectId");
         }
+        dimensions = Objects.requireNonNull(dimensions, "dimensions");
     }
 
     public boolean hasProjectScope() {

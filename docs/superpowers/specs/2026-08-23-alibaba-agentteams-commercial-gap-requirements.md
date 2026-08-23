@@ -716,3 +716,15 @@ python3 scripts/run-kind-quota-recovery.py
 - 保留 fail-closed、超时分类和供应商错误脱敏等安全边界；
 - 不为该能力新增部署配置、Kind 验收步骤或 CI 资源消耗；
 - 后续若确有企业接入需求，再单独立项完成供应商适配和端到端验收。
+
+### 本轮任务上下文闭环（2026-08-23）
+
+已完成 Worker 侧真实运营维度的传递链路：
+
+- `TaskAssigned` 协议以兼容的新增字段携带 tenant/project/team/tool/quota 维度；
+- Gateway 从任务 `spec` 及 `scope` 推导维度，兼容旧 `KnownTaskFields` 调用；
+- Worker `GatewayRuntimeAdapter` 将维度写入 `RuntimeTask.metadata`；
+- Runtime 将真实 `taskId`、Worker 标识及任务维度写入 `RuntimeModelCallAdmissionRequest.dimensions`，供配额和审计适配器使用；
+- 未提供的维度仍保持为空或安全回退，不把任务内容写入审计字段。
+
+Gateway、Runtime、Worker 相关回归测试已通过。当前剩余事项收敛为真实 GitHub Actions Kind 结果确认，以及后续将 Runtime admission dimensions 接入具体生产审计持久化实现；企业 Skill 审批/沙箱仍不在当前范围内。

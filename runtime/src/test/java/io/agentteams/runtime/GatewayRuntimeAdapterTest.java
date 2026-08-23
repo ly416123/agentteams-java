@@ -117,6 +117,25 @@ class GatewayRuntimeAdapterTest {
         assertThat(messages.get(2).getTaskCompleted().getMetadata().getExpectedVersion()).isEqualTo(2);
     }
 
+    @Test
+    void carriesOperationalDimensionsIntoRuntimeTaskMetadata() {
+        FakeRuntime runtime = new FakeRuntime();
+        runtime.start(new AgentRuntimeContext("fake", 1, Clock.systemUTC(), result -> { }, java.util.Map.of()));
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", message -> { }, runtime,
+                Clock.systemUTC());
+        UUID taskId = UUID.randomUUID();
+        TaskAssigned assignment = assignment(taskId).toBuilder()
+                .setTenantId("tenant-a").setProjectId("project-a").setTeamId("team-a")
+                .setToolId("create_task").setQuotaId("quota-a").setQuotaDimension("daily_tokens").build();
+
+        assertThat(adapter.acceptAssignment(assignment).accepted()).isTrue();
+        assertThat(runtime.status(taskId)).get().extracting(status -> status.task().metadata())
+                .isEqualTo(java.util.Map.of("agentId", "agent-1", "attemptId",
+                        assignment.getMetadata().getAttemptId(), "leaseId", assignment.getMetadata().getLeaseId(),
+                        "tenantId", "tenant-a", "projectId", "project-a", "teamId", "team-a",
+                        "toolId", "create_task", "quotaId", "quota-a", "quotaDimension", "daily_tokens"));
+    }
+
     private static TaskAssigned assignment(UUID taskId) {
         return TaskAssigned.newBuilder().setMetadata(EventMetadata.newBuilder()
                 .setEventId(UUID.randomUUID().toString()).setAgentId("agent-1").setTaskId(taskId.toString())

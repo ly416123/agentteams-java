@@ -59,6 +59,12 @@ class TaskAssignedCommandHandlerTest {
         assertThat(message.getTaskAssigned().getRequiredCapabilitiesList()).containsExactly("llm", "workspace");
         assertThat(message.getTaskAssigned().getLeaseExpiresAt().getSeconds()).isEqualTo(Instant.parse(
                 "2026-08-16T00:30:00Z").getEpochSecond());
+        assertThat(message.getTaskAssigned().getTenantId()).isEqualTo("tenant-a");
+        assertThat(message.getTaskAssigned().getProjectId()).isEqualTo("project-a");
+        assertThat(message.getTaskAssigned().getTeamId()).isEqualTo("team-a");
+        assertThat(message.getTaskAssigned().getToolId()).isEqualTo("create_task");
+        assertThat(message.getTaskAssigned().getQuotaId()).isEqualTo("quota-a");
+        assertThat(message.getTaskAssigned().getQuotaDimension()).isEqualTo("daily_tokens");
     }
 
     @Test
@@ -124,7 +130,11 @@ class TaskAssignedCommandHandlerTest {
                 : ATTEMPT_ID.toString();
         return "{\"taskId\":\"" + TASK_ID + "\",\"agentId\":\"" + agentId
                 + "\",\"attemptId\":\"" + attemptId + "\",\"assignmentId\":\"" + ASSIGNMENT_ID
-                + "\",\"leaseId\":\"" + LEASE_ID + "\",\"spec\":{\"requiredCapabilities\":[\"llm\"]}"
+                + "\",\"leaseId\":\"" + LEASE_ID
+                + "\",\"spec\":{\"requiredCapabilities\":[\"llm\"],\"scope\":{"
+                + "\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"},"
+                + "\"toolId\":\"create_task\","
+                + "\"quotaId\":\"quota-a\",\"quotaDimension\":\"daily_tokens\"}"
                 + ",\"futureField\":\"kept\"}";
     }
 }

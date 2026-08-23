@@ -136,11 +136,32 @@ public final class QwenPawRuntime implements AgentRuntime {
         int maxTokens = positiveInt(firstNonBlank(task.metadata().get("maxTokens"),
                 values.get("modelMaxTokens"), "1024"), "maxTokens");
         Map<String, String> baseValues = context.configuration();
-        String tenantId = nullable(firstNonBlank(values.get("tenant_id"), values.get("tenantId"),
-                baseValues.get("tenant_id"), baseValues.get("tenantId")));
-        String projectId = nullable(firstNonBlank(values.get("project_id"), values.get("projectId"),
-                baseValues.get("project_id"), baseValues.get("projectId")));
-        return new RuntimeModelCallAdmissionRequest(provider, model, maxTokens, tenantId, projectId);
+        String tenantId = nullable(firstNonBlank(task.metadata().get("tenantId"), task.metadata().get("tenant_id"),
+                values.get("tenant_id"), values.get("tenantId"), baseValues.get("tenant_id"),
+                baseValues.get("tenantId")));
+        String projectId = nullable(firstNonBlank(task.metadata().get("projectId"), task.metadata().get("project_id"),
+                values.get("project_id"), values.get("projectId"), baseValues.get("project_id"),
+                baseValues.get("projectId")));
+        String workerId = nullable(firstNonBlank(values.get("worker_id"), values.get("workerId"),
+                baseValues.get("worker_id"), baseValues.get("workerId"), values.get("agent_id"),
+                values.get("agentId"), baseValues.get("agent_id"), baseValues.get("agentId"),
+                context.runtimeName()));
+        String teamId = nullable(firstNonBlank(task.metadata().get("teamId"), task.metadata().get("team_id"),
+                values.get("team_id"), values.get("teamId"), baseValues.get("team_id"),
+                baseValues.get("teamId")));
+        String toolId = nullable(firstNonBlank(task.metadata().get("toolId"), task.metadata().get("tool_id"),
+                values.get("tool_id"), values.get("toolId"), baseValues.get("tool_id"),
+                baseValues.get("toolId")));
+        String quotaId = nullable(firstNonBlank(task.metadata().get("quotaId"), task.metadata().get("quota_id"),
+                values.get("quota_id"), values.get("quotaId"), baseValues.get("quota_id"),
+                baseValues.get("quotaId")));
+        String quotaDimension = nullable(firstNonBlank(task.metadata().get("quotaDimension"),
+                task.metadata().get("quota_dimension"), values.get("quota_dimension"),
+                values.get("quotaDimension"), baseValues.get("quota_dimension"),
+                baseValues.get("quotaDimension"), tenantId == null ? null : "project"));
+        RuntimeModelCallDimensions dimensions = new RuntimeModelCallDimensions(workerId, task.id().toString(),
+                teamId, toolId, quotaId, quotaDimension);
+        return new RuntimeModelCallAdmissionRequest(provider, model, maxTokens, tenantId, projectId, dimensions);
     }
 
     private void releaseAdmission(UUID taskId) {

@@ -73,6 +73,14 @@ message TaskAssigned {
   bytes input_json = 3;
   repeated string required_capabilities = 4;
   google.protobuf.Timestamp lease_expires_at = 5;
+  // Optional operational dimensions used by Worker quota/audit adapters.
+  // These fields are additive so older Workers can ignore them safely.
+  string tenant_id = 6;
+  string project_id = 7;
+  string team_id = 8;
+  string tool_id = 9;
+  string quota_id = 10;
+  string quota_dimension = 11;
 }
 
 message TaskAccepted {

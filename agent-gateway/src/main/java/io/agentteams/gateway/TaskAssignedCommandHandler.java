@@ -51,6 +51,8 @@ public final class TaskAssignedCommandHandler {
         if (!taskId.equals(payload.taskId())) {
             throw new IllegalArgumentException("payload taskId does not match aggregateId");
         }
+        OperationalDimensions dimensions = taskFields.dimensions().isEmpty()
+                ? dimensionsFromSpec(payload.spec()) : taskFields.dimensions();
         UUID eventId = UUID.nameUUIDFromBytes((EVENT_TYPE + ":" + payload.assignmentId())
                 .getBytes(StandardCharsets.UTF_8));
         EventMetadata metadata = EventMetadata.newBuilder()
@@ -71,6 +73,12 @@ public final class TaskAssignedCommandHandler {
                 .setInputJson(taskFields.inputJson())
                 .addAllRequiredCapabilities(taskFields.requiredCapabilities())
                 .setLeaseExpiresAt(timestamp(taskFields.leaseExpiresAt()))
+                .setTenantId(dimensions.tenantIdOrEmpty())
+                .setProjectId(dimensions.projectIdOrEmpty())
+                .setTeamId(dimensions.teamIdOrEmpty())
+                .setToolId(dimensions.toolIdOrEmpty())
+                .setQuotaId(dimensions.quotaIdOrEmpty())
+                .setQuotaDimension(dimensions.quotaDimensionOrEmpty())
                 .build();
         delivery.deliver(payload.agentId(), ServerMessage.newBuilder().setTaskAssigned(assigned).build());
         return true;
@@ -132,8 +140,16 @@ public final class TaskAssignedCommandHandler {
                 requiredCapabilities.add(capability.asText());
             }
             Instant leaseExpiresAt = Instant.parse(requiredText(root, "leaseExpiresAt"));
+            JsonNode spec = root.get("spec");
+            OperationalDimensions dimensions = new OperationalDimensions(
+                    optionalText(root, spec, "tenantId", "tenant_id", "tenant"),
+                    optionalText(root, spec, "projectId", "project_id", "project"),
+                    optionalText(root, spec, "teamId", "team_id", "team"),
+                    optionalText(root, spec, "toolId", "tool_id"),
+                    optionalText(root, spec, "quotaId", "quota_id"),
+                    optionalText(root, spec, "quotaDimension", "quota_dimension"));
             return new KnownTaskFields(taskType, ByteString.copyFrom(MAPPER.writeValueAsBytes(inputJson)),
-                    requiredCapabilities, leaseExpiresAt);
+                    requiredCapabilities, leaseExpiresAt, dimensions);
         } catch (JsonProcessingException | java.time.DateTimeException error) {
             throw new IllegalArgumentException("canonical assignment fields are invalid", error);
         }
@@ -185,6 +201,49 @@ public final class TaskAssignedCommandHandler {
         return value.asText();
     }
 
+    private static String optionalText(JsonNode root, JsonNode spec, String... names) {
+        for (String name : names) {
+            String value = optionalText(root, name);
+            if (value != null) return value;
+            value = optionalText(spec, name);
+            if (value != null) return value;
+        }
+        JsonNode scope = spec == null ? null : spec.get("scope");
+        if (scope != null && scope.isObject()) {
+            for (String name : names) {
+                String value = optionalText(scope, name);
+                if (value != null) return value;
+            }
+        }
+        return null;
+    }
+
+    private static String optionalText(JsonNode object, String field) {
+        if (object == null || !object.isObject()) return null;
+        JsonNode value = object.get(field);
+        return value != null && value.isTextual() && !value.asText().isBlank() ? value.asText().trim() : null;
+    }
+
+    private static OperationalDimensions dimensionsFromSpec(JsonNode spec) {
+        JsonNode scope = spec == null ? null : spec.get("scope");
+        return new OperationalDimensions(firstOptionalText(spec, scope, "tenantId", "tenant_id", "tenant"),
+                firstOptionalText(spec, scope, "projectId", "project_id", "project"),
+                firstOptionalText(spec, scope, "teamId", "team_id", "team"),
+                firstOptionalText(spec, null, "toolId", "tool_id"),
+                firstOptionalText(spec, null, "quotaId", "quota_id"),
+                firstOptionalText(spec, null, "quotaDimension", "quota_dimension"));
+    }
+
+    private static String firstOptionalText(JsonNode object, JsonNode fallback, String... names) {
+        for (String name : names) {
+            String value = optionalText(object, name);
+            if (value != null) return value;
+            value = optionalText(fallback, name);
+            if (value != null) return value;
+        }
+        return null;
+    }
+
     private static UUID parseUuid(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must be a UUID");
@@ -201,7 +260,12 @@ public final class TaskAssignedCommandHandler {
     }
 
     public record KnownTaskFields(String taskType, ByteString inputJson, List<String> requiredCapabilities,
-            Instant leaseExpiresAt) {
+            Instant leaseExpiresAt, OperationalDimensions dimensions) {
+        public KnownTaskFields(String taskType, ByteString inputJson, List<String> requiredCapabilities,
+                Instant leaseExpiresAt) {
+            this(taskType, inputJson, requiredCapabilities, leaseExpiresAt, OperationalDimensions.empty());
+        }
+
         public KnownTaskFields {
             if (taskType == null || taskType.isBlank()) {
                 throw new IllegalArgumentException("taskType must not be blank");
@@ -210,12 +274,51 @@ public final class TaskAssignedCommandHandler {
             requiredCapabilities = List.copyOf(Objects.requireNonNull(requiredCapabilities,
                     "requiredCapabilities"));
             Objects.requireNonNull(leaseExpiresAt, "leaseExpiresAt");
+            Objects.requireNonNull(dimensions, "dimensions");
+        }
+    }
+
+    /** Safe, optional dimensions copied from the task specification to the Worker. */
+    public record OperationalDimensions(String tenantId, String projectId, String teamId, String toolId,
+            String quotaId, String quotaDimension) {
+        public OperationalDimensions {
+            tenantId = normalize(tenantId);
+            projectId = normalize(projectId);
+            teamId = normalize(teamId);
+            toolId = normalize(toolId);
+            quotaId = normalize(quotaId);
+            quotaDimension = normalize(quotaDimension);
+            if ((tenantId == null) != (projectId == null)) {
+                throw new IllegalArgumentException("tenantId and projectId must be supplied together");
+            }
+        }
+
+        public static OperationalDimensions empty() {
+            return new OperationalDimensions(null, null, null, null, null, null);
+        }
+
+        boolean isEmpty() {
+            return tenantId == null && projectId == null && teamId == null && toolId == null
+                    && quotaId == null && quotaDimension == null;
+        }
+
+        String tenantIdOrEmpty() { return tenantId == null ? "" : tenantId; }
+        String projectIdOrEmpty() { return projectId == null ? "" : projectId; }
+        String teamIdOrEmpty() { return teamId == null ? "" : teamId; }
+        String toolIdOrEmpty() { return toolId == null ? "" : toolId; }
+        String quotaIdOrEmpty() { return quotaId == null ? "" : quotaId; }
+        String quotaDimensionOrEmpty() { return quotaDimension == null ? "" : quotaDimension; }
+
+        private static String normalize(String value) {
+            return value == null || value.isBlank() ? null : value.trim();
         }
     }
 
     private static final class SetOfKnownFields {
         private static final java.util.Set<String> NAMES = java.util.Set.of(
                 "taskId", "agentId", "attemptId", "assignmentId", "leaseId", "spec", "taskType",
-                "inputJson", "requiredCapabilities", "leaseExpiresAt", "expectedVersion");
+                "inputJson", "requiredCapabilities", "leaseExpiresAt", "expectedVersion", "tenantId",
+                "tenant_id", "projectId", "project_id", "teamId", "team_id", "toolId", "tool_id",
+                "quotaId", "quota_id", "quotaDimension", "quota_dimension");
     }
 }
