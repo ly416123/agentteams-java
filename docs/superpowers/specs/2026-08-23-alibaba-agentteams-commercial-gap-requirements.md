@@ -44,6 +44,41 @@
 - **缺失**：当前代码中未形成完整能力。
 - **可选**：对核心开源 AgentTeams 不构成阻塞，可在主线稳定后实现。
 
+## 3.1 当前执行进度（2026-08-23）
+
+已完成并通过 Control Plane 全量测试的基础能力：
+
+- Model Provider/Model Catalog 基础目录（V16）。
+- AgentSpec v1 草案资源、幂等创建、查询和权限入口（V20）。
+- AgentSpec 到现有 ConfigSnapshot/Outbox/Worker ACK 管道的部署适配，可通过
+  `POST /api/v1/agent-specs/{specId}/deployments/{agentId}` 发布配置。
+- Skill Registry、MCP Server Registry、Usage Summary、Operation Audit 基础 API（V17–V21）。
+- Keycloak/OIDC 身份验证、权限策略、敏感字段脱敏和 Flyway/Testcontainers 验证。
+
+本轮已选择并行推进的下一组任务：
+
+| 优先级 | 任务 | 依赖 | 当前状态 |
+|---|---|---|---|
+| P0 | AgentSpec 引用 Model Catalog、发布前校验和生命周期 | Model Catalog、AgentSpec | 执行中 |
+| P0 | Skill manifest/digest/版本发布校验 | Skill Registry | 执行中 |
+| P1 | Model/MCP 写操作接入持久化审计 | Audit、Model/MCP Registry | 执行中 |
+| P1 | Usage 增加 Dashboard/Prometheus 稳定分组契约 | model_call_audits、Usage API | 执行中 |
+| P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成第一段，继续补齐 |
+
+推荐的依赖关键路径为：
+
+```text
+Model Catalog 校验
+        ↓
+AgentSpec 引用与版本发布
+        ↓
+ConfigSnapshot → Outbox → Worker ACK
+        ↓
+任务/模型/工具使用统计与告警
+```
+
+Skill、MCP、Audit 可以在关键路径上并行建设，但 Skill/MCP 的最终绑定必须复用 AgentSpec 引用协议；Dashboard 先稳定 API 和数据口径，再实现 Console，避免前端先行导致统计模型反复变更。
+
 | 能力域 | 当前项目 | 差距 | 优先级 |
 |---|---|---|---|
 | Model Provider/Model | **部分具备**。Manager 已有 Provider SPI、OpenAI Compatible/DeepSeek Provider、重试、结构化输出校验和模型调用审计；Control Plane 已有 `model_providers`、`models` 目录和读写 API | 缺少连通性测试、Secret 绑定、更新/删除约束、协议校验、模型能力声明、Worker/AgentSpec 绑定和完整生命周期 | P0 |
