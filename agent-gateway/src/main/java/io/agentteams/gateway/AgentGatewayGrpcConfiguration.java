@@ -25,7 +25,13 @@ import org.springframework.beans.factory.ObjectProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.otel.bridge.OtelPropagator;
 import io.micrometer.tracing.propagation.Propagator;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.baggage.propagation.W3CBaggagePropagator;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.propagation.ContextPropagators;
+import io.opentelemetry.context.propagation.TextMapPropagator;
 
 /** Default process wiring; production deployments can replace each port adapter with a durable bean. */
 @Configuration(proxyBeanMethods = false)
@@ -161,7 +167,7 @@ public class AgentGatewayGrpcConfiguration {
         return new NatsGatewayEventConsumer(gatewayJetStream, commandHandler, configHandler, objectMapper,
                 properties.getSubject(), properties.taskConsumerDurable(), properties.getConfigSubject(),
                 properties.configConsumerDurable(), metrics, new AsyncConsumerTracing(
-                        tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
+                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
     }
 
     @Bean
@@ -210,7 +216,17 @@ public class AgentGatewayGrpcConfiguration {
             ObjectProvider<Propagator> propagators) {
         return new AgentGatewayGrpcServer(properties.getPort(), properties.getShutdownTimeout(), channelService,
                 tlsProperties, new GrpcServerTracingInterceptor(
-                        tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
+                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
+    }
+
+    private static Propagator tracingPropagator(ObjectProvider<Propagator> propagators) {
+        return propagators.getIfAvailable(() -> {
+            var openTelemetry = GlobalOpenTelemetry.get();
+            var w3c = TextMapPropagator.composite(W3CTraceContextPropagator.getInstance(),
+                    W3CBaggagePropagator.getInstance());
+            return new OtelPropagator(ContextPropagators.create(w3c),
+                    openTelemetry.getTracerProvider().get("agentteams-agent-gateway"));
+        });
     }
 
     private static final class NoopAgentStatePort implements AgentStatePort {

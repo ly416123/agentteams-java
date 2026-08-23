@@ -164,7 +164,7 @@ REALM_ID="$(curl --fail --silent --show-error \
   "${KEYCLOAK_URL}/admin/realms/agentteams" | json_first_string id)"
 [[ -n "${REALM_ID}" ]] || { echo "无法读取 Keycloak realm id" >&2; exit 1; }
 
-COMPONENT_BODY="$(printf '{"name":"%s","providerId":"rsa-generated","providerType":"org.keycloak.keys.KeyProvider","parentId":"%s","config":{"priority":["200"],"active":["true"],"enabled":["true"]}}' "${COMPONENT_NAME}" "${REALM_ID}")"
+COMPONENT_BODY="$(printf '{"name":"%s","providerId":"rsa-generated","providerType":"org.keycloak.keys.KeyProvider","parentId":"%s","config":{"priority":["1000"],"active":["true"],"enabled":["true"],"keySize":["2048"],"algorithm":["RS256"]}}' "${COMPONENT_NAME}" "${REALM_ID}")"
 COMPONENT_HEADERS="$(curl --fail --silent --show-error --dump-header - --output /dev/null --request POST \
   "${KEYCLOAK_URL}/admin/realms/agentteams/components" \
   --header "Authorization: Bearer ${ADMIN_TOKEN}" \
@@ -183,7 +183,7 @@ if [[ -z "${COMPONENT_ID}" ]]; then
 fi
 [[ -n "${COMPONENT_ID}" ]] || { echo "未找到新 Keycloak key provider" >&2; exit 1; }
 
-COMPONENT_UPDATE_BODY="$(printf '{"id":"%s","name":"%s","providerId":"rsa-generated","providerType":"org.keycloak.keys.KeyProvider","parentId":"%s","config":{"priority":["200"],"active":["true"],"enabled":["true"]}}' "${COMPONENT_ID}" "${COMPONENT_NAME}" "${REALM_ID}")"
+COMPONENT_UPDATE_BODY="$(printf '{"id":"%s","name":"%s","providerId":"rsa-generated","providerType":"org.keycloak.keys.KeyProvider","parentId":"%s","config":{"priority":["1000"],"active":["true"],"enabled":["true"],"keySize":["2048"],"algorithm":["RS256"]}}' "${COMPONENT_ID}" "${COMPONENT_NAME}" "${REALM_ID}")"
 curl --fail --silent --show-error --request PUT \
   "${KEYCLOAK_URL}/admin/realms/agentteams/components/${COMPONENT_ID}" \
   --header "Authorization: Bearer ${ADMIN_TOKEN}" \

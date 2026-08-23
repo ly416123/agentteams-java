@@ -69,7 +69,13 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.otel.bridge.OtelPropagator;
 import io.micrometer.tracing.propagation.Propagator;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.baggage.propagation.W3CBaggagePropagator;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.propagation.ContextPropagators;
+import io.opentelemetry.context.propagation.TextMapPropagator;
 
 @Configuration
 @EnableScheduling
@@ -307,7 +313,7 @@ public class ControlPlaneConfiguration {
             throws IOException {
         return new NatsExecutionEventConsumer(connection.jetStream(), executionEvents, configEvents, objectMapper,
                 "control-plane-execution-events", new AsyncConsumerTracing(
-                        tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
+                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
     }
 
     @Bean
@@ -317,7 +323,7 @@ public class ControlPlaneConfiguration {
             ObjectProvider<Tracer> tracers, ObjectProvider<Propagator> propagators)
             throws IOException {
         return new NatsEventPublisher(connection.jetStream(), objectMapper, new AsyncProducerTracing(
-                tracers.getIfAvailable(() -> Tracer.NOOP), propagators.getIfAvailable(() -> Propagator.NOOP)));
+                tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
     }
 
     @Bean(destroyMethod = "close")
@@ -326,5 +332,15 @@ public class ControlPlaneConfiguration {
     OutboxRelay outboxRelay(OutboxStore store, EventPublisher publisher, OutboxRelayProperties properties,
             TaskMetricsPort metrics) {
         return new OutboxRelay(store, publisher, properties, Clock.systemUTC(), metrics);
+    }
+
+    private static Propagator tracingPropagator(ObjectProvider<Propagator> propagators) {
+        return propagators.getIfAvailable(() -> {
+            var openTelemetry = GlobalOpenTelemetry.get();
+            var w3c = TextMapPropagator.composite(W3CTraceContextPropagator.getInstance(),
+                    W3CBaggagePropagator.getInstance());
+            return new OtelPropagator(ContextPropagators.create(w3c),
+                    openTelemetry.getTracerProvider().get("agentteams-control-plane"));
+        });
     }
 }
