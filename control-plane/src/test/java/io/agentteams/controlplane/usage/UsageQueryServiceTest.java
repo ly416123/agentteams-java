@@ -1,0 +1,107 @@
+package io.agentteams.controlplane.usage;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.sql.ResultSet;
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+
+@ExtendWith(MockitoExtension.class)
+class UsageQueryServiceTest {
+
+    private static final Instant NOW = Instant.parse("2026-08-23T12:00:00Z");
+
+    @Mock
+    private JdbcTemplate jdbc;
+
+    @Test
+    void aggregatesTotalsAndProviderModelGroupsForExplicitRange() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                any(), any())).thenAnswer(invocation -> {
+                    RowMapper<UsageQueryService.UsageTotals> mapper = invocation.getArgument(1);
+                    return mapper.mapRow(totalsResult(), 0);
+                });
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    RowMapper<UsageQueryService.UsageGroup> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(groupResult(), 0));
+                });
+
+        Instant from = NOW.minusSeconds(3600);
+        UsageQueryService.UsageSummary summary = service().summarize(from, NOW);
+
+        assertThat(summary.from()).isEqualTo(from);
+        assertThat(summary.to()).isEqualTo(NOW);
+        assertThat(summary.totals()).isEqualTo(new UsageQueryService.UsageTotals(5, 1, 100, 40, 42.5));
+        assertThat(summary.groups()).containsExactly(new UsageQueryService.UsageGroup(
+                "deepseek", "deepseek-chat", 5, 1, 100, 40, 42.5));
+        verify(jdbc).queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                eq(Timestamp.from(from)), eq(Timestamp.from(NOW)));
+    }
+
+    @Test
+    void defaultsToTheLastTwentyFourHours() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
+                .thenReturn(new UsageQueryService.UsageTotals(0, 0, 0, 0, 0));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any()))
+                .thenReturn(List.of());
+
+        UsageQueryService.UsageSummary summary = service().summarize(null, null);
+
+        assertThat(summary.from()).isEqualTo(NOW.minus(UsageQueryService.DEFAULT_RANGE));
+        assertThat(summary.to()).isEqualTo(NOW);
+    }
+
+    @Test
+    void rejectsInvalidAndOverlongRangesBeforeQuerying() {
+        assertThatThrownBy(() -> service().summarize(NOW, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("from must be before to");
+        assertThatThrownBy(() -> service().summarize(NOW.minus(UsageQueryService.MAX_RANGE).minusSeconds(1), NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("usage time range must not exceed 31 days");
+    }
+
+    private UsageQueryService service() {
+        return new UsageQueryService(jdbc, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private static ResultSet totalsResult() throws java.sql.SQLException {
+        ResultSet resultSet = mock(ResultSet.class);
+        when(resultSet.getLong("calls")).thenReturn(5L);
+        when(resultSet.getLong("failures")).thenReturn(1L);
+        when(resultSet.getLong("prompt_tokens")).thenReturn(100L);
+        when(resultSet.getLong("completion_tokens")).thenReturn(40L);
+        when(resultSet.getDouble("average_latency_millis")).thenReturn(42.5D);
+        return resultSet;
+    }
+
+    private static ResultSet groupResult() throws java.sql.SQLException {
+        ResultSet resultSet = mock(ResultSet.class);
+        when(resultSet.getString("provider")).thenReturn("deepseek");
+        when(resultSet.getString("model")).thenReturn("deepseek-chat");
+        when(resultSet.getLong("calls")).thenReturn(5L);
+        when(resultSet.getLong("failures")).thenReturn(1L);
+        when(resultSet.getLong("prompt_tokens")).thenReturn(100L);
+        when(resultSet.getLong("completion_tokens")).thenReturn(40L);
+        when(resultSet.getDouble("average_latency_millis")).thenReturn(42.5D);
+        return resultSet;
+    }
+}
