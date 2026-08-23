@@ -19,12 +19,19 @@ public final class SkillService {
     private final SkillRepository repository;
     private final IdempotencyService idempotency;
     private final Clock clock;
+    private final SkillPackageValidator packageValidator;
 
     @Autowired
-    public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock) {
+    public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
+            SkillPackageValidator packageValidator) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.packageValidator = Objects.requireNonNull(packageValidator, "packageValidator");
+    }
+
+    public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock) {
+        this(repository, idempotency, clock, new SkillPackageValidator());
     }
 
     @Transactional
@@ -59,6 +66,7 @@ public final class SkillService {
         String version = required(input.version(), "version");
         String digest = required(input.digest(), "digest");
         String manifest = manifest(input.manifestJson());
+        packageValidator.validate(version, digest, manifest);
         String visibility = visibility(input.visibility() == null ? skill.visibility() : input.visibility());
         Instant now = clock.instant();
         SkillVersionRecord skillVersion = new SkillVersionRecord(UUID.randomUUID(), skillId, version, digest,
@@ -75,6 +83,12 @@ public final class SkillService {
     @Transactional
     public SkillVersionRecord publish(UUID skillId, UUID versionId) {
         getSkill(skillId);
+        SkillVersionRecord version = repository.findVersionById(Objects.requireNonNull(versionId, "versionId"))
+                .orElseThrow(() -> new IllegalArgumentException("skill version " + versionId + " was not found"));
+        if (!skillId.equals(version.skillId())) {
+            throw new IllegalArgumentException("skill version does not belong to skill");
+        }
+        packageValidator.validate(version.version(), version.digest(), version.manifestJson());
         return repository.publish(skillId, versionId, clock.instant());
     }
 
@@ -100,9 +114,6 @@ public final class SkillService {
 
     private static String manifest(String value) {
         String normalized = value == null || value.isBlank() ? "{}" : value.trim();
-        if (!normalized.startsWith("{") || !normalized.endsWith("}")) {
-            throw new IllegalArgumentException("manifest must be a JSON object");
-        }
         return normalized;
     }
 

@@ -84,6 +84,11 @@ public final class SkillController {
         return ResponseEntity.status(409).body(new ApiError("CONFLICT", "idempotency key conflicts"));
     }
 
+    @ExceptionHandler(SkillPackageValidationException.class)
+    ResponseEntity<ApiError> invalidSkillPackage(SkillPackageValidationException error) {
+        return ResponseEntity.badRequest().body(new ApiError("SKILL_PACKAGE_INVALID", error.getMessage()));
+    }
+
     public record CreateSkillRequest(String name, String displayName, String description, String visibility) {
     }
 
@@ -119,9 +124,6 @@ public final class SkillController {
     private static String json(JsonNode value) {
         if (value == null || value.isNull()) {
             return "{}";
-        }
-        if (!value.isObject()) {
-            throw new IllegalArgumentException("manifest must be a JSON object");
         }
         return value.toString();
     }

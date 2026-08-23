@@ -31,7 +31,8 @@ class SkillServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SkillService(repository, new IdempotencyService(), Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new SkillService(repository, new IdempotencyService(), Clock.fixed(NOW, ZoneOffset.UTC),
+                new SkillPackageValidator());
     }
 
     @Test
@@ -59,12 +60,14 @@ class SkillServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         SkillVersionRecord version = service.createVersion(skillId, "version-key",
-                new SkillService.VersionInput("1.0.0", "sha256:abc", "{\"name\":\"code-review\"}", null));
+                new SkillService.VersionInput("1.0.0", validDigest(),
+                        "{\"name\":\"code-review\",\"description\":\"Reviews code\","
+                                + "\"entry\":\"SKILL.md\",\"sizeBytes\":128}", null));
 
         assertThat(version.skillId()).isEqualTo(skillId);
         assertThat(version.visibility()).isEqualTo("PRIVATE");
         assertThat(version.lifecycle()).isEqualTo("DRAFT");
-        assertThat(version.manifestJson()).isEqualTo("{\"name\":\"code-review\"}");
+        assertThat(version.manifestJson()).contains("\"entry\":\"SKILL.md\"");
     }
 
     @Test
@@ -74,7 +77,7 @@ class SkillServiceTest {
                 "Skill", "", "PRIVATE", "DRAFT", NOW, NOW, 0)));
 
         assertThatThrownBy(() -> service.createVersion(skillId, "version-key",
-                new SkillService.VersionInput("1.0.0", "sha256:abc", "[]", null)))
+                new SkillService.VersionInput("1.0.0", validDigest(), "[]", null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("manifest must be a JSON object");
 
@@ -86,9 +89,11 @@ class SkillServiceTest {
         UUID skillId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
         SkillRecord skill = new SkillRecord(skillId, "skill", "Skill", "", "PRIVATE", "DRAFT", NOW, NOW, 0);
-        SkillVersionRecord version = new SkillVersionRecord(versionId, skillId, "1.0.0", "sha256:abc", "{}",
+        SkillVersionRecord version = new SkillVersionRecord(versionId, skillId, "1.0.0", validDigest(),
+                "{\"name\":\"skill\",\"description\":\"desc\",\"entry\":\"SKILL.md\",\"sizeBytes\":1}",
                 "PRIVATE", "PUBLISHED", NOW, NOW, 1);
         when(repository.findById(skillId)).thenReturn(java.util.Optional.of(skill));
+        when(repository.findVersionById(versionId)).thenReturn(java.util.Optional.of(version));
         when(repository.publish(eq(skillId), eq(versionId), eq(NOW))).thenReturn(version);
         when(repository.disable(eq(skillId), eq(versionId), eq(NOW))).thenReturn(version);
 
@@ -96,5 +101,23 @@ class SkillServiceTest {
         assertThat(service.disable(skillId, versionId)).isSameAs(version);
         verify(repository).publish(skillId, versionId, NOW);
         verify(repository).disable(skillId, versionId, NOW);
+    }
+
+    @Test
+    void rejectsInvalidPackageBeforeVersionPersistence() {
+        UUID skillId = UUID.randomUUID();
+        when(repository.findById(skillId)).thenReturn(java.util.Optional.of(new SkillRecord(skillId, "skill",
+                "Skill", "", "PRIVATE", "DRAFT", NOW, NOW, 0)));
+
+        assertThatThrownBy(() -> service.createVersion(skillId, "version-key",
+                new SkillService.VersionInput("1.0.0", "sha256:abc", "{\"name\":\"skill\"}", null)))
+                .isInstanceOf(SkillPackageValidationException.class)
+                .hasMessage("digest must use sha256:<64 hexadecimal characters> format");
+
+        verify(repository, never()).createVersion(any(), any(), any());
+    }
+
+    private static String validDigest() {
+        return "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     }
 }
