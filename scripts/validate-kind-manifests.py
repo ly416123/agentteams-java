@@ -178,7 +178,7 @@ def main():
     config_rollback_text = config_rollback_script.read_text(encoding="utf-8")
     for required in ("AGENTTEAMS_CONTROL_PLANE_URL", "AGENTTEAMS_AGENT_ID",
                      "/api/v1/config/snapshots", "/rollback", "APPLIED",
-                     "KIND_CONFIG_ROLLBACK_OK"):
+                     "KIND_CONFIG_ROLLBACK_OK", '"model": "agentteams-kind-mock"'):
         if required not in config_rollback_text:
             fail(f"Kind config rollback acceptance missing {required}")
     if "run-kind-config-rollback.py" not in oidc_workflow:

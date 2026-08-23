@@ -87,14 +87,19 @@ def main() -> int:
     last_status: dict | None = None
     context = {"base_url": base_url, "agent_id": agent_id, "subject": subject}
     try:
+        # QwenPaw's native /api/models/active configuration requires a model
+        # for every manifest applied by the real Worker. Keep both revisions
+        # deterministic and independent of any pre-existing local selection.
         old_manifest = {
             "kind": "KindConfigRollbackSmoke",
             "revision": "stable",
+            "model": "agentteams-kind-mock",
             "marker": str(uuid.uuid4()),
         }
         new_manifest = {
             "kind": "KindConfigRollbackSmoke",
             "revision": "candidate",
+            "model": "agentteams-kind-mock",
             "marker": str(uuid.uuid4()),
         }
         old_snapshot = api_request(
