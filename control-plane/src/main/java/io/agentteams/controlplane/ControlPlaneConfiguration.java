@@ -22,6 +22,7 @@ import io.agentteams.controlplane.config.ConfigSnapshotService;
 import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigUploadCleanupJob;
 import io.agentteams.controlplane.config.ConfigUploadService;
+import io.agentteams.controlplane.agentspec.AgentSpecDeploymentService;
 import io.agentteams.controlplane.config.ConfigSnapshotCleanupJob;
 import io.agentteams.controlplane.config.ConfigSnapshotCleanupService;
 import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
@@ -315,6 +316,7 @@ public class ControlPlaneConfiguration {
                 "control-plane-execution-events", new AsyncConsumerTracing(
                         tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
     }
+
 
     @Bean
     @ConditionalOnProperty(name = {"agentteams.nats.enabled", "agentteams.outbox.relay.enabled"},

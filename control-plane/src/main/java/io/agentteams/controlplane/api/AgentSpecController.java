@@ -2,7 +2,9 @@ package io.agentteams.controlplane.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.agentspec.AgentSpecRecord;
+import io.agentteams.controlplane.agentspec.AgentSpecDeploymentService;
 import io.agentteams.controlplane.agentspec.AgentSpecService;
+import io.agentteams.controlplane.security.PrincipalContext;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -39,10 +41,24 @@ public final class AgentSpecController {
         return AgentSpecResponse.from(service.get(id));
     }
 
+    @PostMapping("/{id}/deployments/{agentId}")
+    public DeploymentResponse deploy(@PathVariable UUID id, @PathVariable UUID agentId,
+            @RequestHeader(value = "X-Actor", required = false) String actor) {
+        AgentSpecDeploymentService.AgentSpecDeployment deployment = deployments.deploy(id, agentId,
+                PrincipalContext.actorOr(actor));
+        return DeploymentResponse.from(deployment);
+    }
+
     private final AgentSpecService service;
+    private final AgentSpecDeploymentService deployments;
 
     public AgentSpecController(AgentSpecService service) {
+        this(service, null);
+    }
+
+    public AgentSpecController(AgentSpecService service, AgentSpecDeploymentService deployments) {
         this.service = service;
+        this.deployments = deployments;
     }
 
     public record CreateAgentSpecRequest(String name, String runtime, String modelProvider,
@@ -60,6 +76,15 @@ public final class AgentSpecController {
             return new AgentSpecResponse(record.id(), record.name(), record.runtime(), record.modelProvider(),
                     record.modelName(), record.teamRef(), record.desiredState(), record.lifecycleStatus(),
                     record.specJson(), record.createdAt(), record.updatedAt(), record.version());
+        }
+    }
+
+    public record DeploymentResponse(UUID bindingId, UUID agentId, UUID snapshotId, long configVersion,
+            UUID eventId, String phase) {
+        static DeploymentResponse from(AgentSpecDeploymentService.AgentSpecDeployment deployment) {
+            var config = deployment.deployment();
+            return new DeploymentResponse(config.binding().id(), config.binding().agentId(),
+                    config.snapshot().id(), config.snapshot().version(), config.eventId(), "PENDING");
         }
     }
 
