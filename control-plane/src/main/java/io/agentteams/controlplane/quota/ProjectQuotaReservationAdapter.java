@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Control-plane backend for the Gateway quota gRPC application port. */
 @Component
-public final class ProjectQuotaReservationAdapter implements QuotaReservationPort {
+public class ProjectQuotaReservationAdapter implements QuotaReservationPort {
     private final ProjectQuotaService quotas;
     private final Clock clock;
     private final JdbcQuotaReservationRepository durable;

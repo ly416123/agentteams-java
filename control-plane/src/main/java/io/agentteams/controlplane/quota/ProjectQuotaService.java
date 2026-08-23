@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.util.Objects;
 import java.util.Optional;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
  * policy is deliberately compatible with the existing unlimited behavior.
  */
 @Service
-public final class ProjectQuotaService {
+public class ProjectQuotaService {
     private static final String SELECT_SQL = """
             SELECT tenant_id, project_id, max_concurrent_calls, max_daily_calls, max_daily_tokens,
                    current_concurrent_calls, daily_calls, daily_tokens, usage_day
@@ -29,6 +30,7 @@ public final class ProjectQuotaService {
     private final Clock clock;
     private final ControlPlaneMetrics metrics;
 
+    @Autowired
     public ProjectQuotaService(DataSource dataSource, ControlPlaneMetrics metrics) {
         this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")), Clock.systemUTC(), metrics);
     }

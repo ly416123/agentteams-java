@@ -13,15 +13,17 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Database-backed project authorization; OIDC supplies identity and tenant context only. */
 @Service
-public final class ProjectAuthorizationService {
+public class ProjectAuthorizationService {
     private final ProjectRepository repository;
     private final Clock clock;
 
+    @Autowired
     public ProjectAuthorizationService(ProjectRepository repository) {
         this(repository, Clock.systemUTC());
     }

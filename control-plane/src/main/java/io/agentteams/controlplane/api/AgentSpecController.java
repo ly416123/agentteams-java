@@ -70,6 +70,7 @@ public final class AgentSpecController {
         this(service, null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public AgentSpecController(AgentSpecService service, AgentSpecDeploymentService deployments) {
         this.service = service;
         this.deployments = deployments;

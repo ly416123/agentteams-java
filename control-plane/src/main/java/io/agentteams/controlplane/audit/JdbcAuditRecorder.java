@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ public class JdbcAuditRecorder implements AuditRecorder {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public JdbcAuditRecorder(DataSource dataSource, ObjectMapper objectMapper) {
         this(new JdbcTemplate(dataSource), objectMapper);
     }

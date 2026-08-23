@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository;
 
 /** Persists ownership for resources whose domain tables are intentionally scope-neutral. */
 @Repository
-public final class ResourceScopeRepository {
+public class ResourceScopeRepository {
     private final JdbcTemplate jdbc;
 
     public ResourceScopeRepository(JdbcTemplate jdbc) {

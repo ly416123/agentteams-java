@@ -6,14 +6,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /** Durable claim and idempotency store for gateway quota reservations. */
 @Repository
-public final class JdbcQuotaReservationRepository {
+public class JdbcQuotaReservationRepository {
     private final JdbcTemplate jdbc;
 
+    @Autowired
     public JdbcQuotaReservationRepository(DataSource dataSource) {
         this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")));
     }

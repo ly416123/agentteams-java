@@ -6,7 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class JdbcAgentSpecModelCatalog implements AgentSpecModelCatalog {
+public class JdbcAgentSpecModelCatalog implements AgentSpecModelCatalog {
 
     private final JdbcTemplate jdbc;
 

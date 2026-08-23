@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public final class SkillService {
+public class SkillService {
 
     private static final String PRIVATE = "PRIVATE";
     private static final String DRAFT = "DRAFT";

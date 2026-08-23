@@ -4,12 +4,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /** Durable JDBC store for dashboard alert rules. */
 @Repository
-public final class JdbcDashboardAlertRuleRepository implements DashboardAlertRuleRepository {
+public class JdbcDashboardAlertRuleRepository implements DashboardAlertRuleRepository {
     private static final String SELECT_RULES = """
             SELECT rule, severity, threshold, enabled
               FROM dashboard_alert_rules
@@ -18,6 +19,7 @@ public final class JdbcDashboardAlertRuleRepository implements DashboardAlertRul
 
     private final JdbcTemplate jdbc;
 
+    @Autowired
     public JdbcDashboardAlertRuleRepository(DataSource dataSource) {
         this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")));
     }

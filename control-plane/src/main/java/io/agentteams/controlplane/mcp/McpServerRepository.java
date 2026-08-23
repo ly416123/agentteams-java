@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class McpServerRepository {
+public class McpServerRepository {
 
     private final JdbcTemplate jdbc;
 

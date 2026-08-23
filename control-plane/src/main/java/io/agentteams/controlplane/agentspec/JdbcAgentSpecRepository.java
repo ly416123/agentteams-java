@@ -11,7 +11,7 @@ import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class JdbcAgentSpecRepository implements AgentSpecRepository {
+public class JdbcAgentSpecRepository implements AgentSpecRepository {
 
     private final JdbcTemplate jdbc;
 

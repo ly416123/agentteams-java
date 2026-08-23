@@ -26,7 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public final class McpServerService {
+public class McpServerService {
 
     private static final String CREATE_OPERATION = "CREATE_MCP_SERVER";
 

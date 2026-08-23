@@ -8,6 +8,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ public final class ConfiguredExternalSkillSandboxScanner implements ExternalSkil
     private final Duration timeout;
     private final ExecutorService executor;
 
+    @Autowired
     public ConfiguredExternalSkillSandboxScanner(SkillSandboxScannerClient client) {
         this(client, DEFAULT_TIMEOUT, daemonExecutor());
     }

@@ -255,6 +255,10 @@
                                 <include>**/*ITCase.java</include>
                                 <include>**/TaskPushE2ETest.java</include>
                             </includes>
+                            <systemPropertyVariables>
+                                <!-- Docker Engine 29 rejects clients below API 1.44. -->
+                                <api.version>1.44</api.version>
+                            </systemPropertyVariables>
                         </configuration>
                     </plugin>
                 </plugins>

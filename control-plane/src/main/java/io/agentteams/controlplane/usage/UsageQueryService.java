@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import javax.sql.DataSource;
 import io.agentteams.controlplane.security.PrincipalContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -47,6 +48,7 @@ public final class UsageQueryService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
+    @Autowired
     public UsageQueryService(DataSource dataSource) {
         this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")), Clock.systemUTC());
     }

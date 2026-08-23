@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class SkillRepository {
+public class SkillRepository {
 
     private static final String CREATE_SKILL = "CREATE_SKILL";
     private static final String CREATE_VERSION = "CREATE_SKILL_VERSION";
