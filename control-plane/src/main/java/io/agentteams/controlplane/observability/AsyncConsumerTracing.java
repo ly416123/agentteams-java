@@ -4,13 +4,10 @@ import io.agentteams.application.api.TraceContext;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
-import java.util.Map;
 import java.util.Objects;
 
 /** Restores W3C context and creates a bounded span around asynchronous message handling. */
 public final class AsyncConsumerTracing {
-    private static final Propagator.Getter<Map<String, String>> GETTER = Map::get;
-
     private final Tracer tracer;
     private final Propagator propagator;
 
@@ -28,8 +25,14 @@ public final class AsyncConsumerTracing {
         TraceContext safe = context == null ? TraceContext.empty() : context;
         Span span;
         try {
-            Map<String, String> carrier = Map.of("traceparent", safe.traceparent(), "tracestate", safe.tracestate());
-            span = propagator.extract(carrier, GETTER).name(name).start();
+            Span.Builder builder = W3cSpanContext.child(tracer, safe.traceparent(), name);
+            if (builder != null) {
+                span = builder.start();
+            } else {
+                span = propagator.extract(
+                        java.util.Map.of("traceparent", safe.traceparent(), "tracestate", safe.tracestate()),
+                        java.util.Map::get).name(name).start();
+            }
         } catch (RuntimeException ignored) {
             // A malformed or unsupported carrier must never block an at-least-once consumer.
             span = tracer.nextSpan().name(name).start();

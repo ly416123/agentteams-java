@@ -30,8 +30,14 @@ public final class AsyncProducerTracing {
         TraceContext safe = context == null ? TraceContext.empty() : context;
         Span span;
         try {
-            Map<String, String> carrier = Map.of("traceparent", safe.traceparent(), "tracestate", safe.tracestate());
-            span = propagator.extract(carrier, GETTER).name(name).start();
+            Span.Builder builder = W3cSpanContext.child(tracer, safe.traceparent(), name);
+            if (builder != null) {
+                span = builder.start();
+            } else {
+                span = propagator.extract(
+                        Map.of("traceparent", safe.traceparent(), "tracestate", safe.tracestate()), GETTER)
+                        .name(name).start();
+            }
         } catch (RuntimeException ignored) {
             // A malformed persisted context must not prevent the outbox from publishing.
             span = tracer.nextSpan().name(name).start();
@@ -70,6 +76,10 @@ public final class AsyncProducerTracing {
                 propagator.inject(span.context(), carrier, SETTER);
             } catch (RuntimeException ignored) {
                 // Keep the persisted context if injection is unavailable or malformed.
+            }
+            String traceparent = W3cSpanContext.traceparent(span.context());
+            if (!traceparent.isBlank()) {
+                carrier.put("traceparent", traceparent);
             }
             return carrier;
         }
