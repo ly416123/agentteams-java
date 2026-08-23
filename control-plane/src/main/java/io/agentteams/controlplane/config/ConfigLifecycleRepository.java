@@ -131,7 +131,7 @@ public final class ConfigLifecycleRepository {
                        s.manifest::text, s.checksum, s.actor, s.created_at,
                        a.id AS apply_id, a.agent_id AS apply_agent_id, a.snapshot_id AS apply_snapshot_id,
                        a.phase, a.error_message, a.applied_at, a.updated_at,
-                       a.observed_version, a.failure_code
+                       a.observed_version, a.failure_code, a.rollback
                   FROM config_bindings b
                   JOIN config_snapshots s ON s.id = b.snapshot_id
                   LEFT JOIN config_apply_records a
@@ -150,7 +150,7 @@ public final class ConfigLifecycleRepository {
                     rs.getObject("apply_agent_id", UUID.class), rs.getObject("apply_snapshot_id", UUID.class),
                     rs.getString("phase"), rs.getString("error_message"), timestampOrNull(rs, "applied_at"),
                     instant(rs, "updated_at"), (Long) rs.getObject("observed_version"),
-                    rs.getString("failure_code"));
+                    rs.getString("failure_code"), rs.getBoolean("rollback"));
             return new ConfigBindingStatus(binding, snapshot, apply);
         }, bindingId).stream().findFirst();
     }
@@ -174,40 +174,50 @@ public final class ConfigLifecycleRepository {
         jdbc.update("""
                 INSERT INTO config_apply_records
                     (id, binding_id, agent_id, snapshot_id, phase, error_message, applied_at, updated_at,
-                     observed_version, failure_code)
-                VALUES (?, ?, ?, ?, 'PENDING', NULL, NULL, ?, NULL, NULL)
+                     observed_version, failure_code, rollback)
+                VALUES (?, ?, ?, ?, 'PENDING', NULL, NULL, ?, NULL, NULL, false)
                 ON CONFLICT (binding_id, snapshot_id) DO UPDATE SET id = EXCLUDED.id,
                     agent_id = EXCLUDED.agent_id, phase = 'PENDING', error_message = NULL,
                     applied_at = NULL, updated_at = EXCLUDED.updated_at,
-                    observed_version = NULL, failure_code = NULL
+                    observed_version = NULL, failure_code = NULL, rollback = false
                 """, eventId, bindingId, agentId, snapshotId, java.sql.Timestamp.from(updatedAt));
+    }
+
+    public void markRollbackRequested(UUID bindingId, UUID snapshotId) {
+        jdbc.update("""
+                UPDATE config_apply_records
+                   SET rollback = true
+                 WHERE binding_id = ? AND snapshot_id = ?
+                """, bindingId, snapshotId);
     }
 
     public Optional<ConfigApplyRecord> findApply(UUID bindingId, UUID snapshotId) {
         return jdbc.query("""
                 SELECT id, binding_id, agent_id, snapshot_id, phase, error_message, applied_at, updated_at,
-                       observed_version, failure_code
+                       observed_version, failure_code, rollback
                   FROM config_apply_records WHERE binding_id = ? AND snapshot_id = ?
                 """, (rs, row) -> new ConfigApplyRecord(rs.getObject("id", UUID.class),
                 rs.getObject("binding_id", UUID.class), rs.getObject("agent_id", UUID.class),
                 rs.getObject("snapshot_id", UUID.class), rs.getString("phase"), rs.getString("error_message"),
                 timestampOrNull(rs, "applied_at"), instant(rs, "updated_at"),
-                (Long) rs.getObject("observed_version"), rs.getString("failure_code")), bindingId, snapshotId)
+                (Long) rs.getObject("observed_version"), rs.getString("failure_code"), rs.getBoolean("rollback")),
+                bindingId, snapshotId)
                 .stream().findFirst();
     }
 
     public void recordApply(ConfigApplyRecord apply) {
         jdbc.update("""
                 INSERT INTO config_apply_records(id, binding_id, agent_id, snapshot_id, phase,
-                    error_message, applied_at, updated_at, observed_version, failure_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error_message, applied_at, updated_at, observed_version, failure_code, rollback)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (binding_id, snapshot_id) DO UPDATE SET phase = EXCLUDED.phase,
                     error_message = EXCLUDED.error_message, applied_at = EXCLUDED.applied_at,
                     updated_at = EXCLUDED.updated_at, observed_version = EXCLUDED.observed_version,
-                    failure_code = EXCLUDED.failure_code
+                    failure_code = EXCLUDED.failure_code, rollback = EXCLUDED.rollback
                 """, apply.id(), apply.bindingId(), apply.agentId(), apply.snapshotId(), apply.phase(),
                 apply.errorMessage(), apply.appliedAt() == null ? null : java.sql.Timestamp.from(apply.appliedAt()),
-                java.sql.Timestamp.from(apply.updatedAt()), apply.observedVersion(), apply.failureCode());
+                java.sql.Timestamp.from(apply.updatedAt()), apply.observedVersion(), apply.failureCode(),
+                apply.rollback());
     }
 
     public boolean insertUpload(ConfigUploadRecord upload) {

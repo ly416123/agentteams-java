@@ -6,6 +6,7 @@ import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.ModelCatalogDependencyException;
 import io.agentteams.controlplane.service.UnavailableDependencyException;
 import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.quota.QuotaExceededException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import org.springframework.dao.DataAccessException;
@@ -28,6 +29,11 @@ public final class ApiErrorHandler {
             MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class})
     ResponseEntity<ApiError> validation(Exception ignored) {
         return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "request validation failed");
+    }
+
+    @ExceptionHandler(QuotaExceededException.class)
+    ResponseEntity<ApiError> quotaExceeded(QuotaExceededException ignored) {
+        return error(HttpStatus.TOO_MANY_REQUESTS, "QUOTA_EXCEEDED", "project quota exceeded");
     }
 
     @ExceptionHandler(ResourceNotFoundException.class)

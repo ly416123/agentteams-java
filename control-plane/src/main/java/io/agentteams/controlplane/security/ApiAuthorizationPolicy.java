@@ -44,6 +44,9 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/mcp-servers")) {
             return Optional.of("GET".equals(method) ? Permission.MCP_READ : Permission.MCP_WRITE);
         }
+        if (path.startsWith("/api/v1/usage/quota")) {
+            return Optional.of("GET".equals(method) ? Permission.USAGE_READ : Permission.QUOTA_WRITE);
+        }
         if (path.startsWith("/api/v1/usage")) {
             return Optional.of(Permission.USAGE_READ);
         }

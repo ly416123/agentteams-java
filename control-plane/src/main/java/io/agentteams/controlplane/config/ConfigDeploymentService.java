@@ -104,11 +104,15 @@ public final class ConfigDeploymentService {
             Instant appliedAt = command.applied() ? command.occurredAt() : null;
             ConfigApplyRecord record = new ConfigApplyRecord(command.eventId(), binding.id(), command.agentId(),
                     command.snapshotId(), phase, command.errorMessage(), appliedAt, now, command.configVersion(),
-                    ConfigFailureClassifier.classify(command.errorMessage()));
+                    ConfigFailureClassifier.classify(command.errorMessage()), existing != null && existing.rollback());
             tx.configLifecycle().recordApply(record);
             if (metrics != null) {
                 if (command.applied()) metrics.configApplyAcknowledged();
                 else metrics.configApplyFailed();
+                if (record.rollback()) {
+                    if (command.applied()) metrics.configRollbackCompleted();
+                    else metrics.configRollbackFailed();
+                }
             }
             return null;
         });
@@ -162,6 +166,7 @@ public final class ConfigDeploymentService {
             }
             tx.configLifecycle().upsertBinding(target);
             tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), stable.id(), eventId, clock.instant());
+            tx.configLifecycle().markRollbackRequested(binding.id(), stable.id());
             if (metrics != null) metrics.configRollbackRequested();
             String payload = payload(eventId, target, stable, tx.configLifecycle().findFiles(stable.id()));
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,

@@ -117,10 +117,10 @@ public final class ConfigController {
     }
 
     public record ApplyResponse(String phase, String error, Instant appliedAt, Long observedRevision,
-            String failureCode) {
+            String failureCode, boolean rollback) {
         static ApplyResponse from(ConfigApplyRecord apply) {
             return apply == null ? null : new ApplyResponse(apply.phase(), apply.errorMessage(), apply.appliedAt(),
-                    apply.observedVersion(), apply.failureCode());
+                    apply.observedVersion(), apply.failureCode(), apply.rollback());
         }
     }
 }

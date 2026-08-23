@@ -150,6 +150,9 @@ class ModelCatalogServiceTest {
         assertThat(result.networkCallAttempted()).isFalse();
         assertThat(result.checks()).extracting(ModelProviderConnectionProbe.ProbeResult.Check::name)
                 .containsExactly("URI", "CREDENTIAL_REFERENCE", "TIMEOUT");
+        assertThat(result.checks()).filteredOn(check -> check.name().equals("CREDENTIAL_REFERENCE"))
+                .extracting(ModelProviderConnectionProbe.ProbeResult.Check::status)
+                .containsExactly("VALIDATION_ONLY");
     }
 
     @Test

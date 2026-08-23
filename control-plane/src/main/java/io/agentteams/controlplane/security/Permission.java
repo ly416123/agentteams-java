@@ -26,6 +26,7 @@ public enum Permission {
     MCP_READ("mcp:read"),
     MCP_WRITE("mcp:write"),
     USAGE_READ("usage:read"),
+    QUOTA_WRITE("quota:write"),
     AUDIT_READ("audit:read");
 
     private final String value;

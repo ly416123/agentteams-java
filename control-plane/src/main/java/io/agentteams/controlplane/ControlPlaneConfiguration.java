@@ -47,6 +47,10 @@ import io.agentteams.controlplane.security.ApiAuthenticationFilter;
 import io.agentteams.controlplane.security.IdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcSecurityProperties;
+import io.agentteams.controlplane.security.SecretResolver;
+import io.agentteams.controlplane.security.ValidationOnlySecretResolver;
+import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
+import io.agentteams.controlplane.service.ValidationOnlyModelProviderConnectionProbe;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -97,6 +101,18 @@ public class ControlPlaneConfiguration {
     @Bean
     ControlPlaneMetrics controlPlaneMetrics(ObjectProvider<MeterRegistry> registries) {
         return new ControlPlaneMetrics(registries.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(SecretResolver.class)
+    SecretResolver secretResolver() {
+        return new ValidationOnlySecretResolver();
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(ModelProviderConnectionProbe.class)
+    ModelProviderConnectionProbe modelProviderConnectionProbe(SecretResolver secretResolver) {
+        return new ValidationOnlyModelProviderConnectionProbe(secretResolver);
     }
 
     @Bean
@@ -182,8 +198,10 @@ public class ControlPlaneConfiguration {
 
     @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(FoundationPersistenceService.class)
-    TeamService teamService(FoundationPersistenceService persistence) {
-        return new TeamService(persistence);
+    TeamService teamService(FoundationPersistenceService persistence,
+            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes) {
+        return new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
+                resourceScopes);
     }
 
     @Bean

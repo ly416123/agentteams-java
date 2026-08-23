@@ -29,6 +29,10 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     private final Counter configApplyAcknowledged;
     private final Counter configApplyFailed;
     private final Counter configRollbackRequested;
+    private final Counter quotaAccepted;
+    private final Counter quotaRejected;
+    private final Counter configRollbackCompleted;
+    private final Counter configRollbackFailed;
     private final Timer managerLatency;
     private final Timer outboxPublishLatency;
     private final AtomicLong outboxBacklog = new AtomicLong();
@@ -56,6 +60,10 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
         configApplyAcknowledged = registry.counter("agentteams.config.apply.acknowledged");
         configApplyFailed = registry.counter("agentteams.config.apply.failed");
         configRollbackRequested = registry.counter("agentteams.config.rollback.requested");
+        quotaAccepted = registry.counter("agentteams.quota.accepted");
+        quotaRejected = registry.counter("agentteams.quota.rejected");
+        configRollbackCompleted = registry.counter("agentteams.config.rollback.completed");
+        configRollbackFailed = registry.counter("agentteams.config.rollback.failed");
         managerLatency = registry.timer("agentteams.manager.call.latency");
         outboxPublishLatency = registry.timer("agentteams.outbox.publish.latency");
         registry.gauge("agentteams.outbox.backlog", outboxBacklog);
@@ -90,5 +98,9 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     public void configApplyAcknowledged() { configApplyAcknowledged.increment(); }
     public void configApplyFailed() { configApplyFailed.increment(); }
     public void configRollbackRequested() { configRollbackRequested.increment(); }
+    public void quotaAccepted() { quotaAccepted.increment(); }
+    public void quotaRejected() { quotaRejected.increment(); }
+    public void configRollbackCompleted() { configRollbackCompleted.increment(); }
+    public void configRollbackFailed() { configRollbackFailed.increment(); }
     public void managerCall(Duration duration) { managerLatency.record(Objects.requireNonNull(duration, "duration")); }
 }

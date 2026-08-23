@@ -89,4 +89,20 @@ spec:
           annotations:
             summary: AgentTeams configuration apply failed
             description: A Worker rejected or failed to apply configuration in the last ten minutes.
+        - alert: AgentTeamsConfigRollbackFailures
+          expr: increase(agentteams_config_rollback_failed_total[10m]) > 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: AgentTeams configuration rollback failed
+            description: A Worker rejected or failed to apply a requested configuration rollback in the last ten minutes.
+        - alert: AgentTeamsProjectQuotaRejections
+          expr: increase(agentteams_quota_rejected_total[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AgentTeams project quota is rejecting calls
+            description: One or more project quota limits rejected work in the last ten minutes.
 {{- end }}

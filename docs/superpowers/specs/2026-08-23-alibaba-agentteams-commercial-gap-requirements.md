@@ -391,7 +391,7 @@ agentteams.audit.events
 - 完善 Worker/Team 管理 API、成员、Leader、文件和配置引用。
 - 增加 Worker 重启、Gateway 断线、NATS 重放、重复事件和旧 revision 拒绝测试。
 - 将当前 Control Plane 的绑定状态/重试 API 接到 Worker 实际回滚执行，并补充 Prometheus 指标和告警。
-- 已增加稳定 revision 选择和回滚事件，并持久化 Worker ACK 的 observed revision、失败分类；下一步接入 Worker 实际回滚执行确认。
+- 已增加稳定 revision 选择和回滚事件，持久化 Worker ACK 的 observed revision、失败分类和 `rollback` 标记，并增加回滚完成/失败指标；下一步接入 Kind 中真实 Worker 的回滚验收。
 
 **出口条件**：一个新 Worker 可通过 AgentSpec 完成注册、模型配置同步、任务执行、升级和回滚。
 
@@ -401,7 +401,7 @@ agentteams.audit.events
 - OWNER/ADMIN/OPERATOR/DEVELOPER/VIEWER 角色和资源级鉴权。
 - 变更前后 revision 审计、Secret 操作审计和查询 API。
 - 租户隔离集成测试，覆盖越权读取、越权发布和跨项目事件。
-- AgentSpec 已按认证主体写入并校验 tenant/project 归属；Model Provider/Model、MCP Server、Skill 已通过统一 `resource_scopes` 表实现项目可见性，仍需将同一策略推广到 Worker、Team、Task、Usage 和 Audit 资源端点。
+- AgentSpec 已按认证主体写入并校验 tenant/project 归属；Model Provider/Model、MCP Server、Skill、Worker、Team 已通过统一 `resource_scopes` 表实现项目可见性，仍需将同一策略推广到 Task、Usage 和 Audit 资源端点。
 
 ### 阶段 P3：Skill Registry（注册基线已落地，继续完善）
 
@@ -423,7 +423,7 @@ agentteams.audit.events
 - PostgreSQL 小规模聚合表、查询 API、Grafana Dashboard。
 - Worker/Task/Team/Model/Tool 维度、时间范围和 Token/估算成本。
 - Prometheus 告警与审计事件关联。
-- 已补齐 MCP/Skill 基础治理指标，并增加配置 apply failure 告警；仍需增加 Worker/Task/Team/Tool 聚合、估算成本/配额和完整可直接导入的告警规则。
+- 已补齐 MCP/Skill 基础治理指标、配置 apply/rollback 告警和项目级并发/日调用/Token 配额基础；仍需增加 Worker/Task/Team/Tool 聚合、估算成本和配额与真实模型调用链的强制接入。
 
 ### 阶段 P6：模板、渠道和商业扩展
 
@@ -488,18 +488,19 @@ agentteams.audit.events
 - 配置 ACK 持久化 `observed_version` 和 `failure_code`，绑定状态 API 直接返回观测 revision 与失败分类；新增 V27 迁移。
 - AgentSpec 增加 tenant/project 归属，认证请求按项目过滤资源，部署 manifest 统一输出 `scope`；新增 V28 迁移。
 - 新增通用 `resource_scopes` 归属表（V29），Model Provider/Model、MCP Server、Skill 创建时绑定认证主体的 tenant/project/team，读取、更新和删除执行可见性校验。
-- Provider 的 `credentialRef` 仅允许 Secret 引用格式，拒绝 inline API Key/密码；配置 apply ACK、失败和 rollback 请求增加 Prometheus 计数器，并新增 `AgentTeamsConfigApplyFailures` 告警。
+- Provider 的 `credentialRef` 仅允许 Secret 引用格式，拒绝 inline API Key/密码；新增 `SecretResolver` SPI，默认 validation-only，不读取明文 Secret；配置 apply ACK、失败和 rollback 请求增加 Prometheus 计数器，并新增 apply/rollback 告警。
+- Worker/Team 创建与操作复用 `resource_scopes` 做项目隔离；新增项目配额策略、原子 acquire/release、429 错误和配额指标，配额迁移为 V31。
 - MCP 策略放行/拒绝、Skill 安全扫描和审核结果接入 Control Plane Micrometer 指标。
-- 从空库执行 29 个 Flyway migration，Control Plane 全量测试 **195/195 通过**。
+- 从空库执行 31 个 Flyway migration，Control Plane 全量测试 **209/209 通过**。
 
-本轮实现仍保持旧构造器和未认证内部调用兼容；认证请求对无归属的历史 AgentSpec 默认不可见，避免把遗留全局数据误暴露给项目用户。
+本轮实现仍保持旧构造器和未认证内部调用兼容；认证请求对无归属的历史资源默认不可见，避免把遗留全局数据误暴露给项目用户。并行测试期间出现过一次 target 目录竞争，已在所有 agent 停止写入后通过干净全量回归排除。
 
 下一项应执行 **P1-B：Worker 实际回滚执行确认与全资源归属迁移**，并行推进 MCP/Skill 真实运行时安全：
 
-1. 将当前稳定 revision 回滚事件接到 Worker 实际回滚执行确认，补充成功/超时/拒绝的 Kind 验收和 Prometheus 告警。
-2. 把项目角色校验覆盖到 Worker、Team、Task、Usage 和 Audit API；Model/MCP/Skill 的 `resource_scopes` 实现作为统一模板推广，并补充跨项目集成测试。
-3. 为 Provider 接入可插拔真实连接探针和 Secret Resolver，保留当前默认的 validation-only 安全模式。
+1. 将已持久化的 rollback 标记接入 Worker 实际回滚执行确认，补充成功/超时/拒绝的 Kind 验收和 Prometheus 告警。
+2. 把项目角色校验覆盖到 Task、Usage 和 Audit API；为 Worker/Team/Model/MCP/Skill 增加跨项目集成测试。
+3. 在现有 SecretResolver SPI 上接入 Kubernetes Secret/External Secrets 适配器和真实 Provider 连接探针，默认 validation-only 继续作为安全兜底。
 4. 为 MCP 接入真实工具发现/健康探针、限流熔断和调用审计；为 Skill 接入包存储与安全扫描器。
-5. 扩展 Dashboard 到 Worker/Task/Team/Tool、成本/配额与 Prometheus 告警规则。
+5. 将配额 lease 接入真实模型调用入口，并扩展 Dashboard 到 Worker/Task/Team/Tool、估算成本和配额消耗。
 
 这样可以优先把已具备的管理面能力变成可运行、可回滚、可审计的商业版闭环，并避免在真实 Secret/外部连接尚未具备时误发网络请求。
