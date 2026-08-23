@@ -162,6 +162,8 @@ def main() -> int:
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
     parser.add_argument("--local-port", type=int, default=18080)
     parser.add_argument("--timeout", type=float, default=180.0)
+    parser.add_argument("--completion-timeout", type=float, default=300.0,
+                        help="maximum time to wait for the recovered Worker task to finish")
     parser.add_argument("--tenant", default=os.environ.get("AGENTTEAMS_API_TENANT", "tenant-a"))
     parser.add_argument("--project", default=os.environ.get("AGENTTEAMS_API_PROJECT", "project-a"))
     parser.add_argument("--team", default=os.environ.get("AGENTTEAMS_API_TEAM", "team-a"))
@@ -255,7 +257,11 @@ def main() -> int:
             task = api_request(f"{base_url}/api/v1/tasks/{task_id}")
             return task if task.get("phase") in {"SUCCEEDED", "FAILED", "CANCELLED"} else None
 
-        final = wait_until("task completion", terminal_task, args.timeout)
+        # Reconnecting the Worker and warming the deterministic QwenPaw path can
+        # take longer than the control-plane recovery checks. Keep this wait
+        # independent so a slow first model call does not report a false
+        # recovery failure.
+        final = wait_until("task completion", terminal_task, args.completion_timeout)
         if final.get("phase") != "SUCCEEDED":
             fail(f"recovered task did not succeed: {final}")
         attempts = task_attempt_count(args.namespace, args.postgres_pod, task_id)
