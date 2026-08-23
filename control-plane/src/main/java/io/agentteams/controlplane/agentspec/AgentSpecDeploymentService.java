@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigSnapshot;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
+import io.agentteams.controlplane.security.PrincipalContext;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,17 @@ public final class AgentSpecDeploymentService {
             root.put("modelProvider", spec.modelProvider());
             root.put("modelName", spec.modelName());
             if (spec.teamRef() != null) root.put("teamRef", spec.teamRef());
+            var principal = PrincipalContext.current();
+            String tenant = spec.tenantId() != null ? spec.tenantId()
+                    : principal.map(p -> p.scope().tenant()).orElse("default");
+            String project = spec.projectId() != null ? spec.projectId()
+                    : principal.map(p -> p.scope().project()).orElse("default");
+            String team = spec.teamRef() != null ? spec.teamRef()
+                    : principal.map(p -> p.scope().team()).orElse("default");
+            ObjectNode scope = root.putObject("scope");
+            scope.put("tenant", tenant);
+            scope.put("project", project);
+            scope.put("team", team);
             root.put("desiredState", spec.desiredState());
             root.set("spec", mapper.readTree(spec.specJson()));
             return mapper.writeValueAsString(root);

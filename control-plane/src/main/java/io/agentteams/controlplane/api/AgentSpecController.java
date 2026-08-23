@@ -85,11 +85,12 @@ public final class AgentSpecController {
 
     public record AgentSpecResponse(UUID id, String name, String runtime, String modelProvider,
             String modelName, String teamRef, String desiredState, String lifecycleStatus,
-            String spec, Instant createdAt, Instant updatedAt, long version) {
+            String spec, Instant createdAt, Instant updatedAt, long version, String tenantId, String projectId) {
         static AgentSpecResponse from(AgentSpecRecord record) {
             return new AgentSpecResponse(record.id(), record.name(), record.runtime(), record.modelProvider(),
                     record.modelName(), record.teamRef(), record.desiredState(), record.lifecycleStatus(),
-                    record.specJson(), record.createdAt(), record.updatedAt(), record.version());
+                    record.specJson(), record.createdAt(), record.updatedAt(), record.version(), record.tenantId(),
+                    record.projectId());
         }
     }
 

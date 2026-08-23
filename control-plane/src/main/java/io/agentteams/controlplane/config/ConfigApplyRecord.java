@@ -5,7 +5,13 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record ConfigApplyRecord(UUID id, UUID bindingId, UUID agentId, UUID snapshotId, String phase,
-        String errorMessage, Instant appliedAt, Instant updatedAt) {
+        String errorMessage, Instant appliedAt, Instant updatedAt, Long observedVersion, String failureCode) {
+    public ConfigApplyRecord(UUID id, UUID bindingId, UUID agentId, UUID snapshotId, String phase,
+            String errorMessage, Instant appliedAt, Instant updatedAt) {
+        this(id, bindingId, agentId, snapshotId, phase, errorMessage, appliedAt, updatedAt, null,
+                ConfigFailureClassifier.classify(errorMessage));
+    }
+
     public ConfigApplyRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(bindingId, "bindingId");
@@ -13,5 +19,8 @@ public record ConfigApplyRecord(UUID id, UUID bindingId, UUID agentId, UUID snap
         Objects.requireNonNull(snapshotId, "snapshotId");
         if (phase == null || phase.isBlank()) throw new IllegalArgumentException("phase must not be blank");
         Objects.requireNonNull(updatedAt, "updatedAt");
+        if (observedVersion != null && observedVersion <= 0) {
+            throw new IllegalArgumentException("observedVersion must be positive");
+        }
     }
 }

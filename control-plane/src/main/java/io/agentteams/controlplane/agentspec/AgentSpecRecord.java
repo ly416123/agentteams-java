@@ -16,7 +16,16 @@ public record AgentSpecRecord(
         String specJson,
         Instant createdAt,
         Instant updatedAt,
-        long version) {
+        long version,
+        String tenantId,
+        String projectId) {
+
+    public AgentSpecRecord(UUID id, String name, String runtime, String modelProvider, String modelName,
+            String teamRef, String desiredState, String lifecycleStatus, String specJson,
+            Instant createdAt, Instant updatedAt, long version) {
+        this(id, name, runtime, modelProvider, modelName, teamRef, desiredState, lifecycleStatus, specJson,
+                createdAt, updatedAt, version, null, null);
+    }
 
     public AgentSpecRecord {
         Objects.requireNonNull(id, "id");

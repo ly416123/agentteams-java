@@ -51,6 +51,7 @@ class AgentSpecDeploymentServiceTest {
                 "{\"apiVersion\":\"agentteams.io/v1\",\"kind\":\"AgentSpec\",\"agentSpecId\":\""
                         + specId + "\",\"agentSpecVersion\":2,\"name\":\"analyst\",\"runtime\":\"qwenpaw\","
                         + "\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\",\"teamRef\":\"research\","
+                        + "\"scope\":{\"tenant\":\"default\",\"project\":\"default\",\"team\":\"research\"},"
                         + "\"desiredState\":\"RUNNING\",\"spec\":{\"skillRefs\":[\"search-v1\"]}}", "operator");
     }
 }

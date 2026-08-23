@@ -95,7 +95,8 @@ public final class ConfigDeploymentService {
             }
             Instant appliedAt = command.applied() ? command.occurredAt() : null;
             ConfigApplyRecord record = new ConfigApplyRecord(command.eventId(), binding.id(), command.agentId(),
-                    command.snapshotId(), phase, command.errorMessage(), appliedAt, now);
+                    command.snapshotId(), phase, command.errorMessage(), appliedAt, now, command.configVersion(),
+                    ConfigFailureClassifier.classify(command.errorMessage()));
             tx.configLifecycle().recordApply(record);
             return null;
         });

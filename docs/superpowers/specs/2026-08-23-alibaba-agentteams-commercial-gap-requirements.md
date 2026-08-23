@@ -380,7 +380,7 @@ agentteams.audit.events
 - 增加 Model 与 AgentSpec/Worker 的绑定表和绑定查询。
 - 补齐 OpenAPI、权限矩阵、契约测试和迁移回滚说明。
 
-当前状态：目录、AgentSpec 基础、配置 ACK/重试、项目 IAM 基线和 Dashboard Summary 已落地；真实 Worker 回滚、Secret Manager 和全资源授权仍需继续。
+当前状态：目录、AgentSpec 基础、配置 ACK/重试、项目 IAM 基线和 Dashboard Summary 已落地；本轮补齐了配置 observed revision/失败分类、AgentSpec tenant/project 归属以及 MCP/Skill 运行时治理指标。真实 Worker 回滚、Secret Manager 和全资源授权仍需继续。
 
 **出口条件**：创建 Provider → 创建 Model → 连接测试 → 创建 AgentSpec → 发布 revision 的链路可通过自动化测试。
 
@@ -391,7 +391,7 @@ agentteams.audit.events
 - 完善 Worker/Team 管理 API、成员、Leader、文件和配置引用。
 - 增加 Worker 重启、Gateway 断线、NATS 重放、重复事件和旧 revision 拒绝测试。
 - 将当前 Control Plane 的绑定状态/重试 API 接到 Worker 实际回滚执行，并补充 Prometheus 指标和告警。
-- 已增加稳定 revision 选择和回滚事件；下一步接入 Worker 实际回滚 ACK 与 observed revision。
+- 已增加稳定 revision 选择和回滚事件，并持久化 Worker ACK 的 observed revision、失败分类；下一步接入 Worker 实际回滚执行确认。
 
 **出口条件**：一个新 Worker 可通过 AgentSpec 完成注册、模型配置同步、任务执行、升级和回滚。
 
@@ -401,7 +401,7 @@ agentteams.audit.events
 - OWNER/ADMIN/OPERATOR/DEVELOPER/VIEWER 角色和资源级鉴权。
 - 变更前后 revision 审计、Secret 操作审计和查询 API。
 - 租户隔离集成测试，覆盖越权读取、越权发布和跨项目事件。
-- 将项目角色校验接入 Model、Worker、Team、Skill、MCP、Task 和 Usage 全部资源端点。
+- AgentSpec 已按认证主体写入并校验 tenant/project 归属；仍需将项目角色校验接入 Model、Worker、Team、Skill、MCP、Task 和 Usage 全部资源端点。
 
 ### 阶段 P3：Skill Registry（注册基线已落地，继续完善）
 
@@ -415,7 +415,7 @@ agentteams.audit.events
 - MCP Server CRUD、认证引用、传输适配和健康检查。
 - 工具发现、allowlist、出站域名策略、超时/限流/熔断。
 - MCP 工具调用审计、OTel span 和失败重试测试。
-- 接入真实连接器、工具发现缓存、探针分类、限流/熔断和策略拒绝指标。
+- 已接入 MCP 策略放行/拒绝指标；仍需接入真实连接器、工具发现缓存、探针分类、限流/熔断和调用审计。
 
 ### 阶段 P5：使用分析与告警（Summary API 已落地，继续扩展）
 
@@ -423,7 +423,7 @@ agentteams.audit.events
 - PostgreSQL 小规模聚合表、查询 API、Grafana Dashboard。
 - Worker/Task/Team/Model/Tool 维度、时间范围和 Token/估算成本。
 - Prometheus 告警与审计事件关联。
-- 增加 Worker/Task/Team/Tool 聚合、估算成本/配额和可直接导入的告警规则。
+- 已补齐 MCP/Skill 基础治理指标；仍需增加 Worker/Task/Team/Tool 聚合、估算成本/配额和可直接导入的告警规则。
 
 ### 阶段 P6：模板、渠道和商业扩展
 
@@ -481,12 +481,21 @@ agentteams.audit.events
 6. **成本先做 estimated cost。** 不把本地模型或第三方 Provider 的估算值混同于阿里云最终账单。
 7. **云厂商专属能力不阻塞核心路线。** DingTalk、实例生命周期、VPC 和计费放在 P2，除非产品明确要求阿里云托管环境兼容。
 
-## 10. 推荐的下一步
+## 10. 本轮进展与推荐的下一步
 
-下一项应执行 **P1-B：Worker 实际回滚 ACK 与资源归属模型**，并行推进 MCP/Skill 真实运行时安全：
+本轮按 A/B 两条独立轨道完成并集成：
 
-1. 将当前稳定 revision 回滚事件接到 Worker 实际回滚 ACK，增加 observed revision、失败原因和 Prometheus 告警。
-2. 把项目角色校验覆盖到 Model、AgentSpec、Worker、Team、Skill、MCP、Task、Usage 和 Audit API。
+- 配置 ACK 持久化 `observed_version` 和 `failure_code`，绑定状态 API 直接返回观测 revision 与失败分类；新增 V27 迁移。
+- AgentSpec 增加 tenant/project 归属，认证请求按项目过滤资源，部署 manifest 统一输出 `scope`；新增 V28 迁移。
+- MCP 策略放行/拒绝、Skill 安全扫描和审核结果接入 Control Plane Micrometer 指标。
+- 从空库执行 28 个 Flyway migration，Control Plane 全量测试 **194/194 通过**。
+
+本轮实现仍保持旧构造器和未认证内部调用兼容；认证请求对无归属的历史 AgentSpec 默认不可见，避免把遗留全局数据误暴露给项目用户。
+
+下一项应执行 **P1-B：Worker 实际回滚执行确认与全资源归属迁移**，并行推进 MCP/Skill 真实运行时安全：
+
+1. 将当前稳定 revision 回滚事件接到 Worker 实际回滚执行确认，补充成功/超时/拒绝的 Kind 验收和 Prometheus 告警。
+2. 把项目角色校验覆盖到 Model、Worker、Team、Skill、MCP、Task、Usage 和 Audit API；AgentSpec 的归属实现作为统一模板推广。
 3. 为 Provider 接入可插拔真实连接探针和 Secret Resolver，保留当前默认的 validation-only 安全模式。
 4. 为 MCP 接入真实工具发现/健康探针、限流熔断和调用审计；为 Skill 接入包存储与安全扫描器。
 5. 扩展 Dashboard 到 Worker/Task/Team/Tool、成本/配额与 Prometheus 告警规则。

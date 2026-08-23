@@ -9,6 +9,9 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.AuthorizationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
@@ -55,8 +58,10 @@ public final class AgentSpecService {
         validateModelReference(providerName, modelId);
 
         Instant now = clock.instant();
+        String tenantId = PrincipalContext.current().map(p -> p.scope().tenant()).orElse(null);
+        String projectId = PrincipalContext.current().map(p -> p.scope().project()).orElse(null);
         AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), name, runtime, providerName, modelId,
-                optional(input.teamRef()), desiredState, DRAFT, specJson, now, now, 1);
+                optional(input.teamRef()), desiredState, DRAFT, specJson, now, now, 1, tenantId, projectId);
         if (!repository.insertIdempotency(new AgentSpecRepository.IdempotencyRecord(key, hash, record.id(), now))) {
             var winner = repository.findIdempotency(key).orElseThrow();
             if (!winner.requestHash().equals(hash)) {
@@ -69,12 +74,16 @@ public final class AgentSpecService {
     }
 
     public List<AgentSpecRecord> list() {
-        return repository.findAll();
+        return repository.findAll().stream().filter(this::visibleToCurrentPrincipal).toList();
     }
 
     public AgentSpecRecord get(UUID id) {
-        return repository.findById(Objects.requireNonNull(id, "id"))
+        AgentSpecRecord record = repository.findById(Objects.requireNonNull(id, "id"))
                 .orElseThrow(() -> new IllegalArgumentException("agent spec does not exist: " + id));
+        if (!visibleToCurrentPrincipal(record)) {
+            throw new AuthorizationException("agent spec is outside caller project");
+        }
+        return record;
     }
 
     @Transactional
@@ -152,7 +161,8 @@ public final class AgentSpecService {
         Instant now = clock.instant();
         AgentSpecRecord next = new AgentSpecRecord(current.id(), current.name(), current.runtime(),
                 current.modelProvider(), current.modelName(), current.teamRef(), current.desiredState(), target,
-                current.specJson(), current.createdAt(), now, current.version() + 1);
+                current.specJson(), current.createdAt(), now, current.version() + 1, current.tenantId(),
+                current.projectId());
         if (!repository.insertIdempotency(new AgentSpecRepository.IdempotencyRecord(key, requestHash,
                 current.id(), now))) {
             return resolveTransitionWinner(key, requestHash);
@@ -171,6 +181,14 @@ public final class AgentSpecService {
 
     private static String transitionHash(String operation, UUID id) {
         return hashValue(operation + "\u0000" + id);
+    }
+
+    private boolean visibleToCurrentPrincipal(AgentSpecRecord record) {
+        return PrincipalContext.current().map(principal -> {
+            AuthorizationService.Scope scope = principal.scope();
+            return record.tenantId() != null && record.projectId() != null
+                    && record.tenantId().equals(scope.tenant()) && record.projectId().equals(scope.project());
+        }).orElse(true);
     }
 
     private static String hashValue(String value) {

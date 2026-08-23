@@ -2,6 +2,7 @@ package io.agentteams.controlplane.skill;
 
 import io.agentteams.controlplane.service.IdempotencyService;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
+import io.agentteams.controlplane.observability.ControlPlaneMetrics;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -22,21 +23,30 @@ public final class SkillService {
     private final Clock clock;
     private final SkillPackageValidator packageValidator;
     private final SkillSecurityScanner securityScanner;
+    private final ControlPlaneMetrics metrics;
 
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner) {
+        this(repository, idempotency, clock, packageValidator, securityScanner, null);
+    }
+
+    private SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
+            SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner,
+            ControlPlaneMetrics metrics) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.packageValidator = Objects.requireNonNull(packageValidator, "packageValidator");
         this.securityScanner = Objects.requireNonNull(securityScanner, "securityScanner");
+        this.metrics = metrics;
     }
 
     @Autowired
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
-            SkillPackageValidator packageValidator, ObjectProvider<SkillSecurityScanner> scanners) {
+            SkillPackageValidator packageValidator, ObjectProvider<SkillSecurityScanner> scanners,
+            ObjectProvider<ControlPlaneMetrics> metrics) {
         this(repository, idempotency, clock, packageValidator,
-                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new));
+                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new), metrics.getIfAvailable());
     }
 
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock) {
@@ -104,6 +114,11 @@ public final class SkillService {
         }
         packageValidator.validate(version.version(), version.digest(), version.manifestJson());
         SkillSecurityScanner.ScanResult scan = securityScanner.scan(version.manifestJson());
+        if (scan.status() == SkillSecurityScanner.ScanResult.Status.PASSED) {
+            if (metrics != null) metrics.skillScanPassed();
+        } else if (metrics != null) {
+            metrics.skillScanFailed();
+        }
         SkillVersionRecord scanned = repository.markSecurityScan(skillId, versionId, scan.status().name(), clock.instant());
         if (scan.status() != SkillSecurityScanner.ScanResult.Status.PASSED) {
             throw new SkillPackageValidationException("skill security scan failed: " + scan.classification());
@@ -121,7 +136,12 @@ public final class SkillService {
         if (!"APPROVED".equals(normalized) && !"REJECTED".equals(normalized)) {
             throw new IllegalArgumentException("review status must be APPROVED or REJECTED");
         }
-        return repository.review(skillId, versionId, normalized, clock.instant());
+        SkillVersionRecord reviewed = repository.review(skillId, versionId, normalized, clock.instant());
+        if (metrics != null) {
+            if ("APPROVED".equals(normalized)) metrics.skillReviewApproved();
+            else metrics.skillReviewRejected();
+        }
+        return reviewed;
     }
 
     @Transactional

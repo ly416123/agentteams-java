@@ -20,6 +20,12 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     private final Counter outboxPublishFailures;
     private final Counter taskLeasesExpired;
     private final Counter taskLeasesReleased;
+    private final Counter mcpPolicyAllowed;
+    private final Counter mcpPolicyDenied;
+    private final Counter skillScansPassed;
+    private final Counter skillScansFailed;
+    private final Counter skillReviewsApproved;
+    private final Counter skillReviewsRejected;
     private final Timer managerLatency;
     private final Timer outboxPublishLatency;
     private final AtomicLong outboxBacklog = new AtomicLong();
@@ -38,6 +44,12 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
         outboxPublishFailures = registry.counter("agentteams.outbox.publish.failures");
         taskLeasesExpired = registry.counter("agentteams.tasks.leases.expired");
         taskLeasesReleased = registry.counter("agentteams.tasks.leases.released");
+        mcpPolicyAllowed = registry.counter("agentteams.mcp.policy.allowed");
+        mcpPolicyDenied = registry.counter("agentteams.mcp.policy.denied");
+        skillScansPassed = registry.counter("agentteams.skills.security_scans.passed");
+        skillScansFailed = registry.counter("agentteams.skills.security_scans.failed");
+        skillReviewsApproved = registry.counter("agentteams.skills.reviews.approved");
+        skillReviewsRejected = registry.counter("agentteams.skills.reviews.rejected");
         managerLatency = registry.timer("agentteams.manager.call.latency");
         outboxPublishLatency = registry.timer("agentteams.outbox.publish.latency");
         registry.gauge("agentteams.outbox.backlog", outboxBacklog);
@@ -63,5 +75,11 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     }
     public void taskLeaseExpired() { taskLeasesExpired.increment(); }
     public void taskLeaseReleased() { taskLeasesReleased.increment(); }
+    public void mcpPolicyAllowed() { mcpPolicyAllowed.increment(); }
+    public void mcpPolicyDenied() { mcpPolicyDenied.increment(); }
+    public void skillScanPassed() { skillScansPassed.increment(); }
+    public void skillScanFailed() { skillScansFailed.increment(); }
+    public void skillReviewApproved() { skillReviewsApproved.increment(); }
+    public void skillReviewRejected() { skillReviewsRejected.increment(); }
     public void managerCall(Duration duration) { managerLatency.record(Objects.requireNonNull(duration, "duration")); }
 }
