@@ -146,6 +146,11 @@ def task_row(namespace: str, postgres_pod: str, task_id: str) -> str:
     """).strip()
 
 
+def task_attempt_count(namespace: str, postgres_pod: str, task_id: str) -> int:
+    return int(sql(namespace, postgres_pod,
+                   f"select count(*) from task_attempts where task_id = '{task_id}'"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
@@ -242,6 +247,10 @@ def main() -> int:
         run("scale", "deployment", args.worker_deployment, f"--replicas={worker_replicas}", namespace=args.namespace)
         wait_until("Worker recovery", lambda: deployment_ready(args.namespace, args.worker_deployment, worker_replicas),
                    args.timeout)
+        wait_until("Worker agent registration", lambda: qwenpaw_agent_phases(
+            args.namespace, args.postgres_pod).get(args.agent_id) == "READY", args.timeout)
+        wait_until("recovered task reassignment", lambda: task_attempt_count(
+            args.namespace, args.postgres_pod, task_id) >= 2, args.timeout)
         def terminal_task():
             task = api_request(f"{base_url}/api/v1/tasks/{task_id}")
             return task if task.get("phase") in {"SUCCEEDED", "FAILED", "CANCELLED"} else None
@@ -249,8 +258,7 @@ def main() -> int:
         final = wait_until("task completion", terminal_task, args.timeout)
         if final.get("phase") != "SUCCEEDED":
             fail(f"recovered task did not succeed: {final}")
-        attempts = int(sql(args.namespace, args.postgres_pod,
-                            f"select count(*) from task_attempts where task_id='{task_id}';"))
+        attempts = task_attempt_count(args.namespace, args.postgres_pod, task_id)
         if attempts < 2:
             fail(f"expected at least one recovered attempt, got {attempts}")
         print(f"KIND_LEASE_RECOVERY_OK task={task_id} attempts={attempts} phase={final['phase']}")
