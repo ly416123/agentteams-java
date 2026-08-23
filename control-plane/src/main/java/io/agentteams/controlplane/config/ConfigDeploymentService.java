@@ -42,6 +42,13 @@ public final class ConfigDeploymentService {
                 throw new IllegalArgumentException("agent does not exist: " + agentId);
             }
             ConfigBindingRecord existingBinding = tx.configLifecycle().findBinding(subject, agentId).orElse(null);
+            if (existingBinding != null) {
+                ConfigSnapshot current = snapshots.findById(existingBinding.snapshotId())
+                        .orElseThrow(() -> new IllegalStateException("desired config snapshot does not exist"));
+                if (current.version() > snapshot.version()) {
+                    throw new IllegalArgumentException("config deployment revision is stale");
+                }
+            }
             ConfigBindingRecord binding = existingBinding
                     == null ? new ConfigBindingRecord(UUID.randomUUID(), subject, agentId, snapshot.id(), now)
                     : new ConfigBindingRecord(existingBinding.id(), subject, agentId, snapshot.id(), now);
@@ -50,11 +57,15 @@ public final class ConfigDeploymentService {
                     && tx.outboxEvents().findByEventId(eventId).isPresent()) {
                 return new ConfigDeployment(binding, snapshot, eventId);
             }
-            tx.configLifecycle().upsertBinding(binding);
-            ConfigApplyRecord pending = new ConfigApplyRecord(UUID.randomUUID(), binding.id(), agentId, snapshot.id(),
+            tx.configLifecycle().upsertBindingIfNewer(binding, snapshot.version());
+            ConfigBindingRecord currentBinding = tx.configLifecycle().findBinding(subject, agentId).orElse(binding);
+            if (!currentBinding.snapshotId().equals(snapshot.id())) {
+                throw new IllegalArgumentException("config deployment revision is stale");
+            }
+            ConfigApplyRecord pending = new ConfigApplyRecord(eventId, currentBinding.id(), agentId, snapshot.id(),
                     "PENDING", null, null, now);
             tx.configLifecycle().recordApply(pending);
-            String payload = payload(eventId, binding, snapshot, tx.configLifecycle().findFiles(snapshot.id()));
+            String payload = payload(eventId, currentBinding, snapshot, tx.configLifecycle().findFiles(snapshot.id()));
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", agentId, CONFIG_CHANGED, payload,
                     now, snapshot.version());
             return new ConfigDeployment(binding, snapshot, eventId);
@@ -76,11 +87,46 @@ public final class ConfigDeploymentService {
                 throw new IllegalArgumentException("config acknowledgement does not match binding");
             }
             String phase = command.applied() ? "APPLIED" : "FAILED";
+            ConfigApplyRecord existing = tx.configLifecycle().findApply(binding.id(), command.snapshotId()).orElse(null);
+            if (existing != null && ("APPLIED".equals(existing.phase())
+                    || (existing.phase().equals(phase)
+                    && Objects.equals(existing.errorMessage(), command.errorMessage())))) {
+                return null;
+            }
             Instant appliedAt = command.applied() ? command.occurredAt() : null;
             ConfigApplyRecord record = new ConfigApplyRecord(command.eventId(), binding.id(), command.agentId(),
                     command.snapshotId(), phase, command.errorMessage(), appliedAt, now);
             tx.configLifecycle().recordApply(record);
             return null;
+        });
+    }
+
+    public java.util.Optional<ConfigBindingStatus> findBindingStatus(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId");
+        return persistence.inTransaction(tx -> tx.configLifecycle().findBindingStatus(bindingId));
+    }
+
+    /** Re-emits the current failed revision; repeated calls for one failed state are idempotent. */
+    public ConfigDeployment retry(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId");
+        return persistence.inTransaction(tx -> {
+            ConfigBindingRecord binding = tx.configLifecycle().findBindingForUpdate(bindingId)
+                    .orElseThrow(() -> new IllegalArgumentException("config binding does not exist"));
+            ConfigSnapshot snapshot = snapshots.findById(binding.snapshotId())
+                    .orElseThrow(() -> new IllegalStateException("desired config snapshot does not exist"));
+            ConfigApplyRecord apply = tx.configLifecycle().findApply(binding.id(), snapshot.id())
+                    .orElseThrow(() -> new IllegalArgumentException("config binding has no apply result"));
+            if (!"FAILED".equals(apply.phase())) {
+                throw new IllegalArgumentException("only failed config deployments can be retried");
+            }
+            UUID eventId = replayEventId(binding.id(), snapshot.id(), apply.updatedAt());
+            if (tx.outboxEvents().findByEventId(eventId).isPresent()) {
+                return new ConfigDeployment(binding, snapshot, eventId);
+            }
+            String payload = payload(eventId, binding, snapshot, tx.configLifecycle().findFiles(snapshot.id()));
+            FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
+                    clock.instant(), snapshot.version());
+            return new ConfigDeployment(binding, snapshot, eventId);
         });
     }
 
@@ -117,6 +163,11 @@ public final class ConfigDeploymentService {
 
     public static UUID eventId(UUID bindingId, UUID snapshotId) {
         return UUID.nameUUIDFromBytes((CONFIG_CHANGED + ":" + bindingId + ":" + snapshotId)
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static UUID replayEventId(UUID bindingId, UUID snapshotId, Instant failedAt) {
+        return UUID.nameUUIDFromBytes((CONFIG_CHANGED + ":replay:" + bindingId + ":" + snapshotId + ":" + failedAt)
                 .getBytes(StandardCharsets.UTF_8));
     }
 

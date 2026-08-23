@@ -3,6 +3,7 @@ package io.agentteams.controlplane.mcp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import io.agentteams.controlplane.security.OutboundPolicy;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -65,20 +66,28 @@ public final class McpServerController {
     }
 
     public record CreateRequest(String name, String transport, String endpoint, String credentialRef,
-            Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            Boolean enabled, String healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy) {
+        public CreateRequest(String name, String transport, String endpoint, String credentialRef,
+                Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            this(name, transport, endpoint, credentialRef, enabled, healthStatus, lastCheckedAt, null);
+        }
 
         McpServerService.CreateInput toServiceInput() {
             return new McpServerService.CreateInput(name, transport, endpoint, credentialRef, enabled,
-                    healthStatus, lastCheckedAt);
+                    healthStatus, lastCheckedAt, outboundPolicy);
         }
     }
 
     public record UpdateRequest(String name, String transport, String endpoint, String credentialRef,
-            Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            Boolean enabled, String healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy) {
+        public UpdateRequest(String name, String transport, String endpoint, String credentialRef,
+                Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            this(name, transport, endpoint, credentialRef, enabled, healthStatus, lastCheckedAt, null);
+        }
 
         McpServerService.UpdateInput toServiceInput() {
             return new McpServerService.UpdateInput(name, transport, endpoint, credentialRef, enabled,
-                    healthStatus, lastCheckedAt);
+                    healthStatus, lastCheckedAt, outboundPolicy);
         }
     }
 
@@ -91,13 +100,13 @@ public final class McpServerController {
 
     public record McpServerResponse(UUID id, String name, McpTransport transport, String endpoint,
             boolean credentialConfigured, boolean enabled, McpHealthStatus healthStatus, Instant lastCheckedAt,
-            Instant createdAt, Instant updatedAt, long version) {
+            Instant createdAt, Instant updatedAt, long version, OutboundPolicy outboundPolicy) {
 
         static McpServerResponse from(McpServerRecord server) {
             return new McpServerResponse(server.id(), server.name(), server.transport(), server.endpoint(),
                     server.credentialRef() != null && !server.credentialRef().isBlank(), server.enabled(),
                     server.healthStatus(), server.lastCheckedAt(), server.createdAt(), server.updatedAt(),
-                    server.version());
+                    server.version(), server.outboundPolicy());
         }
     }
 

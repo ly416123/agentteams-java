@@ -2,6 +2,7 @@ package io.agentteams.controlplane.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -11,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.agentteams.controlplane.persistence.ModelProviderRecord;
 import io.agentteams.controlplane.persistence.ModelRecord;
 import io.agentteams.controlplane.service.ModelCatalogService;
+import io.agentteams.controlplane.service.ModelCatalogDependencyException;
+import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -92,5 +95,34 @@ class ModelCatalogControllerTest {
                                 + "\"endpoint\":\"https://api.deepseek.com/v1/chat/completions\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void returnsStableValidationOnlyConnectionTestClassification() throws Exception {
+        UUID providerId = UUID.randomUUID();
+        when(service.testProviderConnection(eq(providerId), eq(java.time.Duration.ofSeconds(5))))
+                .thenReturn(new ModelProviderConnectionProbe.ProbeResult(
+                        ModelProviderConnectionProbe.ProbeResult.Status.NOT_ATTEMPTED,
+                        "VALIDATION_ONLY", false, List.of(
+                                new ModelProviderConnectionProbe.ProbeResult.Check("URI", "VALID"))));
+
+        mockMvc.perform(post("/api/v1/model-providers/{providerId}/connection-test", providerId)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NOT_ATTEMPTED"))
+                .andExpect(jsonPath("$.classification").value("VALIDATION_ONLY"))
+                .andExpect(jsonPath("$.networkCallAttempted").value(false));
+    }
+
+    @Test
+    void exposesStableDependencyConflictClassification() throws Exception {
+        UUID providerId = UUID.randomUUID();
+        doThrow(new ModelCatalogDependencyException("MODEL_PROVIDER_IN_USE", "in use"))
+                .when(service).deleteProvider(providerId);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/v1/model-providers/{providerId}", providerId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MODEL_PROVIDER_IN_USE"));
     }
 }

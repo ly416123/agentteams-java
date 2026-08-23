@@ -4,12 +4,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.persistence.ModelProviderRecord;
 import io.agentteams.controlplane.persistence.ModelRecord;
 import io.agentteams.controlplane.service.ModelCatalogService;
+import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
+import io.agentteams.controlplane.service.ValidationOnlyModelProviderConnectionProbe;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -47,6 +52,34 @@ public final class ModelCatalogController {
         return ModelProviderResponse.from(service.getProvider(providerId));
     }
 
+    @PatchMapping("/{providerId}")
+    public ModelProviderResponse setProviderEnabled(@PathVariable UUID providerId,
+            @RequestBody LifecycleRequest request) {
+        requireRequest(request);
+        if (request.enabled() == null) {
+            throw new IllegalArgumentException("enabled is required");
+        }
+        return ModelProviderResponse.from(service.setProviderEnabled(providerId, request.enabled()));
+    }
+
+    @DeleteMapping("/{providerId}")
+    public ResponseEntity<Void> deleteProvider(@PathVariable UUID providerId) {
+        service.deleteProvider(providerId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{providerId}/connection-test")
+    public ConnectionTestResponse testProviderConnection(@PathVariable UUID providerId,
+            @RequestBody(required = false) ConnectionTestRequest request) {
+        long timeoutMs = request == null || request.timeoutMs() == null ? 5_000L : request.timeoutMs();
+        if (timeoutMs <= 0 || timeoutMs > ValidationOnlyModelProviderConnectionProbe.MAX_TIMEOUT_MILLIS) {
+            throw new IllegalArgumentException("timeoutMs must be between 1 and 60000");
+        }
+        ModelProviderConnectionProbe.ProbeResult result = service.testProviderConnection(providerId,
+                Duration.ofMillis(timeoutMs));
+        return ConnectionTestResponse.from(providerId, timeoutMs, result);
+    }
+
     @PostMapping("/{providerId}/models")
     public ResponseEntity<ModelResponse> createModel(
             @PathVariable UUID providerId,
@@ -66,6 +99,36 @@ public final class ModelCatalogController {
     @GetMapping("/models/{modelId}")
     public ModelResponse getModel(@PathVariable UUID modelId) {
         return ModelResponse.from(service.getModel(modelId));
+    }
+
+    @PatchMapping("/models/{modelId}")
+    public ModelResponse setModelEnabled(@PathVariable UUID modelId, @RequestBody LifecycleRequest request) {
+        requireRequest(request);
+        if (request.enabled() == null) {
+            throw new IllegalArgumentException("enabled is required");
+        }
+        return ModelResponse.from(service.setModelEnabled(modelId, request.enabled()));
+    }
+
+    @DeleteMapping("/models/{modelId}")
+    public ResponseEntity<Void> deleteModel(@PathVariable UUID modelId) {
+        service.deleteModel(modelId);
+        return ResponseEntity.noContent().build();
+    }
+
+    public record LifecycleRequest(Boolean enabled) { }
+
+    public record ConnectionTestRequest(Long timeoutMs) { }
+
+    public record ConnectionTestResponse(UUID providerId, long timeoutMs,
+            ModelProviderConnectionProbe.ProbeResult.Status status, String classification,
+            boolean networkCallAttempted, List<ModelProviderConnectionProbe.ProbeResult.Check> checks) {
+
+        static ConnectionTestResponse from(UUID providerId, long timeoutMs,
+                ModelProviderConnectionProbe.ProbeResult result) {
+            return new ConnectionTestResponse(providerId, timeoutMs, result.status(), result.classification(),
+                    result.networkCallAttempted(), result.checks());
+        }
     }
 
     public record CreateProviderRequest(String name, String providerType, String endpoint,

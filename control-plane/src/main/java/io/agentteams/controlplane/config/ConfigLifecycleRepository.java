@@ -84,6 +84,19 @@ public final class ConfigLifecycleRepository {
         return binding;
     }
 
+    /** Updates desired state only when the incoming snapshot is a newer revision. */
+    public void upsertBindingIfNewer(ConfigBindingRecord binding, long revision) {
+        jdbc.update("""
+                INSERT INTO config_bindings(id, subject, agent_id, snapshot_id, desired_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (subject, agent_id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id,
+                    desired_at = EXCLUDED.desired_at
+                 WHERE (SELECT version FROM config_snapshots WHERE id = EXCLUDED.snapshot_id)
+                     > (SELECT version FROM config_snapshots WHERE id = config_bindings.snapshot_id)
+                """, binding.id(), binding.subject(), binding.agentId(), binding.snapshotId(),
+                java.sql.Timestamp.from(binding.desiredAt()));
+    }
+
     public Optional<ConfigBindingRecord> findBinding(String subject, UUID agentId) {
         return jdbc.query("""
                 SELECT id, subject, agent_id, snapshot_id, desired_at
@@ -100,6 +113,44 @@ public final class ConfigLifecycleRepository {
                 """, (rs, row) -> new ConfigBindingRecord(rs.getObject("id", UUID.class), rs.getString("subject"),
                 rs.getObject("agent_id", UUID.class), rs.getObject("snapshot_id", UUID.class),
                 instant(rs, "desired_at")), bindingId).stream().findFirst();
+    }
+
+    public Optional<ConfigBindingRecord> findBindingForUpdate(UUID bindingId) {
+        return jdbc.query("""
+                SELECT id, subject, agent_id, snapshot_id, desired_at
+                  FROM config_bindings WHERE id = ? FOR UPDATE
+                """, (rs, row) -> new ConfigBindingRecord(rs.getObject("id", UUID.class), rs.getString("subject"),
+                rs.getObject("agent_id", UUID.class), rs.getObject("snapshot_id", UUID.class),
+                instant(rs, "desired_at")), bindingId).stream().findFirst();
+    }
+
+    public Optional<ConfigBindingStatus> findBindingStatus(UUID bindingId) {
+        return jdbc.query("""
+                SELECT b.id AS binding_id, b.subject, b.agent_id, b.snapshot_id AS binding_snapshot_id,
+                       b.desired_at, s.id AS snapshot_id, s.subject AS snapshot_subject, s.version,
+                       s.manifest::text, s.checksum, s.actor, s.created_at,
+                       a.id AS apply_id, a.agent_id AS apply_agent_id, a.snapshot_id AS apply_snapshot_id,
+                       a.phase, a.error_message, a.applied_at, a.updated_at
+                  FROM config_bindings b
+                  JOIN config_snapshots s ON s.id = b.snapshot_id
+                  LEFT JOIN config_apply_records a
+                    ON a.binding_id = b.id AND a.snapshot_id = b.snapshot_id
+                 WHERE b.id = ?
+                """, (rs, row) -> {
+            ConfigBindingRecord binding = new ConfigBindingRecord(rs.getObject("binding_id", UUID.class),
+                    rs.getString("subject"), rs.getObject("agent_id", UUID.class),
+                    rs.getObject("binding_snapshot_id", UUID.class), instant(rs, "desired_at"));
+            ConfigSnapshot snapshot = new ConfigSnapshot(rs.getObject("snapshot_id", UUID.class),
+                    rs.getString("snapshot_subject"), rs.getLong("version"),
+                    ConfigManifestCanonicalizer.normalize(rs.getString("manifest")), rs.getString("checksum"),
+                    rs.getString("actor"), instant(rs, "created_at"));
+            UUID applyId = rs.getObject("apply_id", UUID.class);
+            ConfigApplyRecord apply = applyId == null ? null : new ConfigApplyRecord(applyId, binding.id(),
+                    rs.getObject("apply_agent_id", UUID.class), rs.getObject("apply_snapshot_id", UUID.class),
+                    rs.getString("phase"), rs.getString("error_message"), timestampOrNull(rs, "applied_at"),
+                    instant(rs, "updated_at"));
+            return new ConfigBindingStatus(binding, snapshot, apply);
+        }, bindingId).stream().findFirst();
     }
 
     public Optional<ConfigApplyRecord> findApply(UUID bindingId, UUID snapshotId) {

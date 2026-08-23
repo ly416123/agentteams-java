@@ -2,6 +2,8 @@ package io.agentteams.controlplane.persistence;
 
 import io.agentteams.domain.agent.AgentPhase;
 import io.agentteams.domain.task.TaskPhase;
+import io.agentteams.controlplane.service.ModelCatalogDependencyException;
+import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -154,6 +156,82 @@ public final class FoundationPersistenceService {
 
     public List<ModelRecord> findModelsByProvider(UUID providerId) {
         return inTransaction(tx -> tx.models().findByProviderId(providerId));
+    }
+
+    public ModelProviderRecord updateModelProviderEnabled(UUID id, boolean enabled, Instant at) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(at, "at");
+        return inTransaction(tx -> {
+            ModelProviderRecord current = tx.modelProviders().findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("model provider", id));
+            if (!enabled && current.enabled()
+                    && tx.modelProviders().countActiveAgentSpecReferences(current.name()) > 0) {
+                throw new ModelCatalogDependencyException("MODEL_PROVIDER_IN_USE",
+                        "model provider is referenced by an active agent spec");
+            }
+            if (current.enabled() == enabled) {
+                return current;
+            }
+            ModelProviderRecord updated = tx.modelProviders().updateEnabled(id, enabled, current.version(), at);
+            appendEvent(tx, "model_provider", id, "ModelProviderEnabledChanged", idPayload(id), at,
+                    updated.version());
+            return updated;
+        });
+    }
+
+    public void deleteModelProvider(UUID id) {
+        Objects.requireNonNull(id, "id");
+        inTransaction(tx -> {
+            ModelProviderRecord current = tx.modelProviders().findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("model provider", id));
+            if (tx.modelProviders().countActiveAgentSpecReferences(current.name()) > 0) {
+                throw new ModelCatalogDependencyException("MODEL_PROVIDER_IN_USE",
+                        "model provider is referenced by an active agent spec");
+            }
+            if (tx.modelProviders().countModels(id) > 0) {
+                throw new ModelCatalogDependencyException("MODEL_PROVIDER_HAS_MODELS",
+                        "model provider has dependent models");
+            }
+            tx.modelProviders().delete(id, current.version());
+            appendEvent(tx, "model_provider", id, "ModelProviderDeleted", idPayload(id), current.updatedAt(),
+                    current.version());
+            return null;
+        });
+    }
+
+    public ModelRecord updateModelEnabled(UUID id, boolean enabled, Instant at) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(at, "at");
+        return inTransaction(tx -> {
+            ModelRecord current = tx.models().findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("model", id));
+            if (!enabled && current.enabled()
+                    && tx.models().countActiveAgentSpecReferences(current.providerId(), current.modelId()) > 0) {
+                throw new ModelCatalogDependencyException("MODEL_IN_USE",
+                        "model is referenced by an active agent spec");
+            }
+            if (current.enabled() == enabled) {
+                return current;
+            }
+            ModelRecord updated = tx.models().updateEnabled(id, enabled, current.version(), at);
+            appendEvent(tx, "model", id, "ModelEnabledChanged", idPayload(id), at, updated.version());
+            return updated;
+        });
+    }
+
+    public void deleteModel(UUID id) {
+        Objects.requireNonNull(id, "id");
+        inTransaction(tx -> {
+            ModelRecord current = tx.models().findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("model", id));
+            if (tx.models().countActiveAgentSpecReferences(current.providerId(), current.modelId()) > 0) {
+                throw new ModelCatalogDependencyException("MODEL_IN_USE",
+                        "model is referenced by an active agent spec");
+            }
+            tx.models().delete(id, current.version());
+            appendEvent(tx, "model", id, "ModelDeleted", idPayload(id), current.updatedAt(), current.version());
+            return null;
+        });
     }
 
     public Optional<TaskRecord> findTask(UUID id) {

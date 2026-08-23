@@ -1,8 +1,10 @@
 package io.agentteams.controlplane.mcp;
 
+import io.agentteams.controlplane.security.OutboundPolicy;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -52,12 +54,12 @@ public final class McpServerRepository {
         jdbc.update("""
                 INSERT INTO mcp_servers
                     (id, name, transport, endpoint, credential_ref, enabled, health_status,
-                     last_checked_at, created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     last_checked_at, created_at, updated_at, version, outbound_policy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, server.id(), server.name(), server.transport().name(), server.endpoint(),
                 server.credentialRef(), server.enabled(), server.healthStatus().name(),
                 timestamp(server.lastCheckedAt()), timestamp(server.createdAt()),
-                timestamp(server.updatedAt()), server.version());
+                timestamp(server.updatedAt()), server.version(), json(server.outboundPolicy().toJson()));
     }
 
     public List<McpServerRecord> findAll() {
@@ -72,11 +74,12 @@ public final class McpServerRepository {
         return jdbc.update("""
                 UPDATE mcp_servers
                    SET name = ?, transport = ?, endpoint = ?, credential_ref = ?, enabled = ?,
-                       health_status = ?, last_checked_at = ?, updated_at = ?, version = ?
+                       health_status = ?, last_checked_at = ?, updated_at = ?, version = ?, outbound_policy = ?
                  WHERE id = ? AND version = ?
                 """, server.name(), server.transport().name(), server.endpoint(), server.credentialRef(),
                 server.enabled(), server.healthStatus().name(), timestamp(server.lastCheckedAt()),
-                timestamp(server.updatedAt()), server.version(), server.id(), expectedVersion);
+                timestamp(server.updatedAt()), server.version(), json(server.outboundPolicy().toJson()),
+                server.id(), expectedVersion);
     }
 
     public int updateHealth(UUID id, McpHealthStatus status, Instant lastCheckedAt, Instant updatedAt,
@@ -96,7 +99,7 @@ public final class McpServerRepository {
     private static String selectSql() {
         return """
                 SELECT id, name, transport, endpoint, credential_ref, enabled, health_status,
-                       last_checked_at, created_at, updated_at, version
+                       last_checked_at, created_at, updated_at, version, outbound_policy
                   FROM mcp_servers
                 """;
     }
@@ -107,7 +110,8 @@ public final class McpServerRepository {
                 rs.getString("credential_ref"), rs.getBoolean("enabled"),
                 McpHealthStatus.valueOf(rs.getString("health_status")),
                 timestamp(rs, "last_checked_at"), timestamp(rs, "created_at"),
-                timestamp(rs, "updated_at"), rs.getLong("version"));
+                timestamp(rs, "updated_at"), rs.getLong("version"),
+                OutboundPolicy.fromJson(rs.getString("outbound_policy")));
     }
 
     private static Timestamp timestamp(Instant value) {
@@ -117,6 +121,10 @@ public final class McpServerRepository {
     private static Instant timestamp(ResultSet rs, String column) throws SQLException {
         Timestamp value = rs.getTimestamp(column);
         return value == null ? null : value.toInstant();
+    }
+
+    private static org.springframework.jdbc.core.SqlParameterValue json(String value) {
+        return new org.springframework.jdbc.core.SqlParameterValue(Types.OTHER, value);
     }
 
     public record McpIdempotencyRecord(String key, String requestHash, UUID serverId, Instant createdAt) {

@@ -33,6 +33,46 @@ public final class ModelProviderRepository {
         return jdbc.query(selectSql() + " ORDER BY name", this::map);
     }
 
+    public long countModels(UUID providerId) {
+        Long count = jdbc.queryForObject("SELECT count(*) FROM models WHERE provider_id = ?",
+                Long.class, providerId);
+        return count == null ? 0 : count;
+    }
+
+    public long countActiveAgentSpecReferences(String providerName) {
+        Long count = jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM agent_specs
+                 WHERE model_provider = ? AND lifecycle_status <> 'DISABLED'
+                """, Long.class, providerName);
+        return count == null ? 0 : count;
+    }
+
+    public ModelProviderRecord updateEnabled(UUID id, boolean enabled, long expectedVersion,
+            java.time.Instant updatedAt) {
+        int updated = jdbc.update("""
+                UPDATE model_providers
+                   SET enabled = ?, updated_at = ?, version = version + 1
+                 WHERE id = ? AND version = ?
+                """, enabled, JdbcSupport.timestamp(updatedAt), id, expectedVersion);
+        if (updated == 0) {
+            long actual = jdbc.query("SELECT version FROM model_providers WHERE id = ?",
+                    (rs, row) -> rs.getLong(1), id).stream().findFirst().orElse(-1L);
+            throw new OptimisticLockFailure("model_provider", id, expectedVersion, actual);
+        }
+        return findById(id).orElseThrow();
+    }
+
+    public void delete(UUID id, long expectedVersion) {
+        int deleted = jdbc.update("DELETE FROM model_providers WHERE id = ? AND version = ?",
+                id, expectedVersion);
+        if (deleted == 0) {
+            long actual = jdbc.query("SELECT version FROM model_providers WHERE id = ?",
+                    (rs, row) -> rs.getLong(1), id).stream().findFirst().orElse(-1L);
+            throw new OptimisticLockFailure("model_provider", id, expectedVersion, actual);
+        }
+    }
+
     private static String selectSql() {
         return """
                 SELECT id, name, provider_type, endpoint, credential_ref, settings::text,

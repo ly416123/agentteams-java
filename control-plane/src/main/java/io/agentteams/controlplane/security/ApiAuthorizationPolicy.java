@@ -10,6 +10,10 @@ public final class ApiAuthorizationPolicy {
     public static Optional<Permission> requiredPermission(HttpServletRequest request) {
         String path = request.getRequestURI();
         String method = request.getMethod();
+        // Project roles are resolved from control-plane membership, not Keycloak permissions.
+        if (path.startsWith("/api/v1/projects")) {
+            return Optional.empty();
+        }
         if (path.startsWith("/api/v1/agents")) {
             return Optional.of("GET".equals(method) ? Permission.AGENT_READ : Permission.AGENT_WRITE);
         }

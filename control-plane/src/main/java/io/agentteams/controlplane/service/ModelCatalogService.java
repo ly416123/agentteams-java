@@ -8,12 +8,14 @@ import io.agentteams.controlplane.persistence.ModelRecord;
 import io.agentteams.controlplane.security.PrincipalContext;
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -23,27 +25,36 @@ public final class ModelCatalogService {
     private final IdempotencyService idempotency;
     private final Clock clock;
     private final AuditRecorder auditRecorder;
+    private final ModelProviderConnectionProbe connectionProbe;
 
     public ModelCatalogService(FoundationPersistenceService persistence, IdempotencyService idempotency) {
-        this(persistence, idempotency, Clock.systemUTC(), event -> { });
+        this(persistence, idempotency, Clock.systemUTC(), event -> { },
+                new ValidationOnlyModelProviderConnectionProbe());
     }
 
     @Autowired
     public ModelCatalogService(FoundationPersistenceService persistence, IdempotencyService idempotency,
-            AuditRecorder auditRecorder) {
-        this(persistence, idempotency, Clock.systemUTC(), auditRecorder);
+            AuditRecorder auditRecorder, ObjectProvider<ModelProviderConnectionProbe> probes) {
+        this(persistence, idempotency, Clock.systemUTC(), auditRecorder,
+                probes.getIfAvailable(ValidationOnlyModelProviderConnectionProbe::new));
     }
 
     ModelCatalogService(FoundationPersistenceService persistence, IdempotencyService idempotency, Clock clock) {
-        this(persistence, idempotency, clock, event -> { });
+        this(persistence, idempotency, clock, event -> { }, new ValidationOnlyModelProviderConnectionProbe());
     }
 
     ModelCatalogService(FoundationPersistenceService persistence, IdempotencyService idempotency, Clock clock,
             AuditRecorder auditRecorder) {
+        this(persistence, idempotency, clock, auditRecorder, new ValidationOnlyModelProviderConnectionProbe());
+    }
+
+    ModelCatalogService(FoundationPersistenceService persistence, IdempotencyService idempotency, Clock clock,
+            AuditRecorder auditRecorder, ModelProviderConnectionProbe connectionProbe) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
+        this.connectionProbe = Objects.requireNonNull(connectionProbe, "connectionProbe");
     }
 
     public ModelProviderRecord createProvider(String idempotencyKey, ProviderInput input) {
@@ -115,6 +126,40 @@ public final class ModelCatalogService {
     public ModelRecord getModel(UUID id) {
         return persistence.findModel(Objects.requireNonNull(id, "id"))
                 .orElseThrow(() -> new ResourceNotFoundException("model", id));
+    }
+
+    public ModelProviderConnectionProbe.ProbeResult testProviderConnection(UUID providerId, Duration timeout) {
+        ModelProviderRecord provider = getProvider(providerId);
+        ModelProviderConnectionProbe.ProbeResult result = connectionProbe.probe(
+                new ModelProviderConnectionProbe.ProbeRequest(provider.id(), provider.providerType(),
+                        provider.endpoint(), provider.credentialRef(), Objects.requireNonNull(timeout, "timeout")));
+        record(PrincipalContext.actorOr("api"), "TEST_MODEL_PROVIDER_CONNECTION", "model_provider", provider.id(),
+                result.status().name());
+        return result;
+    }
+
+    public ModelProviderRecord setProviderEnabled(UUID providerId, boolean enabled) {
+        ModelProviderRecord result = persistence.updateModelProviderEnabled(providerId, enabled, clock.instant());
+        record(PrincipalContext.actorOr("api"), "SET_MODEL_PROVIDER_ENABLED", "model_provider", providerId,
+                enabled ? "ENABLED" : "DISABLED");
+        return result;
+    }
+
+    public void deleteProvider(UUID providerId) {
+        persistence.deleteModelProvider(providerId);
+        record(PrincipalContext.actorOr("api"), "DELETE_MODEL_PROVIDER", "model_provider", providerId, "SUCCESS");
+    }
+
+    public ModelRecord setModelEnabled(UUID modelId, boolean enabled) {
+        ModelRecord result = persistence.updateModelEnabled(modelId, enabled, clock.instant());
+        record(PrincipalContext.actorOr("api"), "SET_MODEL_ENABLED", "model", modelId,
+                enabled ? "ENABLED" : "DISABLED");
+        return result;
+    }
+
+    public void deleteModel(UUID modelId) {
+        persistence.deleteModel(modelId);
+        record(PrincipalContext.actorOr("api"), "DELETE_MODEL", "model", modelId, "SUCCESS");
     }
 
     public record ProviderInput(String name, String providerType, String endpoint, String credentialRef,

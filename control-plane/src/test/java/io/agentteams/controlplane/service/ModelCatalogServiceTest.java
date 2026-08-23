@@ -15,6 +15,7 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.ModelProviderRecord;
 import io.agentteams.controlplane.persistence.ModelRecord;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -132,5 +133,52 @@ class ModelCatalogServiceTest {
         assertThat(audit.getValue().action()).isEqualTo("CREATE_MODEL_PROVIDER");
         assertThat(audit.getValue().attributes()).containsEntry("result", "FAILURE");
         assertThat(audit.getValue().resourceId()).isNotBlank();
+    }
+
+    @Test
+    void defaultConnectionProbeOnlyClassifiesWithoutNetworkCall() {
+        UUID providerId = UUID.randomUUID();
+        when(persistence.findModelProvider(providerId)).thenReturn(java.util.Optional.of(
+                new ModelProviderRecord(providerId, "deepseek", "openai-compatible",
+                        "https://api.deepseek.com/v1", "secret/deepseek", "{}", true, NOW, NOW, 0)));
+
+        ModelProviderConnectionProbe.ProbeResult result = service.testProviderConnection(providerId,
+                Duration.ofSeconds(5));
+
+        assertThat(result.status()).isEqualTo(ModelProviderConnectionProbe.ProbeResult.Status.NOT_ATTEMPTED);
+        assertThat(result.classification()).isEqualTo("VALIDATION_ONLY");
+        assertThat(result.networkCallAttempted()).isFalse();
+        assertThat(result.checks()).extracting(ModelProviderConnectionProbe.ProbeResult.Check::name)
+                .containsExactly("URI", "CREDENTIAL_REFERENCE", "TIMEOUT");
+    }
+
+    @Test
+    void connectionProbeReceivesOnlyCredentialReferenceAndCanBeReplaced() {
+        ModelProviderConnectionProbe probe = request -> {
+            assertThat(request.credentialReference()).isEqualTo("secret/deepseek");
+            return new ModelProviderConnectionProbe.ProbeResult(
+                    ModelProviderConnectionProbe.ProbeResult.Status.CONNECTED, "CUSTOM", true, java.util.List.of());
+        };
+        ModelCatalogService custom = new ModelCatalogService(persistence, new IdempotencyService(),
+                Clock.fixed(NOW, ZoneOffset.UTC), auditRecorder, probe);
+        UUID providerId = UUID.randomUUID();
+        when(persistence.findModelProvider(providerId)).thenReturn(java.util.Optional.of(
+                new ModelProviderRecord(providerId, "deepseek", "openai-compatible",
+                        "https://api.deepseek.com/v1", "secret/deepseek", "{}", true, NOW, NOW, 0)));
+
+        assertThat(custom.testProviderConnection(providerId, Duration.ofSeconds(1)).classification())
+                .isEqualTo("CUSTOM");
+    }
+
+    @Test
+    void lifecycleDependencyClassificationIsPropagated() {
+        UUID providerId = UUID.randomUUID();
+        when(persistence.updateModelProviderEnabled(providerId, false, NOW))
+                .thenThrow(new ModelCatalogDependencyException("MODEL_PROVIDER_IN_USE", "in use"));
+
+        assertThatThrownBy(() -> service.setProviderEnabled(providerId, false))
+                .isInstanceOf(ModelCatalogDependencyException.class)
+                .extracting(error -> ((ModelCatalogDependencyException) error).code())
+                .isEqualTo("MODEL_PROVIDER_IN_USE");
     }
 }

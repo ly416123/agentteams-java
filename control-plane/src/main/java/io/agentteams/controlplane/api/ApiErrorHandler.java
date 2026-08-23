@@ -3,6 +3,7 @@ package io.agentteams.controlplane.api;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.persistence.OptimisticLockFailure;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
+import io.agentteams.controlplane.service.ModelCatalogDependencyException;
 import io.agentteams.controlplane.service.UnavailableDependencyException;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
@@ -37,6 +38,11 @@ public final class ApiErrorHandler {
     @ExceptionHandler({IdempotencyConflictException.class, DuplicateKeyException.class})
     ResponseEntity<ApiError> conflict(Exception ignored) {
         return error(HttpStatus.CONFLICT, "CONFLICT", "request conflicts with current resource state");
+    }
+
+    @ExceptionHandler(ModelCatalogDependencyException.class)
+    ResponseEntity<ApiError> modelCatalogDependency(ModelCatalogDependencyException error) {
+        return error(HttpStatus.CONFLICT, error.code(), "model catalog dependency prevents this operation");
     }
 
     @ExceptionHandler({OptimisticLockFailure.class, StaleTaskVersionException.class})

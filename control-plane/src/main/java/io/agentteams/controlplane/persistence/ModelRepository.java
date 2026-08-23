@@ -33,6 +33,40 @@ public final class ModelRepository {
         return jdbc.query(selectSql() + " WHERE provider_id = ? ORDER BY name", this::map, providerId);
     }
 
+    public long countActiveAgentSpecReferences(UUID providerId, String modelId) {
+        Long count = jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM agent_specs a
+                  JOIN model_providers p ON p.name = a.model_provider
+                 WHERE p.id = ? AND a.model_name = ? AND a.lifecycle_status <> 'DISABLED'
+                """, Long.class, providerId, modelId);
+        return count == null ? 0 : count;
+    }
+
+    public ModelRecord updateEnabled(UUID id, boolean enabled, long expectedVersion,
+            java.time.Instant updatedAt) {
+        int updated = jdbc.update("""
+                UPDATE models
+                   SET enabled = ?, updated_at = ?, version = version + 1
+                 WHERE id = ? AND version = ?
+                """, enabled, JdbcSupport.timestamp(updatedAt), id, expectedVersion);
+        if (updated == 0) {
+            long actual = jdbc.query("SELECT version FROM models WHERE id = ?",
+                    (rs, row) -> rs.getLong(1), id).stream().findFirst().orElse(-1L);
+            throw new OptimisticLockFailure("model", id, expectedVersion, actual);
+        }
+        return findById(id).orElseThrow();
+    }
+
+    public void delete(UUID id, long expectedVersion) {
+        int deleted = jdbc.update("DELETE FROM models WHERE id = ? AND version = ?", id, expectedVersion);
+        if (deleted == 0) {
+            long actual = jdbc.query("SELECT version FROM models WHERE id = ?",
+                    (rs, row) -> rs.getLong(1), id).stream().findFirst().orElse(-1L);
+            throw new OptimisticLockFailure("model", id, expectedVersion, actual);
+        }
+    }
+
     private static String selectSql() {
         return """
                 SELECT id, provider_id, name, model_id, capabilities::text,

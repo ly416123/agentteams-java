@@ -5,6 +5,8 @@ import io.agentteams.controlplane.audit.AuditRecorder;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.persistence.OptimisticLockFailure;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.OutboundPolicy;
+import io.agentteams.controlplane.security.OutboundPolicyValidator;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -29,24 +31,31 @@ public final class McpServerService {
     private final McpServerRepository repository;
     private final Clock clock;
     private final AuditRecorder auditRecorder;
+    private final OutboundPolicyValidator outboundPolicyValidator;
 
     public McpServerService(McpServerRepository repository) {
-        this(repository, Clock.systemUTC(), event -> { });
+        this(repository, Clock.systemUTC(), event -> { }, new OutboundPolicyValidator());
     }
 
     @Autowired
     public McpServerService(McpServerRepository repository, AuditRecorder auditRecorder) {
-        this(repository, Clock.systemUTC(), auditRecorder);
+        this(repository, Clock.systemUTC(), auditRecorder, new OutboundPolicyValidator());
     }
 
     McpServerService(McpServerRepository repository, Clock clock) {
-        this(repository, clock, event -> { });
+        this(repository, clock, event -> { }, new OutboundPolicyValidator());
     }
 
     McpServerService(McpServerRepository repository, Clock clock, AuditRecorder auditRecorder) {
+        this(repository, clock, auditRecorder, new OutboundPolicyValidator());
+    }
+
+    McpServerService(McpServerRepository repository, Clock clock, AuditRecorder auditRecorder,
+            OutboundPolicyValidator outboundPolicyValidator) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
+        this.outboundPolicyValidator = Objects.requireNonNull(outboundPolicyValidator, "outboundPolicyValidator");
     }
 
     @Transactional
@@ -75,7 +84,7 @@ public final class McpServerService {
 
             McpServerRecord server = new McpServerRecord(UUID.randomUUID(), normalized.name(), normalized.transport(),
                     normalized.endpoint(), normalized.credentialRef(), normalized.enabled(), normalized.healthStatus(),
-                    normalized.lastCheckedAt(), now, now, 0);
+                    normalized.lastCheckedAt(), now, now, 0, normalized.outboundPolicy());
             resourceId = server.id();
             repository.insert(server);
             repository.bindIdempotency(key, server.id());
@@ -106,7 +115,8 @@ public final class McpServerService {
             Instant now = clock.instant();
             McpServerRecord updated = new McpServerRecord(current.id(), normalized.name(), normalized.transport(),
                     normalized.endpoint(), normalized.credentialRef(), normalized.enabled(), normalized.healthStatus(),
-                    normalized.lastCheckedAt(), current.createdAt(), now, current.version() + 1);
+                    normalized.lastCheckedAt(), current.createdAt(), now, current.version() + 1,
+                    normalized.outboundPolicy());
             if (repository.update(updated, current.version()) != 1) {
                 throw new OptimisticLockFailure("MCP_SERVER", id, current.version(), -1);
             }
@@ -156,11 +166,19 @@ public final class McpServerService {
     }
 
     public record CreateInput(String name, String transport, String endpoint, String credentialRef,
-            Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            Boolean enabled, String healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy) {
+        public CreateInput(String name, String transport, String endpoint, String credentialRef,
+                Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            this(name, transport, endpoint, credentialRef, enabled, healthStatus, lastCheckedAt, null);
+        }
     }
 
     public record UpdateInput(String name, String transport, String endpoint, String credentialRef,
-            Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            Boolean enabled, String healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy) {
+        public UpdateInput(String name, String transport, String endpoint, String credentialRef,
+                Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+            this(name, transport, endpoint, credentialRef, enabled, healthStatus, lastCheckedAt, null);
+        }
     }
 
     public record HealthInput(String healthStatus, Instant lastCheckedAt) {
@@ -187,45 +205,35 @@ public final class McpServerService {
         return get(existing.serverId());
     }
 
-    private static NormalizedInput normalize(CreateInput input) {
+    private NormalizedInput normalize(CreateInput input) {
         return normalize(input.name(), input.transport(), input.endpoint(), input.credentialRef(), input.enabled(),
-                input.healthStatus(), input.lastCheckedAt());
+                input.healthStatus(), input.lastCheckedAt(), input.outboundPolicy());
     }
 
-    private static NormalizedInput normalize(UpdateInput input) {
+    private NormalizedInput normalize(UpdateInput input) {
         return normalize(input.name(), input.transport(), input.endpoint(), input.credentialRef(), input.enabled(),
-                input.healthStatus(), input.lastCheckedAt());
+                input.healthStatus(), input.lastCheckedAt(), input.outboundPolicy());
     }
 
-    private static NormalizedInput normalize(String name, String transport, String endpoint, String credentialRef,
-            Boolean enabled, String healthStatus, Instant lastCheckedAt) {
+    private NormalizedInput normalize(String name, String transport, String endpoint, String credentialRef,
+            Boolean enabled, String healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy) {
         String normalizedName = required(name, "name");
         if (normalizedName.length() > 255) {
             throw new IllegalArgumentException("name must be at most 255 characters");
         }
         McpTransport normalizedTransport = McpTransport.parse(transport);
-        String normalizedEndpoint = absoluteHttpUri(endpoint);
+        OutboundPolicy normalizedPolicy = outboundPolicy == null
+                ? OutboundPolicy.legacyCompatible() : outboundPolicy;
+        String normalizedEndpoint = outboundPolicyValidator.validateEndpoint(required(endpoint, "endpoint"),
+                normalizedPolicy).toString();
         String normalizedCredentialRef = optional(credentialRef);
         if (normalizedCredentialRef != null && normalizedCredentialRef.length() > 500) {
             throw new IllegalArgumentException("credentialRef must be at most 500 characters");
         }
         McpHealthStatus normalizedHealthStatus = McpHealthStatus.parse(healthStatus);
         return new NormalizedInput(normalizedName, normalizedTransport, normalizedEndpoint,
-                normalizedCredentialRef, enabled == null || enabled, normalizedHealthStatus, lastCheckedAt);
-    }
-
-    private static String absoluteHttpUri(String value) {
-        String endpoint = required(value, "endpoint");
-        try {
-            URI uri = URI.create(endpoint);
-            if (uri.getHost() == null || !("http".equalsIgnoreCase(uri.getScheme())
-                    || "https".equalsIgnoreCase(uri.getScheme()))) {
-                throw new IllegalArgumentException("endpoint must be an absolute HTTP(S) URI");
-            }
-        } catch (IllegalArgumentException error) {
-            throw new IllegalArgumentException("endpoint must be an absolute HTTP(S) URI", error);
-        }
-        return endpoint;
+                normalizedCredentialRef, enabled == null || enabled, normalizedHealthStatus, lastCheckedAt,
+                normalizedPolicy);
     }
 
     private static String requireIdempotencyKey(String value) {
@@ -263,6 +271,6 @@ public final class McpServerService {
     }
 
     private record NormalizedInput(String name, McpTransport transport, String endpoint, String credentialRef,
-            boolean enabled, McpHealthStatus healthStatus, Instant lastCheckedAt) {
+            boolean enabled, McpHealthStatus healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy) {
     }
 }

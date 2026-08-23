@@ -3,7 +3,7 @@
 **基准日期**：2026-08-23
 **适用仓库**：`agentteams-java`
 **对比对象**：阿里云 AgentTeams 商业版公开文档
-**当前代码基线**：`7244582`（Model Provider/Model 基础目录已落地）
+**当前代码基线**：`5803604`（Dashboard Summary 读模型已落地；本轮并行治理改动尚未提交）
 
 ## 1. 文档目标与范围
 
@@ -63,7 +63,17 @@
 | P0 | Skill manifest/digest/版本发布校验 | Skill Registry | 已完成：manifest、SemVer、digest、入口和大小校验 |
 | P1 | Model/MCP 写操作接入持久化审计 | Audit、Model/MCP Registry | 已完成：成功/失败事件、脱敏、REQUIRES_NEW |
 | P1 | Usage 增加 Dashboard/Prometheus 稳定分组契约 | model_call_audits、Usage API | 已完成：provider/model/status 分组和 limit |
-| P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成第一段：Snapshot/Outbox/ACK 适配；旧版本拒绝和回滚待下一波 |
+| P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成第二段：Snapshot/Outbox/ACK、旧版本保护、绑定状态、失败重试；Worker 实际回滚待收口 |
+
+本轮第二波已在工作区完成并通过干净全量测试（190 个测试，0 失败）：
+
+- **Worker 配置治理**：增加绑定状态查询、最新 revision 保护、失败配置重试，以及 ACK 幂等处理。
+- **Model Provider/Model 治理**：增加启停、删除依赖检查、连接测试结果分类和模型/Provider 依赖索引；默认连接探针只做配置校验，不会误发真实模型请求。
+- **项目级 IAM 基线**：Keycloak/OIDC 提供身份和租户上下文，Control Plane 持久化项目、成员和 OWNER/ADMIN/OPERATOR/DEVELOPER/VIEWER 角色，并提供幂等成员管理。
+- **MCP/Skill 安全基线**：MCP 出站 scheme/domain/tool/timeout 策略、失败分类，以及 Skill 版本安全扫描和审核字段。
+- **Dashboard**：提供 `GET /api/v1/dashboard/summary`，复用 Usage 查询口径输出模型调用、Token、成功率和延迟摘要。
+
+尚未宣称为完整商业版能力的部分：真实 Provider 网络探针和 Secret Manager 接入、Worker 实际回滚执行、项目角色覆盖全部资源 API、MCP 真正连接器/工具发现、Skill 包安全扫描器、Prometheus 告警规则、成本/配额、Worker 模板和 Console。
 
 推荐的依赖关键路径为：
 
@@ -81,14 +91,14 @@ Skill、MCP、Audit 可以在关键路径上并行建设，但 Skill/MCP 的最�
 
 | 能力域 | 当前项目 | 差距 | 优先级 |
 |---|---|---|---|
-| Model Provider/Model | **部分具备**。Manager 已有 Provider SPI、OpenAI Compatible/DeepSeek Provider、重试、结构化输出校验和模型调用审计；Control Plane 已有 `model_providers`、`models` 目录和读写 API | 缺少连通性测试、Secret 绑定、更新/删除约束、协议校验、模型能力声明、Worker/AgentSpec 绑定和完整生命周期 | P0 |
-| Worker 生命周期 | **部分具备**。有 Agent 注册 API、Worker CRD/Operator、Gateway 注册/租约/重放和 mTLS 基础 | 缺少统一的 Worker 管理资源、期望态/观测态、配置版本、优雅下线、回滚和完整管理 API | P0 |
+| Model Provider/Model | **部分具备**。已有目录、启停/删除依赖检查、配置型连接测试、模型调用审计和 AgentSpec 引用校验 | 缺少真实协议探针、Secret Manager、能力/价格目录和 Worker 侧生效确认 | P0 |
+| Worker 生命周期 | **部分具备**。有 Agent 注册 API、Worker CRD/Operator、Gateway 注册/租约/重放和 mTLS 基础；配置绑定支持状态、ACK 幂等和失败重试 | 缺少 Worker 实际回滚执行、优雅下线和完整 Worker/Team 管理 API | P0 |
 | Worker Team | **部分具备**。已有 Team CRD、同步、调度和策略基础 | 缺少成员/管理员模型、Leader 配置、Team 级模型/文件/Skill/MCP 绑定及版本化发布 | P0 |
 | AgentSpec | **缺失**。当前 WorkerSpec、AgentRecord 和运行时配置分散 | 缺少统一的 AgentSpec v1、Schema 校验、引用关系、配置修订和 Worker ACK | P0 |
-| 用户/租户/项目/RBAC | **部分具备**。已有 OIDC/Keycloak、JWT scope、基础权限和 mTLS | 缺少用户/成员管理、资源归属、角色映射、租户隔离、邀请/禁用和操作审计 | P0 |
-| Skill 管理 | **缺失**。尚未形成 Skill Registry 和安全发布流程 | 缺少导入、版本、审核、发布、启停、可见性、绑定和包完整性校验 | P1 |
-| MCP Server 管理 | **缺失**。尚未形成 MCP Registry、认证引用和统一连接器 | 缺少连接配置、健康检查、传输适配、工具白名单、超时、熔断、审计和出站安全策略 | P1 |
-| Dashboard/使用分析 | **部分具备**。已有 Micrometer、OTel、Prometheus/Grafana、Gateway/Outbox 指标和告警 | 缺少商业版维度的 Worker/Task/Team/Model/Tool 聚合 API、Token/成本统计、时间范围查询和统一大盘 | P1 |
+| 用户/租户/项目/RBAC | **部分具备**。已有 OIDC/Keycloak、JWT scope、项目成员/角色表和租户隔离基线 | 缺少角色覆盖全部资源、成员禁用/邀请、跨资源授权过滤和完整成员审计 API | P0 |
+| Skill 管理 | **部分具备**。已有 Registry、digest/manifest/版本校验和发布生命周期，并增加扫描/审核状态 | 缺少真实安全扫描器、包存储/下载策略、可见性和 Worker/Team 绑定 | P1 |
+| MCP Server 管理 | **部分具备**。已有 Registry、认证引用、传输配置、健康状态和出站策略模型 | 缺少真实连接器、工具发现、健康探针、限流/熔断和调用审计闭环 | P1 |
+| Dashboard/使用分析 | **部分具备**。已有 Micrometer、OTel、Prometheus/Grafana、Usage API 和 Dashboard Summary | 缺少 Worker/Task/Team/Tool 全维度聚合、成本/配额、告警规则和统一大盘 | P1 |
 | 审计与安全治理 | **部分具备**。已有模型调用审计、敏感信息脱敏、OIDC/mTLS/RBAC 基础 | 缺少配置变更审计、Skill/MCP 操作审计、Secret 轮换、审批、出站策略和完整合规事件 | P1 |
 | Worker 模板 | **缺失** | 缺少可复用模板、版本、审批、实例化和升级策略 | P1 |
 | 渠道接入 | **部分具备**。当前已有 Matrix/Tuwunel 方向 | DingTalk 等商业渠道未接入；需要统一 Channel SPI 和异步投递语义 | P2 |
@@ -352,7 +362,7 @@ agentteams.audit.events
 
 ## 6. 并行实施计划
 
-### 阶段 P0：控制面基础闭环（当前优先）
+### 阶段 P0：控制面基础闭环（基础段已完成，进入收口）
 
 **目标**：把当前基础 Model Catalog 从“目录”升级为“可安全绑定和使用的配置中心”。
 
@@ -362,42 +372,49 @@ agentteams.audit.events
 - 增加 Model 与 AgentSpec/Worker 的绑定表和绑定查询。
 - 补齐 OpenAPI、权限矩阵、契约测试和迁移回滚说明。
 
+当前状态：目录、AgentSpec 基础、配置 ACK/重试、项目 IAM 基线和 Dashboard Summary 已落地；真实 Worker 回滚、Secret Manager 和全资源授权仍需继续。
+
 **出口条件**：创建 Provider → 创建 Model → 连接测试 → 创建 AgentSpec → 发布 revision 的链路可通过自动化测试。
 
-### 阶段 P1：Worker/Team 配置发布
+### 阶段 P1：Worker/Team 配置发布（当前主线）
 
 - 将 AgentSpec 映射到现有 Worker CRD 和 Operator。
 - 增加 revision、ACK、失败重试、回滚和优雅下线。
 - 完善 Worker/Team 管理 API、成员、Leader、文件和配置引用。
 - 增加 Worker 重启、Gateway 断线、NATS 重放、重复事件和旧 revision 拒绝测试。
+- 将当前 Control Plane 的绑定状态/重试 API 接到 Worker 实际回滚执行，并补充 Prometheus 指标和告警。
 
 **出口条件**：一个新 Worker 可通过 AgentSpec 完成注册、模型配置同步、任务执行、升级和回滚。
 
-### 阶段 P2：IAM、租户隔离与审计（可与 P1 并行）
+### 阶段 P2：IAM、租户隔离与审计（基线已落地，继续扩展）
 
 - Keycloak subject 与本地用户/项目成员映射。
 - OWNER/ADMIN/OPERATOR/DEVELOPER/VIEWER 角色和资源级鉴权。
 - 变更前后 revision 审计、Secret 操作审计和查询 API。
 - 租户隔离集成测试，覆盖越权读取、越权发布和跨项目事件。
+- 将项目角色校验接入 Model、Worker、Team、Skill、MCP、Task 和 Usage 全部资源端点。
 
-### 阶段 P3：Skill Registry（可与 P1 并行，依赖 AgentSpec 引用）
+### 阶段 P3：Skill Registry（注册基线已落地，继续完善）
 
 - Skill 导入、digest、manifest、版本和生命周期。
 - 安全校验、审核/发布、可见性、启停和绑定。
 - Worker 下载/挂载 Skill 的受控流程和失败回滚。
+- 接入真实包存储、恶意内容扫描、审核人/审核时间和 Worker/Team 绑定。
 
-### 阶段 P4：MCP Registry 与连接安全（可与 P3 并行）
+### 阶段 P4：MCP Registry 与连接安全（策略基线已落地，继续完善）
 
 - MCP Server CRUD、认证引用、传输适配和健康检查。
 - 工具发现、allowlist、出站域名策略、超时/限流/熔断。
 - MCP 工具调用审计、OTel span 和失败重试测试。
+- 接入真实连接器、工具发现缓存、探针分类、限流/熔断和策略拒绝指标。
 
-### 阶段 P5：使用分析与告警（可从现在并行启动）
+### 阶段 P5：使用分析与告警（Summary API 已落地，继续扩展）
 
 - 统一 usage event 和 model call usage 记录。
 - PostgreSQL 小规模聚合表、查询 API、Grafana Dashboard。
 - Worker/Task/Team/Model/Tool 维度、时间范围和 Token/估算成本。
 - Prometheus 告警与审计事件关联。
+- 增加 Worker/Task/Team/Tool 聚合、估算成本/配额和可直接导入的告警规则。
 
 ### 阶段 P6：模板、渠道和商业扩展
 
@@ -457,12 +474,12 @@ agentteams.audit.events
 
 ## 10. 推荐的下一步
 
-下一项应执行 **P0-A：Model Catalog 安全化 + AgentSpec v1 基础**，具体顺序为：
+下一项应执行 **P1-B：Worker 实际回滚与全资源授权收口**，并行推进 MCP/Skill 真实运行时安全：
 
-1. 为现有 Model Catalog 增加连接测试、协议/endpoint 校验和删除依赖检查。
-2. 建立 `AgentSpec` JSON Schema、版本化表和 `modelRef` 绑定。
-3. 将 AgentSpec 转换为当前 WorkerSpec，先实现只读预览和校验，再接入发布。
-4. 同步补充 API 契约测试、Secret 脱敏测试和 Flyway 集成测试。
-5. P0 通过后并行启动 IAM/Audit、Skill Registry、MCP Registry 和 Usage/Dashboard 四条轨道。
+1. 将配置绑定重试从“重发 Outbox 事件”接到 Worker 实际回滚/稳定版本选择，增加 observed revision 和失败原因。
+2. 把项目角色校验覆盖到 Model、AgentSpec、Worker、Team、Skill、MCP、Task、Usage 和 Audit API。
+3. 为 Provider 接入可插拔真实连接探针和 Secret Resolver，保留当前默认的 validation-only 安全模式。
+4. 为 MCP 接入真实工具发现/健康探针、限流熔断和调用审计；为 Skill 接入包存储与安全扫描器。
+5. 扩展 Dashboard 到 Worker/Task/Team/Tool、成本/配额与 Prometheus 告警规则。
 
-这样可以优先打通“模型配置 → AgentSpec → Worker 配置同步 → 任务执行 → 使用统计”的最短业务闭环，并为后续 Skill/MCP/模板能力提供稳定引用协议。
+这样可以优先把已具备的管理面能力变成可运行、可回滚、可审计的商业版闭环，并避免在真实 Secret/外部连接尚未具备时误发网络请求。

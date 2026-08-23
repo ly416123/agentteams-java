@@ -2,10 +2,14 @@ package io.agentteams.controlplane.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.config.ConfigDeploymentService;
+import io.agentteams.controlplane.config.ConfigBindingStatus;
+import io.agentteams.controlplane.config.ConfigApplyRecord;
+import io.agentteams.controlplane.config.ConfigBindingRecord;
 import io.agentteams.controlplane.config.ConfigSnapshot;
 import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.http.MediaType;
@@ -52,6 +56,19 @@ public final class ConfigController {
         return DeploymentResponse.from(deployment);
     }
 
+    @GetMapping("/bindings/{bindingId}")
+    public BindingStatusResponse bindingStatus(@PathVariable UUID bindingId) {
+        ConfigBindingStatus status = deployments.findBindingStatus(bindingId)
+                .orElseThrow(() -> new ResourceNotFoundException("config binding", bindingId));
+        PrincipalContext.requireScope(status.desiredSnapshot().manifestJson());
+        return BindingStatusResponse.from(status);
+    }
+
+    @PostMapping("/bindings/{bindingId}/retry")
+    public DeploymentResponse retry(@PathVariable UUID bindingId) {
+        return DeploymentResponse.from(deployments.retry(bindingId));
+    }
+
     @GetMapping(value = "/snapshots/{snapshotId}/manifest", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> manifest(@PathVariable UUID snapshotId) {
         ConfigSnapshot snapshot = snapshotRepository.findById(snapshotId)
@@ -76,6 +93,27 @@ public final class ConfigController {
         static DeploymentResponse from(ConfigDeploymentService.ConfigDeployment deployment) {
             return new DeploymentResponse(deployment.binding().id(), deployment.binding().agentId(),
                     deployment.snapshot().id(), deployment.snapshot().version(), deployment.eventId(), "PENDING");
+        }
+    }
+
+    public record BindingStatusResponse(BindingResponse binding, SnapshotResponse desiredSnapshot,
+            ApplyResponse apply) {
+        static BindingStatusResponse from(ConfigBindingStatus status) {
+            return new BindingStatusResponse(BindingResponse.from(status.binding()),
+                    SnapshotResponse.from(status.desiredSnapshot()), ApplyResponse.from(status.apply()));
+        }
+    }
+
+    public record BindingResponse(UUID id, String subject, UUID agentId, UUID snapshotId, Instant desiredAt) {
+        static BindingResponse from(ConfigBindingRecord binding) {
+            return new BindingResponse(binding.id(), binding.subject(), binding.agentId(), binding.snapshotId(),
+                    binding.desiredAt());
+        }
+    }
+
+    public record ApplyResponse(String phase, String error, Instant appliedAt) {
+        static ApplyResponse from(ConfigApplyRecord apply) {
+            return apply == null ? null : new ApplyResponse(apply.phase(), apply.errorMessage(), apply.appliedAt());
         }
     }
 }
