@@ -35,6 +35,9 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/model-providers")) {
             return Optional.of("GET".equals(method) ? Permission.MODEL_READ : Permission.MODEL_WRITE);
         }
+        if (path.startsWith("/api/v1/model-prices")) {
+            return Optional.of("GET".equals(method) ? Permission.MODEL_READ : Permission.MODEL_WRITE);
+        }
         if (path.startsWith("/api/v1/agent-specs")) {
             return Optional.of("GET".equals(method) ? Permission.AGENT_SPEC_READ : Permission.AGENT_SPEC_WRITE);
         }

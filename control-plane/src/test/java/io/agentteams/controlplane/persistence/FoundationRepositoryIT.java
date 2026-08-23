@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.agentteams.domain.agent.AgentPhase;
 import io.agentteams.domain.task.TaskAttempt;
 import io.agentteams.domain.task.TaskPhase;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -168,6 +169,59 @@ class FoundationRepositoryIT {
         assertThatThrownBy(() -> persistence.createTask(CreateTaskCommand.of(
                 "same-key", "different task", "description", "actor", "api", now)))
                 .isInstanceOf(IdempotencyConflictException.class);
+    }
+
+    @Test
+    void persistsPricesWithTenantProjectIsolationAndEffectiveLookup() {
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        ModelPriceRecord tenantA = new ModelPriceRecord(UUID.randomUUID(), "tenant-a", "project-a",
+                "openai", "gpt-4o", "USD", new BigDecimal("2.5"), new BigDecimal("10"),
+                now.minusSeconds(60), null, "ACTIVE", now, now, 0, "alice", "alice");
+        ModelPriceRecord tenantB = new ModelPriceRecord(UUID.randomUUID(), "tenant-b", "project-a",
+                "openai", "gpt-4o", "USD", new BigDecimal("99"), new BigDecimal("99"),
+                now.minusSeconds(60), null, "ACTIVE", now, now, 0, "bob", "bob");
+
+        assertThat(persistence.createModelPrice(tenantA, "same-key", "hash-a").id()).isEqualTo(tenantA.id());
+        assertThat(persistence.createModelPrice(tenantB, "same-key", "hash-b").id()).isEqualTo(tenantB.id());
+        assertThat(persistence.findModelPrices("tenant-a", "project-a"))
+                .extracting(ModelPriceRecord::id).containsExactly(tenantA.id());
+        assertThat(persistence.findEffectiveModelPrice("tenant-a", "project-a", "openai", "gpt-4o",
+                "USD", now)).hasValueSatisfying(price -> {
+                    assertThat(price.id()).isEqualTo(tenantA.id());
+                    assertThat(price.inputPricePerMillionTokens()).isEqualByComparingTo("2.5");
+                    assertThat(price.outputPricePerMillionTokens()).isEqualByComparingTo("10");
+                });
+        assertThat(persistence.findEffectiveModelPrice("tenant-b", "project-a", "openai", "gpt-4o",
+                "USD", now)).hasValueSatisfying(price -> {
+                    assertThat(price.id()).isEqualTo(tenantB.id());
+                    assertThat(price.inputPricePerMillionTokens()).isEqualByComparingTo("99");
+                    assertThat(price.outputPricePerMillionTokens()).isEqualByComparingTo("99");
+                });
+    }
+
+    @Test
+    void effectivePriceLookupExcludesDraftRetiredAndNotYetEffectiveRows() {
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        ModelPriceRecord draft = new ModelPriceRecord(UUID.randomUUID(), "tenant-a", "project-a",
+                "openai", "draft-model", "USD", BigDecimal.ONE, BigDecimal.ONE,
+                now.minusSeconds(60), null, "DRAFT", now, now, 0, "alice", "alice");
+        ModelPriceRecord retired = new ModelPriceRecord(UUID.randomUUID(), "tenant-a", "project-a",
+                "openai", "retired-model", "USD", BigDecimal.ONE, BigDecimal.ONE,
+                now.minusSeconds(60), null, "RETIRED", now, now, 0, "alice", "alice");
+        ModelPriceRecord future = new ModelPriceRecord(UUID.randomUUID(), "tenant-a", "project-a",
+                "openai", "future-model", "USD", BigDecimal.ONE, BigDecimal.ONE,
+                now.plusSeconds(60), null, "ACTIVE", now, now, 0, "alice", "alice");
+
+        persistence.createModelPrice(draft, "draft-key", "draft-hash");
+        persistence.createModelPrice(retired, "retired-key", "retired-hash");
+        persistence.createModelPrice(future, "future-key", "future-hash");
+
+        assertThat(persistence.findEffectiveModelPrice("tenant-a", "project-a", "openai", "draft-model",
+                "USD", now)).isEmpty();
+        assertThat(persistence.findEffectiveModelPrice("tenant-a", "project-a", "openai", "retired-model",
+                "USD", now)).isEmpty();
+        assertThat(persistence.findEffectiveModelPrice("tenant-a", "project-a", "openai", "future-model",
+                "USD", now)).isEmpty();
     }
 
     @Test

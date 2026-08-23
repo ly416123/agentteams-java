@@ -14,6 +14,8 @@ import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.AuthorizationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public final class AgentSpecService {
@@ -25,15 +27,40 @@ public final class AgentSpecService {
     private final AgentSpecRepository repository;
     private final AgentSpecModelCatalog modelCatalog;
     private final Clock clock;
+    private final AgentSpecSchemaValidator schemaValidator;
+    private final AgentSpecReferenceParser referenceParser;
+    private final AgentSpecReferenceValidator referenceValidator;
 
     public AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog) {
-        this(repository, modelCatalog, Clock.systemUTC());
+        this(repository, modelCatalog, Clock.systemUTC(), new AgentSpecSchemaValidator(),
+                new NoopAgentSpecReferenceValidator());
     }
 
     AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock) {
+        this(repository, modelCatalog, clock, new AgentSpecSchemaValidator(),
+                new NoopAgentSpecReferenceValidator());
+    }
+
+    AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock,
+            AgentSpecSchemaValidator schemaValidator) {
+        this(repository, modelCatalog, clock, schemaValidator, new NoopAgentSpecReferenceValidator());
+    }
+
+    @Autowired
+    public AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock,
+            ObjectProvider<AgentSpecReferenceValidator> referenceValidators) {
+        this(repository, modelCatalog, clock, new AgentSpecSchemaValidator(),
+                referenceValidators.getIfAvailable(NoopAgentSpecReferenceValidator::new));
+    }
+
+    AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock,
+            AgentSpecSchemaValidator schemaValidator, AgentSpecReferenceValidator referenceValidator) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.modelCatalog = Objects.requireNonNull(modelCatalog, "modelCatalog");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.schemaValidator = Objects.requireNonNull(schemaValidator, "schemaValidator");
+        this.referenceParser = new AgentSpecReferenceParser();
+        this.referenceValidator = Objects.requireNonNull(referenceValidator, "referenceValidator");
     }
 
     @Transactional
@@ -55,6 +82,7 @@ public final class AgentSpecService {
         String modelId = required(input.modelName(), "modelName");
         String desiredState = normalizeState(input.desiredState());
         String specJson = objectJson(input.specJson());
+        schemaValidator.validate(specJson);
         validateModelReference(providerName, modelId);
 
         Instant now = clock.instant();
@@ -157,6 +185,9 @@ public final class AgentSpecService {
             throw new IllegalArgumentException("cannot " + operation.toLowerCase()
                     + " agent spec from lifecycle status: " + current.lifecycleStatus());
         }
+        if ("PUBLISH".equals(operation)) {
+            validateReferences(current);
+        }
 
         Instant now = clock.instant();
         AgentSpecRecord next = new AgentSpecRecord(current.id(), current.name(), current.runtime(),
@@ -177,6 +208,20 @@ public final class AgentSpecService {
             throw new IllegalArgumentException("Idempotency-Key was already used with a different request");
         }
         return get(winner.specId());
+    }
+
+    private void validateReferences(AgentSpecRecord record) {
+        AgentSpecReferences references = referenceParser.parse(record.specJson())
+                .withModelRef(new AgentSpecReferences.ModelRef(record.modelProvider(), record.modelName()));
+        AgentSpecReferenceValidationRequest request = PrincipalContext.current()
+                .map(principal -> new AgentSpecReferenceValidationRequest(
+                        principal.scope().tenant(), principal.scope().project(), principal.scope().team(), references))
+                .orElseGet(() -> new AgentSpecReferenceValidationRequest(
+                        record.tenantId(), record.projectId(), record.teamRef(), references));
+        AgentSpecReferenceValidationResult result = referenceValidator.validate(request);
+        if (!result.isValid()) {
+            throw new AgentSpecReferenceValidationException(result);
+        }
     }
 
     private static String transitionHash(String operation, UUID id) {

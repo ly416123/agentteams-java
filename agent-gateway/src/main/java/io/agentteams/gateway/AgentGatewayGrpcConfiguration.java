@@ -5,6 +5,7 @@ import io.agentteams.contracts.v1.ServerMessage;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ConfigEventPort;
+import io.agentteams.application.api.QuotaReservationPort;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.Nats;
@@ -213,10 +214,18 @@ public class AgentGatewayGrpcConfiguration {
     @Bean(initMethod = "start", destroyMethod = "stop")
     public AgentGatewayGrpcServer agentGatewayGrpcServer(GrpcServerProperties properties,
             GrpcTlsProperties tlsProperties, AgentChannelService channelService, ObjectProvider<Tracer> tracers,
-            ObjectProvider<Propagator> propagators) {
+            ObjectProvider<Propagator> propagators, ObjectProvider<QuotaServiceHandler> quotaService) {
         return new AgentGatewayGrpcServer(properties.getPort(), properties.getShutdownTimeout(), channelService,
                 tlsProperties, new GrpcServerTracingInterceptor(
-                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
+                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)),
+                quotaService.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnBean(QuotaReservationPort.class)
+    @ConditionalOnMissingBean(QuotaServiceHandler.class)
+    public QuotaServiceHandler quotaServiceHandler(QuotaReservationPort reservations) {
+        return new QuotaServiceHandler(reservations);
     }
 
     private static Propagator tracingPropagator(ObjectProvider<Propagator> propagators) {

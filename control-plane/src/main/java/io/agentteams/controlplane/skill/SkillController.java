@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,11 +24,18 @@ public final class SkillController {
 
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final SkillService service;
+    private final SkillPackageStorageService packageStorage;
     private final ObjectMapper objectMapper;
 
     public SkillController(SkillService service, ObjectMapper objectMapper) {
+        this(service, objectMapper, null);
+    }
+
+    @Autowired
+    public SkillController(SkillService service, ObjectMapper objectMapper, SkillPackageStorageService packageStorage) {
         this.service = service;
         this.objectMapper = objectMapper;
+        this.packageStorage = packageStorage;
     }
 
     @PostMapping
@@ -74,6 +83,30 @@ public final class SkillController {
         return SkillVersionResponse.from(service.publish(skillId, versionId), objectMapper);
     }
 
+    @PostMapping("/{skillId}/versions/{versionId}/package/upload")
+    public PackageUploadResponse preparePackageUpload(@PathVariable UUID skillId, @PathVariable UUID versionId,
+            @RequestBody PackageUploadRequest request) {
+        requirePackageStorage();
+        requireRequest(request);
+        SkillPackageStorageService.SkillPackageUpload upload = packageStorage.prepareUpload(skillId, versionId,
+                new SkillPackageStorageService.PackageUploadInput(request.sizeBytes(), request.sha256(),
+                        request.contentType(), request.expirySeconds() == null ? null
+                                : Duration.ofSeconds(request.expirySeconds())));
+        return PackageUploadResponse.from(upload);
+    }
+
+    @PostMapping("/{skillId}/versions/{versionId}/package/complete")
+    public SkillVersionResponse completePackageUpload(@PathVariable UUID skillId, @PathVariable UUID versionId) {
+        requirePackageStorage();
+        return SkillVersionResponse.from(packageStorage.completeUpload(skillId, versionId), objectMapper);
+    }
+
+    @GetMapping("/{skillId}/versions/{versionId}/package/download")
+    public PackageDownloadResponse downloadPackage(@PathVariable UUID skillId, @PathVariable UUID versionId) {
+        requirePackageStorage();
+        return new PackageDownloadResponse(packageStorage.prepareDownload(skillId, versionId, Duration.ofMinutes(15)));
+    }
+
     @PostMapping("/{skillId}/versions/{versionId}/review")
     public SkillVersionResponse review(@PathVariable UUID skillId, @PathVariable UUID versionId,
             @RequestBody ReviewRequest request) {
@@ -105,6 +138,20 @@ public final class SkillController {
     public record ReviewRequest(String status) {
     }
 
+    public record PackageUploadRequest(long sizeBytes, String sha256, String contentType, Long expirySeconds) {
+    }
+
+    public record PackageUploadResponse(UUID skillId, UUID versionId, String storageKey, long sizeBytes,
+            String sha256, java.net.URL uploadUrl, java.net.URL downloadUrl) {
+        static PackageUploadResponse from(SkillPackageStorageService.SkillPackageUpload upload) {
+            return new PackageUploadResponse(upload.skillId(), upload.versionId(), upload.storageKey(),
+                    upload.sizeBytes(), upload.sha256(), upload.uploadUrl(), upload.downloadUrl());
+        }
+    }
+
+    public record PackageDownloadResponse(java.net.URL downloadUrl) {
+    }
+
     public record SkillResponse(UUID id, String name, String displayName, String description, String visibility,
             String lifecycle, Instant createdAt, Instant updatedAt, long version) {
 
@@ -116,14 +163,16 @@ public final class SkillController {
 
     public record SkillVersionResponse(UUID id, UUID skillId, String version, String digest, JsonNode manifest,
             String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion,
-            String securityScanStatus, String reviewStatus) {
+            String securityScanStatus, String reviewStatus, String packageStorageKey, Long packageSizeBytes,
+            String packageSha256, String packageUploadStatus) {
 
         static SkillVersionResponse from(SkillVersionRecord version, ObjectMapper objectMapper) {
             try {
                 return new SkillVersionResponse(version.id(), version.skillId(), version.version(), version.digest(),
                         objectMapper.readTree(version.manifestJson()), version.visibility(), version.lifecycle(),
                         version.createdAt(), version.updatedAt(), version.recordVersion(),
-                        version.securityScanStatus(), version.reviewStatus());
+                        version.securityScanStatus(), version.reviewStatus(), version.packageStorageKey(),
+                        version.packageSizeBytes(), version.packageSha256(), version.packageUploadStatus());
             } catch (IOException error) {
                 throw new IllegalStateException("stored skill manifest is not valid JSON", error);
             }
@@ -143,6 +192,12 @@ public final class SkillController {
     private static void requireRequest(Object request) {
         if (request == null) {
             throw new IllegalArgumentException("request body is required");
+        }
+    }
+
+    private void requirePackageStorage() {
+        if (packageStorage == null) {
+            throw new IllegalStateException("skill package object storage is not configured");
         }
     }
 

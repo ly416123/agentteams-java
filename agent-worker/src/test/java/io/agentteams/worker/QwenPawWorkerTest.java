@@ -25,12 +25,61 @@ class QwenPawWorkerTest {
         assertThat(configuration.gatewayHost()).isEqualTo("agentteams-agentteams-java-gateway");
         assertThat(configuration.gatewayPort()).isEqualTo(9090);
         assertThat(configuration.qwenPawEndpoint()).isEqualTo("http://qwenpaw:8088");
+        assertThat(configuration.modelProvider()).isEqualTo("qwenpaw");
+        assertThat(configuration.model()).isEqualTo("unknown");
+        assertThat(configuration.modelMaxTokens()).isEqualTo(1024);
+        assertThat(configuration.modelCallMaxConcurrent()).isEqualTo(1);
         assertThat(hello.getMetadata().getAgentId()).isEqualTo(configuration.agentId());
         assertThat(hello.getRuntimeName()).isEqualTo("qwenpaw");
         assertThat(hello.getProtocolVersion().getMajor()).isEqualTo(2);
         assertThat(hello.getCapabilitiesMap()).containsEntry("http-sse", "v1");
         assertThat(hello.getMetadata().getOccurredAt()).isEqualTo(Timestamp.newBuilder()
                 .setSeconds(Instant.parse("2026-08-19T00:00:00Z").getEpochSecond()).build());
+    }
+
+    @Test
+    void readsOptionalWorkerProjectScopeIntoRuntimeConfiguration() {
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_SCOPE_TENANT", "tenant-a",
+                "AGENTTEAMS_SCOPE_PROJECT", "project-a"));
+
+        assertThat(configuration.tenantId()).isEqualTo("tenant-a");
+        assertThat(configuration.projectId()).isEqualTo("project-a");
+        assertThat(configuration.runtimeConfiguration())
+                .containsEntry("tenant_id", "tenant-a")
+                .containsEntry("project_id", "project-a");
+    }
+
+    @Test
+    void rejectsPartialWorkerProjectScope() {
+        assertThatThrownBy(() -> QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_TENANT_ID", "tenant-a")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("tenant and project scope must be supplied together");
+    }
+
+    @Test
+    void enablesRemoteQuotaOnlyWithAnExplicitScopedConfiguration() {
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_SCOPE_TENANT", "tenant-a",
+                "AGENTTEAMS_SCOPE_PROJECT", "project-a",
+                "AGENTTEAMS_QUOTA_REMOTE_ENABLED", "true",
+                "AGENTTEAMS_QUOTA_TIMEOUT_SECONDS", "7"));
+
+        assertThat(configuration.quotaRemoteEnabled()).isTrue();
+        assertThat(configuration.quotaTimeout()).isEqualTo(java.time.Duration.ofSeconds(7));
+    }
+
+    @Test
+    void rejectsRemoteQuotaWithoutAProjectScope() {
+        assertThatThrownBy(() -> QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_QUOTA_REMOTE_ENABLED", "true")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("tenant and project scope must be supplied when remote quota is enabled");
     }
 
     @Test

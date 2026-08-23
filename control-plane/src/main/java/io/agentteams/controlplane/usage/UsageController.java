@@ -30,7 +30,7 @@ public final class UsageController {
     }
 
     public record UsageSummaryResponse(Instant from, Instant to, long calls, long failures,
-            long promptTokens, long completionTokens, double averageLatencyMillis,
+            long promptTokens, long completionTokens, double costUsd, double averageLatencyMillis,
             List<ProviderModelUsageResponse> byProviderModel,
             @JsonInclude(JsonInclude.Include.NON_NULL) String groupBy,
             @JsonInclude(JsonInclude.Include.NON_NULL) List<UsageGroupResponse> groups) {
@@ -39,7 +39,7 @@ public final class UsageController {
             UsageQueryService.UsageTotals totals = summary.totals();
             boolean legacyGrouping = groupBy == UsageQueryService.GroupBy.PROVIDER_MODEL;
             return new UsageSummaryResponse(summary.from(), summary.to(), totals.calls(), totals.failures(),
-                    totals.promptTokens(), totals.completionTokens(), totals.averageLatencyMillis(),
+                    totals.promptTokens(), totals.completionTokens(), totals.costUsd(), totals.averageLatencyMillis(),
                     legacyGrouping ? summary.groups().stream().map(ProviderModelUsageResponse::from).toList() : List.of(),
                     legacyGrouping ? null : groupBy.name().toLowerCase(java.util.Locale.ROOT),
                     legacyGrouping ? null : summary.groups().stream().map(UsageGroupResponse::from).toList());
@@ -47,20 +47,29 @@ public final class UsageController {
     }
 
     public record ProviderModelUsageResponse(String provider, String model, long calls, long failures,
-            long promptTokens, long completionTokens, double averageLatencyMillis) {
+            long promptTokens, long completionTokens, double costUsd, double averageLatencyMillis) {
 
         static ProviderModelUsageResponse from(UsageQueryService.UsageGroup group) {
             return new ProviderModelUsageResponse(group.provider(), group.model(), group.calls(), group.failures(),
-                    group.promptTokens(), group.completionTokens(), group.averageLatencyMillis());
+                    group.promptTokens(), group.completionTokens(), group.costUsd(), group.averageLatencyMillis());
         }
     }
 
     public record UsageGroupResponse(String provider, String model, String status, long calls, long failures,
-            long promptTokens, long completionTokens, double averageLatencyMillis) {
+            long promptTokens, long completionTokens, double costUsd, double averageLatencyMillis,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String dimension,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String dimensionValue) {
+
+        public UsageGroupResponse(String provider, String model, String status, long calls, long failures,
+                long promptTokens, long completionTokens, double costUsd, double averageLatencyMillis) {
+            this(provider, model, status, calls, failures, promptTokens, completionTokens, costUsd,
+                    averageLatencyMillis, null, null);
+        }
 
         static UsageGroupResponse from(UsageQueryService.UsageGroup group) {
             return new UsageGroupResponse(group.provider(), group.model(), group.status(), group.calls(),
-                    group.failures(), group.promptTokens(), group.completionTokens(), group.averageLatencyMillis());
+                    group.failures(), group.promptTokens(), group.completionTokens(), group.costUsd(),
+                    group.averageLatencyMillis(), group.dimension(), group.dimensionValue());
         }
     }
 }

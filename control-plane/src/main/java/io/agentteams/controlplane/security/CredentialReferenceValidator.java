@@ -12,7 +12,9 @@ public final class CredentialReferenceValidator {
                 || reference.indexOf('=') >= 0) {
             throw new IllegalArgumentException("credentialRef must be a secret reference, not inline credential data");
         }
-        if (!reference.matches("[A-Za-z0-9][A-Za-z0-9_./:@-]*")) {
+        // '#' is the fragment delimiter used by structured references such as
+        // k8s://namespace/secret#data-key; it is not credential material.
+        if (!reference.matches("[A-Za-z0-9][A-Za-z0-9_./:@#-]*")) {
             throw new IllegalArgumentException("credentialRef contains unsupported characters");
         }
         String lower = reference.toLowerCase(java.util.Locale.ROOT);

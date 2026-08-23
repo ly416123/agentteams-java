@@ -9,6 +9,7 @@ import io.agentteams.controlplane.persistence.ArtifactRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.TaskService;
 import java.net.URL;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.ObjectProvider;
 
 /** HTTP boundary for direct-to-object-storage task artifact uploads. */
 @RestController
@@ -36,19 +38,36 @@ public final class ArtifactController {
     private final ArtifactCompletionService completion;
     private final FoundationPersistenceService persistence;
     private final TaskService tasks;
+    private final ResourceScopeRepository resourceScopes;
 
     public ArtifactController(ArtifactService artifacts, ArtifactCompletionService completion,
             FoundationPersistenceService persistence, TaskService tasks) {
+        this(artifacts, completion, persistence, tasks, (ResourceScopeRepository) null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ArtifactController(ArtifactService artifacts, ArtifactCompletionService completion,
+            FoundationPersistenceService persistence, TaskService tasks,
+            ObjectProvider<ResourceScopeRepository> scopes) {
+        this(artifacts, completion, persistence, tasks, scopes.getIfAvailable());
+    }
+
+    ArtifactController(ArtifactService artifacts, ArtifactCompletionService completion,
+            FoundationPersistenceService persistence, TaskService tasks,
+            ResourceScopeRepository resourceScopes) {
         this.artifacts = artifacts;
         this.completion = completion;
         this.persistence = persistence;
         this.tasks = tasks;
+        this.resourceScopes = resourceScopes;
     }
 
     @org.springframework.web.bind.annotation.GetMapping
     public List<ArtifactResponse> list(@PathVariable UUID taskId, @PathVariable UUID attemptId) {
         requireArtifactScope(taskId, attemptId);
-        return persistence.findArtifactsByTaskIdAndAttemptId(taskId, attemptId).stream().map(this::response).toList();
+        return persistence.findArtifactsByTaskIdAndAttemptId(taskId, attemptId).stream()
+                .filter(artifact -> visible(artifact.id()))
+                .map(this::response).toList();
     }
 
     @org.springframework.web.bind.annotation.GetMapping("/{artifactId}")
@@ -58,6 +77,7 @@ public final class ArtifactController {
         ArtifactRecord record = persistence.findArtifact(artifactId)
                 .filter(artifact -> taskId.equals(artifact.taskId()) && attemptId.equals(artifact.attemptId()))
                 .orElseThrow(() -> new ResourceNotFoundException("artifact", artifactId));
+        requireVisible(record.id());
         return response(record);
     }
 
@@ -90,6 +110,8 @@ public final class ArtifactController {
         ArtifactRecord record = completion.complete(new ArtifactCompletionService.CompletionRequest(
                 taskId, attemptId, request.name(), request.storageKey(), request.contentType(), request.sizeBytes(),
                 request.sha256(), request.metadata() == null ? "{}" : request.metadata().toString()));
+        bindIfAuthenticated(record.id());
+        requireVisible(record.id());
         return ResponseEntity.ok(CompleteResponse.from(record));
     }
 
@@ -132,7 +154,25 @@ public final class ArtifactController {
                 .filter(candidate -> taskId.equals(candidate.taskId()))
                 .orElseThrow(() -> new ResourceNotFoundException("task attempt", attemptId));
         if (PrincipalContext.current().isPresent()) {
-            PrincipalContext.requireScope(tasks.get(taskId).specJson());
+            tasks.get(taskId);
+        }
+    }
+
+    private boolean visible(UUID artifactId) {
+        return resourceScopes == null || PrincipalContext.current().isEmpty()
+                || resourceScopes.visible("ARTIFACT", artifactId);
+    }
+
+    private void requireVisible(UUID artifactId) {
+        if (resourceScopes != null) {
+            resourceScopes.requireVisible("ARTIFACT", artifactId);
+        }
+    }
+
+    private void bindIfAuthenticated(UUID artifactId) {
+        if (resourceScopes != null) {
+            PrincipalContext.current().ifPresent(principal ->
+                    resourceScopes.bind("ARTIFACT", artifactId, principal, Instant.now()));
         }
     }
 }

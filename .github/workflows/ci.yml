@@ -51,7 +51,11 @@ jobs:
     # Keep the fast verification job on every push, but run the expensive
     # Kubernetes recovery suite only for PRs, the default branch, manual runs,
     # and the weekly scheduled run.
-    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -60,6 +64,31 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Cache grpcurl
+        id: cache-grpcurl
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/grpcurl
+          key: grpcurl-v1.9.3-linux-x86_64
+      - name: Install grpcurl
+        if: steps.cache-grpcurl.outputs.cache-hit != 'true'
+        env:
+          GRPCURL_VERSION: v1.9.3
+        run: |
+          set -euo pipefail
+          install_dir="$HOME/.local/bin"
+          archive="grpcurl_${GRPCURL_VERSION#v}_linux_x86_64.tar.gz"
+          mkdir -p "$install_dir"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "/tmp/$archive" \
+            "https://github.com/fullstorydev/grpcurl/releases/download/${GRPCURL_VERSION}/$archive"
+          tar -xzf "/tmp/$archive" -C "$install_dir" grpcurl
+          chmod +x "$install_dir/grpcurl"
+      - name: Add grpcurl to PATH
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "GRPCURL_BIN=$HOME/.local/bin/grpcurl" >> "$GITHUB_ENV"
+          "$HOME/.local/bin/grpcurl" -help >/dev/null
       - name: Install manifest validation dependencies
         run: python -m pip install --disable-pip-version-check pyyaml
       - name: Set up kubectl
@@ -196,6 +225,34 @@ jobs:
             sleep 2
           done
           echo "AGENTTEAMS_AGENT_ID=$AGENT_ID" >> "$GITHUB_ENV"
+      - name: Run Kind quota recovery test
+        run: |
+          set -euo pipefail
+          test -n "$AGENTTEAMS_AGENT_ID"
+          python scripts/run-kind-quota-recovery.py
+      - name: Run Kind resource binding ACK acceptance
+        env:
+          AGENTTEAMS_CONTROL_PLANE_URL: http://127.0.0.1:18080
+        run: |
+          set -euo pipefail
+          test -n "$AGENTTEAMS_CONTROL_PLANE_URL"
+          test -n "$AGENTTEAMS_AGENT_ID"
+          python scripts/run-kind-resource-binding-ack.py \
+            --base-url "$AGENTTEAMS_CONTROL_PLANE_URL" \
+            --agent-id "$AGENTTEAMS_AGENT_ID"
+      - name: Run Kind config rollback acceptance
+        env:
+          AGENTTEAMS_CONTROL_PLANE_URL: http://127.0.0.1:18080
+        run: python scripts/run-kind-config-rollback.py
+      - name: Run Kind resource binding ACK test
+        env:
+          AGENTTEAMS_CONTROL_PLANE_URL: http://127.0.0.1:18080
+          AGENTTEAMS_AGENT_ID: ${{ env.AGENTTEAMS_AGENT_ID }}
+        run: |
+          set -euo pipefail
+          python scripts/run-kind-resource-binding-ack.py \
+            --base-url "$AGENTTEAMS_CONTROL_PLANE_URL" \
+            --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind lease recovery test
         run: python scripts/run-kind-lease-recovery.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind task idempotency test
@@ -252,6 +309,15 @@ jobs:
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select event_type,aggregate_id,created_at,payload from domain_events order by created_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/domain-events.txt 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select tenant_id,project_id,current_concurrent_calls,daily_calls,daily_tokens,max_concurrent_calls,max_daily_calls,max_daily_tokens,usage_day,updated_at from project_quota_policies order by updated_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/quota-policies.txt 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select reservation_id,tenant_id,project_id,acquire_idempotency_key,estimated_tokens,state,created_at,updated_at from quota_reservations order by updated_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/quota-reservations.txt 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select tenant_id,project_id,reservation_id,idempotency_key,accepted,protocol_error,created_at from quota_reservation_releases order by created_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/quota-releases.txt 2>&1 || true
       - name: Upload Kind recovery diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -262,7 +328,11 @@ jobs:
           retention-days: 14
 
   kind-oidc:
-    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

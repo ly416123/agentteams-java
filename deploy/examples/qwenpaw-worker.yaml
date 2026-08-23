@@ -17,6 +17,12 @@ spec:
     AGENTTEAMS_CONFIG_MANIFEST_BASE_URL: http://agentteams-agentteams-java-control-plane:8080
     AGENTTEAMS_CONFIG_DIRECTORY: /tmp/agentteams-config
     AGENTTEAMS_MAX_CONFIG_FILE_BYTES: "16777216"
+    # Remote quota is opt-in. If enabled, set both scope values to the same
+    # tenant/project used by the caller; blank scopes keep this example safe.
+    AGENTTEAMS_QUOTA_REMOTE_ENABLED: "false"
+    AGENTTEAMS_QUOTA_TIMEOUT_SECONDS: "3"
+    AGENTTEAMS_SCOPE_TENANT: ""
+    AGENTTEAMS_SCOPE_PROJECT: ""
     # Worker tracing is disabled by default. Set the endpoint to the same
     # OTLP/HTTP collector used by Control Plane and Gateway to enable it.
     AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: "false"

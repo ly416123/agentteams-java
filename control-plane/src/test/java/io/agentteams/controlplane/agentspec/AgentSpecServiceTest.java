@@ -62,6 +62,19 @@ class AgentSpecServiceTest {
     }
 
     @Test
+    void rejectsMalformedOrDuplicateRuntimeReferencesBeforeCreatingSpec() {
+        assertThatThrownBy(() -> service.create("bad-spec", new AgentSpecService.Input(
+                "analyst", "qwenpaw", "deepseek", "deepseek-chat", null, "RUNNING",
+                "{\"skillRefs\":[\"search-v1\",\"search-v1\"]}")))
+                .hasMessageContaining("unique non-blank references");
+
+        assertThatThrownBy(() -> service.create("bad-spec-json", new AgentSpecService.Input(
+                "analyst", "qwenpaw", "deepseek", "deepseek-chat", null, "RUNNING", "[]")))
+                .hasMessage("spec must be a JSON object");
+        verify(repository, never()).insert(any());
+    }
+
+    @Test
     void rejectsUnknownProviderBeforeCreatingSpec() {
         when(modelCatalog.findProviderByName("missing")).thenReturn(Optional.empty());
 
@@ -146,6 +159,27 @@ class AgentSpecServiceTest {
         assertThat(disabled.lifecycleStatus()).isEqualTo("DISABLED");
         assertThat(disabled.version()).isEqualTo(3);
         verify(repository).updateLifecycle(disabled, 2);
+    }
+
+    @Test
+    void publishesOnlyWhenInjectedReferenceValidatorReturnsValid() {
+        AgentSpecRecord draft = record("DRAFT", 1);
+        when(repository.findIdempotency("reference-key")).thenReturn(Optional.empty());
+        when(repository.findById(draft.id())).thenReturn(Optional.of(draft));
+        AgentSpecReferenceValidationResult invalid = new AgentSpecReferenceValidationResult(
+                AgentSpecReferenceValidationResult.Category.PROJECT_NOT_VISIBLE,
+                List.of(new AgentSpecReferenceValidationResult.Violation(
+                        new AgentSpecReference(AgentSpecReferenceType.SKILL, "private"),
+                        AgentSpecReferenceValidationResult.Category.PROJECT_NOT_VISIBLE,
+                        "outside project")));
+        AgentSpecService secured = new AgentSpecService(repository, modelCatalog, Clock.fixed(NOW, ZoneOffset.UTC),
+                new AgentSpecSchemaValidator(), request -> invalid);
+
+        assertThatThrownBy(() -> secured.publish("reference-key", draft.id()))
+                .isInstanceOf(AgentSpecReferenceValidationException.class)
+                .extracting(error -> ((AgentSpecReferenceValidationException) error).category())
+                .isEqualTo(AgentSpecReferenceValidationResult.Category.PROJECT_NOT_VISIBLE);
+        verify(repository, never()).updateLifecycle(any(), any(Long.class));
     }
 
     @Test

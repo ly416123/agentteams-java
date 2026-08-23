@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,6 +17,11 @@ import io.agentteams.controlplane.persistence.ArtifactRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.service.TaskService;
+import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.domain.task.TaskPhase;
 import java.net.URL;
 import java.time.Instant;
@@ -40,12 +46,15 @@ class ArtifactControllerTest {
     private FoundationPersistenceService persistence;
     @Mock
     private TaskService tasks;
+    @Mock
+    private ResourceScopeRepository resourceScopes;
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new ArtifactController(artifacts, completion, persistence, tasks))
+        mockMvc = MockMvcBuilders.standaloneSetup(
+                new ArtifactController(artifacts, completion, persistence, tasks, resourceScopes))
                 .setControllerAdvice(new ApiErrorHandler()).build();
     }
 
@@ -130,6 +139,32 @@ class ArtifactControllerTest {
                         artifactId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("result.json"));
+    }
+
+    @Test
+    void rejectsAnArtifactReadFromAnotherProject() throws Exception {
+        UUID taskId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+        UUID artifactId = UUID.randomUUID();
+        String key = "tasks/" + taskId + "/attempts/" + attemptId + "/artifacts/result.json";
+        ArtifactRecord record = new ArtifactRecord(artifactId, taskId, attemptId, "result.json", key,
+                "application/json", 7, "abc", "AVAILABLE", "{}", Instant.now(), Instant.now(), 0);
+        when(persistence.findTaskAttempt(attemptId)).thenReturn(java.util.Optional.of(attempt(taskId, attemptId)));
+        when(persistence.findArtifact(artifactId)).thenReturn(java.util.Optional.of(record));
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                java.util.Set.of("artifact:read")));
+        doThrow(new AuthorizationException("resource is outside caller project"))
+                .when(resourceScopes).requireVisible("ARTIFACT", artifactId);
+        try {
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                            "/api/v1/tasks/{taskId}/attempts/{attemptId}/artifacts/{artifactId}", taskId, attemptId,
+                            artifactId))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        } finally {
+            PrincipalContext.clear();
+        }
     }
 
     private static TaskAttemptRecord attempt(UUID taskId, UUID attemptId) {

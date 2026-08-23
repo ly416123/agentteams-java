@@ -24,9 +24,14 @@ import io.agentteams.runtime.GatewayRuntimeAdapter;
 import io.agentteams.runtime.QwenPawHttpRuntimeConfiguration;
 import io.agentteams.runtime.QwenPawHttpRuntimePort;
 import io.agentteams.runtime.QwenPawRuntime;
+import io.agentteams.runtime.ProjectScopedRuntimeModelCallAdmission;
+import io.agentteams.runtime.GrpcRuntimeQuotaPort;
+import io.agentteams.runtime.RuntimeModelCallAdmission;
+import io.agentteams.runtime.RuntimeQuotaPort;
 import io.agentteams.runtime.RuntimeResult;
 import io.agentteams.runtime.RuntimeResultSink;
 import io.agentteams.runtime.RuntimeSubmission;
+import io.agentteams.runtime.SemaphoreRuntimeModelCallAdmission;
 import io.agentteams.runtime.RuntimeConfigCoordinator;
 import io.agentteams.runtime.RuntimeConfigPrepared;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
@@ -93,6 +98,10 @@ public final class QwenPawWorker implements AutoCloseable {
     private final Set<UUID> runningTasks = ConcurrentHashMap.newKeySet();
 
     private QwenPawWorker(WorkerConfiguration configuration) {
+        this(configuration, null);
+    }
+
+    QwenPawWorker(WorkerConfiguration configuration, RuntimeQuotaPort quotaPort) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.clock = Clock.systemUTC();
         this.tracing = WorkerTracing.create();
@@ -106,11 +115,14 @@ public final class QwenPawWorker implements AutoCloseable {
                 this::onDisconnected);
         this.channelClient = new AgentChannelClient(configuration.agentId(), channelPort, clock,
                 configuration.reconnectDelay());
+        RuntimeQuotaPort effectiveQuotaPort = quotaPort == null
+                ? remoteQuotaPort(configuration, gatewayChannel, clock) : quotaPort;
         QwenPawHttpRuntimeConfiguration qwenPawConfiguration = new QwenPawHttpRuntimeConfiguration(
                 URI.create(configuration.qwenPawEndpoint()), configuration.qwenPawAgentId(),
                 configuration.qwenPawAuthorizationToken(), configuration.qwenPawConnectTimeout(),
                 configuration.qwenPawUserId(), configuration.qwenPawChannel(), configuration.qwenPawConfigurationPath());
-        this.runtime = new QwenPawRuntime(new QwenPawHttpRuntimePort(qwenPawConfiguration));
+        this.runtime = new QwenPawRuntime(new QwenPawHttpRuntimePort(qwenPawConfiguration),
+                modelCallAdmission(configuration, effectiveQuotaPort));
         this.manifestFetcher = new ConfigManifestFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
         this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
@@ -137,6 +149,27 @@ public final class QwenPawWorker implements AutoCloseable {
 
     public static QwenPawWorker fromEnvironment() {
         return new QwenPawWorker(WorkerConfiguration.fromEnvironment());
+    }
+
+    /** Composition hook for an application-provided quota adapter. */
+    public static QwenPawWorker fromEnvironment(RuntimeQuotaPort quotaPort) {
+        return new QwenPawWorker(WorkerConfiguration.fromEnvironment(), quotaPort);
+    }
+
+    static RuntimeModelCallAdmission modelCallAdmission(WorkerConfiguration configuration,
+            RuntimeQuotaPort quotaPort) {
+        RuntimeModelCallAdmission local = new SemaphoreRuntimeModelCallAdmission(
+                configuration.modelCallMaxConcurrent());
+        return quotaPort == null
+                ? local
+                : new ProjectScopedRuntimeModelCallAdmission(quotaPort, local);
+    }
+
+    static RuntimeQuotaPort remoteQuotaPort(WorkerConfiguration configuration,
+            ManagedChannel channel, Clock clock) {
+        if (!configuration.quotaRemoteEnabled()) return null;
+        return new GrpcRuntimeQuotaPort(channel, configuration.agentId(), clock,
+                configuration.quotaTimeout(), () -> "");
     }
 
     private static ManagedChannel gatewayChannel(WorkerConfiguration configuration,
@@ -247,24 +280,37 @@ public final class QwenPawWorker implements AutoCloseable {
         } catch (Exception failure) {
             errorMessage = truncate(rootMessage(failure));
         }
-        EventMetadata metadata = input.toBuilder()
-                .setEventId(UUID.nameUUIDFromBytes(("config-applied:" + input.getEventId() + ":" + applied)
-                        .getBytes(StandardCharsets.UTF_8)).toString())
-                .setOccurredAt(timestamp(clock.instant()))
-                .build();
-        channelPort.send(AgentMessage.newBuilder().setConfigApplied(ConfigApplied.newBuilder()
-                .setMetadata(metadata)
-                .setConfigVersion(changed.getConfigVersion())
-                .setApplied(applied)
-                .setErrorMessage(errorMessage)
-                .setBindingId(changed.getBindingId())
-                .setSnapshotId(changed.getSnapshotId())
-                .build()).build());
+        channelPort.send(AgentMessage.newBuilder()
+                .setConfigApplied(configApplied(changed, applied, errorMessage, clock)).build());
         System.out.printf("ConfigChanged completed agent=%s version=%d applied=%s error=%s%n",
                 configuration.agentId(), changed.getConfigVersion(), applied, errorMessage);
         if (input.getSequence() > 0) {
             acknowledge(input);
         }
+    }
+
+    /**
+     * Builds the wire-compatible configuration ACK. Resource binding details
+     * stay in the bounded error_message because ConfigApplied has no repeated
+     * per-binding result field.
+     */
+    static ConfigApplied configApplied(ConfigChanged changed, boolean applied, String errorMessage, Clock clock) {
+        Objects.requireNonNull(changed, "changed");
+        Objects.requireNonNull(clock, "clock");
+        EventMetadata input = changed.getMetadata();
+        EventMetadata metadata = input.toBuilder()
+                .setEventId(UUID.nameUUIDFromBytes(("config-applied:" + input.getEventId() + ":" + applied)
+                        .getBytes(StandardCharsets.UTF_8)).toString())
+                .setOccurredAt(timestamp(clock.instant()))
+                .build();
+        return ConfigApplied.newBuilder()
+                .setMetadata(metadata)
+                .setConfigVersion(changed.getConfigVersion())
+                .setApplied(applied)
+                .setErrorMessage(applied ? "" : truncate(errorMessage))
+                .setBindingId(changed.getBindingId())
+                .setSnapshotId(changed.getSnapshotId())
+                .build();
     }
 
     static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,
@@ -285,6 +331,10 @@ public final class QwenPawWorker implements AutoCloseable {
             JsonNode root = new ObjectMapper().readTree(manifestJson);
             if (root == null || !root.isObject()) {
                 throw new IllegalArgumentException("configuration manifest must be a JSON object");
+            }
+            ResourceBindingLoader.LoadResult resourceBindings = ResourceBindingLoader.load(root);
+            if (!resourceBindings.successful()) {
+                throw new IllegalArgumentException(resourceBindings.failureMessage());
             }
             Map<String, String> values = new LinkedHashMap<>();
             root.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().isTextual()
@@ -490,6 +540,14 @@ public final class QwenPawWorker implements AutoCloseable {
             String qwenPawUserId,
             String qwenPawChannel,
             String qwenPawConfigurationPath,
+            String modelProvider,
+            String model,
+            int modelMaxTokens,
+            int modelCallMaxConcurrent,
+            String tenantId,
+            String projectId,
+            boolean quotaRemoteEnabled,
+            Duration quotaTimeout,
             Duration qwenPawConnectTimeout,
             Duration reconnectDelay,
             String runtimeVersion,
@@ -508,6 +566,17 @@ public final class QwenPawWorker implements AutoCloseable {
         }
 
         static WorkerConfiguration from(Map<String, String> environment) {
+            int maxConcurrentTasks = integer(environment, "AGENTTEAMS_MAX_CONCURRENT_TASKS", 1);
+            String tenantId = scopedValue(environment, "AGENTTEAMS_SCOPE_TENANT", "AGENTTEAMS_TENANT_ID");
+            String projectId = scopedValue(environment, "AGENTTEAMS_SCOPE_PROJECT", "AGENTTEAMS_PROJECT_ID");
+            boolean quotaRemoteEnabled = booleanValue(environment, "AGENTTEAMS_QUOTA_REMOTE_ENABLED", false);
+            if ((tenantId == null) != (projectId == null)) {
+                throw new IllegalArgumentException("tenant and project scope must be supplied together");
+            }
+            if (quotaRemoteEnabled && (tenantId == null || projectId == null)) {
+                throw new IllegalArgumentException(
+                        "tenant and project scope must be supplied when remote quota is enabled");
+            }
             return new WorkerConfiguration(
                     required(environment, "AGENTTEAMS_AGENT_ID"),
                     value(environment, "AGENTTEAMS_GATEWAY_HOST", "agentteams-agentteams-java-gateway"),
@@ -525,10 +594,18 @@ public final class QwenPawWorker implements AutoCloseable {
                     value(environment, "QWENPAW_USER_ID", "agentteams"),
                     value(environment, "QWENPAW_CHANNEL", "console"),
                     value(environment, "QWENPAW_CONFIG_PATH", "/api/models/active"),
+                    value(environment, "AGENTTEAMS_MODEL_PROVIDER", "qwenpaw"),
+                    value(environment, "AGENTTEAMS_MODEL", "unknown"),
+                    integer(environment, "AGENTTEAMS_MODEL_MAX_TOKENS", 1024),
+                    integer(environment, "AGENTTEAMS_MODEL_CALL_MAX_CONCURRENT", maxConcurrentTasks),
+                    tenantId,
+                    projectId,
+                    quotaRemoteEnabled,
+                    Duration.ofSeconds(integer(environment, "AGENTTEAMS_QUOTA_TIMEOUT_SECONDS", 3)),
                     Duration.ofSeconds(integer(environment, "QWENPAW_CONNECT_TIMEOUT_SECONDS", 10)),
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_RECONNECT_DELAY_SECONDS", 2)),
                     value(environment, "AGENTTEAMS_RUNTIME_VERSION", "0.1.0"),
-                    integer(environment, "AGENTTEAMS_MAX_CONCURRENT_TASKS", 1),
+                    maxConcurrentTasks,
                     longValue(environment, "AGENTTEAMS_MAX_WORKSPACE_BYTES", 2L * 1024 * 1024 * 1024),
                     longValue(environment, "AGENTTEAMS_MAX_ARTIFACT_BYTES", 2L * 1024 * 1024 * 1024),
                     integer(environment, "AGENTTEAMS_WORKER_HEALTH_PORT", 9090),
@@ -540,12 +617,20 @@ public final class QwenPawWorker implements AutoCloseable {
         }
 
         Map<String, String> runtimeConfiguration() {
-            return Map.of(
+            Map<String, String> values = new LinkedHashMap<>(Map.of(
                     "gatewayHost", gatewayHost,
                     "gatewayPort", Integer.toString(gatewayPort),
                     "qwenPawEndpoint", qwenPawEndpoint,
                     "qwenPawAgentId", qwenPawAgentId,
-                    "qwenPawConfigurationPath", qwenPawConfigurationPath);
+                    "qwenPawConfigurationPath", qwenPawConfigurationPath,
+                    "provider_id", modelProvider,
+                    "model", model,
+                    "modelMaxTokens", Integer.toString(modelMaxTokens)));
+            if (tenantId != null) {
+                values.put("tenant_id", tenantId);
+                values.put("project_id", projectId);
+            }
+            return Map.copyOf(values);
         }
 
         private static String required(Map<String, String> environment, String name) {
@@ -569,6 +654,12 @@ public final class QwenPawWorker implements AutoCloseable {
         private static String value(Map<String, String> environment, String name, String fallback) {
             String result = optional(environment, name);
             return result == null ? fallback : result;
+        }
+
+        private static String scopedValue(Map<String, String> environment, String primaryName,
+                String compatibilityName) {
+            String result = optional(environment, primaryName);
+            return result == null ? optional(environment, compatibilityName) : result;
         }
 
         private static boolean booleanValue(Map<String, String> environment, String name, boolean fallback) {

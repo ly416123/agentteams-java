@@ -25,39 +25,65 @@ public final class SkillService {
     private final Clock clock;
     private final SkillPackageValidator packageValidator;
     private final SkillSecurityScanner securityScanner;
+    private final SkillScanApprovalPort scanApproval;
     private final ControlPlaneMetrics metrics;
     private final ResourceScopeRepository resourceScopes;
+    private final SkillPackageStorageService packageStorage;
 
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner) {
-        this(repository, idempotency, clock, packageValidator, securityScanner, null);
+        this(repository, idempotency, clock, packageValidator, securityScanner,
+                new SafeDefaultSkillScanApprovalPort(), null, null, null);
+    }
+
+    public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
+            SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner,
+            SkillScanApprovalPort scanApproval) {
+        this(repository, idempotency, clock, packageValidator, securityScanner,
+                scanApproval, null, null, null);
     }
 
     private SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner,
-            ControlPlaneMetrics metrics) {
-        this(repository, idempotency, clock, packageValidator, securityScanner, metrics, null);
+            SkillScanApprovalPort scanApproval, ControlPlaneMetrics metrics) {
+        this(repository, idempotency, clock, packageValidator, securityScanner,
+                scanApproval, metrics, null, null);
     }
 
     private SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner,
-            ControlPlaneMetrics metrics, ResourceScopeRepository resourceScopes) {
+            SkillScanApprovalPort scanApproval, ControlPlaneMetrics metrics, ResourceScopeRepository resourceScopes,
+            SkillPackageStorageService packageStorage) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.packageValidator = Objects.requireNonNull(packageValidator, "packageValidator");
         this.securityScanner = Objects.requireNonNull(securityScanner, "securityScanner");
+        this.scanApproval = Objects.requireNonNull(scanApproval, "scanApproval");
         this.metrics = metrics;
         this.resourceScopes = resourceScopes;
+        this.packageStorage = packageStorage;
     }
 
     @Autowired
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
             SkillPackageValidator packageValidator, ObjectProvider<SkillSecurityScanner> scanners,
+            ObjectProvider<ControlPlaneMetrics> metrics, ObjectProvider<ResourceScopeRepository> scopes,
+            ObjectProvider<SkillPackageStorageService> packageStorage,
+            ObjectProvider<SkillScanApprovalPort> approvals) {
+        this(repository, idempotency, clock, packageValidator,
+                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new),
+                approvals.getIfAvailable(SafeDefaultSkillScanApprovalPort::new), metrics.getIfAvailable(),
+                scopes.getIfAvailable(), packageStorage.getIfAvailable());
+    }
+
+    /** Compatibility constructor for integrations that predate the package and approval ports. */
+    public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
+            SkillPackageValidator packageValidator, ObjectProvider<SkillSecurityScanner> scanners,
             ObjectProvider<ControlPlaneMetrics> metrics, ObjectProvider<ResourceScopeRepository> scopes) {
         this(repository, idempotency, clock, packageValidator,
-                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new), metrics.getIfAvailable(),
-                scopes.getIfAvailable());
+                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new),
+                new SafeDefaultSkillScanApprovalPort(), metrics.getIfAvailable(), scopes.getIfAvailable(), null);
     }
 
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock) {
@@ -127,17 +153,17 @@ public final class SkillService {
         if (!skillId.equals(version.skillId())) {
             throw new IllegalArgumentException("skill version does not belong to skill");
         }
+        if (!"COMPLETED".equals(version.packageUploadStatus())) {
+            throw new SkillPackageValidationException("skill package upload must be completed before publishing");
+        }
         packageValidator.validate(version.version(), version.digest(), version.manifestJson());
+        if (packageStorage != null && packageStorage.archiveScanningAvailable()) {
+            SkillSecurityScanner.ScanResult archiveScan = packageStorage.scanCompletedPackage(skillId, versionId);
+            version = persistAndResolveScan(skillId, versionId, version, archiveScan, "skill package security scan");
+        }
         SkillSecurityScanner.ScanResult scan = securityScanner.scan(version.manifestJson());
-        if (scan.status() == SkillSecurityScanner.ScanResult.Status.PASSED) {
-            if (metrics != null) metrics.skillScanPassed();
-        } else if (metrics != null) {
-            metrics.skillScanFailed();
-        }
-        SkillVersionRecord scanned = repository.markSecurityScan(skillId, versionId, scan.status().name(), clock.instant());
-        if (scan.status() != SkillSecurityScanner.ScanResult.Status.PASSED) {
-            throw new SkillPackageValidationException("skill security scan failed: " + scan.classification());
-        }
+        SkillVersionRecord scanned = persistAndResolveScan(skillId, versionId, version, scan,
+                "skill security scan");
         if (!"APPROVED".equals(scanned.reviewStatus())) {
             throw new SkillPackageValidationException("skill version requires an approved security review");
         }
@@ -200,5 +226,85 @@ public final class SkillService {
             throw new IllegalArgumentException(field + " is required");
         }
         return value.trim();
+    }
+
+    private static boolean isPassed(SkillSecurityScanner.ScanResult.Status status) {
+        return status == SkillSecurityScanner.ScanResult.Status.PASS
+                || status == SkillSecurityScanner.ScanResult.Status.PASSED;
+    }
+
+    private SkillVersionRecord persistAndResolveScan(UUID skillId, UUID versionId, SkillVersionRecord version,
+            SkillSecurityScanner.ScanResult scan, String failurePrefix) {
+        SkillSecurityScanner.ScanResult safeScan = scan == null
+                ? new SkillSecurityScanner.ScanResult(SkillSecurityScanner.ScanResult.Status.REVIEW_REQUIRED,
+                        "SCAN_INVALID_RESULT", null)
+                : scan;
+        if (isPassed(safeScan.status())) {
+            if (metrics != null) metrics.skillScanPassed();
+        } else if (metrics != null) {
+            metrics.skillScanFailed();
+        }
+        SkillVersionRecord scanned = repository.markSecurityScan(skillId, versionId,
+                persistedScanStatus(safeScan.status()), clock.instant());
+        if (isPassed(safeScan.status())) {
+            return scanned;
+        }
+        if (safeScan.status() != SkillSecurityScanner.ScanResult.Status.REVIEW_REQUIRED) {
+            throw new SkillPackageValidationException(failurePrefix + " failed: " + safeScan.classification());
+        }
+
+        // An explicit operator approval remains valid for this immutable version. This keeps the
+        // existing /review endpoint useful when an asynchronous approval system returns PENDING.
+        if ("APPROVED".equals(version.reviewStatus()) || "APPROVED".equals(scanned.reviewStatus())) {
+            return scanned;
+        }
+        SkillScanApprovalPort.ApprovalStatus approval = requestApproval(skillId, versionId, version,
+                safeScan.classification());
+        if (approval == SkillScanApprovalPort.ApprovalStatus.APPROVED) {
+            return recordApproval(skillId, versionId);
+        }
+        if (approval == SkillScanApprovalPort.ApprovalStatus.REJECTED) {
+            recordRejection(skillId, versionId);
+            throw new SkillPackageValidationException(failurePrefix + " review rejected: "
+                    + safeScan.classification());
+        }
+        throw new SkillPackageValidationException(failurePrefix + " requires an approved security review: "
+                + safeScan.classification());
+    }
+
+    private SkillScanApprovalPort.ApprovalStatus requestApproval(UUID skillId, UUID versionId,
+            SkillVersionRecord version, String classification) {
+        String safeClassification = safeClassification(classification);
+        try {
+            SkillScanApprovalPort.ApprovalStatus status = scanApproval.onReviewRequired(
+                    new SkillScanApprovalPort.ApprovalRequest(skillId, versionId, safeClassification,
+                            version.digest()));
+            return status == null ? SkillScanApprovalPort.ApprovalStatus.PENDING : status;
+        } catch (RuntimeException ignored) {
+            // Approval integrations are fail-closed: an unavailable or malformed callback cannot
+            // turn a review-required result into an approval.
+            return SkillScanApprovalPort.ApprovalStatus.PENDING;
+        }
+    }
+
+    private SkillVersionRecord recordApproval(UUID skillId, UUID versionId) {
+        SkillVersionRecord approved = repository.review(skillId, versionId, "APPROVED", clock.instant());
+        if (metrics != null) metrics.skillReviewApproved();
+        return approved;
+    }
+
+    private void recordRejection(UUID skillId, UUID versionId) {
+        repository.review(skillId, versionId, "REJECTED", clock.instant());
+        if (metrics != null) metrics.skillReviewRejected();
+    }
+
+    private static String safeClassification(String value) {
+        if (value == null || value.isBlank()) return "REVIEW_REQUIRED";
+        String normalized = value.replaceAll("[^A-Za-z0-9_.:-]", "_");
+        return normalized.length() <= 120 ? normalized : normalized.substring(0, 120);
+    }
+
+    private static String persistedScanStatus(SkillSecurityScanner.ScanResult.Status status) {
+        return isPassed(status) ? "PASSED" : "FAILED";
     }
 }

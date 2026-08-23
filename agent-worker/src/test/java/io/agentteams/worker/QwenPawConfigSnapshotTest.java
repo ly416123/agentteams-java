@@ -59,4 +59,25 @@ class QwenPawConfigSnapshotTest {
         assertThat(java.nio.file.Files.readString(snapshot.files().get("models/provider.json")))
                 .isEqualTo("provider-config");
     }
+
+    @Test
+    void rejectsInvalidResourceBindingBeforeStagingAnyFiles(@TempDir Path directory) throws Exception {
+        String manifest = "{\"resourceBindings\":[{\"type\":\"MODEL\",\"reference\":\"model-a\","
+                + "\"revision\":\"\",\"digest\":\"sha256:model\"}]}";
+        String manifestSha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(manifest.getBytes(StandardCharsets.UTF_8)));
+        ConfigChanged changed = ConfigChanged.newBuilder()
+                .setMetadata(EventMetadata.newBuilder().setAgentId("agent-1").build())
+                .setConfigVersion(2)
+                .setManifestSha256(manifestSha)
+                .setSizeBytes(manifest.getBytes(StandardCharsets.UTF_8).length)
+                .build();
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> QwenPawWorker.buildConfigSnapshot(changed,
+                manifest, new ConfigFileFetcher(null, Duration.ofSeconds(2), 1024), directory)))
+                .hasMessage("RESOURCE_BINDING_INVALID: index:0=INVALID_REVISION");
+        try (var files = java.nio.file.Files.list(directory)) {
+            assertThat(files.toList()).isEmpty();
+        }
+    }
 }

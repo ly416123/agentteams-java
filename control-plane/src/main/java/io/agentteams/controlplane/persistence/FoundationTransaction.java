@@ -16,6 +16,7 @@ public final class FoundationTransaction {
     private final io.agentteams.controlplane.config.ConfigLifecycleRepository configLifecycle;
     private final ModelProviderRepository modelProviders;
     private final ModelRepository models;
+    private final ModelPriceRepository modelPrices;
 
     FoundationTransaction(org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -32,6 +33,7 @@ public final class FoundationTransaction {
         configLifecycle = new io.agentteams.controlplane.config.ConfigLifecycleRepository(jdbc);
         modelProviders = new ModelProviderRepository(jdbc);
         models = new ModelRepository(jdbc);
+        modelPrices = new ModelPriceRepository(jdbc);
     }
 
     public AgentRepository agents() {
@@ -84,6 +86,10 @@ public final class FoundationTransaction {
 
     public ModelRepository models() {
         return models;
+    }
+
+    public ModelPriceRepository modelPrices() {
+        return modelPrices;
     }
 
     public java.util.List<java.util.UUID> expiredActiveLeaseIds(java.time.Instant now) {

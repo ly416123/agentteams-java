@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import javax.sql.DataSource;
+import io.agentteams.controlplane.security.PrincipalContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ public final class UsageQueryService {
                    COUNT(*) FILTER (WHERE outcome = 'FAILURE') AS failures,
                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                   COALESCE(SUM(cost_usd), 0) AS cost_usd,
                    COALESCE(AVG(latency_millis), 0) AS average_latency_millis
               FROM model_call_audits
              WHERE occurred_at >= ? AND occurred_at < ?
@@ -34,6 +36,7 @@ public final class UsageQueryService {
                    COUNT(*) FILTER (WHERE outcome = 'FAILURE') AS failures,
                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                   COALESCE(SUM(cost_usd), 0) AS cost_usd,
                    COALESCE(AVG(latency_millis), 0) AS average_latency_millis
               FROM model_call_audits
              WHERE occurred_at >= ? AND occurred_at < ?
@@ -63,19 +66,23 @@ public final class UsageQueryService {
         int validatedLimit = validateLimit(limit);
         Timestamp start = Timestamp.from(range.from());
         Timestamp end = Timestamp.from(range.to());
+        ScopeFilter scope = ScopeFilter.current();
 
-        UsageTotals totals = jdbc.queryForObject(TOTALS_SQL, (resultSet, rowNum) -> new UsageTotals(
+        UsageTotals totals = jdbc.queryForObject(TOTALS_SQL + scope.whereClause(), (resultSet, rowNum) -> new UsageTotals(
                 resultSet.getLong("calls"),
                 resultSet.getLong("failures"),
                 resultSet.getLong("prompt_tokens"),
                 resultSet.getLong("completion_tokens"),
-                resultSet.getDouble("average_latency_millis")), start, end);
+                resultSet.getDouble("cost_usd"),
+                resultSet.getDouble("average_latency_millis")), scope.arguments(start, end));
         if (totals == null) {
             throw new IllegalStateException("usage totals query returned no row");
         }
 
         String groupsSql = GROUPS_SQL.formatted(grouping.selectExpression(), grouping.groupExpression(),
-                grouping.orderExpression()) + (limit == null ? "" : " LIMIT ?");
+                grouping.orderExpression()).replace("WHERE occurred_at >= ? AND occurred_at < ?",
+                "WHERE occurred_at >= ? AND occurred_at < ?" + scope.whereClause())
+                + (limit == null ? "" : " LIMIT ?");
         List<UsageGroup> groups = jdbc.query(groupsSql, (resultSet, rowNum) -> new UsageGroup(
                 grouping == GroupBy.PROVIDER_MODEL || grouping == GroupBy.PROVIDER
                         ? resultSet.getString("provider") : null,
@@ -85,10 +92,42 @@ public final class UsageQueryService {
                 resultSet.getLong("failures"),
                 resultSet.getLong("prompt_tokens"),
                 resultSet.getLong("completion_tokens"),
+                resultSet.getDouble("cost_usd"),
                 resultSet.getDouble("average_latency_millis"),
-                grouping == GroupBy.STATUS ? resultSet.getString("status") : null),
-                limit == null ? new Object[] {start, end} : new Object[] {start, end, validatedLimit});
+                grouping == GroupBy.STATUS ? resultSet.getString("status") : null,
+                grouping.dimensionName(),
+                grouping.isDimension() ? resultSet.getString("dimension_value") : null),
+                limit == null ? scope.arguments(start, end) : scope.arguments(start, end, validatedLimit));
         return new UsageSummary(range.from(), range.to(), totals, groups);
+    }
+
+    /** Returns low-cardinality historical usage buckets for dashboard charts. */
+    public List<UsageBucket> timeseries(Instant from, Instant to, String bucket) {
+        UsageRange range = UsageRange.resolve(from, to, clock.instant());
+        Bucket grouping = Bucket.parse(bucket);
+        ScopeFilter scope = ScopeFilter.current();
+        String expression = grouping == Bucket.HOUR ? "date_trunc('hour', occurred_at)" : "date_trunc('day', occurred_at)";
+        String sql = ("""
+                SELECT %s AS bucket,
+                       COUNT(*) AS calls,
+                       COUNT(*) FILTER (WHERE outcome = 'FAILURE') AS failures,
+                       COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                       COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                       COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                       COALESCE(AVG(latency_millis), 0) AS average_latency_millis
+                  FROM model_call_audits
+                 WHERE occurred_at >= ? AND occurred_at < ?%s
+                 GROUP BY %s
+                 ORDER BY %s
+                """).formatted(expression, scope.whereClause(), expression, expression);
+        Timestamp start = Timestamp.from(range.from());
+        Timestamp end = Timestamp.from(range.to());
+        return jdbc.query(sql, (resultSet, rowNum) -> new UsageBucket(
+                resultSet.getTimestamp("bucket").toInstant(),
+                resultSet.getLong("calls"), resultSet.getLong("failures"),
+                resultSet.getLong("prompt_tokens"), resultSet.getLong("completion_tokens"),
+                resultSet.getDouble("cost_usd"), resultSet.getDouble("average_latency_millis")),
+                scope.arguments(start, end));
     }
 
     private static int validateLimit(Integer limit) {
@@ -98,24 +137,41 @@ public final class UsageQueryService {
         return limit == null ? 0 : limit;
     }
 
-    enum GroupBy {
-        PROVIDER_MODEL(null, "provider, model", "provider, model"),
-        PROVIDER("provider, NULL::text AS model, NULL::text AS status", "provider", "provider"),
-        MODEL("NULL::text AS provider, model, NULL::text AS status", "model", "model"),
-        STATUS("NULL::text AS provider, NULL::text AS model, outcome AS status", "outcome", "status");
+    public enum GroupBy {
+        PROVIDER_MODEL("provider, model, NULL::text AS status, NULL::text AS dimension_value",
+                "provider, model", "provider, model", null),
+        PROVIDER("provider, NULL::text AS model, NULL::text AS status, NULL::text AS dimension_value",
+                "provider", "provider", null),
+        MODEL("NULL::text AS provider, model, NULL::text AS status, NULL::text AS dimension_value",
+                "model", "model", null),
+        STATUS("NULL::text AS provider, NULL::text AS model, outcome AS status, NULL::text AS dimension_value",
+                "outcome", "status", null),
+        WORKER(dimensionSelect("worker_id"), dimensionExpression("worker_id"),
+                dimensionExpression("worker_id"), "worker"),
+        TASK(dimensionSelect("task_id"), dimensionExpression("task_id"),
+                dimensionExpression("task_id"), "task"),
+        TEAM(dimensionSelect("team_id"), dimensionExpression("team_id"),
+                dimensionExpression("team_id"), "team"),
+        TOOL(dimensionSelect("tool_id"), dimensionExpression("tool_id"),
+                dimensionExpression("tool_id"), "tool"),
+        QUOTA(dimensionSelect("quota_id", "quota_dimension"),
+                dimensionExpression("quota_id", "quota_dimension"),
+                dimensionExpression("quota_id", "quota_dimension"), "quota");
 
         private final String selectExpression;
         private final String groupExpression;
         private final String orderExpression;
+        private final String dimensionName;
 
-        GroupBy(String selectExpression, String groupExpression, String orderExpression) {
+        GroupBy(String selectExpression, String groupExpression, String orderExpression, String dimensionName) {
             this.selectExpression = selectExpression;
             this.groupExpression = groupExpression;
             this.orderExpression = orderExpression;
+            this.dimensionName = dimensionName;
         }
 
         String selectExpression() {
-            return selectExpression == null ? "provider, model, NULL::text AS status" : selectExpression;
+            return selectExpression;
         }
 
         String groupExpression() {
@@ -126,7 +182,15 @@ public final class UsageQueryService {
             return orderExpression;
         }
 
-        static GroupBy parse(String value) {
+        String dimensionName() {
+            return dimensionName;
+        }
+
+        boolean isDimension() {
+            return dimensionName != null;
+        }
+
+        public static GroupBy parse(String value) {
             if (value == null) {
                 return PROVIDER_MODEL;
             }
@@ -134,13 +198,46 @@ public final class UsageQueryService {
                 case "provider" -> PROVIDER;
                 case "model" -> MODEL;
                 case "status" -> STATUS;
-                default -> throw new IllegalArgumentException("groupBy must be provider, model, or status");
+                case "worker", "agent" -> WORKER;
+                case "task" -> TASK;
+                case "team" -> TEAM;
+                case "tool" -> TOOL;
+                case "quota" -> QUOTA;
+                default -> throw new IllegalArgumentException(
+                        "groupBy must be provider, model, status, worker, task, team, tool, or quota");
+            };
+        }
+
+        private static String dimensionSelect(String... fields) {
+            return "NULL::text AS provider, NULL::text AS model, NULL::text AS status, "
+                    + dimensionExpression(fields) + " AS dimension_value";
+        }
+
+        private static String dimensionExpression(String... fields) {
+            StringBuilder expression = new StringBuilder("COALESCE(");
+            for (int i = 0; i < fields.length; i++) {
+                if (i > 0) expression.append(", ");
+                expression.append("NULLIF(").append(fields[i]).append(", '')");
+            }
+            return expression.append(", 'unknown')").toString();
+        }
+    }
+
+    enum Bucket {
+        HOUR, DAY;
+
+        static Bucket parse(String value) {
+            if (value == null || value.isBlank()) return HOUR;
+            return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "hour", "hourly" -> HOUR;
+                case "day", "daily" -> DAY;
+                default -> throw new IllegalArgumentException("bucket must be hour or day");
             };
         }
     }
 
-    record UsageRange(Instant from, Instant to) {
-        static UsageRange resolve(Instant requestedFrom, Instant requestedTo, Instant now) {
+    public record UsageRange(Instant from, Instant to) {
+        public static UsageRange resolve(Instant requestedFrom, Instant requestedTo, Instant now) {
             Instant end = requestedTo == null ? now : requestedTo;
             Instant start = requestedFrom == null ? end.minus(DEFAULT_RANGE) : requestedFrom;
             if (!start.isBefore(end)) {
@@ -154,20 +251,69 @@ public final class UsageQueryService {
     }
 
     public record UsageTotals(long calls, long failures, long promptTokens, long completionTokens,
-            double averageLatencyMillis) {
+            double costUsd, double averageLatencyMillis) {
+        public UsageTotals(long calls, long failures, long promptTokens, long completionTokens,
+                double averageLatencyMillis) {
+            this(calls, failures, promptTokens, completionTokens, 0, averageLatencyMillis);
+        }
     }
 
     public record UsageGroup(String provider, String model, long calls, long failures, long promptTokens,
-            long completionTokens, double averageLatencyMillis, String status) {
+            long completionTokens, double costUsd, double averageLatencyMillis, String status,
+            String dimension, String dimensionValue) {
+        public UsageGroup(String provider, String model, long calls, long failures, long promptTokens,
+                long completionTokens, double costUsd, double averageLatencyMillis, String status) {
+            this(provider, model, calls, failures, promptTokens, completionTokens, costUsd,
+                    averageLatencyMillis, status, null, null);
+        }
+
         public UsageGroup(String provider, String model, long calls, long failures, long promptTokens,
                 long completionTokens, double averageLatencyMillis) {
-            this(provider, model, calls, failures, promptTokens, completionTokens, averageLatencyMillis, null);
+            this(provider, model, calls, failures, promptTokens, completionTokens, 0, averageLatencyMillis, null);
+        }
+
+        public UsageGroup(String provider, String model, long calls, long failures, long promptTokens,
+                long completionTokens, double averageLatencyMillis, String status) {
+            this(provider, model, calls, failures, promptTokens, completionTokens, 0, averageLatencyMillis, status);
         }
     }
 
     public record UsageSummary(Instant from, Instant to, UsageTotals totals, List<UsageGroup> groups) {
         public UsageSummary {
             groups = List.copyOf(groups);
+        }
+    }
+
+    public record UsageBucket(Instant bucket, long calls, long failures, long promptTokens,
+            long completionTokens, double costUsd, double averageLatencyMillis) { }
+
+    private record ScopeFilter(String clause, String tenant, String project, String team) {
+        static ScopeFilter current() {
+            return PrincipalContext.current().map(principal -> {
+                String clause = " AND tenant_id = ? AND project_id = ?";
+                String team = principal.scope().team();
+                if (team != null && !team.isBlank()) {
+                    clause += " AND (team_id IS NULL OR team_id = ?)";
+                }
+                return new ScopeFilter(clause, principal.scope().tenant(), principal.scope().project(), team);
+            }).orElse(new ScopeFilter("", null, null, null));
+        }
+
+        String whereClause() {
+            return clause;
+        }
+
+        Object[] arguments(Object... prefix) {
+            Object[] result = java.util.Arrays.copyOf(prefix,
+                    prefix.length + (tenant == null ? 0 : (team == null || team.isBlank() ? 2 : 3)));
+            if (tenant != null) {
+                result[prefix.length] = tenant;
+                result[prefix.length + 1] = project;
+                if (team != null && !team.isBlank()) {
+                    result[prefix.length + 2] = team;
+                }
+            }
+            return result;
         }
     }
 }

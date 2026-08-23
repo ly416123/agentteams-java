@@ -33,6 +33,18 @@ public final class McpRuntimePolicyService {
     }
 
     public Authorization authorize(McpServerRecord server, String toolName, Duration timeout) {
+        return authorize(server, timeout, () -> validator.validateTool(toolName, server.outboundPolicy()));
+    }
+
+    /**
+     * Authorizes a tools/list operation. Discovery is an outbound operation, but is not itself a
+     * tool and therefore must not be forced through the tool allow-list.
+     */
+    public Authorization authorizeDiscovery(McpServerRecord server, Duration timeout) {
+        return authorize(server, timeout, () -> { });
+    }
+
+    private Authorization authorize(McpServerRecord server, Duration timeout, Runnable operationPolicy) {
         Objects.requireNonNull(server, "server");
         if (!server.enabled()) {
             countDenied();
@@ -45,7 +57,7 @@ public final class McpRuntimePolicyService {
         try {
             validator.validateEndpoint(server.endpoint(), server.outboundPolicy());
             validator.validateTimeout(timeout, server.outboundPolicy());
-            validator.validateTool(toolName, server.outboundPolicy());
+            operationPolicy.run();
             if (metrics != null) metrics.mcpPolicyAllowed();
             return new Authorization(true, "ALLOWED");
         } catch (RuntimeException denied) {

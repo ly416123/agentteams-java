@@ -17,20 +17,20 @@ public final class JdbcAgentSpecModelCatalog implements AgentSpecModelCatalog {
     @Override
     public Optional<ProviderReference> findProviderByName(String name) {
         return jdbc.query("""
-                SELECT id, enabled
+                SELECT id, enabled, version
                   FROM model_providers
                  WHERE name = ?
                 """, (rs, row) -> new ProviderReference(rs.getObject("id", UUID.class),
-                rs.getBoolean("enabled")), name).stream().findFirst();
+                rs.getBoolean("enabled"), rs.getLong("version")), name).stream().findFirst();
     }
 
     @Override
     public Optional<ModelReference> findModelById(UUID providerId, String modelId) {
         return jdbc.query("""
-                SELECT enabled
+                SELECT enabled, version
                   FROM models
                  WHERE provider_id = ? AND model_id = ?
-                """, (rs, row) -> new ModelReference(rs.getBoolean("enabled")), providerId, modelId)
+                """, (rs, row) -> new ModelReference(rs.getBoolean("enabled"), rs.getLong("version")), providerId, modelId)
                 .stream().findFirst();
     }
 }

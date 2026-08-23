@@ -8,6 +8,8 @@ import io.agentteams.controlplane.persistence.CreateTaskCommand;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.domain.task.Task;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.TaskPhase;
@@ -20,6 +22,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 
 @Service
 public final class TaskService {
@@ -37,30 +40,39 @@ public final class TaskService {
     private final TaskTransitionService transitions;
     private final Clock clock;
     private final TaskMetricsPort metrics;
+    private final ResourceScopeRepository resourceScopes;
 
     public TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
             TaskTransitionService transitions) {
-        this(persistence, idempotency, transitions, Clock.systemUTC(), TaskMetricsPort.noop());
+        this(persistence, idempotency, transitions, Clock.systemUTC(), TaskMetricsPort.noop(), null);
     }
 
     @Autowired
     public TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
-            TaskTransitionService transitions, TaskMetricsPort metrics) {
-        this(persistence, idempotency, transitions, Clock.systemUTC(), metrics);
+            TaskTransitionService transitions, TaskMetricsPort metrics,
+            ObjectProvider<ResourceScopeRepository> scopes) {
+        this(persistence, idempotency, transitions, Clock.systemUTC(), metrics, scopes.getIfAvailable());
     }
 
     TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
             TaskTransitionService transitions, Clock clock) {
-        this(persistence, idempotency, transitions, clock, TaskMetricsPort.noop());
+        this(persistence, idempotency, transitions, clock, TaskMetricsPort.noop(), null);
     }
 
     TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
             TaskTransitionService transitions, Clock clock, TaskMetricsPort metrics) {
+        this(persistence, idempotency, transitions, clock, metrics, null);
+    }
+
+    TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
+            TaskTransitionService transitions, Clock clock, TaskMetricsPort metrics,
+            ResourceScopeRepository resourceScopes) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.transitions = Objects.requireNonNull(transitions, "transitions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
+        this.resourceScopes = resourceScopes;
     }
 
     public TaskRecord create(String idempotencyKey, TaskInput input) {
@@ -73,13 +85,17 @@ public final class TaskService {
         String spec = jsonObjectOrDefault(input.specJson());
         Instant now = clock.instant();
         TaskRecord created = persistence.createTask(new CreateTaskCommand(key, title, description, actor, source, spec, now));
+        bindIfAuthenticated(created.id());
+        requireVisible(created.id());
         metrics.taskCreated();
         return created;
     }
 
     public TaskRecord get(UUID id) {
         Objects.requireNonNull(id, "id");
-        return persistence.findTask(id).orElseThrow(() -> new ResourceNotFoundException("task", id));
+        TaskRecord task = persistence.findTask(id).orElseThrow(() -> new ResourceNotFoundException("task", id));
+        requireVisible(task.id());
+        return task;
     }
 
     /** Explicit queue operation; task creation intentionally remains in DRAFT. */
@@ -135,6 +151,7 @@ public final class TaskService {
             throw new IllegalArgumentException("expectedVersion must not be negative");
         }
         String key = idempotency.requireKey(idempotencyKey);
+        TaskRecord current = get(id);
         Instant now = clock.instant();
         String requestHash = idempotency.requestHash(id.toString(), target.name(), Long.toString(expectedVersion),
                 actor, source);
@@ -142,7 +159,6 @@ public final class TaskService {
             return persistence.transitionTask(id, target, expectedVersion, now, key, requestHash, operation);
         }
 
-        TaskRecord current = get(id);
         Task domainTask = new Task(current.id(), current.phase(), current.version(), null,
                 current.createdAt(), current.updatedAt(), current.actor(), current.source(),
                 current.failureCode(), current.redactedFailureMessage(), Set.of());
@@ -215,5 +231,18 @@ public final class TaskService {
             throw new IllegalArgumentException("JSON object is required");
         }
         return trimmed;
+    }
+
+    private void bindIfAuthenticated(UUID resourceId) {
+        if (resourceScopes != null) {
+            PrincipalContext.current().ifPresent(principal ->
+                    resourceScopes.bind("TASK", resourceId, principal, clock.instant()));
+        }
+    }
+
+    private void requireVisible(UUID resourceId) {
+        if (resourceScopes != null) {
+            resourceScopes.requireVisible("TASK", resourceId);
+        }
     }
 }

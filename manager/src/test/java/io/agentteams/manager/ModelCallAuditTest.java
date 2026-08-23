@@ -17,6 +17,20 @@ import org.junit.jupiter.api.Test;
 
 class ModelCallAuditTest {
     @Test
+    void keepsLegacyConstructorAndAllowsNullableDimensionsShape() {
+        ModelCallAudit legacy = new ModelCallAudit("deepseek", "deepseek-chat", java.time.Duration.ZERO,
+                new ModelCallAudit.TokenUsage(0, 0), "a".repeat(64), null,
+                ModelCallAudit.Outcome.SUCCESS, null, Instant.EPOCH);
+        ModelCallAudit withDimensions = new ModelCallAudit("deepseek", "deepseek-chat", java.time.Duration.ZERO,
+                new ModelCallAudit.TokenUsage(0, 0), "a".repeat(64), null,
+                ModelCallAudit.Outcome.SUCCESS, null, Instant.EPOCH,
+                new ModelCallAudit.Dimensions(null, "task-1", null, null, null, null));
+
+        assertThat(legacy.dimensions()).isNull();
+        assertThat(withDimensions.dimensions().taskId()).isEqualTo("task-1");
+    }
+
+    @Test
     void recordsStructuredUsageLatencyAndOnlyRedactedHashes() {
         ModelProvider provider = mock(ModelProvider.class);
         when(provider.providerName()).thenReturn("MockModelProvider");

@@ -12,6 +12,7 @@ import java.util.Map;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import io.agentteams.controlplane.security.PrincipalContext;
 
 /** Read-only, bounded audit event query service. */
 @Service
@@ -37,6 +38,11 @@ public final class JdbcAuditQueryService {
         List<Object> arguments = new ArrayList<>();
         StringBuilder sql = new StringBuilder("SELECT id, actor, action, resource_type, resource_id, "
                 + "attributes, occurred_at FROM operation_audit_events WHERE 1 = 1");
+        PrincipalContext.current().ifPresent(principal -> {
+            sql.append(" AND tenant_id = ? AND project_id = ?");
+            arguments.add(principal.scope().tenant());
+            arguments.add(principal.scope().project());
+        });
         appendEquals(sql, arguments, "actor", query.actor());
         appendEquals(sql, arguments, "action", query.action());
         appendEquals(sql, arguments, "resource_type", query.resourceType());

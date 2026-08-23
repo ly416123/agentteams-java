@@ -26,6 +26,7 @@ public final class FoundationPersistenceService {
     private static final String CREATE_AGENT = "CREATE_AGENT";
     private static final String CREATE_MODEL_PROVIDER = "CREATE_MODEL_PROVIDER";
     private static final String CREATE_MODEL = "CREATE_MODEL";
+    private static final String CREATE_MODEL_PRICE = "CREATE_MODEL_PRICE";
 
     private final TransactionTemplate transactionTemplate;
     private final FoundationTransaction repositories;
@@ -156,6 +157,62 @@ public final class FoundationPersistenceService {
 
     public List<ModelRecord> findModelsByProvider(UUID providerId) {
         return inTransaction(tx -> tx.models().findByProviderId(providerId));
+    }
+
+    public ModelPriceRecord createModelPrice(ModelPriceRecord price, String idempotencyKey,
+            String requestHash) {
+        Objects.requireNonNull(price, "price");
+        requireIdempotencyInput(idempotencyKey, requestHash);
+        return inTransaction(tx -> {
+            var existing = tx.modelPrices().findIdempotency(price.tenantId(), price.projectId(), idempotencyKey);
+            if (existing.isPresent()) {
+                assertPriceIdempotency(existing.get(), requestHash, idempotencyKey);
+                return tx.modelPrices().findById(existing.get().priceId(), price.tenantId(), price.projectId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent model price is missing"));
+            }
+            if (!tx.modelPrices().insertIdempotency(price.tenantId(), price.projectId(), idempotencyKey,
+                    requestHash, price.id(), price.createdAt())) {
+                var winner = tx.modelPrices().findIdempotency(price.tenantId(), price.projectId(), idempotencyKey)
+                        .orElseThrow(() -> new IllegalStateException("model price idempotency key disappeared"));
+                assertPriceIdempotency(winner, requestHash, idempotencyKey);
+                return tx.modelPrices().findById(winner.priceId(), price.tenantId(), price.projectId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent model price is missing"));
+            }
+            tx.modelPrices().insert(price);
+            appendEvent(tx, "model_price", price.id(), "ModelPriceCreated", idPayload(price.id()),
+                    price.updatedAt(), price.version());
+            return price;
+        });
+    }
+
+    public Optional<ModelPriceRecord> findModelPrice(UUID id, String tenantId, String projectId) {
+        return inTransaction(tx -> tx.modelPrices().findById(id, tenantId, projectId));
+    }
+
+    public List<ModelPriceRecord> findModelPrices(String tenantId, String projectId) {
+        return inTransaction(tx -> tx.modelPrices().findAll(tenantId, projectId));
+    }
+
+    public Optional<ModelPriceRecord> findEffectiveModelPrice(String tenantId, String projectId,
+            String provider, String model, String currency, Instant at) {
+        return inTransaction(tx -> tx.modelPrices().findEffective(tenantId, projectId, provider, model,
+                currency, at));
+    }
+
+    public ModelPriceRecord updateModelPriceLifecycle(UUID id, String tenantId, String projectId,
+            String lifecycleStatus, Instant at, String updatedBy) {
+        return inTransaction(tx -> {
+            ModelPriceRecord current = tx.modelPrices().findById(id, tenantId, projectId)
+                    .orElseThrow(() -> new ResourceNotFoundException("model price", id));
+            if (current.lifecycleStatus().equals(lifecycleStatus)) {
+                return current;
+            }
+            ModelPriceRecord updated = tx.modelPrices().updateLifecycle(id, tenantId, projectId,
+                    lifecycleStatus, current.version(), at, updatedBy);
+            appendEvent(tx, "model_price", id, "ModelPriceLifecycleChanged", idPayload(id), at,
+                    updated.version());
+            return updated;
+        });
     }
 
     public ModelProviderRecord updateModelProviderEnabled(UUID id, boolean enabled, Instant at) {
@@ -518,6 +575,13 @@ public final class FoundationPersistenceService {
             String requestHash, String key) {
         if (!operation.equals(existing.operation()) || !requestHash.equals(existing.requestHash())) {
             throw new IdempotencyConflictException(key, operation);
+        }
+    }
+
+    private static void assertPriceIdempotency(ModelPriceRepository.PriceIdempotency existing,
+            String requestHash, String key) {
+        if (!existing.requestHash().equals(requestHash)) {
+            throw new IdempotencyConflictException(key, CREATE_MODEL_PRICE);
         }
     }
 }

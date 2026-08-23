@@ -10,7 +10,17 @@ public interface AgentSpecModelCatalog {
 
     Optional<ModelReference> findModelById(UUID providerId, String modelId);
 
-    record ProviderReference(UUID id, boolean enabled) { }
+    record ProviderReference(UUID id, boolean enabled, long revision) {
+        /** Compatibility constructor for catalog implementations without revisions. */
+        public ProviderReference(UUID id, boolean enabled) {
+            this(id, enabled, 0);
+        }
+    }
 
-    record ModelReference(boolean enabled) { }
+    record ModelReference(boolean enabled, long revision) {
+        /** Compatibility constructor for catalog implementations without revisions. */
+        public ModelReference(boolean enabled) {
+            this(enabled, 0);
+        }
+    }
 }

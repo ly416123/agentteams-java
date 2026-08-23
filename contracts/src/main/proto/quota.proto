@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package io.agentteams.contracts.v1;
+
+option java_multiple_files = true;
+option java_package = "io.agentteams.contracts.v1";
+option java_outer_classname = "QuotaProto";
+
+import "agent_channel.proto";
+import "google/protobuf/timestamp.proto";
+
+// Remote project quota contract v1.
+//
+// Schema evolution rules:
+// - Add fields only with new field numbers.
+// - Never reuse a removed field number or name; reserve both when a field is
+//   removed in a future revision.
+// - Enum zero values are deliberately unspecified and must remain stable.
+// - This file defines messages only. Transport and RPC method placement are
+//   intentionally left to Gateway/Worker integration.
+
+// A stable dimension of a quota decision. These values describe a resource
+// limit, rather than a malformed or otherwise unprocessable request.
+enum QuotaRejectionDimension {
+  QUOTA_REJECTION_DIMENSION_UNSPECIFIED = 0;
+  QUOTA_REJECTION_DIMENSION_CONCURRENT_CALLS = 1;
+  QUOTA_REJECTION_DIMENSION_DAILY_CALLS = 2;
+  QUOTA_REJECTION_DIMENSION_DAILY_TOKENS = 3;
+}
+
+// A stable protocol-level failure. A non-zero value means the request could
+// not be processed as a valid quota operation; it is distinct from a quota
+// limit rejection represented by QuotaRejectionDimension.
+enum QuotaProtocolError {
+  QUOTA_PROTOCOL_ERROR_UNSPECIFIED = 0;
+  QUOTA_PROTOCOL_ERROR_INVALID_ARGUMENT = 1;
+  QUOTA_PROTOCOL_ERROR_INVALID_SCOPE = 2;
+  QUOTA_PROTOCOL_ERROR_IDEMPOTENCY_CONFLICT = 3;
+  QUOTA_PROTOCOL_ERROR_RESERVATION_NOT_FOUND = 4;
+  QUOTA_PROTOCOL_ERROR_RESERVATION_ALREADY_RELEASED = 5;
+  QUOTA_PROTOCOL_ERROR_UNSUPPORTED_VERSION = 6;
+  QUOTA_PROTOCOL_ERROR_DEADLINE_EXCEEDED = 7;
+  QUOTA_PROTOCOL_ERROR_INTERNAL = 8;
+}
+
+// Requests carry the same event/trace metadata as agent_channel.proto. In
+// particular, metadata.traceparent and metadata.tracestate are the trace
+// propagation fields; deadline is kept separate because it is an operation
+// constraint rather than event identity.
+message AcquireQuotaRequest {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  string tenant_id = 3;
+  string project_id = 4;
+  string idempotency_key = 5;
+  uint64 estimated_tokens = 6;
+  uint64 max_concurrent = 7;
+  google.protobuf.Timestamp deadline = 8;
+}
+
+message AcquireQuotaResponse {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  bool accepted = 3;
+  string reservation_id = 4;
+  QuotaRejectionDimension rejection_dimension = 5;
+  uint64 retry_after_ms = 6;
+  QuotaProtocolError protocol_error = 7;
+}
+
+// Release is idempotent at the reservation boundary. The idempotency key is
+// retained so a transport retry can be identified independently of the
+// reservation identifier.
+message ReleaseQuotaRequest {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  string tenant_id = 3;
+  string project_id = 4;
+  string reservation_id = 5;
+  string idempotency_key = 6;
+  google.protobuf.Timestamp deadline = 7;
+}
+
+message ReleaseQuotaResponse {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  bool accepted = 3;
+  string reservation_id = 4;
+  QuotaProtocolError protocol_error = 5;
+}
+
+// The transport is deliberately a separate service from AgentChannel. Quota
+// calls are short request/response operations and must not consume the
+// bidirectional worker event stream or its delivery ordering.
+service QuotaService {
+  rpc Acquire(AcquireQuotaRequest) returns (AcquireQuotaResponse);
+  rpc Release(ReleaseQuotaRequest) returns (ReleaseQuotaResponse);
+}

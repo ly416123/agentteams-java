@@ -25,6 +25,11 @@
     <dependencies>
         <dependency>
             <groupId>io.agentteams</groupId>
+            <artifactId>agentteams-contracts</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agentteams</groupId>
             <artifactId>agentteams-application-contracts</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -35,6 +40,10 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

@@ -16,7 +16,11 @@ public record SkillVersionRecord(
         Instant updatedAt,
         long recordVersion,
         String securityScanStatus,
-        String reviewStatus) {
+        String reviewStatus,
+        String packageStorageKey,
+        Long packageSizeBytes,
+        String packageSha256,
+        String packageUploadStatus) {
 
     public SkillVersionRecord {
         Objects.requireNonNull(id, "id");
@@ -33,13 +37,42 @@ public record SkillVersionRecord(
         }
         requireText(securityScanStatus, "securityScanStatus");
         requireText(reviewStatus, "reviewStatus");
+        requireText(packageUploadStatus, "packageUploadStatus");
+        if (!packageUploadStatus.equals("NOT_STARTED") && !packageUploadStatus.equals("PENDING")
+                && !packageUploadStatus.equals("COMPLETED")) {
+            throw new IllegalArgumentException("packageUploadStatus is invalid");
+        }
+        if (packageSizeBytes != null && packageSizeBytes < 0) {
+            throw new IllegalArgumentException("packageSizeBytes must not be negative");
+        }
+        if (packageStorageKey == null && (packageSizeBytes != null || packageSha256 != null)) {
+            throw new IllegalArgumentException("package metadata is incomplete");
+        }
+        if (packageStorageKey != null && (packageSizeBytes == null || packageSha256 == null)) {
+            throw new IllegalArgumentException("package metadata is incomplete");
+        }
+        if (packageUploadStatus.equals("NOT_STARTED") && packageStorageKey != null) {
+            throw new IllegalArgumentException("NOT_STARTED package cannot have storage metadata");
+        }
+        if (packageUploadStatus.equals("COMPLETED") && packageStorageKey == null) {
+            throw new IllegalArgumentException("COMPLETED package must have storage metadata");
+        }
     }
 
     public SkillVersionRecord(UUID id, UUID skillId, String version, String digest, String manifestJson,
             String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion) {
         this(id, skillId, version, digest, manifestJson, visibility, lifecycle, createdAt, updatedAt, recordVersion,
                 "PUBLISHED".equals(lifecycle) ? "PASSED" : "NOT_SCANNED",
-                "PUBLISHED".equals(lifecycle) ? "APPROVED" : "PENDING");
+                "PUBLISHED".equals(lifecycle) ? "APPROVED" : "PENDING",
+                null, null, null, "NOT_STARTED");
+    }
+
+    /** Compatibility constructor for callers that already provide scan/review state. */
+    public SkillVersionRecord(UUID id, UUID skillId, String version, String digest, String manifestJson,
+            String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion,
+            String securityScanStatus, String reviewStatus) {
+        this(id, skillId, version, digest, manifestJson, visibility, lifecycle, createdAt, updatedAt, recordVersion,
+                securityScanStatus, reviewStatus, null, null, null, "NOT_STARTED");
     }
 
     private static void requireText(String value, String field) {

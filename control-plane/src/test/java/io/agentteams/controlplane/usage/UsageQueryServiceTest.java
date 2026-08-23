@@ -15,6 +15,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
@@ -98,10 +102,55 @@ class UsageQueryServiceTest {
     }
 
     @Test
+    void scopesTotalsAndGroupsToTheAuthenticatedProject() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("team-a")))
+                .thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("team-a"))).thenReturn(List.of());
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            service().summarize(null, NOW);
+            verify(jdbc).queryForObject(org.mockito.ArgumentMatchers.contains("tenant_id = ? AND project_id = ?"),
+                    ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                    any(), any(), eq("tenant-a"), eq("project-a"), eq("team-a"));
+        } finally {
+            PrincipalContext.clear();
+        }
+    }
+
+    @Test
+    void supportsSafeOperationalDimensionsAndKeepsMissingValuesInOneBucket() throws Exception {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
+                .thenReturn(new UsageQueryService.UsageTotals(2, 0, 10, 5, 1.5));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    String sql = invocation.getArgument(0);
+                    assertThat(sql).contains("COALESCE(NULLIF(worker_id, ''), 'unknown')")
+                            .doesNotContain("to_jsonb(model_call_audits)");
+                    RowMapper<UsageQueryService.UsageGroup> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(dimensionResult("unknown"), 0));
+                });
+
+        UsageQueryService.UsageSummary summary = service().summarize(null, NOW, "worker", 10);
+
+        assertThat(summary.groups()).containsExactly(new UsageQueryService.UsageGroup(
+                null, null, 2, 0, 10, 5, 1.5, 12, null, "worker", "unknown"));
+    }
+
+    @Test
+    void acceptsAllOperationalDimensionNames() {
+        for (String dimension : List.of("worker", "task", "team", "tool", "quota")) {
+            assertThat(UsageQueryService.GroupBy.parse(dimension).isDimension()).isTrue();
+        }
+    }
+
+    @Test
     void rejectsUnknownGroupByAndOutOfBoundsLimitBeforeQuerying() {
-        assertThatThrownBy(() -> service().summarize(null, NOW, "team", null))
+        assertThatThrownBy(() -> service().summarize(null, NOW, "unknown", null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("groupBy must be provider, model, or status");
+                .hasMessage("groupBy must be provider, model, status, worker, task, team, tool, or quota");
         assertThatThrownBy(() -> service().summarize(null, NOW, "provider", 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("limit must be between 1 and " + UsageQueryService.MAX_LIMIT);
@@ -120,6 +169,7 @@ class UsageQueryServiceTest {
         when(resultSet.getLong("failures")).thenReturn(1L);
         when(resultSet.getLong("prompt_tokens")).thenReturn(100L);
         when(resultSet.getLong("completion_tokens")).thenReturn(40L);
+        when(resultSet.getDouble("cost_usd")).thenReturn(0D);
         when(resultSet.getDouble("average_latency_millis")).thenReturn(42.5D);
         return resultSet;
     }
@@ -132,6 +182,7 @@ class UsageQueryServiceTest {
         when(resultSet.getLong("failures")).thenReturn(1L);
         when(resultSet.getLong("prompt_tokens")).thenReturn(100L);
         when(resultSet.getLong("completion_tokens")).thenReturn(40L);
+        when(resultSet.getDouble("cost_usd")).thenReturn(0D);
         when(resultSet.getDouble("average_latency_millis")).thenReturn(42.5D);
         return resultSet;
     }
@@ -143,7 +194,20 @@ class UsageQueryServiceTest {
         when(resultSet.getLong("failures")).thenReturn(1L);
         when(resultSet.getLong("prompt_tokens")).thenReturn(100L);
         when(resultSet.getLong("completion_tokens")).thenReturn(40L);
+        when(resultSet.getDouble("cost_usd")).thenReturn(0D);
         when(resultSet.getDouble("average_latency_millis")).thenReturn(42.5D);
+        return resultSet;
+    }
+
+    private static ResultSet dimensionResult(String value) throws java.sql.SQLException {
+        ResultSet resultSet = mock(ResultSet.class);
+        when(resultSet.getLong("calls")).thenReturn(2L);
+        when(resultSet.getLong("failures")).thenReturn(0L);
+        when(resultSet.getLong("prompt_tokens")).thenReturn(10L);
+        when(resultSet.getLong("completion_tokens")).thenReturn(5L);
+        when(resultSet.getDouble("cost_usd")).thenReturn(1.5D);
+        when(resultSet.getDouble("average_latency_millis")).thenReturn(12D);
+        when(resultSet.getString("dimension_value")).thenReturn(value);
         return resultSet;
     }
 }

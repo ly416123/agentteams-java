@@ -71,7 +71,7 @@ public final class ProjectQuotaService {
      * Atomically reserves one call and its estimated tokens. Callers must release
      * the returned lease in a finally block. Missing policy means no-op lease.
      */
-    @Transactional
+    @Transactional(noRollbackFor = {QuotaExceededException.class, IllegalArgumentException.class})
     public ProjectQuotaLease acquire(String tenantId, String projectId, long estimatedTokens) {
         validateScope(tenantId, projectId);
         if (estimatedTokens < 0) {

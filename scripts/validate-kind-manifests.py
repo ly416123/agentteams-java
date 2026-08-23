@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import sys
+import urllib.parse
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,6 +172,17 @@ def main():
             fail(f"Kind Task and Artifact API smoke missing {required}")
     if "smoke-kind-task-api.sh" not in oidc_workflow:
         fail("CI must execute the Kind Task and Artifact API smoke")
+    config_rollback_script = ROOT / "scripts/run-kind-config-rollback.py"
+    if not config_rollback_script.exists():
+        fail("Kind config rollback acceptance script does not exist")
+    config_rollback_text = config_rollback_script.read_text(encoding="utf-8")
+    for required in ("AGENTTEAMS_CONTROL_PLANE_URL", "AGENTTEAMS_AGENT_ID",
+                     "/api/v1/config/snapshots", "/rollback", "APPLIED",
+                     "KIND_CONFIG_ROLLBACK_OK"):
+        if required not in config_rollback_text:
+            fail(f"Kind config rollback acceptance missing {required}")
+    if "run-kind-config-rollback.py" not in oidc_workflow:
+        fail("CI must execute the Kind config rollback acceptance")
     if "validate-prometheus-rule.py /tmp/agentteams-prometheusrule.yaml" not in oidc_workflow:
         fail("CI must validate the rendered PrometheusRule")
     nats_recovery_script = ROOT / "scripts/run-kind-nats-outbox-recovery.py"
@@ -292,6 +304,52 @@ def main():
                      "AGENTTEAMS_OBSERVABILITY_SERVICE_NAME"):
         if required not in worker_example:
             fail(f"Worker example missing OTel configuration {required}")
+    worker_document = yaml.safe_load(worker_example)
+    worker_spec = worker_document.get("spec", {}) if isinstance(worker_document, dict) else {}
+    worker_env = worker_spec.get("env", {}) if isinstance(worker_spec, dict) else {}
+    if worker_document.get("kind") != "Worker" or not isinstance(worker_env, dict):
+        fail("Worker example must define a Worker spec.env object")
+    manifest_url = str(worker_env.get("AGENTTEAMS_CONFIG_MANIFEST_BASE_URL", "")).strip()
+    parsed_manifest_url = urllib.parse.urlsplit(manifest_url)
+    if (parsed_manifest_url.scheme not in {"http", "https"}
+            or not parsed_manifest_url.hostname
+            or parsed_manifest_url.username is not None
+            or parsed_manifest_url.password is not None
+            or parsed_manifest_url.fragment):
+        fail("Worker config manifest URL must be a credential-free http(s) URL")
+    if str(worker_env.get("AGENTTEAMS_QUOTA_REMOTE_ENABLED", "")).strip().lower() != "false":
+        fail("Worker example must keep AGENTTEAMS_QUOTA_REMOTE_ENABLED=false by default")
+    try:
+        quota_timeout = int(str(worker_env.get("AGENTTEAMS_QUOTA_TIMEOUT_SECONDS", "")))
+    except ValueError:
+        fail("Worker quota timeout must be a positive integer")
+    if quota_timeout <= 0:
+        fail("Worker quota timeout must be a positive integer")
+    scope_tenant = str(worker_env.get("AGENTTEAMS_SCOPE_TENANT", "")).strip()
+    scope_project = str(worker_env.get("AGENTTEAMS_SCOPE_PROJECT", "")).strip()
+    if bool(scope_tenant) != bool(scope_project):
+        fail("Worker quota scope must provide tenant and project together")
+    resource_binding_script = ROOT / "scripts/run-kind-resource-binding-ack.py"
+    if not resource_binding_script.exists():
+        fail("Kind resource binding ACK script does not exist")
+    resource_binding_text = resource_binding_script.read_text(encoding="utf-8")
+    for required in ("AGENTTEAMS_CONTROL_PLANE_URL", "AGENTTEAMS_AGENT_ID",
+                     "validated_base_url", "validated_agent_id", "/api/v1/config/snapshots",
+                     "resourceBindings", "KIND_RESOURCE_BINDING_ACK_OK",
+                     "KIND_RESOURCE_BINDING_FAILURE_OK"):
+        if required not in resource_binding_text:
+            fail(f"Kind resource binding ACK script missing {required}")
+    quota_step = oidc_workflow.find("python scripts/run-kind-quota-recovery.py")
+    ack_step = oidc_workflow.find("python scripts/run-kind-resource-binding-ack.py")
+    if quota_step < 0 or ack_step < 0 or quota_step >= ack_step:
+        fail("Kind recovery must run quota recovery before resource binding ACK")
+    ack_step_start = oidc_workflow.rfind("- name:", 0, ack_step)
+    ack_step_end = oidc_workflow.find("\n      - name:", ack_step)
+    ack_block = oidc_workflow[ack_step_start:ack_step_end if ack_step_end >= 0 else None]
+    for required in ("AGENTTEAMS_CONTROL_PLANE_URL", "AGENTTEAMS_AGENT_ID",
+                     "--base-url", "--agent-id"):
+        if required not in ack_block:
+            fail(f"Kind resource binding ACK workflow step missing {required}")
     auth_filter = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthenticationFilter.java").read_text(encoding="utf-8")
     auth_policy = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthorizationPolicy.java").read_text(encoding="utf-8")
     authorization = (ROOT / "control-plane/src/main/java/io/agentteams/controlplane/security/AuthorizationService.java").read_text(encoding="utf-8")

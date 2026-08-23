@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Repository;
+import io.agentteams.controlplane.security.PrincipalContext;
 
 /** Persists redacted operation events without coupling audit storage to the foundation transaction. */
 @Repository
@@ -15,6 +16,9 @@ public class JdbcAuditRecorder implements AuditRecorder {
     static final String INSERT_SQL = "INSERT INTO operation_audit_events "
             + "(id, actor, action, resource_type, resource_id, attributes, occurred_at) "
             + "VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)";
+    static final String SCOPED_INSERT_SQL = "INSERT INTO operation_audit_events "
+            + "(id, actor, action, resource_type, resource_id, attributes, occurred_at, tenant_id, project_id) "
+            + "VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -38,8 +42,15 @@ public class JdbcAuditRecorder implements AuditRecorder {
         } catch (JsonProcessingException error) {
             throw new IllegalStateException("audit attributes could not be serialized", error);
         }
-        jdbc.update(INSERT_SQL, event.id(), event.actor(), event.action(), event.resourceType(), event.resourceId(),
-                attributesJson, event.occurredAt());
+        var principal = PrincipalContext.current();
+        if (principal.isEmpty()) {
+            jdbc.update(INSERT_SQL, event.id(), event.actor(), event.action(), event.resourceType(), event.resourceId(),
+                    attributesJson, event.occurredAt());
+        } else {
+            jdbc.update(SCOPED_INSERT_SQL, event.id(), event.actor(), event.action(), event.resourceType(),
+                    event.resourceId(), attributesJson, event.occurredAt(), principal.get().scope().tenant(),
+                    principal.get().scope().project());
+        }
     }
 
     void record(String actor, String action, String resourceType, String resourceId,

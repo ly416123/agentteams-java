@@ -40,4 +40,24 @@ class DashboardSummaryControllerTest {
                 .andExpect(jsonPath("$.failures").value(1))
                 .andExpect(jsonPath("$.byProviderModel[0].provider").value("deepseek"));
     }
+
+    @Test
+    void exposesRequestedOperationalDimensionWithoutChangingLegacyShape() throws Exception {
+        Instant from = Instant.parse("2026-08-23T00:00:00Z");
+        Instant to = Instant.parse("2026-08-23T01:00:00Z");
+        when(usage.summarize(from, to, "worker", 5)).thenReturn(new UsageQueryService.UsageSummary(from, to,
+                new UsageQueryService.UsageTotals(2, 0, 10, 20, 1.25),
+                List.of(new UsageQueryService.UsageGroup(null, null, 2, 0, 10, 20, 1.25,
+                        15, null, "worker", "worker-a"))));
+
+        mockMvc.perform(get("/api/v1/dashboard/summary")
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("groupBy", "worker")
+                        .param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupBy").value("worker"))
+                .andExpect(jsonPath("$.groups[0].dimension").value("worker"))
+                .andExpect(jsonPath("$.groups[0].dimensionValue").value("worker-a"));
+    }
 }

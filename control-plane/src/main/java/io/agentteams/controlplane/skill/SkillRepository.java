@@ -44,12 +44,14 @@ public final class SkillRepository {
         }
         jdbc.update("""
                 INSERT INTO skill_versions (id, skill_id, version, digest, manifest, visibility, lifecycle,
-                                            created_at, updated_at, record_version, security_scan_status, review_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            created_at, updated_at, record_version, security_scan_status, review_status,
+                                            package_storage_key, package_size_bytes, package_sha256, package_upload_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, skillVersion.id(), skillVersion.skillId(), skillVersion.version(), skillVersion.digest(),
                 json(skillVersion.manifestJson()), skillVersion.visibility(), skillVersion.lifecycle(),
                 timestamp(skillVersion.createdAt()), timestamp(skillVersion.updatedAt()), skillVersion.recordVersion(),
-                skillVersion.securityScanStatus(), skillVersion.reviewStatus());
+                skillVersion.securityScanStatus(), skillVersion.reviewStatus(), skillVersion.packageStorageKey(),
+                skillVersion.packageSizeBytes(), skillVersion.packageSha256(), skillVersion.packageUploadStatus());
         return skillVersion;
     }
 
@@ -72,7 +74,8 @@ public final class SkillRepository {
     public List<SkillVersionRecord> findVersions(UUID skillId) {
         return jdbc.query("""
                 SELECT id, skill_id, version, digest, manifest::text, visibility, lifecycle,
-                       created_at, updated_at, record_version, security_scan_status, review_status
+                       created_at, updated_at, record_version, security_scan_status, review_status,
+                       package_storage_key, package_size_bytes, package_sha256, package_upload_status
                   FROM skill_versions WHERE skill_id = ? ORDER BY created_at, id
                 """, this::mapVersion, skillId);
     }
@@ -80,7 +83,8 @@ public final class SkillRepository {
     public Optional<SkillVersionRecord> findVersionById(UUID id) {
         return jdbc.query("""
                 SELECT id, skill_id, version, digest, manifest::text, visibility, lifecycle,
-                       created_at, updated_at, record_version, security_scan_status, review_status
+                       created_at, updated_at, record_version, security_scan_status, review_status,
+                       package_storage_key, package_size_bytes, package_sha256, package_upload_status
                   FROM skill_versions WHERE id = ?
                 """, this::mapVersion, id).stream().findFirst();
     }
@@ -110,6 +114,33 @@ public final class SkillRepository {
                 UPDATE skill_versions SET security_scan_status = ?, updated_at = ?, record_version = record_version + 1
                  WHERE id = ? AND skill_id = ?
                 """, status, timestamp(updatedAt), versionId, skillId);
+        return findVersionById(versionId).orElseThrow();
+    }
+
+    public SkillVersionRecord markPackageUploadPending(UUID skillId, UUID versionId, String storageKey,
+            long sizeBytes, String sha256, Instant updatedAt) {
+        versionForSkill(skillId, versionId);
+        jdbc.update("""
+                UPDATE skill_versions
+                   SET package_storage_key = ?, package_size_bytes = ?, package_sha256 = ?,
+                       package_upload_status = 'PENDING', updated_at = ?, record_version = record_version + 1
+                 WHERE id = ? AND skill_id = ?
+                """, storageKey, sizeBytes, sha256, timestamp(updatedAt), versionId, skillId);
+        return findVersionById(versionId).orElseThrow();
+    }
+
+    public SkillVersionRecord completePackageUpload(UUID skillId, UUID versionId, long sizeBytes,
+            String sha256, Instant updatedAt) {
+        SkillVersionRecord version = versionForSkill(skillId, versionId);
+        if (!SkillPackageStoragePaths.isVersionPackage(skillId, versionId, version.packageStorageKey())) {
+            throw new IllegalArgumentException("skill package storage key is invalid");
+        }
+        jdbc.update("""
+                UPDATE skill_versions
+                   SET package_size_bytes = ?, package_sha256 = ?, package_upload_status = 'COMPLETED',
+                       updated_at = ?, record_version = record_version + 1
+                 WHERE id = ? AND skill_id = ?
+                """, sizeBytes, sha256, timestamp(updatedAt), versionId, skillId);
         return findVersionById(versionId).orElseThrow();
     }
 
@@ -183,7 +214,10 @@ public final class SkillRepository {
                 rs.getString("version"), rs.getString("digest"), rs.getString("manifest"),
                 rs.getString("visibility"), rs.getString("lifecycle"), instant(rs, "created_at"),
                 instant(rs, "updated_at"), rs.getLong("record_version"),
-                rs.getString("security_scan_status"), rs.getString("review_status"));
+                rs.getString("security_scan_status"), rs.getString("review_status"),
+                rs.getString("package_storage_key"),
+                (Long) rs.getObject("package_size_bytes"), rs.getString("package_sha256"),
+                rs.getString("package_upload_status"));
     }
 
     private static SqlParameterValue json(String value) {

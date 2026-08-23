@@ -12,6 +12,10 @@ import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -57,5 +61,21 @@ class JdbcAuditQueryServiceTest {
                 + "FROM operation_audit_events WHERE 1 = 1 AND actor = ? AND action = ? AND resource_type = ? "
                 + "AND resource_id = ? AND occurred_at < ? ORDER BY occurred_at DESC, id DESC LIMIT ?"),
                 any(RowMapper.class), any(Object[].class));
+    }
+
+    @Test
+    void addsTenantAndProjectPredicatesForAuthenticatedReads() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            new JdbcAuditQueryService(jdbc, new ObjectMapper()).find(
+                    new JdbcAuditQueryService.AuditEventQuery(null, null, null, null, null, 10));
+            verify(jdbc).query(eq("SELECT id, actor, action, resource_type, resource_id, attributes, occurred_at "
+                    + "FROM operation_audit_events WHERE 1 = 1 AND tenant_id = ? AND project_id = ? "
+                    + "ORDER BY occurred_at DESC, id DESC LIMIT ?"), any(RowMapper.class), any(Object[].class));
+        } finally {
+            PrincipalContext.clear();
+        }
     }
 }
