@@ -15,9 +15,9 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def collector_logs(namespace: str, deployment: str) -> str:
+def collector_logs(namespace: str, deployment: str, since: str) -> str:
     result = subprocess.run(
-        ["kubectl", "-n", namespace, "logs", f"deployment/{deployment}", "--tail=10000"],
+        ["kubectl", "-n", namespace, "logs", f"deployment/{deployment}", f"--since={since}"],
         check=False,
         capture_output=True,
         text=True,
@@ -32,6 +32,12 @@ def main() -> None:
     parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--deployment", default="otel-collector")
     parser.add_argument("--timeout", type=int, default=120)
+    # The recovery workflow runs several long-lived schedulers. Their periodic
+    # spans can push the NATS spans out of a small kubectl tail before this
+    # validator runs, even though the spans were exported successfully. The
+    # collector is created with the Kind cluster, so its one-hour window does
+    # not include unrelated runs.
+    parser.add_argument("--since", default="1h")
     args = parser.parse_args()
 
     required_spans = (
@@ -49,7 +55,7 @@ def main() -> None:
     last_logs = ""
     while time.monotonic() < deadline:
         try:
-            last_logs = collector_logs(args.namespace, args.deployment)
+            last_logs = collector_logs(args.namespace, args.deployment, args.since)
             missing = [span for span in required_spans if span not in last_logs]
             if not missing:
                 blocks = re.split(r"(?=Span #\d+)", last_logs)
