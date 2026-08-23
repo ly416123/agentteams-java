@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
+import subprocess
 import sys
 import uuid
 
@@ -121,6 +122,24 @@ def grpc_call(args: argparse.Namespace, method: str, request: dict) -> dict:
     )
 
 
+def wait_for_gateway_quota_service(args: argparse.Namespace) -> None:
+    """Wait until the Gateway handler, not just its TCP port, is serving gRPC.
+
+    A service port-forward can accept TCP connections while the Gateway is
+    still starting its Spring/gRPC handlers. An empty Acquire request is
+    rejected before any quota state is touched, so it is a safe readiness
+    probe for the same RPC used by the acceptance below.
+    """
+    def ready() -> bool:
+        try:
+            response = grpc_call(args, "Acquire", {})
+            return enum_value(response, "protocolError") == "QUOTA_PROTOCOL_ERROR_INVALID_ARGUMENT"
+        except (KindTestError, OSError, subprocess.TimeoutExpired):
+            return False
+
+    wait_until("Gateway quota gRPC service", ready, timeout=args.timeout, interval=1.0)
+
+
 def accepted(response: dict) -> bool:
     return bool(response.get("accepted", False))
 
@@ -198,6 +217,7 @@ def main() -> int:
         gateway_forward.start(timeout=args.timeout)
         wait_until("Control Plane API", lambda: api_request(f"{base_url}/actuator/health").status == 200,
                    timeout=args.timeout)
+        wait_for_gateway_quota_service(args)
 
         for scope in (scope_a, scope_b, scope_tenant_b):
             configure_quota(base_url, scope, args)

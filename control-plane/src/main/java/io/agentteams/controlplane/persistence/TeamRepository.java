@@ -100,6 +100,23 @@ public final class TeamRepository {
                 JdbcSupport.timestamp(policy.updatedAt()), policy.version());
     }
 
+    public TeamPolicyRecord updatePolicy(TeamPolicyRecord policy, long expectedVersion) {
+        int updated = jdbc.update("""
+                UPDATE team_policies SET max_concurrent_tasks = ?, require_human_approval = ?,
+                    allowed_runtimes = ?::jsonb, required_capabilities = ?::jsonb,
+                    updated_at = ?, version = version + 1
+                 WHERE team_id = ? AND version = ?
+                """, policy.maxConcurrentTasks(), policy.requireHumanApproval(),
+                JdbcSupport.jsonArray(policy.allowedRuntimes()), JdbcSupport.jsonArray(policy.requiredCapabilities()),
+                JdbcSupport.timestamp(policy.updatedAt()), policy.teamId(), expectedVersion);
+        if (updated == 0) {
+            long actual = findPolicy(policy.teamId()).map(TeamPolicyRecord::version).orElse(-1L);
+            throw new OptimisticLockFailure("team_policy", policy.teamId(), expectedVersion, actual);
+        }
+        return findPolicy(policy.teamId()).orElseThrow(
+                () -> new IllegalStateException("team policy disappeared after update"));
+    }
+
     public void insertMember(TeamMemberRecord member) {
         jdbc.update("""
                 INSERT INTO team_memberships(id, team_id, agent_id, role, status, joined_at, updated_at, version)

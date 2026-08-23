@@ -82,6 +82,25 @@ public final class TeamService {
         return persistence.inTransaction(tx -> tx.teams().allMembers(teamId));
     }
 
+    public TeamPolicyRecord policy(UUID teamId) {
+        get(teamId);
+        return persistence.inTransaction(tx -> tx.teams().findPolicy(teamId)
+                .orElseThrow(() -> new IllegalStateException("team policy is missing")));
+    }
+
+    public TeamPolicyRecord updatePolicy(UUID teamId, int maxConcurrentTasks, boolean requireHumanApproval,
+            List<String> allowedRuntimes, List<String> requiredCapabilities, long expectedVersion, Instant now) {
+        Objects.requireNonNull(teamId, "teamId");
+        Objects.requireNonNull(allowedRuntimes, "allowedRuntimes");
+        Objects.requireNonNull(requiredCapabilities, "requiredCapabilities");
+        Objects.requireNonNull(now, "now");
+        if (expectedVersion < 0) throw new IllegalArgumentException("expectedVersion must not be negative");
+        get(teamId);
+        TeamPolicyRecord next = new TeamPolicyRecord(teamId, maxConcurrentTasks, requireHumanApproval,
+                allowedRuntimes, requiredCapabilities, now, expectedVersion);
+        return persistence.inTransaction(tx -> tx.teams().updatePolicy(next, expectedVersion));
+    }
+
     public void removeMember(UUID teamId, UUID agentId, Instant now) {
         Objects.requireNonNull(agentId, "agentId");
         get(teamId);

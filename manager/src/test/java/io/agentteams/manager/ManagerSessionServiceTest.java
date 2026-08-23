@@ -134,11 +134,14 @@ class ManagerSessionServiceTest {
                 ModelCallAuditor.noop(), java.time.Clock.systemUTC(), admission);
 
         service.handleCreateTask("scoped", new ManagerToolRegistry.ToolContext(
-                Set.of("task:create"), false, "tenant-a", "project-a"));
+                Set.of("task:create"), false, "tenant-a", "project-a",
+                "worker-a", "task-a", "team-a", "tool-a", "quota-a", "daily_tokens"));
 
         assertThat(admission.requests()).singleElement().satisfies(request -> {
             assertThat(request.tenantId()).isEqualTo("tenant-a");
             assertThat(request.projectId()).isEqualTo("project-a");
+            assertThat(request.dimensions()).isEqualTo(new ModelCallDimensions(
+                    "worker-a", "task-a", "team-a", "tool-a", "quota-a", "daily_tokens"));
         });
     }
 

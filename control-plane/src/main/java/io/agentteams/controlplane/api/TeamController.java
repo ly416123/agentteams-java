@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,6 +52,19 @@ public final class TeamController {
         return service.members(teamId).stream().map(MemberResponse::from).toList();
     }
 
+    @GetMapping("/{teamId}/policy")
+    public PolicyResponse policy(@PathVariable UUID teamId) {
+        return PolicyResponse.from(service.policy(teamId));
+    }
+
+    @PutMapping("/{teamId}/policy")
+    public PolicyResponse updatePolicy(@PathVariable UUID teamId, @RequestBody PolicyRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        return PolicyResponse.from(service.updatePolicy(teamId, positive(request.maxConcurrentTasks()),
+                request.requireHumanApproval(), values(request.allowedRuntimes()),
+                values(request.requiredCapabilities()), request.expectedVersion(), Instant.now()));
+    }
+
     @PostMapping("/{teamId}/members")
     public MemberResponse addMember(@PathVariable UUID teamId, @RequestBody MemberRequest request) {
         if (request == null) throw new IllegalArgumentException("request body is required");
@@ -75,6 +89,10 @@ public final class TeamController {
     public record MemberRequest(UUID agentId, String role) {
     }
 
+    public record PolicyRequest(Integer maxConcurrentTasks, boolean requireHumanApproval,
+            List<String> allowedRuntimes, List<String> requiredCapabilities, long expectedVersion) {
+    }
+
     public record TeamResponse(UUID id, String name, String displayName, String status,
             Instant createdAt, Instant updatedAt, long version) {
         static TeamResponse from(TeamRecord team) {
@@ -88,6 +106,14 @@ public final class TeamController {
         static MemberResponse from(TeamMemberRecord member) {
             return new MemberResponse(member.id(), member.teamId(), member.agentId(), member.role(), member.status(),
                     member.joinedAt(), member.updatedAt(), member.version());
+        }
+    }
+
+    public record PolicyResponse(UUID teamId, int maxConcurrentTasks, boolean requireHumanApproval,
+            List<String> allowedRuntimes, List<String> requiredCapabilities, Instant updatedAt, long version) {
+        static PolicyResponse from(TeamPolicyRecord policy) {
+            return new PolicyResponse(policy.teamId(), policy.maxConcurrentTasks(), policy.requireHumanApproval(),
+                    policy.allowedRuntimes(), policy.requiredCapabilities(), policy.updatedAt(), policy.version());
         }
     }
 

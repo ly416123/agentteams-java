@@ -74,7 +74,7 @@ public final class ManagerSessionService {
         ModelProvider.ModelRequest request = new ModelProvider.ModelRequest(prompt, 1024);
         ModelCallLease lease = admission.acquire(new ModelCallAdmissionRequest(
                 provider.getClass().getSimpleName(), "unknown", request.maxTokens(),
-                context.tenantId(), context.projectId()));
+                context.tenantId(), context.projectId(), admissionDimensions(context, "create_task")));
         if (lease == null) {
             throw new IllegalStateException("model call admission returned null lease");
         }
@@ -126,6 +126,13 @@ public final class ManagerSessionService {
             String defaultTool) {
         String tool = context.toolId() == null || context.toolId().isBlank() ? defaultTool : context.toolId();
         return new ModelCallAudit.Dimensions(context.workerId(), context.taskId(), context.teamId(), tool,
+                context.quotaId(), context.quotaDimension());
+    }
+
+    private static ModelCallDimensions admissionDimensions(ManagerToolRegistry.ToolContext context,
+            String defaultTool) {
+        String tool = context.toolId() == null || context.toolId().isBlank() ? defaultTool : context.toolId();
+        return new ModelCallDimensions(context.workerId(), context.taskId(), context.teamId(), tool,
                 context.quotaId(), context.quotaDimension());
     }
 

@@ -7,10 +7,12 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.agentteams.controlplane.persistence.TeamMemberRecord;
+import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
 import io.agentteams.controlplane.service.TeamService;
 import java.time.Instant;
@@ -46,9 +48,13 @@ class TeamControllerTest {
         TeamRecord team = new TeamRecord(teamId, "research", "Research", "ACTIVE", now, now, 0);
         TeamMemberRecord member = new TeamMemberRecord(UUID.randomUUID(), teamId, agentId, "LEADER", "ACTIVE",
                 now, now, 0);
+        TeamPolicyRecord policy = new TeamPolicyRecord(teamId, 3, true, List.of("java"), List.of("gpu"), now, 2);
         when(service.get(teamId)).thenReturn(team);
         when(service.members(teamId)).thenReturn(List.of(member));
         when(service.addMember(eq(teamId), eq(agentId), eq("LEADER"), any())).thenReturn(member);
+        when(service.policy(teamId)).thenReturn(policy);
+        when(service.updatePolicy(eq(teamId), eq(3), eq(true), eq(List.of("java")), eq(List.of("gpu")), eq(2L), any()))
+                .thenReturn(policy);
 
         mockMvc.perform(get("/api/v1/teams/{teamId}", teamId))
                 .andExpect(status().isOk())
@@ -62,6 +68,18 @@ class TeamControllerTest {
                         .content("{\"agentId\":\"" + agentId + "\",\"role\":\"LEADER\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        mockMvc.perform(get("/api/v1/teams/{teamId}/policy", teamId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.maxConcurrentTasks").value(3))
+                .andExpect(jsonPath("$.version").value(2));
+        mockMvc.perform(put("/api/v1/teams/{teamId}/policy", teamId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"maxConcurrentTasks\":3,\"requireHumanApproval\":true,"
+                                + "\"allowedRuntimes\":[\"java\"],\"requiredCapabilities\":[\"gpu\"],"
+                                + "\"expectedVersion\":2}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requireHumanApproval").value(true));
 
         mockMvc.perform(delete("/api/v1/teams/{teamId}/members/{agentId}", teamId, agentId))
                 .andExpect(status().isOk());

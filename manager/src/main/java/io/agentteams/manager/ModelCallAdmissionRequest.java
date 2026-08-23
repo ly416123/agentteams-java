@@ -11,10 +11,16 @@ import java.util.Objects;
  * the call lifecycle finishes.</p>
  */
 public record ModelCallAdmissionRequest(String provider, String model, int maxTokens,
-        String tenantId, String projectId) {
+        String tenantId, String projectId, ModelCallDimensions dimensions) {
     /** Compatibility constructor for callers that do not carry project scope. */
     public ModelCallAdmissionRequest(String provider, String model, int maxTokens) {
-        this(provider, model, maxTokens, null, null);
+        this(provider, model, maxTokens, null, null, ModelCallDimensions.empty());
+    }
+
+    /** Compatibility constructor for callers that carry only project scope. */
+    public ModelCallAdmissionRequest(String provider, String model, int maxTokens,
+            String tenantId, String projectId) {
+        this(provider, model, maxTokens, tenantId, projectId, ModelCallDimensions.empty());
     }
 
     public ModelCallAdmissionRequest {
@@ -30,6 +36,7 @@ public record ModelCallAdmissionRequest(String provider, String model, int maxTo
             tenantId = requireName(tenantId, "tenantId");
             projectId = requireName(projectId, "projectId");
         }
+        dimensions = Objects.requireNonNull(dimensions, "dimensions");
     }
 
     public boolean hasProjectScope() {
