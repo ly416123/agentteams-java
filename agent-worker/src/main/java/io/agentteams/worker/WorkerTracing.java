@@ -120,11 +120,17 @@ final class WorkerTracing {
         }
 
         Scope start(String name, EventMetadata metadata) {
-            Map<String, String> carrier = Map.of("traceparent", metadata == null ? "" : metadata.getTraceparent(),
-                    "tracestate", metadata == null ? "" : metadata.getTracestate());
             Span span;
             try {
-                span = propagator.extract(carrier, GETTER).name(name).start();
+                String traceparent = metadata == null ? "" : metadata.getTraceparent();
+                Span.Builder builder = W3cSpanContext.child(tracer, traceparent, name);
+                if (builder != null) {
+                    span = builder.start();
+                } else {
+                    Map<String, String> carrier = Map.of("traceparent", traceparent,
+                            "tracestate", metadata == null ? "" : metadata.getTracestate());
+                    span = propagator.extract(carrier, GETTER).name(name).start();
+                }
             } catch (RuntimeException ignored) {
                 span = tracer.nextSpan().name(name).start();
             }
