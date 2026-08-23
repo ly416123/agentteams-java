@@ -1,8 +1,8 @@
 # AgentTeams 商业版能力对齐：需求、技术方案与实施计划
 
-**基准日期**：2026-08-23  
-**适用仓库**：`agentteams-java`  
-**对比对象**：阿里云 AgentTeams 商业版公开文档  
+**基准日期**：2026-08-23
+**适用仓库**：`agentteams-java`
+**对比对象**：阿里云 AgentTeams 商业版公开文档
 **当前代码基线**：`7244582`（Model Provider/Model 基础目录已落地）
 
 ## 1. 文档目标与范围
@@ -431,4 +431,3 @@ agentteams.audit.events
 5. P0 通过后并行启动 IAM/Audit、Skill Registry、MCP Registry 和 Usage/Dashboard 四条轨道。
 
 这样可以优先打通“模型配置 → AgentSpec → Worker 配置同步 → 任务执行 → 使用统计”的最短业务闭环，并为后续 Skill/MCP/模板能力提供稳定引用协议。
-
