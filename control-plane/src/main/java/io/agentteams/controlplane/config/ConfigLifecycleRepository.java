@@ -153,6 +153,32 @@ public final class ConfigLifecycleRepository {
         }, bindingId).stream().findFirst();
     }
 
+    public Optional<ConfigSnapshot> findLatestAppliedSnapshotForRollback(UUID bindingId, UUID currentSnapshotId) {
+        return jdbc.query("""
+                SELECT s.id, s.subject, s.version, s.manifest::text, s.checksum, s.actor, s.created_at
+                  FROM config_apply_records a
+                  JOIN config_snapshots s ON s.id = a.snapshot_id
+                 WHERE a.binding_id = ? AND a.snapshot_id <> ? AND a.phase = 'APPLIED'
+                 ORDER BY s.version DESC, s.created_at DESC
+                 LIMIT 1
+                """, (rs, row) -> new ConfigSnapshot(rs.getObject("id", UUID.class), rs.getString("subject"),
+                rs.getLong("version"), ConfigManifestCanonicalizer.normalize(rs.getString("manifest")),
+                rs.getString("checksum"), rs.getString("actor"), instant(rs, "created_at")),
+                bindingId, currentSnapshotId).stream().findFirst();
+    }
+
+    /** Starts a new application attempt while retaining the same binding/snapshot history row. */
+    public void markApplyPending(UUID bindingId, UUID agentId, UUID snapshotId, UUID eventId, Instant updatedAt) {
+        jdbc.update("""
+                INSERT INTO config_apply_records
+                    (id, binding_id, agent_id, snapshot_id, phase, error_message, applied_at, updated_at)
+                VALUES (?, ?, ?, ?, 'PENDING', NULL, NULL, ?)
+                ON CONFLICT (binding_id, snapshot_id) DO UPDATE SET id = EXCLUDED.id,
+                    agent_id = EXCLUDED.agent_id, phase = 'PENDING', error_message = NULL,
+                    applied_at = NULL, updated_at = EXCLUDED.updated_at
+                """, eventId, bindingId, agentId, snapshotId, java.sql.Timestamp.from(updatedAt));
+    }
+
     public Optional<ConfigApplyRecord> findApply(UUID bindingId, UUID snapshotId) {
         return jdbc.query("""
                 SELECT id, binding_id, agent_id, snapshot_id, phase, error_message, applied_at, updated_at

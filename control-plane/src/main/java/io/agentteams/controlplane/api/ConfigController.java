@@ -69,6 +69,11 @@ public final class ConfigController {
         return DeploymentResponse.from(deployments.retry(bindingId));
     }
 
+    @PostMapping("/bindings/{bindingId}/rollback")
+    public DeploymentResponse rollback(@PathVariable UUID bindingId) {
+        return DeploymentResponse.from(deployments.rollback(bindingId));
+    }
+
     @GetMapping(value = "/snapshots/{snapshotId}/manifest", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> manifest(@PathVariable UUID snapshotId) {
         ConfigSnapshot snapshot = snapshotRepository.findById(snapshotId)

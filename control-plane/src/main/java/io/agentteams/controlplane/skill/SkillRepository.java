@@ -44,11 +44,12 @@ public final class SkillRepository {
         }
         jdbc.update("""
                 INSERT INTO skill_versions (id, skill_id, version, digest, manifest, visibility, lifecycle,
-                                            created_at, updated_at, record_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            created_at, updated_at, record_version, security_scan_status, review_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, skillVersion.id(), skillVersion.skillId(), skillVersion.version(), skillVersion.digest(),
                 json(skillVersion.manifestJson()), skillVersion.visibility(), skillVersion.lifecycle(),
-                timestamp(skillVersion.createdAt()), timestamp(skillVersion.updatedAt()), skillVersion.recordVersion());
+                timestamp(skillVersion.createdAt()), timestamp(skillVersion.updatedAt()), skillVersion.recordVersion(),
+                skillVersion.securityScanStatus(), skillVersion.reviewStatus());
         return skillVersion;
     }
 
@@ -71,7 +72,7 @@ public final class SkillRepository {
     public List<SkillVersionRecord> findVersions(UUID skillId) {
         return jdbc.query("""
                 SELECT id, skill_id, version, digest, manifest::text, visibility, lifecycle,
-                       created_at, updated_at, record_version
+                       created_at, updated_at, record_version, security_scan_status, review_status
                   FROM skill_versions WHERE skill_id = ? ORDER BY created_at, id
                 """, this::mapVersion, skillId);
     }
@@ -79,7 +80,7 @@ public final class SkillRepository {
     public Optional<SkillVersionRecord> findVersionById(UUID id) {
         return jdbc.query("""
                 SELECT id, skill_id, version, digest, manifest::text, visibility, lifecycle,
-                       created_at, updated_at, record_version
+                       created_at, updated_at, record_version, security_scan_status, review_status
                   FROM skill_versions WHERE id = ?
                 """, this::mapVersion, id).stream().findFirst();
     }
@@ -101,6 +102,24 @@ public final class SkillRepository {
                  WHERE id = ?
                 """, timestamp(updatedAt), skillId);
         return findVersionById(version.id()).orElseThrow();
+    }
+
+    public SkillVersionRecord markSecurityScan(UUID skillId, UUID versionId, String status, Instant updatedAt) {
+        versionForSkill(skillId, versionId);
+        jdbc.update("""
+                UPDATE skill_versions SET security_scan_status = ?, updated_at = ?, record_version = record_version + 1
+                 WHERE id = ? AND skill_id = ?
+                """, status, timestamp(updatedAt), versionId, skillId);
+        return findVersionById(versionId).orElseThrow();
+    }
+
+    public SkillVersionRecord review(UUID skillId, UUID versionId, String status, Instant updatedAt) {
+        versionForSkill(skillId, versionId);
+        jdbc.update("""
+                UPDATE skill_versions SET review_status = ?, updated_at = ?, record_version = record_version + 1
+                 WHERE id = ? AND skill_id = ?
+                """, status, timestamp(updatedAt), versionId, skillId);
+        return findVersionById(versionId).orElseThrow();
     }
 
     public SkillVersionRecord disable(UUID skillId, UUID versionId, Instant updatedAt) {
@@ -163,7 +182,8 @@ public final class SkillRepository {
         return new SkillVersionRecord(rs.getObject("id", UUID.class), rs.getObject("skill_id", UUID.class),
                 rs.getString("version"), rs.getString("digest"), rs.getString("manifest"),
                 rs.getString("visibility"), rs.getString("lifecycle"), instant(rs, "created_at"),
-                instant(rs, "updated_at"), rs.getLong("record_version"));
+                instant(rs, "updated_at"), rs.getLong("record_version"),
+                rs.getString("security_scan_status"), rs.getString("review_status"));
     }
 
     private static SqlParameterValue json(String value) {

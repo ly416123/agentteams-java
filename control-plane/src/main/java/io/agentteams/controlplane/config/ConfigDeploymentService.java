@@ -130,6 +130,32 @@ public final class ConfigDeploymentService {
         });
     }
 
+    /** Selects the newest previously applied snapshot and emits a durable rollback command. */
+    public ConfigDeployment rollback(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId");
+        return persistence.inTransaction(tx -> {
+            ConfigBindingRecord binding = tx.configLifecycle().findBindingForUpdate(bindingId)
+                    .orElseThrow(() -> new IllegalArgumentException("config binding does not exist"));
+            ConfigSnapshot current = snapshots.findById(binding.snapshotId())
+                    .orElseThrow(() -> new IllegalStateException("desired config snapshot does not exist"));
+            ConfigSnapshot stable = tx.configLifecycle()
+                    .findLatestAppliedSnapshotForRollback(binding.id(), current.id())
+                    .orElseThrow(() -> new IllegalArgumentException("config binding has no stable revision to roll back to"));
+            UUID eventId = rollbackEventId(binding.id(), current.id(), stable.id());
+            ConfigBindingRecord target = new ConfigBindingRecord(binding.id(), binding.subject(), binding.agentId(),
+                    stable.id(), clock.instant());
+            if (tx.outboxEvents().findByEventId(eventId).isPresent()) {
+                return new ConfigDeployment(target, stable, eventId);
+            }
+            tx.configLifecycle().upsertBinding(target);
+            tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), stable.id(), eventId, clock.instant());
+            String payload = payload(eventId, target, stable, tx.configLifecycle().findFiles(stable.id()));
+            FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
+                    clock.instant(), stable.version());
+            return new ConfigDeployment(target, stable, eventId);
+        });
+    }
+
     private String payload(UUID eventId, ConfigBindingRecord binding, ConfigSnapshot snapshot,
             List<ConfigFileRecord> files) {
         try {
@@ -169,6 +195,11 @@ public final class ConfigDeploymentService {
     private static UUID replayEventId(UUID bindingId, UUID snapshotId, Instant failedAt) {
         return UUID.nameUUIDFromBytes((CONFIG_CHANGED + ":replay:" + bindingId + ":" + snapshotId + ":" + failedAt)
                 .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static UUID rollbackEventId(UUID bindingId, UUID currentSnapshotId, UUID stableSnapshotId) {
+        return UUID.nameUUIDFromBytes((CONFIG_CHANGED + ":rollback:" + bindingId + ":"
+                + currentSnapshotId + ":" + stableSnapshotId).getBytes(StandardCharsets.UTF_8));
     }
 
     private static void requireText(String value, String field) {

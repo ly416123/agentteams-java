@@ -14,7 +14,9 @@ public record SkillVersionRecord(
         String lifecycle,
         Instant createdAt,
         Instant updatedAt,
-        long recordVersion) {
+        long recordVersion,
+        String securityScanStatus,
+        String reviewStatus) {
 
     public SkillVersionRecord {
         Objects.requireNonNull(id, "id");
@@ -29,6 +31,15 @@ public record SkillVersionRecord(
         if (recordVersion < 0) {
             throw new IllegalArgumentException("recordVersion must not be negative");
         }
+        requireText(securityScanStatus, "securityScanStatus");
+        requireText(reviewStatus, "reviewStatus");
+    }
+
+    public SkillVersionRecord(UUID id, UUID skillId, String version, String digest, String manifestJson,
+            String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion) {
+        this(id, skillId, version, digest, manifestJson, visibility, lifecycle, createdAt, updatedAt, recordVersion,
+                "PUBLISHED".equals(lifecycle) ? "PASSED" : "NOT_SCANNED",
+                "PUBLISHED".equals(lifecycle) ? "APPROVED" : "PENDING");
     }
 
     private static void requireText(String value, String field) {

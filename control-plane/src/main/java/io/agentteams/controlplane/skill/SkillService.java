@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,18 +21,31 @@ public final class SkillService {
     private final IdempotencyService idempotency;
     private final Clock clock;
     private final SkillPackageValidator packageValidator;
+    private final SkillSecurityScanner securityScanner;
 
-    @Autowired
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
-            SkillPackageValidator packageValidator) {
+            SkillPackageValidator packageValidator, SkillSecurityScanner securityScanner) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.packageValidator = Objects.requireNonNull(packageValidator, "packageValidator");
+        this.securityScanner = Objects.requireNonNull(securityScanner, "securityScanner");
+    }
+
+    @Autowired
+    public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
+            SkillPackageValidator packageValidator, ObjectProvider<SkillSecurityScanner> scanners) {
+        this(repository, idempotency, clock, packageValidator,
+                scanners.getIfAvailable(ValidationOnlySkillSecurityScanner::new));
     }
 
     public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock) {
-        this(repository, idempotency, clock, new SkillPackageValidator());
+        this(repository, idempotency, clock, new SkillPackageValidator(), new ValidationOnlySkillSecurityScanner());
+    }
+
+    public SkillService(SkillRepository repository, IdempotencyService idempotency, Clock clock,
+            SkillPackageValidator packageValidator) {
+        this(repository, idempotency, clock, packageValidator, new ValidationOnlySkillSecurityScanner());
     }
 
     @Transactional
@@ -89,7 +103,25 @@ public final class SkillService {
             throw new IllegalArgumentException("skill version does not belong to skill");
         }
         packageValidator.validate(version.version(), version.digest(), version.manifestJson());
+        SkillSecurityScanner.ScanResult scan = securityScanner.scan(version.manifestJson());
+        SkillVersionRecord scanned = repository.markSecurityScan(skillId, versionId, scan.status().name(), clock.instant());
+        if (scan.status() != SkillSecurityScanner.ScanResult.Status.PASSED) {
+            throw new SkillPackageValidationException("skill security scan failed: " + scan.classification());
+        }
+        if (!"APPROVED".equals(scanned.reviewStatus())) {
+            throw new SkillPackageValidationException("skill version requires an approved security review");
+        }
         return repository.publish(skillId, versionId, clock.instant());
+    }
+
+    @Transactional
+    public SkillVersionRecord review(UUID skillId, UUID versionId, String status) {
+        getSkill(skillId);
+        String normalized = status == null ? "" : status.trim().toUpperCase();
+        if (!"APPROVED".equals(normalized) && !"REJECTED".equals(normalized)) {
+            throw new IllegalArgumentException("review status must be APPROVED or REJECTED");
+        }
+        return repository.review(skillId, versionId, normalized, clock.instant());
     }
 
     @Transactional

@@ -74,6 +74,13 @@ public final class SkillController {
         return SkillVersionResponse.from(service.publish(skillId, versionId), objectMapper);
     }
 
+    @PostMapping("/{skillId}/versions/{versionId}/review")
+    public SkillVersionResponse review(@PathVariable UUID skillId, @PathVariable UUID versionId,
+            @RequestBody ReviewRequest request) {
+        requireRequest(request);
+        return SkillVersionResponse.from(service.review(skillId, versionId, request.status()), objectMapper);
+    }
+
     @PostMapping("/{skillId}/versions/{versionId}/disable")
     public SkillVersionResponse disable(@PathVariable UUID skillId, @PathVariable UUID versionId) {
         return SkillVersionResponse.from(service.disable(skillId, versionId), objectMapper);
@@ -95,6 +102,9 @@ public final class SkillController {
     public record CreateVersionRequest(String version, String digest, JsonNode manifest, String visibility) {
     }
 
+    public record ReviewRequest(String status) {
+    }
+
     public record SkillResponse(UUID id, String name, String displayName, String description, String visibility,
             String lifecycle, Instant createdAt, Instant updatedAt, long version) {
 
@@ -105,13 +115,15 @@ public final class SkillController {
     }
 
     public record SkillVersionResponse(UUID id, UUID skillId, String version, String digest, JsonNode manifest,
-            String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion) {
+            String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion,
+            String securityScanStatus, String reviewStatus) {
 
         static SkillVersionResponse from(SkillVersionRecord version, ObjectMapper objectMapper) {
             try {
                 return new SkillVersionResponse(version.id(), version.skillId(), version.version(), version.digest(),
                         objectMapper.readTree(version.manifestJson()), version.visibility(), version.lifecycle(),
-                        version.createdAt(), version.updatedAt(), version.recordVersion());
+                        version.createdAt(), version.updatedAt(), version.recordVersion(),
+                        version.securityScanStatus(), version.reviewStatus());
             } catch (IOException error) {
                 throw new IllegalStateException("stored skill manifest is not valid JSON", error);
             }

@@ -65,13 +65,21 @@
 | P1 | Usage 增加 Dashboard/Prometheus 稳定分组契约 | model_call_audits、Usage API | 已完成：provider/model/status 分组和 limit |
 | P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成第二段：Snapshot/Outbox/ACK、旧版本保护、绑定状态、失败重试；Worker 实际回滚待收口 |
 
-本轮第二波已在工作区完成并通过干净全量测试（190 个测试，0 失败）：
+前一轮第二波已提交；本轮第三波正在收口，目标是把基础治理接入实际生命周期：
 
 - **Worker 配置治理**：增加绑定状态查询、最新 revision 保护、失败配置重试，以及 ACK 幂等处理。
 - **Model Provider/Model 治理**：增加启停、删除依赖检查、连接测试结果分类和模型/Provider 依赖索引；默认连接探针只做配置校验，不会误发真实模型请求。
 - **项目级 IAM 基线**：Keycloak/OIDC 提供身份和租户上下文，Control Plane 持久化项目、成员和 OWNER/ADMIN/OPERATOR/DEVELOPER/VIEWER 角色，并提供幂等成员管理。
 - **MCP/Skill 安全基线**：MCP 出站 scheme/domain/tool/timeout 策略、失败分类，以及 Skill 版本安全扫描和审核字段。
 - **Dashboard**：提供 `GET /api/v1/dashboard/summary`，复用 Usage 查询口径输出模型调用、Token、成功率和延迟摘要。
+
+本轮第三波已实现：
+
+- **配置回滚**：`POST /api/v1/config/bindings/{bindingId}/rollback` 选择最近一次稳定的 `APPLIED` revision，更新期望态并发出幂等配置事件。
+- **Skill 安全门禁**：版本持久化 `securityScanStatus/reviewStatus`，发布前执行可插拔扫描器并要求 `APPROVED`；增加审核 API 和安全状态返回。
+- **MCP 运行时策略入口**：连接器执行前统一检查启用状态、健康状态、endpoint、超时和工具 allowlist。
+
+前一轮加本轮改动已通过干净全量测试（193 个测试，0 失败；Flyway 从空库迁移至 V26）。
 
 尚未宣称为完整商业版能力的部分：真实 Provider 网络探针和 Secret Manager 接入、Worker 实际回滚执行、项目角色覆盖全部资源 API、MCP 真正连接器/工具发现、Skill 包安全扫描器、Prometheus 告警规则、成本/配额、Worker 模板和 Console。
 
@@ -96,8 +104,8 @@ Skill、MCP、Audit 可以在关键路径上并行建设，但 Skill/MCP 的最�
 | Worker Team | **部分具备**。已有 Team CRD、同步、调度和策略基础 | 缺少成员/管理员模型、Leader 配置、Team 级模型/文件/Skill/MCP 绑定及版本化发布 | P0 |
 | AgentSpec | **缺失**。当前 WorkerSpec、AgentRecord 和运行时配置分散 | 缺少统一的 AgentSpec v1、Schema 校验、引用关系、配置修订和 Worker ACK | P0 |
 | 用户/租户/项目/RBAC | **部分具备**。已有 OIDC/Keycloak、JWT scope、项目成员/角色表和租户隔离基线 | 缺少角色覆盖全部资源、成员禁用/邀请、跨资源授权过滤和完整成员审计 API | P0 |
-| Skill 管理 | **部分具备**。已有 Registry、digest/manifest/版本校验和发布生命周期，并增加扫描/审核状态 | 缺少真实安全扫描器、包存储/下载策略、可见性和 Worker/Team 绑定 | P1 |
-| MCP Server 管理 | **部分具备**。已有 Registry、认证引用、传输配置、健康状态和出站策略模型 | 缺少真实连接器、工具发现、健康探针、限流/熔断和调用审计闭环 | P1 |
+| Skill 管理 | **部分具备**。已有 Registry、digest/manifest/版本校验、扫描/审核门禁和状态 API | 缺少真实安全扫描器、包存储/下载策略、可见性和 Worker/Team 绑定 | P1 |
+| MCP Server 管理 | **部分具备**。已有 Registry、认证引用、传输配置、健康状态、出站策略和运行时统一授权入口 | 缺少真实连接器、工具发现、健康探针、限流/熔断和调用审计闭环 | P1 |
 | Dashboard/使用分析 | **部分具备**。已有 Micrometer、OTel、Prometheus/Grafana、Usage API 和 Dashboard Summary | 缺少 Worker/Task/Team/Tool 全维度聚合、成本/配额、告警规则和统一大盘 | P1 |
 | 审计与安全治理 | **部分具备**。已有模型调用审计、敏感信息脱敏、OIDC/mTLS/RBAC 基础 | 缺少配置变更审计、Skill/MCP 操作审计、Secret 轮换、审批、出站策略和完整合规事件 | P1 |
 | Worker 模板 | **缺失** | 缺少可复用模板、版本、审批、实例化和升级策略 | P1 |
@@ -383,6 +391,7 @@ agentteams.audit.events
 - 完善 Worker/Team 管理 API、成员、Leader、文件和配置引用。
 - 增加 Worker 重启、Gateway 断线、NATS 重放、重复事件和旧 revision 拒绝测试。
 - 将当前 Control Plane 的绑定状态/重试 API 接到 Worker 实际回滚执行，并补充 Prometheus 指标和告警。
+- 已增加稳定 revision 选择和回滚事件；下一步接入 Worker 实际回滚 ACK 与 observed revision。
 
 **出口条件**：一个新 Worker 可通过 AgentSpec 完成注册、模型配置同步、任务执行、升级和回滚。
 
@@ -474,9 +483,9 @@ agentteams.audit.events
 
 ## 10. 推荐的下一步
 
-下一项应执行 **P1-B：Worker 实际回滚与全资源授权收口**，并行推进 MCP/Skill 真实运行时安全：
+下一项应执行 **P1-B：Worker 实际回滚 ACK 与资源归属模型**，并行推进 MCP/Skill 真实运行时安全：
 
-1. 将配置绑定重试从“重发 Outbox 事件”接到 Worker 实际回滚/稳定版本选择，增加 observed revision 和失败原因。
+1. 将当前稳定 revision 回滚事件接到 Worker 实际回滚 ACK，增加 observed revision、失败原因和 Prometheus 告警。
 2. 把项目角色校验覆盖到 Model、AgentSpec、Worker、Team、Skill、MCP、Task、Usage 和 Audit API。
 3. 为 Provider 接入可插拔真实连接探针和 Secret Resolver，保留当前默认的 validation-only 安全模式。
 4. 为 MCP 接入真实工具发现/健康探针、限流熔断和调用审计；为 Skill 接入包存储与安全扫描器。

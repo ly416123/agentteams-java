@@ -94,6 +94,7 @@ class SkillServiceTest {
                 "PRIVATE", "PUBLISHED", NOW, NOW, 1);
         when(repository.findById(skillId)).thenReturn(java.util.Optional.of(skill));
         when(repository.findVersionById(versionId)).thenReturn(java.util.Optional.of(version));
+        when(repository.markSecurityScan(eq(skillId), eq(versionId), eq("PASSED"), eq(NOW))).thenReturn(version);
         when(repository.publish(eq(skillId), eq(versionId), eq(NOW))).thenReturn(version);
         when(repository.disable(eq(skillId), eq(versionId), eq(NOW))).thenReturn(version);
 
