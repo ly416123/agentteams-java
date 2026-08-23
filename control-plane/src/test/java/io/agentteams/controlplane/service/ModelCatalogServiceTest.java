@@ -5,9 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.agentteams.controlplane.audit.AuditEvent;
+import io.agentteams.controlplane.audit.AuditRecorder;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.ModelProviderRecord;
 import io.agentteams.controlplane.persistence.ModelRecord;
@@ -30,12 +33,15 @@ class ModelCatalogServiceTest {
     @Mock
     private FoundationPersistenceService persistence;
 
+    @Mock
+    private AuditRecorder auditRecorder;
+
     private ModelCatalogService service;
 
     @BeforeEach
     void setUp() {
         service = new ModelCatalogService(persistence, new IdempotencyService(),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), auditRecorder);
     }
 
     @Test
@@ -52,6 +58,14 @@ class ModelCatalogServiceTest {
         assertThat(provider.credentialRef()).isEqualTo("secret/deepseek");
         assertThat(provider.settingsJson()).isEqualTo("{\"region\":\"cn\"}");
         assertThat(provider.createdAt()).isEqualTo(NOW);
+
+        ArgumentCaptor<AuditEvent> audit = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(auditRecorder).record(audit.capture());
+        assertThat(audit.getValue().actor()).isEqualTo("api");
+        assertThat(audit.getValue().action()).isEqualTo("CREATE_MODEL_PROVIDER");
+        assertThat(audit.getValue().resourceType()).isEqualTo("model_provider");
+        assertThat(audit.getValue().resourceId()).isEqualTo(provider.id().toString());
+        assertThat(audit.getValue().attributes()).containsEntry("result", "SUCCESS");
     }
 
     @Test
@@ -80,5 +94,43 @@ class ModelCatalogServiceTest {
         ArgumentCaptor<ModelRecord> captured = ArgumentCaptor.forClass(ModelRecord.class);
         verify(persistence).createModel(captured.capture(), eq("model-key"), any());
         assertThat(captured.getValue().createdAt()).isEqualTo(NOW);
+
+        ArgumentCaptor<AuditEvent> audit = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(auditRecorder).record(audit.capture());
+        assertThat(audit.getValue().action()).isEqualTo("CREATE_MODEL");
+        assertThat(audit.getValue().resourceType()).isEqualTo("model");
+        assertThat(audit.getValue().resourceId()).isEqualTo(model.id().toString());
+        assertThat(audit.getValue().attributes()).containsEntry("result", "SUCCESS");
+    }
+
+    @Test
+    void auditFailureDoesNotChangeSuccessfulCatalogWrite() {
+        when(persistence.createModelProvider(any(ModelProviderRecord.class), eq("provider-key"), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new IllegalStateException("audit unavailable")).when(auditRecorder).record(any());
+
+        ModelProviderRecord provider = service.createProvider("provider-key",
+                new ModelCatalogService.ProviderInput("deepseek", "openai-compatible",
+                        "https://api.deepseek.com/v1/chat/completions", null, "{}", true));
+
+        assertThat(provider.name()).isEqualTo("deepseek");
+        verify(persistence).createModelProvider(any(ModelProviderRecord.class), eq("provider-key"), any());
+    }
+
+    @Test
+    void recordsFailureResultWhenCatalogWriteFails() {
+        when(persistence.createModelProvider(any(ModelProviderRecord.class), eq("provider-key"), any()))
+                .thenThrow(new IllegalStateException("catalog unavailable"));
+
+        assertThatThrownBy(() -> service.createProvider("provider-key",
+                new ModelCatalogService.ProviderInput("deepseek", "openai-compatible",
+                        "https://api.deepseek.com/v1/chat/completions", null, "{}", true)))
+                .isInstanceOf(IllegalStateException.class);
+
+        ArgumentCaptor<AuditEvent> audit = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(auditRecorder).record(audit.capture());
+        assertThat(audit.getValue().action()).isEqualTo("CREATE_MODEL_PROVIDER");
+        assertThat(audit.getValue().attributes()).containsEntry("result", "FAILURE");
+        assertThat(audit.getValue().resourceId()).isNotBlank();
     }
 }

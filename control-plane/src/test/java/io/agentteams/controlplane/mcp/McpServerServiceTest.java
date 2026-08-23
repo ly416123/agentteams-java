@@ -5,14 +5,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.agentteams.controlplane.audit.AuditEvent;
+import io.agentteams.controlplane.audit.AuditRecorder;
+import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,11 +32,14 @@ class McpServerServiceTest {
     @Mock
     private McpServerRepository repository;
 
+    @Mock
+    private AuditRecorder auditRecorder;
+
     private McpServerService service;
 
     @BeforeEach
     void setUp() {
-        service = new McpServerService(repository, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new McpServerService(repository, Clock.fixed(NOW, ZoneOffset.UTC), auditRecorder);
     }
 
     @Test
@@ -50,6 +58,7 @@ class McpServerServiceTest {
         assertThat(created.createdAt()).isEqualTo(NOW);
         verify(repository).insert(created);
         verify(repository).bindIdempotency(eq("create-key"), eq(created.id()));
+        assertAudit("CREATE_MCP_SERVER", created.id(), "SUCCESS");
     }
 
     @Test
@@ -107,6 +116,62 @@ class McpServerServiceTest {
         assertThat(updated.healthStatus()).isEqualTo(McpHealthStatus.HEALTHY);
         assertThat(updated.lastCheckedAt()).isEqualTo(NOW);
         assertThat(updated.version()).isEqualTo(2);
+        assertAudit("UPDATE_MCP_SERVER_HEALTH", id, "SUCCESS");
+    }
+
+    @Test
+    void auditsUpdateAndDeleteOperations() {
+        UUID id = UUID.randomUUID();
+        McpServerRecord current = record(id, "weather", McpHealthStatus.UNKNOWN, 3);
+        when(repository.findById(id)).thenReturn(Optional.of(current));
+        when(repository.update(any(McpServerRecord.class), eq(3L))).thenReturn(1);
+
+        service.update(id, new McpServerService.UpdateInput(
+                "weather-v2", "SSE", "https://mcp.example.test/sse", null, false, "UNKNOWN", null));
+        assertAudit("UPDATE_MCP_SERVER", id, "SUCCESS");
+
+        when(repository.delete(id)).thenReturn(1);
+        service.delete(id);
+        assertAudit("DELETE_MCP_SERVER", id, "SUCCESS");
+    }
+
+    @Test
+    void auditFailureDoesNotChangeSuccessfulMcpWrite() {
+        UUID id = UUID.randomUUID();
+        McpServerRecord current = record(id, "weather", McpHealthStatus.UNKNOWN, 1);
+        when(repository.findById(id)).thenReturn(Optional.of(current));
+        when(repository.update(any(McpServerRecord.class), eq(1L))).thenReturn(1);
+        doThrow(new IllegalStateException("audit unavailable")).when(auditRecorder).record(any());
+
+        McpServerRecord updated = service.update(id, new McpServerService.UpdateInput(
+                "weather-v2", "SSE", "https://mcp.example.test/sse", null, true, "UNKNOWN", null));
+
+        assertThat(updated.name()).isEqualTo("weather-v2");
+        verify(repository).update(any(McpServerRecord.class), eq(1L));
+    }
+
+    @Test
+    void recordsFailureResultWhenMcpDeleteFails() {
+        UUID id = UUID.randomUUID();
+        when(repository.delete(id)).thenReturn(0);
+
+        assertThatThrownBy(() -> service.delete(id))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        assertAudit("DELETE_MCP_SERVER", id, "FAILURE");
+    }
+
+    private void assertAudit(String action, UUID resourceId, String result) {
+        ArgumentCaptor<AuditEvent> audit = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(auditRecorder, org.mockito.Mockito.atLeastOnce()).record(audit.capture());
+        AuditEvent event = audit.getAllValues().stream()
+                .filter(candidate -> candidate.action().equals(action))
+                .findFirst()
+                .orElseThrow();
+        assertThat(event.actor()).isEqualTo("api");
+        assertThat(event.resourceType()).isEqualTo("mcp_server");
+        assertThat(event.resourceId()).isEqualTo(resourceId.toString());
+        assertThat(event.attributes()).containsEntry("result", result);
     }
 
     private static McpServerRecord record(UUID id, String name, McpHealthStatus status, long version) {
