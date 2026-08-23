@@ -90,6 +90,7 @@ spec:
     - to:
         - podSelector: {}
       ports:
+        - { protocol: TCP, port: {{ .Values.controlPlane.port }} }
         - { protocol: TCP, port: 5432 }
         - { protocol: TCP, port: 4222 }
     {{- if .Values.observability.tracing.enabled }}
