@@ -1,7 +1,10 @@
 package io.agentteams.controlplane.mcp;
 
+import io.agentteams.controlplane.audit.AuditEvent;
+import io.agentteams.controlplane.audit.AuditRecorder;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.persistence.OptimisticLockFailure;
+import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -11,8 +14,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,39 +28,63 @@ public final class McpServerService {
 
     private final McpServerRepository repository;
     private final Clock clock;
+    private final AuditRecorder auditRecorder;
 
     public McpServerService(McpServerRepository repository) {
-        this(repository, Clock.systemUTC());
+        this(repository, Clock.systemUTC(), event -> { });
+    }
+
+    @Autowired
+    public McpServerService(McpServerRepository repository, AuditRecorder auditRecorder) {
+        this(repository, Clock.systemUTC(), auditRecorder);
     }
 
     McpServerService(McpServerRepository repository, Clock clock) {
+        this(repository, clock, event -> { });
+    }
+
+    McpServerService(McpServerRepository repository, Clock clock, AuditRecorder auditRecorder) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
     }
 
     @Transactional
     public McpServerRecord create(String idempotencyKey, CreateInput input) {
-        String key = requireIdempotencyKey(idempotencyKey);
-        Objects.requireNonNull(input, "input");
-        NormalizedInput normalized = normalize(input);
-        String requestHash = requestHash(normalized);
+        String actor = PrincipalContext.actorOr("api");
+        UUID resourceId = null;
+        try {
+            String key = requireIdempotencyKey(idempotencyKey);
+            Objects.requireNonNull(input, "input");
+            NormalizedInput normalized = normalize(input);
+            String requestHash = requestHash(normalized);
 
-        var existing = repository.findIdempotency(key);
-        if (existing.isPresent()) {
-            return existingResource(key, requestHash, existing.get());
+            var existing = repository.findIdempotency(key);
+            if (existing.isPresent()) {
+                McpServerRecord result = existingResource(key, requestHash, existing.get());
+                record(actor, CREATE_OPERATION, result.id(), "SUCCESS");
+                return result;
+            }
+
+            Instant now = clock.instant();
+            if (repository.insertIdempotency(key, requestHash, now) == 0) {
+                McpServerRecord result = existingResource(key, requestHash, repository.findIdempotency(key).orElseThrow());
+                record(actor, CREATE_OPERATION, result.id(), "SUCCESS");
+                return result;
+            }
+
+            McpServerRecord server = new McpServerRecord(UUID.randomUUID(), normalized.name(), normalized.transport(),
+                    normalized.endpoint(), normalized.credentialRef(), normalized.enabled(), normalized.healthStatus(),
+                    normalized.lastCheckedAt(), now, now, 0);
+            resourceId = server.id();
+            repository.insert(server);
+            repository.bindIdempotency(key, server.id());
+            record(actor, CREATE_OPERATION, server.id(), "SUCCESS");
+            return server;
+        } catch (RuntimeException error) {
+            record(actor, CREATE_OPERATION, resourceId, "FAILURE");
+            throw error;
         }
-
-        Instant now = clock.instant();
-        if (repository.insertIdempotency(key, requestHash, now) == 0) {
-            return existingResource(key, requestHash, repository.findIdempotency(key).orElseThrow());
-        }
-
-        McpServerRecord server = new McpServerRecord(UUID.randomUUID(), normalized.name(), normalized.transport(),
-                normalized.endpoint(), normalized.credentialRef(), normalized.enabled(), normalized.healthStatus(),
-                normalized.lastCheckedAt(), now, now, 0);
-        repository.insert(server);
-        repository.bindIdempotency(key, server.id());
-        return server;
     }
 
     public List<McpServerRecord> list() {
@@ -69,38 +98,60 @@ public final class McpServerService {
 
     @Transactional
     public McpServerRecord update(UUID id, UpdateInput input) {
-        Objects.requireNonNull(input, "input");
-        McpServerRecord current = get(id);
-        NormalizedInput normalized = normalize(input);
-        Instant now = clock.instant();
-        McpServerRecord updated = new McpServerRecord(current.id(), normalized.name(), normalized.transport(),
-                normalized.endpoint(), normalized.credentialRef(), normalized.enabled(), normalized.healthStatus(),
-                normalized.lastCheckedAt(), current.createdAt(), now, current.version() + 1);
-        if (repository.update(updated, current.version()) != 1) {
-            throw new OptimisticLockFailure("MCP_SERVER", id, current.version(), -1);
+        String actor = PrincipalContext.actorOr("api");
+        try {
+            Objects.requireNonNull(input, "input");
+            McpServerRecord current = get(id);
+            NormalizedInput normalized = normalize(input);
+            Instant now = clock.instant();
+            McpServerRecord updated = new McpServerRecord(current.id(), normalized.name(), normalized.transport(),
+                    normalized.endpoint(), normalized.credentialRef(), normalized.enabled(), normalized.healthStatus(),
+                    normalized.lastCheckedAt(), current.createdAt(), now, current.version() + 1);
+            if (repository.update(updated, current.version()) != 1) {
+                throw new OptimisticLockFailure("MCP_SERVER", id, current.version(), -1);
+            }
+            record(actor, "UPDATE_MCP_SERVER", id, "SUCCESS");
+            return updated;
+        } catch (RuntimeException error) {
+            record(actor, "UPDATE_MCP_SERVER", id, "FAILURE");
+            throw error;
         }
-        return updated;
     }
 
     @Transactional
     public McpServerRecord updateHealth(UUID id, HealthInput input) {
-        Objects.requireNonNull(input, "input");
-        McpServerRecord current = get(id);
-        McpHealthStatus status = McpHealthStatus.parse(input.healthStatus());
-        Instant checkedAt = input.lastCheckedAt() == null ? clock.instant() : input.lastCheckedAt();
-        Instant now = clock.instant();
-        if (repository.updateHealth(id, status, checkedAt, now, current.version()) != 1) {
-            throw new OptimisticLockFailure("MCP_SERVER", id, current.version(), -1);
+        String actor = PrincipalContext.actorOr("api");
+        try {
+            Objects.requireNonNull(input, "input");
+            McpServerRecord current = get(id);
+            McpHealthStatus status = McpHealthStatus.parse(input.healthStatus());
+            Instant checkedAt = input.lastCheckedAt() == null ? clock.instant() : input.lastCheckedAt();
+            Instant now = clock.instant();
+            if (repository.updateHealth(id, status, checkedAt, now, current.version()) != 1) {
+                throw new OptimisticLockFailure("MCP_SERVER", id, current.version(), -1);
+            }
+            McpServerRecord updated = new McpServerRecord(current.id(), current.name(), current.transport(), current.endpoint(),
+                    current.credentialRef(), current.enabled(), status, checkedAt, current.createdAt(), now,
+                    current.version() + 1);
+            record(actor, "UPDATE_MCP_SERVER_HEALTH", id, "SUCCESS");
+            return updated;
+        } catch (RuntimeException error) {
+            record(actor, "UPDATE_MCP_SERVER_HEALTH", id, "FAILURE");
+            throw error;
         }
-        return new McpServerRecord(current.id(), current.name(), current.transport(), current.endpoint(),
-                current.credentialRef(), current.enabled(), status, checkedAt, current.createdAt(), now,
-                current.version() + 1);
     }
 
     @Transactional
     public void delete(UUID id) {
-        if (repository.delete(Objects.requireNonNull(id, "id")) != 1) {
-            throw new ResourceNotFoundException("MCP server", id);
+        String actor = PrincipalContext.actorOr("api");
+        try {
+            if (repository.delete(Objects.requireNonNull(id, "id")) != 1) {
+                throw new ResourceNotFoundException("MCP server", id);
+            }
+            record(actor, "DELETE_MCP_SERVER", id, "SUCCESS");
+        } catch (RuntimeException error) {
+            record(actor, "DELETE_MCP_SERVER", id, "FAILURE");
+            throw error;
         }
     }
 
@@ -113,6 +164,15 @@ public final class McpServerService {
     }
 
     public record HealthInput(String healthStatus, Instant lastCheckedAt) {
+    }
+
+    private void record(String actor, String action, UUID resourceId, String result) {
+        try {
+            auditRecorder.record(new AuditEvent(UUID.randomUUID(), actor, action, "mcp_server",
+                    resourceId == null ? "unknown" : resourceId.toString(), Map.of("result", result), clock.instant()));
+        } catch (RuntimeException ignored) {
+            // Audit is best effort and must never change the MCP operation outcome.
+        }
     }
 
     private McpServerRecord existingResource(String key, String requestHash,

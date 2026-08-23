@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Repository;
 
 /** Persists redacted operation events without coupling audit storage to the foundation transaction. */
 @Repository
-public final class JdbcAuditRecorder implements AuditRecorder {
+public class JdbcAuditRecorder implements AuditRecorder {
     static final String INSERT_SQL = "INSERT INTO operation_audit_events "
             + "(id, actor, action, resource_type, resource_id, attributes, occurred_at) "
             + "VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)";
@@ -27,6 +29,7 @@ public final class JdbcAuditRecorder implements AuditRecorder {
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(AuditEvent event) {
         java.util.Objects.requireNonNull(event, "event");
         String attributesJson;
