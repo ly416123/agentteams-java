@@ -627,6 +627,19 @@ python3 scripts/run-kind-quota-recovery.py
 下一条推荐关键路径是：
 
 1. **P0**：把 `GrpcRuntimeQuotaPort`/`GrpcQuotaPort` 接入真实 Worker/Manager 进程配置，并把 reservation/idempotency 从进程内 map 迁移到数据库表或带唯一约束的 durable repository。
+
+### 2026-08-24 远程配额生产组装收口
+
+P0-A 的“真实 Worker/Manager 组装”已完成本轮接线：Manager smoke 的 DeepSeek
+Provider 调用现在经过项目级 admission；Kind recovery 创建的真实 QwenPaw Worker
+默认开启远程 quota，并通过 `scripts/run-kind-worker-quota-admission.py` 验证
+Control Plane 持久化的日调用数、日 Token 数和并发回收。
+
+Kind 验收任务会创建只包含目标 Agent 的临时 Team，确保结果归属于本轮真实 Worker；
+本地验证结果为 `daily_calls_delta=1`、`daily_tokens_delta=1024`、
+`current_concurrent_calls=0`。因此 P0-A/P1-B 的基础生产组装和 Kind 端到端出口已
+达到本轮目标；真实 Provider 凭据、Secret Manager、预算告警、最终账单和更完整的
+Worker/Task/Team/Tool 历史聚合仍属于后续需求。
 2. **P1**：在同一条真实部署链上执行 `scripts/run-kind-quota-recovery.py`，再把它作为 Kind recovery 的非并行长耗时步骤接入 CI。
 3. **P1**：让 Worker 根据 `resourceBindings` 加载固定 revision/digest，并回传 ACK/失败分类；随后补 Dashboard 的 Worker/Task/Team/Tool 维度审计聚合。
 4. **P1**：实现一个具体的企业沙箱 client adapter 和审批回调；保持扫描 SPI 与默认关闭策略不变。

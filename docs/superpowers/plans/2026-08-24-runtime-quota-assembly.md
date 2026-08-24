@@ -18,28 +18,28 @@
 - 创建：`manager/src/main/java/io/agentteams/manager/ManagerSmokeConfiguration.java`
 - 测试：`manager/src/test/java/io/agentteams/manager/ManagerSmokeConfigurationTest.java`
 
-- [ ] 步骤 1：编写配置失败测试，验证远程 quota 开启但缺 tenant/project、Gateway host/port 或 Manager ID 时抛出稳定异常。
-- [ ] 步骤 2：运行 `mvn -q -pl manager -am -Dtest=ManagerSmokeConfigurationTest test`，确认测试先失败。
-- [ ] 步骤 3：实现配置解析和 gRPC channel 组装；远程关闭返回 `QuotaPort.noop()`，远程开启返回 `ManagerQuotaPortFactory.from(...)`，并由 smoke 调用 `ProjectScopedModelCallAdmission` 包裹 Provider 请求。
-- [ ] 步骤 4：补充 release/failure 路径测试，运行 `mvn -q -pl manager -am -Dtest='*ManagerSmokeConfigurationTest,*ProjectScopedModelCallAdmissionTest' test`。
+- [x] 步骤 1：编写配置失败测试，验证远程 quota 开启但缺 tenant/project、Manager ID 或非法 Gateway port 时抛出稳定异常，并覆盖默认值和有效配置。
+- [x] 步骤 2：运行 `mvn -q -pl manager -am -Dtest=ManagerSmokeConfigurationTest -Dsurefire.failIfNoSpecifiedTests=false test`，确认测试先因配置类缺失而失败。
+- [x] 步骤 3：实现配置解析和 gRPC channel 组装；远程关闭返回 `QuotaPort.noop()`，远程开启返回 `ManagerQuotaPortFactory.from(...)`，并由 smoke 调用 `ProjectScopedModelCallAdmission` 包裹 Provider 请求。
+- [x] 步骤 4：运行 Manager 配额配置、Factory、admission 和 SessionService 定向回归测试；已有 admission 测试覆盖拒绝短路与 release。
 
 ### 任务 2：Kind Worker 真实配额验收
 
 **文件：**
 - 修改：`.github/workflows/ci.yml`
 - 创建：`scripts/run-kind-worker-quota-admission.py`
-- 创建：`scripts/test_run_kind_worker_quota_admission.py`
+- 创建：`scripts/test_kind_worker_quota_admission_contract.py`
 
-- [ ] 步骤 1：编写脚本契约测试，要求 CI 在创建真实 Worker 时开启 `AGENTTEAMS_QUOTA_REMOTE_ENABLED` 并传入 `tenant-a/project-a`，且执行新的验收脚本。
-- [ ] 步骤 2：运行 `python3 -m unittest scripts/test_run_kind_worker_quota_admission.py -v`，确认当前 CI 缺少该接线时失败。
-- [ ] 步骤 3：实现验收脚本：通过 `/api/v1/usage/quota` 配置唯一 project，创建并 queue QwenPaw 任务，等待 `SUCCEEDED`，确认 `daily_calls` 增加、`daily_tokens` 增加、`current_concurrent_calls` 归零。
-- [ ] 步骤 4：在 CI 创建 Worker 后执行脚本，运行脚本单测、Kind manifest validator 和 `bash -n`。
+- [x] 步骤 1：编写脚本契约测试，要求 CI 在创建真实 Worker 时开启 `AGENTTEAMS_QUOTA_REMOTE_ENABLED` 并传入 `tenant-a/project-a`，且执行新的验收脚本。
+- [x] 步骤 2：运行 `python3 -m unittest scripts.test_kind_worker_quota_admission_contract -v`，确认当前 CI 缺少该接线时先失败。
+- [x] 步骤 3：实现验收脚本：通过 `/api/v1/usage/quota` 配置固定 Worker scope 对应的 project，创建临时 Team 并只加入目标 Agent，创建并 queue QwenPaw 任务，等待 `SUCCEEDED`，确认 `daily_calls` 增加、`daily_tokens` 增加、`current_concurrent_calls` 归零。
+- [x] 步骤 4：在 CI 创建 Worker 后执行脚本，并通过脚本单测、Kind manifest/API validator、Python 语法检查和本地 Kind 端到端验收。
 
 ### 任务 3：回归与交付
 
 **文件：**
 - 修改：`docs/superpowers/specs/2026-08-23-alibaba-agentteams-commercial-gap-requirements.md`
 
-- [ ] 步骤 1：运行 `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test` 和相关 Kind 验收。
-- [ ] 步骤 2：更新规格中的 P0 配额状态和本轮验收结果，不改变未实现能力的状态。
+- [x] 步骤 1：运行 Maven `integration-tests verify`、Manager 定向回归、Python 脚本全量测试、Kind/API validator，并完成本地 Kind 真实 Worker 验收。
+- [x] 步骤 2：更新本设计规格和商业差距规格中的远程配额接线状态，不改变未实现能力的状态。
 - [ ] 步骤 3：执行敏感扫描、`git diff --check`、提交中文 Conventional Commit 并推送当前分支。

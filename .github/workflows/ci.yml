@@ -204,7 +204,7 @@ jobs:
             exit 1
           fi
           AGENT_ID=$(jq -er '.id // empty' "$AGENT_RESPONSE")
-          sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/; s/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"false\"/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"true\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"0.1\"/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"1.0\"/; s#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: \"\"#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces#" \
+          sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/; s/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"false\"/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"true\"/; s/AGENTTEAMS_SCOPE_TENANT: \"\"/AGENTTEAMS_SCOPE_TENANT: \"tenant-a\"/; s/AGENTTEAMS_SCOPE_PROJECT: \"\"/AGENTTEAMS_SCOPE_PROJECT: \"project-a\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"false\"/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"true\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"0.1\"/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"1.0\"/; s#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: \"\"#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces#" \
             deploy/examples/qwenpaw-worker.yaml >/tmp/qwenpaw-real.yaml
           kubectl apply -f /tmp/qwenpaw-real.yaml
           deployment_deadline=$((SECONDS + 120))
@@ -229,6 +229,14 @@ jobs:
             sleep 2
           done
           echo "AGENTTEAMS_AGENT_ID=$AGENT_ID" >> "$GITHUB_ENV"
+      - name: Run Kind Worker quota admission
+        env:
+          AGENTTEAMS_AGENT_ID: ${{ env.AGENTTEAMS_AGENT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$AGENTTEAMS_AGENT_ID"
+          python scripts/run-kind-worker-quota-admission.py \
+            --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind quota recovery test
         run: |
           set -euo pipefail

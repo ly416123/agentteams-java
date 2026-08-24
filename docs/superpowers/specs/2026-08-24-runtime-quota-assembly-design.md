@@ -19,6 +19,20 @@ Date: 2026-08-24
 - DeepSeek API Key 继续只从本地 `apikey`/环境变量读取，不进入参数、日志或 CI。
 - quota 拒绝在 Provider 调用前终止；Provider 异常和进程退出通过 `finally` 释放 lease。
 
+## 实施状态（2026-08-24）
+
+- Manager smoke 已接入 `ManagerSmokeConfiguration`、Gateway gRPC channel 和
+  `ProjectScopedModelCallAdmission`；未开启远程 quota 时保留兼容的 no-op 行为。
+- Kind recovery 创建的真实 Worker 已显式开启远程 quota，并绑定
+  `tenant-a/project-a`；新增 `Run Kind Worker quota admission` 步骤。
+- 验收脚本会为目标 Agent 创建临时 Team 并建立唯一成员关系，再创建 QwenPaw
+  任务，避免 `--agent-id` 仅作为参数而实际被其他 READY Worker 接走。
+- 本地 Kind 真实验收已输出
+  `KIND_WORKER_QUOTA_ADMISSION_OK`：`daily_calls_delta=1`、
+  `daily_tokens_delta=1024`、`current_concurrent_calls=0`。
+- 仍未宣称 Manager 生产 API、真实 DeepSeek CI 调用或跨租户计费闭环已完成；本轮只
+  组装并验证本地 Manager smoke 和 Kind Worker 的远程配额路径。
+
 ## 验收
 
 - Manager 单元测试覆盖远程开启、scope 透传、拒绝短路和 release。
