@@ -30,6 +30,8 @@ jobs:
           python scripts/validate-matrix-registration.py
       - name: Validate backup and restore scripts
         run: bash scripts/validate-backup-scripts.sh
+      - name: Test Kind recovery scripts
+        run: python -m unittest discover -s scripts -p 'test_*.py'
       - name: Validate production endpoint preflight script
         run: bash -n scripts/validate-production-endpoints.sh
       - name: Set up Java

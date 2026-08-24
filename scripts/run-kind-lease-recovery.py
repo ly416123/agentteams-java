@@ -38,16 +38,18 @@ def kubectl_json(*args: str, namespace: str | None = None) -> dict:
 def wait_until(description: str, predicate, timeout: float = 180.0, interval: float = 1.0):
     deadline = time.monotonic() + timeout
     last = None
+    last_error = None
     while time.monotonic() < deadline:
         try:
             last = predicate()
             if last:
                 return last
         except (RuntimeError, urllib.error.URLError, urllib.error.HTTPError,
-                http.client.RemoteDisconnected, ConnectionResetError):
-            pass
+                http.client.RemoteDisconnected, ConnectionResetError) as error:
+            last_error = str(error)
         time.sleep(interval)
-    fail(f"timed out waiting for {description}; last={last!r}")
+    detail = f"last_error={last_error!r}" if last_error else f"last={last!r}"
+    fail(f"timed out waiting for {description}; {detail}")
 
 
 def sql(namespace: str, postgres_pod: str, statement: str) -> str:
@@ -91,6 +93,31 @@ def qwenpaw_agent_phases(namespace: str, postgres_pod: str) -> dict[str, str]:
         if row and len((parts := row.split("|", 1))) == 2
         for agent_id, phase in [parts]
     }
+
+
+def gateway_connection_state(namespace: str, postgres_pod: str, agent_id: str) -> tuple[str, str]:
+    row = sql(namespace, postgres_pod, f"""
+        select coalesce(connection_id::text, '') || '|' || presence
+          from gateway_agent_state
+         where agent_id = '{agent_id}';
+    """).strip()
+    if not row:
+        return "", ""
+    connection_id, presence = row.split("|", 1)
+    return connection_id, presence
+
+
+def wait_for_new_gateway_connection(namespace: str, postgres_pod: str, agent_id: str,
+                                    previous_connection_id: str, timeout: float,
+                                    interval: float = 1.0) -> str:
+    def restarted_worker_ready():
+        current_connection_id, presence = gateway_connection_state(namespace, postgres_pod, agent_id)
+        return (current_connection_id if current_connection_id
+                and current_connection_id != previous_connection_id
+                and presence == "ONLINE"
+                and qwenpaw_agent_phases(namespace, postgres_pod).get(agent_id) == "READY" else None)
+
+    return wait_until("new Worker Gateway registration", restarted_worker_ready, timeout, interval)
 
 
 def deployment_ready(namespace: str, deployment: str, expected: int) -> bool:
@@ -183,6 +210,10 @@ def main() -> int:
     original_agent_phases = qwenpaw_agent_phases(args.namespace, args.postgres_pod)
     if args.agent_id not in original_agent_phases:
         fail(f"agent {args.agent_id} is not a qwenpaw-capable registered agent")
+    previous_connection_id, previous_presence = gateway_connection_state(
+        args.namespace, args.postgres_pod, args.agent_id)
+    if not previous_connection_id or previous_presence != "ONLINE":
+        fail("could not find an online Gateway connection before Worker shutdown")
 
     port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
     base_url = f"http://127.0.0.1:{args.local_port}"
@@ -219,18 +250,10 @@ def main() -> int:
         wait_until("initial assignment", lambda: "ASSIGNED|" in task_row(args.namespace, args.postgres_pod, task_id),
                    args.timeout)
 
-        # Persist the expired lease before restarting Control Plane. The Operator
-        # may recreate the Worker during a Control Plane rollout; expiring first
-        # prevents that race from completing the task before recovery is tested.
-        updated = sql(args.namespace, args.postgres_pod, f"""
-            update agent_leases l set expires_at=now()-interval '1 second', updated_at=now()
-              from task_attempts a
-             where a.lease_id=l.id and a.task_id='{task_id}' and l.status='ACTIVE'
-            returning l.id;
-        """)
-        if not updated:
-            fail("could not find an ACTIVE lease to expire")
-
+        # The Operator and Worker are already paused. Restart the Control Plane
+        # while the lease is still active, then expire it after the new scheduler
+        # is ready. This prevents the old scheduler from recovering the lease
+        # before the restart and makes the recovery boundary deterministic.
         run("rollout", "restart", f"deployment/{args.control_plane_deployment}", namespace=args.namespace)
         run("rollout", "status", f"deployment/{args.control_plane_deployment}",
             f"--timeout={int(args.timeout)}s", namespace=args.namespace)
@@ -241,21 +264,34 @@ def main() -> int:
         _, port_forward = wait_for_api_with_port_forward(
             base_url, port_forward, args.namespace, args.control_plane_service,
             args.local_port, args.timeout)
+        # Keep the recovered task queued while the Worker is still down. The
+        # pre-shutdown READY value is only a seed for the initial assignment;
+        # it is not proof of a live Gateway connection.
+        sql(args.namespace, args.postgres_pod,
+            f"update agents set phase='OFFLINE', updated_at=now() where id='{args.agent_id}';")
+        updated = sql(args.namespace, args.postgres_pod, f"""
+            update agent_leases l set expires_at=now()-interval '1 second', updated_at=now()
+              from task_attempts a
+             where a.lease_id=l.id and a.task_id='{task_id}' and l.status='ACTIVE'
+            returning l.id;
+        """)
+        if not updated:
+            fail("could not find an ACTIVE lease to expire")
         wait_until("TaskLeaseExpired event", lambda: "TaskLeaseExpired" in sql(
             args.namespace, args.postgres_pod,
             f"select event_type from domain_events where aggregate_id='{task_id}';"), args.timeout)
-        sql(args.namespace, args.postgres_pod,
-            f"update agents set phase='OFFLINE', updated_at=now() where id='{args.agent_id}';")
         run("scale", "deployment", args.worker_deployment, f"--replicas={worker_replicas}", namespace=args.namespace)
         wait_until("Worker recovery", lambda: deployment_ready(args.namespace, args.worker_deployment, worker_replicas),
                    args.timeout)
-        wait_until("Worker agent registration", lambda: qwenpaw_agent_phases(
-            args.namespace, args.postgres_pod).get(args.agent_id) == "READY", args.timeout)
+        wait_for_new_gateway_connection(args.namespace, args.postgres_pod, args.agent_id,
+                                        previous_connection_id, args.timeout)
         wait_until("recovered task reassignment", lambda: task_attempt_count(
             args.namespace, args.postgres_pod, task_id) >= 2, args.timeout)
         def terminal_task():
             task = api_request(f"{base_url}/api/v1/tasks/{task_id}")
-            return task if task.get("phase") in {"SUCCEEDED", "FAILED", "CANCELLED"} else None
+            if task.get("phase") in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                return task
+            raise RuntimeError(f"task phase is {task.get('phase')!r}")
 
         # Reconnecting the Worker and warming the deterministic QwenPaw path can
         # take longer than the control-plane recovery checks. Keep this wait
@@ -270,15 +306,32 @@ def main() -> int:
         print(f"KIND_LEASE_RECOVERY_OK task={task_id} attempts={attempts} phase={final['phase']}")
         return 0
     finally:
-        for agent_id, phase in original_agent_phases.items():
-            sql(args.namespace, args.postgres_pod,
-                f"update agents set phase='{phase}', updated_at=now() where id='{agent_id}';")
-        if deployment_replicas(args.namespace, args.worker_deployment) != worker_replicas:
-            run("scale", "deployment", args.worker_deployment, f"--replicas={worker_replicas}", namespace=args.namespace)
-        if deployment_replicas(args.namespace, args.operator_deployment) != operator_replicas:
-            run("scale", "deployment", args.operator_deployment,
-                f"--replicas={operator_replicas}", namespace=args.namespace)
-        stop_port_forward(port_forward)
+        cleanup_errors = []
+        try:
+            for agent_id, phase in original_agent_phases.items():
+                sql(args.namespace, args.postgres_pod,
+                    f"update agents set phase='{phase}', updated_at=now() where id='{agent_id}';")
+        except (RuntimeError, OSError) as error:
+            cleanup_errors.append(f"restore agent phases: {error}")
+        for deployment, replicas, label in ((args.worker_deployment, worker_replicas, "Worker"),
+                                             (args.operator_deployment, operator_replicas, "Operator")):
+            try:
+                if deployment_replicas(args.namespace, deployment) != replicas:
+                    run("scale", "deployment", deployment, f"--replicas={replicas}", namespace=args.namespace)
+                wait_until(f"{label} cleanup", lambda: deployment_ready(
+                    args.namespace, deployment, replicas), args.timeout)
+            except (RuntimeError, OSError) as error:
+                cleanup_errors.append(f"restore {label}: {error}")
+        try:
+            stop_port_forward(port_forward)
+        except OSError as error:
+            cleanup_errors.append(f"stop port-forward: {error}")
+        if cleanup_errors:
+            cleanup_message = "; ".join(cleanup_errors)
+            if sys.exc_info()[0] is not None:
+                print(f"KIND_LEASE_RECOVERY_CLEANUP_WARN: {cleanup_message}", file=sys.stderr)
+            else:
+                fail(f"cleanup failed: {cleanup_message}")
 
 
 if __name__ == "__main__":
