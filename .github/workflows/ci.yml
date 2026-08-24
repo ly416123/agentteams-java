@@ -278,7 +278,27 @@ jobs:
       - name: Verify multi-replica Prometheus scraping
         run: python scripts/validate-kind-prometheus.py
       - name: Run Kind Task and Artifact API smoke
-        run: ./scripts/smoke-kind-task-api.sh
+        run: |
+          set -euo pipefail
+          control_plane_port_forward_log=/tmp/task-api-control-plane-port-forward.log
+          kubectl -n agentteams port-forward service/agentteams-agentteams-java-control-plane \
+            18081:8080 >"$control_plane_port_forward_log" 2>&1 &
+          control_plane_port_forward_pid=$!
+          cleanup() {
+            kill "$control_plane_port_forward_pid" >/dev/null 2>&1 || true
+            wait "$control_plane_port_forward_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          until curl -fsS http://127.0.0.1:18081/actuator/health >/dev/null; do
+            if ! kill -0 "$control_plane_port_forward_pid" 2>/dev/null; then
+              echo "Control Plane port-forward exited before Task API smoke" >&2
+              cat "$control_plane_port_forward_log" >&2 || true
+              exit 1
+            fi
+            sleep 2
+          done
+          AGENTTEAMS_CONTROL_PLANE_BASE_URL=http://127.0.0.1:18081 \
+            ./scripts/smoke-kind-task-api.sh
       - name: Collect Kind diagnostics
         if: failure()
         run: |

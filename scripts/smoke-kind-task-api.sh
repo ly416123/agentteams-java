@@ -16,6 +16,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+curl_api() {
+  if (( ${#API_AUTH_ARGS[@]} > 0 )); then
+    curl "${API_AUTH_ARGS[@]}" "$@"
+  else
+    curl "$@"
+  fi
+}
+
 configure_auth() {
   if [[ -n "${AGENTTEAMS_API_TOKEN:-}" ]]; then
     API_AUTH_ARGS=(-H "Authorization: Bearer ${AGENTTEAMS_API_TOKEN}")
@@ -61,9 +69,8 @@ post_task() {
   local capability="${2:-kind-api-smoke}"
   local payload
   payload="$(jq -cn --arg capability "${capability}" '{title:"kind-task-api-smoke",description:"API contract smoke",spec:{scope:{tenant:"tenant-a",project:"project-a",team:"team-a"},taskType:"qwenpaw",inputJson:{prompt:"KIND_API_SMOKE"},requiredCapabilities:[$capability]}}')"
-  curl --fail-with-body --silent --show-error \
+  curl_api --fail-with-body --silent --show-error \
     -X POST "${BASE_URL}/api/v1/tasks" \
-    "${API_AUTH_ARGS[@]}" \
     -H "Content-Type: application/json" \
     -H "Idempotency-Key: ${key}" \
     -d "${payload}"
@@ -74,9 +81,8 @@ action_task() {
   local action="$2"
   local key="$3"
   local expected_version="$4"
-  curl --fail-with-body --silent --show-error \
+  curl_api --fail-with-body --silent --show-error \
     -X POST "${BASE_URL}/api/v1/tasks/${task_id}/${action}" \
-    "${API_AUTH_ARGS[@]}" \
     -H "Content-Type: application/json" \
     -H "Idempotency-Key: ${key}" \
     -d "{\"expectedVersion\":${expected_version}}"
@@ -127,8 +133,7 @@ for _ in $(seq 1 60); do
 done
 [[ -n "${attempt_id}" ]]
 
-artifacts="$(curl --fail-with-body --silent --show-error \
-  "${API_AUTH_ARGS[@]}" \
+artifacts="$(curl_api --fail-with-body --silent --show-error \
   "${BASE_URL}/api/v1/tasks/${attempt_task_id}/attempts/${attempt_id}/artifacts")"
 jq -e 'type == "array"' <<<"${artifacts}" >/dev/null
 
