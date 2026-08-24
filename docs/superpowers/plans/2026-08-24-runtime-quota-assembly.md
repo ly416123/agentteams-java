@@ -43,3 +43,11 @@
 - [x] 步骤 1：运行 Maven `integration-tests verify`、Manager 定向回归、Python 脚本全量测试、Kind/API validator，并完成本地 Kind 真实 Worker 验收。
 - [x] 步骤 2：更新本设计规格和商业差距规格中的远程配额接线状态，不改变未实现能力的状态。
 - [ ] 步骤 3：执行敏感扫描、`git diff --check`、提交中文 Conventional Commit 并推送当前分支。
+
+### 2026-08-24 本地验收补充
+
+- 使用当前分支重新构建并加载 Control Plane、Gateway、Operator 和 Worker 镜像，避免复用旧 Kind 镜像。
+- 真实 Worker 配额验收通过：`daily_calls_delta=1`、`daily_tokens_delta=1024`、`current_concurrent_calls=0`。
+- `run-kind-quota-recovery.py --restart-control-plane` 通过 acquire/release 幂等、并发拒绝、超时、跨 tenant/project 隔离和 Control Plane 重启恢复检查。
+- 修复 Windows 本地 Python 默认 GBK 导致的 UTF-8 Shell 契约测试失败：`test_kind_mtls_bootstrap_contract.py` 现在显式使用 UTF-8 读取脚本。
+- 当前仍未提交或推送；GitHub Actions 新鲜运行结果需由远程 CI 单独确认。

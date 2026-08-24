@@ -755,3 +755,16 @@ Gateway、Runtime、Worker 相关回归测试已通过。当前剩余事项收�
 本机复核结果：Kind 集群的 Control Plane、Gateway、Operator 均为 2/2，PostgreSQL、NATS、MinIO 和 2 个 Worker Ready；执行 `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test` 退出码为 0，Kind 清单、CI 工作流、诊断契约和 Shell 语法检查均通过。
 
 因此，当前主线已从“Kind 验收收口”转入产品能力闭环：优先补齐真实 Worker/Manager 配额组装与跨实例持久化验证、审计维度持久化对账，以及后续按需接入企业 Skill 审批/沙箱；企业审批/沙箱当前仍保持默认关闭，不纳入 CI。
+
+### 2026-08-24 本地 P0 配额验收复核
+
+本次基于当前分支重新构建并加载 Kind 服务镜像后，完成了 P0 配额闭环的本地复核：
+
+- 真实 QwenPaw Worker 任务通过远程配额 admission，结果为
+  `daily_calls_delta=1`、`daily_tokens_delta=1024`、`current_concurrent_calls=0`。
+- `run-kind-quota-recovery.py --restart-control-plane` 通过 acquire/release 幂等重试、并发拒绝、deadline 超时、跨 project/tenant 隔离，以及 Control Plane 重启后的 durable reservation/release 恢复。
+- Python Kind/CI 契约测试 16/16 通过；架构、API、生产配置、Kind infra、Kind manifest、可观测性校验和 Helm lint/template 均通过。
+- `mvn -q -Pintegration-tests verify` 完成，Surefire 报告统计 626 个测试，失败 0、错误 0。
+- 发现并修复 Windows 默认 GBK 读取 UTF-8 Shell 脚本导致的 mTLS 契约测试兼容性问题。
+
+本地验收已证明当前代码和持久化配额链路可用；由于本次未触发 GitHub Actions，远程 CI 的新鲜 `kind-recovery` 结果仍需单独确认。下一条推荐开发主线转为 Dashboard/Usage 真实 Worker、Task、Team、Tool、Quota 维度的审计数据闭环和通知出口。
