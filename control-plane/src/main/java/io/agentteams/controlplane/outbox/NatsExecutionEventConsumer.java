@@ -17,6 +17,7 @@ import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
 import io.nats.client.Connection;
 import io.nats.client.ConnectionListener;
+import io.nats.client.impl.NatsJetStreamMetaData;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
@@ -30,6 +31,7 @@ import java.util.logging.Logger;
 public final class NatsExecutionEventConsumer implements AutoCloseable {
     private static final Logger LOGGER = Logger.getLogger(NatsExecutionEventConsumer.class.getName());
     private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(500);
+    private static final Duration OUT_OF_ORDER_REDELIVERY_DELAY = Duration.ofMillis(250);
 
     private final JetStream jetStream;
     private final Connection connection;
@@ -183,14 +185,25 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             message.ack();
             span.tag("agentteams.consumer.result", "ack");
         } catch (StaleTaskVersionException stale) {
-            // The aggregate has already advanced beyond this event. Retrying
-            // it forever would poison the durable consumer and block newer
-            // execution events, so acknowledge the irrecoverably stale event.
-            LOGGER.log(Level.FINE, "Acknowledging stale Agent execution event: expected={0}, actual={1}",
-                    new Object[] {stale.expectedVersion(), stale.actualVersion()});
-            message.ack();
-            if (span != null) {
-                span.tag("agentteams.consumer.result", "stale");
+            if (stale.expectedVersion() < stale.actualVersion()) {
+                // The aggregate has already advanced beyond this event. Retrying
+                // it forever would poison the durable consumer and block newer
+                // execution events, so acknowledge the irrecoverably stale event.
+                LOGGER.log(Level.FINE, "Acknowledging stale Agent execution event: expected={0}, actual={1}",
+                        new Object[] {stale.expectedVersion(), stale.actualVersion()});
+                message.ack();
+                if (span != null) {
+                    span.tag("agentteams.consumer.result", "stale");
+                }
+            } else {
+                // A Gateway can publish consecutive events from different
+                // transport callbacks concurrently. If this event is ahead of
+                // the aggregate, its predecessor is still in flight and the
+                // event must remain unacked so JetStream redelivers it.
+                if (span != null) {
+                    span.tag("agentteams.consumer.result", "waiting_for_predecessor");
+                }
+                message.nakWithDelay(outOfOrderRedeliveryDelay(message));
             }
         } catch (IOException | RuntimeException error) {
             if (span != null) {
@@ -248,5 +261,12 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
                 command.requestedExpiry(), command.agentId(), command.source(), context.correlationId(),
                 context.traceparent(), context.tracestate());
+    }
+
+    private static Duration outOfOrderRedeliveryDelay(Message message) {
+        NatsJetStreamMetaData metadata = message.metaData();
+        long delivered = metadata == null ? 1 : Math.max(1, metadata.deliveredCount());
+        int exponent = (int) Math.min(5, delivered - 1);
+        return OUT_OF_ORDER_REDELIVERY_DELAY.multipliedBy(1L << exponent);
     }
 }

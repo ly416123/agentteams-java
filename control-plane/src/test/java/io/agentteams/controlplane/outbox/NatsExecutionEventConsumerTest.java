@@ -3,6 +3,7 @@ package io.agentteams.controlplane.outbox;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,6 +16,7 @@ import io.nats.client.JetStream;
 import io.nats.client.JetStreamSubscription;
 import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
+import io.nats.client.impl.NatsJetStreamMetaData;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -36,6 +38,43 @@ class NatsExecutionEventConsumerTest {
         consumer.process(message);
 
         verify(message).ack();
+    }
+
+    @Test
+    void redeliversExecutionEventsThatAreAheadOfTheCurrentAggregateVersion() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(taskEventJson().getBytes(StandardCharsets.UTF_8));
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        doThrow(new StaleTaskVersionException(5, 4))
+                .when(executionEvents).apply(any(), any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        verify(message).nakWithDelay(Duration.ofMillis(250));
+        verify(message, never()).ack();
+    }
+
+    @Test
+    void backsOffOutOfOrderRedeliveryAfterRepeatedDeliveryAttempts() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(taskEventJson().getBytes(StandardCharsets.UTF_8));
+        NatsJetStreamMetaData metadata = mock(NatsJetStreamMetaData.class);
+        when(message.metaData()).thenReturn(metadata);
+        when(metadata.deliveredCount()).thenReturn(4L);
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        doThrow(new StaleTaskVersionException(5, 4))
+                .when(executionEvents).apply(any(), any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        verify(message).nakWithDelay(Duration.ofSeconds(2));
+        verify(message, never()).ack();
     }
 
     @Test
