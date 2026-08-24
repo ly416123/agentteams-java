@@ -768,3 +768,12 @@ Gateway、Runtime、Worker 相关回归测试已通过。当前剩余事项收�
 - 发现并修复 Windows 默认 GBK 读取 UTF-8 Shell 脚本导致的 mTLS 契约测试兼容性问题。
 
 本地验收已证明当前代码和持久化配额链路可用；由于本次未触发 GitHub Actions，远程 CI 的新鲜 `kind-recovery` 结果仍需单独确认。下一条推荐开发主线转为 Dashboard/Usage 真实 Worker、Task、Team、Tool、Quota 维度的审计数据闭环和通知出口。
+
+### 2026-08-25 Worker 真实调用审计闭环
+
+已完成 Dashboard/Usage 推荐主线的第一阶段：
+
+- Runtime 终态携带不含 Prompt/Response 的 provider、model、latency、token usage；Gateway 将 Worker、Task、Team、Tool、Quota 维度随终态事件传递。
+- Control Plane 在终态任务事件落库后写入 `model_call_audits`，新增 V38 `source_event_id` 唯一索引，以事件 ID 保证重复投递不重复计数。
+- Gateway 校验 `model_call.task_id` 与事件元数据一致、`worker_id` 与当前连接一致；缺失维度仍保持安全空值，由 Usage 查询回退 `unknown`。
+- Runtime、Gateway、Control Plane 全量测试和 API/可观测性契约校验通过；通知通道仍保持为下一阶段的独立适配器，不在本次改动中接入外部供应商。

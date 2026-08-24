@@ -4,7 +4,12 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-public record RuntimeResult(UUID taskId, boolean success, String output, Instant occurredAt) {
+public record RuntimeResult(UUID taskId, boolean success, String output, Instant occurredAt,
+        RuntimeCallUsage callUsage) {
+    public RuntimeResult(UUID taskId, boolean success, String output, Instant occurredAt) {
+        this(taskId, success, output, occurredAt, null);
+    }
+
     public RuntimeResult {
         Objects.requireNonNull(taskId, "taskId");
         if (output == null) {
@@ -19,5 +24,15 @@ public record RuntimeResult(UUID taskId, boolean success, String output, Instant
 
     public static RuntimeResult failure(UUID taskId, String output, Instant occurredAt) {
         return new RuntimeResult(taskId, false, output, occurredAt);
+    }
+
+    public static RuntimeResult success(UUID taskId, String output, Instant occurredAt,
+            RuntimeCallUsage callUsage) {
+        return new RuntimeResult(taskId, true, output, occurredAt, callUsage);
+    }
+
+    public static RuntimeResult failure(UUID taskId, String output, Instant occurredAt,
+            RuntimeCallUsage callUsage) {
+        return new RuntimeResult(taskId, false, output, occurredAt, callUsage);
     }
 }

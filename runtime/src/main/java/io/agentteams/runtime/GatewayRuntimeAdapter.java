@@ -49,7 +49,9 @@ public final class GatewayRuntimeAdapter {
         putIfPresent(metadata, "quotaDimension", assignment.getQuotaDimension());
         RuntimeTask task = new RuntimeTask(taskId, assignment.getTaskType(),
                 assignment.getInputJson().toStringUtf8(), metadata);
-        AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt());
+        AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt(),
+                assignment.getTenantId(), assignment.getProjectId(), assignment.getTeamId(),
+                assignment.getToolId(), assignment.getQuotaId(), assignment.getQuotaDimension());
         AssignmentContext existing = assignments.putIfAbsent(taskId, assignmentContext);
         boolean registered = existing == null;
         if (existing != null && existing.matches(input)) {
@@ -111,16 +113,21 @@ public final class GatewayRuntimeAdapter {
         if (status == CompletionStatus.COMPLETED) {
             AssignmentContext context = context(result.taskId());
             EventMetadata eventMetadata = metadata(result.taskId(), context);
-            AgentMessage message = result.success()
-                    ? AgentMessage.newBuilder().setTaskCompleted(TaskCompleted.newBuilder()
-                            .setMetadata(eventMetadata)
-                            .setResultJson(ByteString.copyFromUtf8(result.output())).build()).build()
-                    : AgentMessage.newBuilder().setTaskFailed(TaskFailed.newBuilder()
-                            .setMetadata(eventMetadata)
-                            .setCode("RUNTIME_FAILURE")
-                            .setMessage(result.output())
-                            .setRetryable(false).build()).build();
-            channel.send(message);
+            io.agentteams.contracts.v1.ModelCallUsage usage = modelCallUsage(result, context);
+            AgentMessage.Builder message = AgentMessage.newBuilder();
+            if (result.success()) {
+                TaskCompleted.Builder completed = TaskCompleted.newBuilder().setMetadata(eventMetadata)
+                        .setResultJson(ByteString.copyFromUtf8(result.output()));
+                if (usage != null) completed.setModelCall(usage);
+                message.setTaskCompleted(completed);
+            } else {
+                TaskFailed.Builder failed = TaskFailed.newBuilder().setMetadata(eventMetadata)
+                        .setCode("RUNTIME_FAILURE").setMessage(result.output()).setRetryable(false);
+                if (usage != null) failed.setModelCall(usage);
+                message.setTaskFailed(failed);
+            }
+            AgentMessage outbound = message.build();
+            channel.send(outbound);
             assignments.remove(result.taskId());
         }
         return status;
@@ -161,11 +168,24 @@ public final class GatewayRuntimeAdapter {
     private static final class AssignmentContext {
         private final EventMetadata metadata;
         private final Timestamp leaseExpiresAt;
+        private final String tenantId;
+        private final String projectId;
+        private final String teamId;
+        private final String toolId;
+        private final String quotaId;
+        private final String quotaDimension;
         private long expectedVersion;
 
-        private AssignmentContext(EventMetadata metadata, Timestamp leaseExpiresAt) {
+        private AssignmentContext(EventMetadata metadata, Timestamp leaseExpiresAt, String tenantId,
+                String projectId, String teamId, String toolId, String quotaId, String quotaDimension) {
             this.metadata = metadata;
             this.leaseExpiresAt = leaseExpiresAt;
+            this.tenantId = tenantId;
+            this.projectId = projectId;
+            this.teamId = teamId;
+            this.toolId = toolId;
+            this.quotaId = quotaId;
+            this.quotaDimension = quotaDimension;
             this.expectedVersion = metadata.getExpectedVersion();
         }
 
@@ -189,6 +209,23 @@ public final class GatewayRuntimeAdapter {
             return metadata.getAttemptId().equals(input.getAttemptId())
                     && metadata.getLeaseId().equals(input.getLeaseId());
         }
+    }
+
+    private static io.agentteams.contracts.v1.ModelCallUsage modelCallUsage(RuntimeResult result,
+            AssignmentContext context) {
+        RuntimeCallUsage usage = result.callUsage();
+        if (usage == null) return null;
+        return io.agentteams.contracts.v1.ModelCallUsage.newBuilder()
+                .setProvider(usage.provider()).setModel(usage.model()).setLatencyMillis(usage.latencyMillis())
+                .setPromptTokens(usage.promptTokens()).setCompletionTokens(usage.completionTokens())
+                .setTenantId(context.tenantId == null ? "" : context.tenantId)
+                .setProjectId(context.projectId == null ? "" : context.projectId)
+                .setWorkerId(context.metadata.getAgentId()).setTaskId(result.taskId().toString())
+                .setTeamId(context.teamId == null ? "" : context.teamId)
+                .setToolId(context.toolId == null ? "" : context.toolId)
+                .setQuotaId(context.quotaId == null ? "" : context.quotaId)
+                .setQuotaDimension(context.quotaDimension == null ? "" : context.quotaDimension)
+                .build();
     }
 
     private static void putIfPresent(Map<String, String> metadata, String key, String value) {

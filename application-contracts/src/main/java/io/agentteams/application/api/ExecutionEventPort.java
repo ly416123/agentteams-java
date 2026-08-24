@@ -22,19 +22,28 @@ public interface ExecutionEventPort {
     record TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
             Instant occurredAt, String agentId, String source, ExecutionPhase phase,
             String failureCode, String failureMessage, String correlationId, String traceparent,
-            String tracestate) {
+            String tracestate, ModelCallUsage modelCallUsage) {
         public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
                 Instant occurredAt, String agentId, String source, ExecutionPhase phase,
                 String failureCode, String failureMessage) {
             this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
-                    failureCode, failureMessage, "unknown", "", "");
+                    failureCode, failureMessage, "unknown", "", "", null);
         }
 
         public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
                 Instant occurredAt, String agentId, String source, ExecutionPhase phase,
                 String failureCode, String failureMessage, String correlationId) {
             this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
-                    failureCode, failureMessage, correlationId, "", "");
+                    failureCode, failureMessage, correlationId, "", "", null);
+        }
+
+        /** Compatibility constructor for callers that already carry trace fields. */
+        public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
+                Instant occurredAt, String agentId, String source, ExecutionPhase phase,
+                String failureCode, String failureMessage, String correlationId, String traceparent,
+                String tracestate) {
+            this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
+                    failureCode, failureMessage, correlationId, traceparent, tracestate, null);
         }
 
         public TaskExecutionCommand {
@@ -54,6 +63,41 @@ public interface ExecutionEventPort {
             }
             failureCode = failureCode == null || failureCode.isBlank() ? "RUNTIME_FAILURE" : failureCode;
             failureMessage = FailureMessageSanitizer.redact(failureMessage);
+        }
+    }
+
+    /** Safe runtime usage metadata persisted for Dashboard/Usage aggregation. */
+    record ModelCallUsage(String provider, String model, long latencyMillis, long promptTokens,
+            long completionTokens, String tenantId, String projectId, String workerId,
+            String taskId, String teamId, String toolId, String quotaId, String quotaDimension) {
+        public ModelCallUsage {
+            provider = requireText(provider, "provider");
+            model = requireText(model, "model");
+            if (latencyMillis < 0 || promptTokens < 0 || completionTokens < 0) {
+                throw new IllegalArgumentException("runtime usage values must not be negative");
+            }
+            if ((tenantId == null) != (projectId == null)) {
+                throw new IllegalArgumentException("tenantId and projectId must be supplied together");
+            }
+            tenantId = optionalText(tenantId);
+            projectId = optionalText(projectId);
+            workerId = optionalText(workerId);
+            taskId = optionalText(taskId);
+            teamId = optionalText(teamId);
+            toolId = optionalText(toolId);
+            quotaId = optionalText(quotaId);
+            quotaDimension = optionalText(quotaDimension);
+        }
+
+        private static String requireText(String value, String field) {
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException(field + " must not be blank");
+            }
+            return value.trim();
+        }
+
+        private static String optionalText(String value) {
+            return value == null || value.isBlank() ? null : value.trim();
         }
     }
 

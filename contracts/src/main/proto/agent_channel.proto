@@ -113,6 +113,7 @@ message TaskCompleted {
   EventMetadata metadata = 1;
   bytes result_json = 2;
   repeated ArtifactRef artifacts = 3;
+  ModelCallUsage model_call = 4;
 }
 
 message TaskFailed {
@@ -121,6 +122,25 @@ message TaskFailed {
   string message = 3;
   bool retryable = 4;
   string details = 5;
+  ModelCallUsage model_call = 6;
+}
+
+// Content-free runtime usage metadata. It is optional for older Workers and
+// contains only operational identifiers and aggregate token/latency values.
+message ModelCallUsage {
+  string provider = 1;
+  string model = 2;
+  int64 latency_millis = 3;
+  int64 prompt_tokens = 4;
+  int64 completion_tokens = 5;
+  string tenant_id = 6;
+  string project_id = 7;
+  string worker_id = 8;
+  string task_id = 9;
+  string team_id = 10;
+  string tool_id = 11;
+  string quota_id = 12;
+  string quota_dimension = 13;
 }
 
 message ConfigChanged {

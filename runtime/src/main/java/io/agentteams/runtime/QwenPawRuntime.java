@@ -10,7 +10,7 @@ import java.util.UUID;
 public final class QwenPawRuntime implements AgentRuntime {
     private final QwenPawProcessPort process;
     private final RuntimeModelCallAdmission admission;
-    private final Map<UUID, RuntimeModelCallLease> admittedCalls = new ConcurrentHashMap<>();
+    private final Map<UUID, AdmittedCall> admittedCalls = new ConcurrentHashMap<>();
     private final FakeRuntime state = new FakeRuntime();
     private AgentRuntimeContext context;
     private volatile RuntimeConfigSnapshot activeConfiguration;
@@ -33,10 +33,7 @@ public final class QwenPawRuntime implements AgentRuntime {
         state.start(new AgentRuntimeContext(context.runtimeName(), context.maxConcurrency(), context.clock(),
                 ignored -> { }, context.configuration()));
         try {
-            process.start(context, result -> {
-                releaseAdmission(result.taskId());
-                context.resultSink().accept(result);
-            });
+            process.start(context, result -> context.resultSink().accept(releaseAdmission(result)));
         } catch (RuntimeException error) {
             state.stop();
             this.context = null;
@@ -49,11 +46,13 @@ public final class QwenPawRuntime implements AgentRuntime {
         RuntimeSubmission submission = state.submit(task);
         if (submission.accepted()) {
             try {
-                RuntimeModelCallLease lease = admission.acquire(admissionRequest(task));
+                RuntimeModelCallAdmissionRequest request = admissionRequest(task);
+                RuntimeModelCallLease lease = admission.acquire(request);
                 if (lease == null) {
                     throw new IllegalStateException("runtime model call admission returned null lease");
                 }
-                RuntimeModelCallLease previous = admittedCalls.putIfAbsent(task.id(), lease);
+                AdmittedCall previous = admittedCalls.putIfAbsent(task.id(),
+                        new AdmittedCall(lease, request, context.clock().instant()));
                 if (previous != null) {
                     lease.close();
                     throw new IllegalStateException("task already has an admitted model call: " + task.id());
@@ -77,7 +76,7 @@ public final class QwenPawRuntime implements AgentRuntime {
     public CompletionStatus complete(RuntimeResult result) {
         CompletionStatus status = state.complete(result);
         if (status == CompletionStatus.COMPLETED) {
-            releaseAdmission(result.taskId());
+            releaseAdmission(result);
         }
         return status;
     }
@@ -119,7 +118,7 @@ public final class QwenPawRuntime implements AgentRuntime {
         try {
             process.stop();
         } finally {
-            admittedCalls.values().forEach(RuntimeModelCallLease::close);
+            admittedCalls.values().forEach(call -> call.lease().close());
             admittedCalls.clear();
             state.stop();
             context = null;
@@ -165,11 +164,32 @@ public final class QwenPawRuntime implements AgentRuntime {
     }
 
     private void releaseAdmission(UUID taskId) {
-        RuntimeModelCallLease lease = admittedCalls.remove(taskId);
-        if (lease != null) {
-            lease.close();
+        AdmittedCall call = admittedCalls.remove(taskId);
+        if (call != null) {
+            call.lease().close();
         }
     }
+
+    private RuntimeResult releaseAdmission(RuntimeResult result) {
+        AdmittedCall call = admittedCalls.remove(result.taskId());
+        if (call == null) {
+            return result;
+        }
+        try {
+            if (result.callUsage() != null) {
+                return result;
+            }
+            long latencyMillis = Math.max(0,
+                    java.time.Duration.between(call.startedAt(), result.occurredAt()).toMillis());
+            return new RuntimeResult(result.taskId(), result.success(), result.output(), result.occurredAt(),
+                    new RuntimeCallUsage(call.request().provider(), call.request().model(), latencyMillis, 0, 0));
+        } finally {
+            call.lease().close();
+        }
+    }
+
+    private record AdmittedCall(RuntimeModelCallLease lease, RuntimeModelCallAdmissionRequest request,
+            java.time.Instant startedAt) { }
 
     private static String firstNonBlank(String... values) {
         for (String value : values) {

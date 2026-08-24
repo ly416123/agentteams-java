@@ -5,6 +5,7 @@ import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
 import io.agentteams.application.api.ExecutionEventPort.ExecutionPhase;
 import io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand;
 import io.agentteams.controlplane.persistence.ArtifactRecord;
+import io.agentteams.controlplane.audit.ModelCallAuditRecorder;
 import io.agentteams.controlplane.service.ExecutionEventService;
 import io.agentteams.domain.task.FailureInfo;
 import io.agentteams.domain.task.LeaseRenewalCommand;
@@ -19,9 +20,16 @@ import java.util.UUID;
 /** Keeps domain and persistence types behind the application boundary. */
 public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPort {
     private final ExecutionEventService executionEvents;
+    private final ModelCallAuditRecorder modelCallAudits;
 
     public ControlPlaneExecutionEventAdapter(ExecutionEventService executionEvents) {
+        this(executionEvents, ModelCallAuditRecorder.noop());
+    }
+
+    public ControlPlaneExecutionEventAdapter(ExecutionEventService executionEvents,
+            ModelCallAuditRecorder modelCallAudits) {
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
+        this.modelCallAudits = Objects.requireNonNull(modelCallAudits, "modelCallAudits");
     }
 
     @Override
@@ -37,6 +45,11 @@ public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPo
         executionEvents.apply(taskId, transition, artifacts.stream()
                 .map(artifact -> toRecord(taskId, command.attemptId(), command.eventId(), command.occurredAt(), artifact))
                 .toList());
+        if (command.phase() == ExecutionPhase.SUCCEEDED || command.phase() == ExecutionPhase.FAILED) {
+            if (command.modelCallUsage() != null) {
+                modelCallAudits.record(taskId, command);
+            }
+        }
     }
 
     @Override

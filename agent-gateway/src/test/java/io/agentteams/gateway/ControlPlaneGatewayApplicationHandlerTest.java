@@ -122,6 +122,28 @@ class ControlPlaneGatewayApplicationHandlerTest {
     }
 
     @Test
+    void rejectsRuntimeUsageDimensionsThatDoNotMatchTheConnectedWorkerOrTask() {
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
+        ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
+
+        assertThatThrownBy(() -> handler.taskCompleted(connection(), TaskCompleted.newBuilder()
+                .setMetadata(metadata("usage-worker", 3))
+                .setModelCall(io.agentteams.contracts.v1.ModelCallUsage.newBuilder()
+                        .setProvider("qwen").setModel("qwen-plus").setWorkerId("other-worker")
+                        .setTaskId(TASK_ID.toString()).build()).build()))
+                .isInstanceOf(GatewayExceptions.InvalidMessage.class)
+                .hasMessageContaining("worker_id");
+
+        assertThatThrownBy(() -> handler.taskCompleted(connection(), TaskCompleted.newBuilder()
+                .setMetadata(metadata("usage-task", 3))
+                .setModelCall(io.agentteams.contracts.v1.ModelCallUsage.newBuilder()
+                        .setProvider("qwen").setModel("qwen-plus").setWorkerId("agent-1")
+                        .setTaskId(UUID.randomUUID().toString()).build()).build()))
+                .isInstanceOf(GatewayExceptions.InvalidMessage.class)
+                .hasMessageContaining("task_id");
+    }
+
+    @Test
     void ignoresRuntimeAssignmentRejectionWithoutMutatingControlPlane() {
         ExecutionEventPort service = mock(ExecutionEventPort.class);
         ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());

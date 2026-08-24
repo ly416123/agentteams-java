@@ -35,6 +35,7 @@ import io.agentteams.controlplane.team.TeamCrdParser;
 import io.agentteams.controlplane.team.TeamCrdSynchronizer;
 import io.agentteams.controlplane.team.TeamResourceSource;
 import io.agentteams.controlplane.service.ExecutionEventService;
+import io.agentteams.controlplane.audit.JdbcModelCallAuditRecorder;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.storage.MinioObjectStorage;
 import io.agentteams.controlplane.storage.MinioObjectStorageConfig;
@@ -297,8 +298,9 @@ public class ControlPlaneConfiguration {
 
     @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(ExecutionEventService.class)
-    ExecutionEventPort executionEventPort(ExecutionEventService executionEvents) {
-        return new ControlPlaneExecutionEventAdapter(executionEvents);
+    ExecutionEventPort executionEventPort(ExecutionEventService executionEvents, DataSource dataSource) {
+        return new ControlPlaneExecutionEventAdapter(executionEvents,
+                new JdbcModelCallAuditRecorder(new org.springframework.jdbc.core.JdbcTemplate(dataSource)));
     }
 
     @Bean

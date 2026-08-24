@@ -133,7 +133,32 @@ class GatewayRuntimeAdapterTest {
                 .isEqualTo(java.util.Map.of("agentId", "agent-1", "attemptId",
                         assignment.getMetadata().getAttemptId(), "leaseId", assignment.getMetadata().getLeaseId(),
                         "tenantId", "tenant-a", "projectId", "project-a", "teamId", "team-a",
-                        "toolId", "create_task", "quotaId", "quota-a", "quotaDimension", "daily_tokens"));
+                "toolId", "create_task", "quotaId", "quota-a", "quotaDimension", "daily_tokens"));
+    }
+
+    @Test
+    void carriesRuntimeUsageAndDimensionsOnTerminalEvent() {
+        List<AgentMessage> messages = new ArrayList<>();
+        FakeRuntime runtime = new FakeRuntime();
+        runtime.start(new AgentRuntimeContext("fake", 1, Clock.systemUTC(), result -> { }, java.util.Map.of()));
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", messages::add, runtime,
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+        UUID taskId = UUID.randomUUID();
+        TaskAssigned assignment = assignment(taskId).toBuilder().setTenantId("tenant-a").setProjectId("project-a")
+                .setTeamId("team-a").setToolId("create_task").setQuotaId("quota-a")
+                .setQuotaDimension("daily_tokens").build();
+
+        assertThat(adapter.acceptAssignment(assignment).accepted()).isTrue();
+        adapter.complete(RuntimeResult.success(taskId, "done", Instant.EPOCH,
+                new RuntimeCallUsage("qwen", "qwen-plus", 42, 3, 5)));
+
+        assertThat(messages).last().satisfies(message -> {
+            assertThat(message.getTaskCompleted().getModelCall().getProvider()).isEqualTo("qwen");
+            assertThat(message.getTaskCompleted().getModelCall().getPromptTokens()).isEqualTo(3);
+            assertThat(message.getTaskCompleted().getModelCall().getWorkerId()).isEqualTo("agent-1");
+            assertThat(message.getTaskCompleted().getModelCall().getTeamId()).isEqualTo("team-a");
+            assertThat(message.getTaskCompleted().getModelCall().getQuotaDimension()).isEqualTo("daily_tokens");
+        });
     }
 
     private static TaskAssigned assignment(UUID taskId) {
