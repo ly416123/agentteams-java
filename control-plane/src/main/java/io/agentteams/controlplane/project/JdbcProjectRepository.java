@@ -3,6 +3,7 @@ package io.agentteams.controlplane.project;
 import java.sql.Timestamp;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -40,24 +41,41 @@ public class JdbcProjectRepository implements ProjectRepository {
     @Override
     public Optional<ProjectMembershipRecord> findMembership(String tenantId, UUID projectId, String subject) {
         return jdbc.query("""
-                SELECT tenant_id, project_id, subject, role, created_at, updated_at, version
+                SELECT tenant_id, project_id, subject, role, status, created_at, updated_at, version
                   FROM project_memberships
-                 WHERE tenant_id = ? AND project_id = ? AND subject = ?
+                 WHERE tenant_id = ? AND project_id = ? AND subject = ? AND status = 'ACTIVE'
                 """, (rs, row) -> membership(rs), tenantId, projectId, subject).stream().findFirst();
+    }
+
+    @Override
+    public List<ProjectMembershipRecord> findMemberships(String tenantId, UUID projectId) {
+        return jdbc.query("""
+                SELECT tenant_id, project_id, subject, role, status, created_at, updated_at, version
+                  FROM project_memberships WHERE tenant_id = ? AND project_id = ?
+                 ORDER BY created_at, subject
+                """, (rs, row) -> membership(rs), tenantId, projectId);
     }
 
     @Override
     public void upsertMembership(ProjectMembershipRecord membership) {
         jdbc.update("""
                 INSERT INTO project_memberships
-                    (tenant_id, project_id, subject, role, created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (tenant_id, project_id, subject, role, status, created_at, updated_at, version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (tenant_id, project_id, subject) DO UPDATE
-                    SET role = EXCLUDED.role, updated_at = EXCLUDED.updated_at,
+                    SET role = EXCLUDED.role, status = EXCLUDED.status, updated_at = EXCLUDED.updated_at,
                         version = project_memberships.version + 1
                 """, membership.tenantId(), membership.projectId(), membership.subject(),
-                membership.role().name(), timestamp(membership.createdAt()),
+                membership.role().name(), membership.status(), timestamp(membership.createdAt()),
                 timestamp(membership.updatedAt()), membership.version());
+    }
+
+    @Override
+    public void deactivateMembership(String tenantId, UUID projectId, String subject, java.time.Instant updatedAt) {
+        jdbc.update("""
+                UPDATE project_memberships SET status = 'INACTIVE', updated_at = ?, version = version + 1
+                 WHERE tenant_id = ? AND project_id = ? AND subject = ? AND status = 'ACTIVE'
+                """, timestamp(updatedAt), tenantId, projectId, subject);
     }
 
     @Override
@@ -109,7 +127,7 @@ public class JdbcProjectRepository implements ProjectRepository {
 
     private static ProjectMembershipRecord membership(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new ProjectMembershipRecord(rs.getString("tenant_id"), rs.getObject("project_id", UUID.class),
-                rs.getString("subject"), ProjectRole.valueOf(rs.getString("role")),
+                rs.getString("subject"), ProjectRole.valueOf(rs.getString("role")), rs.getString("status"),
                 instant(rs, "created_at"), instant(rs, "updated_at"),
                 rs.getLong("version"));
     }

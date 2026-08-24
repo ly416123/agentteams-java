@@ -14,6 +14,9 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/projects")) {
             return Optional.empty();
         }
+        if (path.startsWith("/api/v1/teams")) {
+            return Optional.of("GET".equals(method) ? Permission.TEAM_READ : Permission.TEAM_WRITE);
+        }
         if (path.startsWith("/api/v1/agents")) {
             return Optional.of("GET".equals(method) ? Permission.AGENT_READ : Permission.AGENT_WRITE);
         }
@@ -54,7 +57,7 @@ public final class ApiAuthorizationPolicy {
             return Optional.of(Permission.USAGE_READ);
         }
         if (path.startsWith("/api/v1/dashboard")) {
-            return Optional.of(Permission.USAGE_READ);
+            return Optional.of("GET".equals(method) ? Permission.USAGE_READ : Permission.DASHBOARD_WRITE);
         }
         if (path.startsWith("/api/v1/audit-events")) {
             return Optional.of(Permission.AUDIT_READ);

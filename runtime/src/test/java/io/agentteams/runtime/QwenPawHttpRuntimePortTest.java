@@ -89,6 +89,30 @@ class QwenPawHttpRuntimePortTest {
     }
 
     @Test
+    void capturesUsageFromCompletedSseEvent() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream",
+                "data: {\"status\":\"completed\",\"model\":\"qwen-plus\","
+                        + "\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":7}}\n\n"));
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<RuntimeResult> result = new AtomicReference<>();
+        RuntimeTask task = task();
+        port.start(context(), value -> {
+            result.set(value);
+            completed.countDown();
+        });
+        port.submit(task);
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(result.get().callUsage()).isEqualTo(
+                new RuntimeCallUsage("qwenpaw", "qwen-plus", 0, 12, 7));
+        port.stop();
+    }
+
+    @Test
     void appliesConfigurationThroughRuntimeEndpoint() throws Exception {
         server.createContext("/api/models/active", exchange -> {
             captureRequest(exchange);

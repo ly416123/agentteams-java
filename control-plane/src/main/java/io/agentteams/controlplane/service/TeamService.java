@@ -17,20 +17,27 @@ public final class TeamService {
     private final FoundationPersistenceService persistence;
     private final TeamSchedulingPolicy schedulingPolicy;
     private final ResourceScopeRepository resourceScopes;
+    private final IdempotencyService idempotency;
 
     public TeamService(FoundationPersistenceService persistence) {
-        this(persistence, new TeamSchedulingPolicy(), null);
+        this(persistence, new TeamSchedulingPolicy(), null, null);
     }
 
     public TeamService(FoundationPersistenceService persistence, TeamSchedulingPolicy schedulingPolicy) {
-        this(persistence, schedulingPolicy, null);
+        this(persistence, schedulingPolicy, null, null);
     }
 
     public TeamService(FoundationPersistenceService persistence, TeamSchedulingPolicy schedulingPolicy,
             ResourceScopeRepository resourceScopes) {
+        this(persistence, schedulingPolicy, resourceScopes, null);
+    }
+
+    public TeamService(FoundationPersistenceService persistence, TeamSchedulingPolicy schedulingPolicy,
+            ResourceScopeRepository resourceScopes, IdempotencyService idempotency) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.schedulingPolicy = Objects.requireNonNull(schedulingPolicy, "schedulingPolicy");
         this.resourceScopes = resourceScopes;
+        this.idempotency = idempotency;
     }
 
     public TeamRecord create(String name, String displayName, TeamPolicyRecord policy, Instant now) {
@@ -45,6 +52,26 @@ public final class TeamService {
             tx.teams().insertPolicy(teamPolicy);
             return team;
         });
+        bindIfAuthenticated(result.id(), result.createdAt());
+        requireVisible(result.id());
+        return result;
+    }
+
+    public TeamRecord create(String idempotencyKey, String name, String displayName,
+            TeamPolicyRecord policy, Instant now) {
+        if (idempotency == null) {
+            throw new IllegalStateException("team idempotency is not configured");
+        }
+        Objects.requireNonNull(policy, "policy");
+        Objects.requireNonNull(now, "now");
+        String key = idempotency.requireKey(idempotencyKey);
+        TeamRecord team = TeamRecord.create(UUID.randomUUID(), name, displayName, now);
+        TeamPolicyRecord teamPolicy = new TeamPolicyRecord(team.id(), policy.maxConcurrentTasks(),
+                policy.requireHumanApproval(), policy.allowedRuntimes(), policy.requiredCapabilities(), now, 0);
+        TeamRecord result = persistence.createTeam(team, teamPolicy, key,
+                idempotency.requestHash(name, displayName, Integer.toString(policy.maxConcurrentTasks()),
+                        Boolean.toString(policy.requireHumanApproval()), policy.allowedRuntimes().toString(),
+                        policy.requiredCapabilities().toString()));
         bindIfAuthenticated(result.id(), result.createdAt());
         requireVisible(result.id());
         return result;

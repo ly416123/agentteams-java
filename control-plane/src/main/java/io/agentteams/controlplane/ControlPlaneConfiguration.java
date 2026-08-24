@@ -200,9 +200,10 @@ public class ControlPlaneConfiguration {
     @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(FoundationPersistenceService.class)
     TeamService teamService(FoundationPersistenceService persistence,
-            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes) {
+            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes,
+            io.agentteams.controlplane.service.IdempotencyService idempotency) {
         return new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
-                resourceScopes);
+                resourceScopes, idempotency);
     }
 
     @Bean

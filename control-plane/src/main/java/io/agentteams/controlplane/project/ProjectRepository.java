@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.project;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,7 +12,11 @@ public interface ProjectRepository {
 
     Optional<ProjectMembershipRecord> findMembership(String tenantId, UUID projectId, String subject);
 
+    List<ProjectMembershipRecord> findMemberships(String tenantId, UUID projectId);
+
     void upsertMembership(ProjectMembershipRecord membership);
+
+    void deactivateMembership(String tenantId, UUID projectId, String subject, Instant updatedAt);
 
     Optional<ProjectCreateIdempotency> findProjectCreateIdempotency(String tenantId, String key);
 

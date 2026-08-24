@@ -24,6 +24,7 @@ public final class FoundationPersistenceService {
 
     private static final String CREATE_TASK = "CREATE_TASK";
     private static final String CREATE_AGENT = "CREATE_AGENT";
+    private static final String CREATE_TEAM = "CREATE_TEAM";
     private static final String CREATE_MODEL_PROVIDER = "CREATE_MODEL_PROVIDER";
     private static final String CREATE_MODEL = "CREATE_MODEL";
     private static final String CREATE_MODEL_PRICE = "CREATE_MODEL_PRICE";
@@ -83,6 +84,38 @@ public final class FoundationPersistenceService {
 
     public Optional<AgentRecord> findAgent(UUID id) {
         return inTransaction(tx -> tx.agents().findById(id));
+    }
+
+    public TeamRecord createTeam(TeamRecord team, TeamPolicyRecord policy, String idempotencyKey,
+            String requestHash) {
+        Objects.requireNonNull(team, "team");
+        Objects.requireNonNull(policy, "policy");
+        if (!team.id().equals(policy.teamId())) {
+            throw new IllegalArgumentException("team policy must reference the team being created");
+        }
+        requireIdempotencyInput(idempotencyKey, requestHash);
+        return inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(idempotencyKey);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), CREATE_TEAM, requestHash, idempotencyKey);
+                return tx.teams().findById(existing.get().resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent team is missing"));
+            }
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), idempotencyKey,
+                    CREATE_TEAM, requestHash, "team", team.id(), idPayload(team.id()),
+                    team.createdAt(), team.createdAt(), 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(idempotencyKey)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, CREATE_TEAM, requestHash, idempotencyKey);
+                return tx.teams().findById(winner.resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent team is missing"));
+            }
+            tx.teams().insert(team);
+            tx.teams().insertPolicy(policy);
+            appendEvent(tx, "team", team.id(), "TeamCreated", idPayload(team.id()), team.createdAt(), team.version());
+            return team;
+        });
     }
 
     public ModelProviderRecord createModelProvider(ModelProviderRecord provider, String idempotencyKey,

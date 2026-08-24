@@ -176,13 +176,14 @@ public final class QwenPawRuntime implements AgentRuntime {
             return result;
         }
         try {
-            if (result.callUsage() != null) {
-                return result;
-            }
             long latencyMillis = Math.max(0,
                     java.time.Duration.between(call.startedAt(), result.occurredAt()).toMillis());
+            RuntimeCallUsage measuredUsage = result.callUsage();
+            long promptTokens = measuredUsage == null ? 0 : measuredUsage.promptTokens();
+            long completionTokens = measuredUsage == null ? 0 : measuredUsage.completionTokens();
             return new RuntimeResult(result.taskId(), result.success(), result.output(), result.occurredAt(),
-                    new RuntimeCallUsage(call.request().provider(), call.request().model(), latencyMillis, 0, 0));
+                    new RuntimeCallUsage(call.request().provider(), call.request().model(), latencyMillis,
+                            promptTokens, completionTokens));
         } finally {
             call.lease().close();
         }

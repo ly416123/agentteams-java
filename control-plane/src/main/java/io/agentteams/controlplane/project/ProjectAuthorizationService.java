@@ -11,6 +11,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -110,6 +111,30 @@ public class ProjectAuthorizationService {
     public void authorize(UUID projectId, ProjectRole requiredRole) {
         RoleCheck result = checkRole(projectId, requiredRole);
         if (!result.allowed()) throw new AuthorizationException("project role denied");
+    }
+
+    public List<ProjectMembershipRecord> listMembers(UUID projectId) {
+        Principal principal = principal();
+        ProjectRecord project = project(principal.scope().tenant(), projectId);
+        membership(project.tenantId(), project.id(), principal.subject());
+        return repository.findMemberships(project.tenantId(), project.id());
+    }
+
+    @Transactional
+    public void disableMember(UUID projectId, String subject) {
+        Principal principal = principal();
+        ProjectRecord project = project(principal.scope().tenant(), projectId);
+        ProjectMembershipRecord actor = membership(project.tenantId(), project.id(), principal.subject());
+        if (!actor.role().atLeast(ProjectRole.ADMIN)) {
+            throw new AuthorizationException("project membership management denied");
+        }
+        String memberSubject = required(subject, "subject");
+        ProjectMembershipRecord target = repository.findMembership(project.tenantId(), project.id(), memberSubject)
+                .orElseThrow(() -> new ResourceNotFoundException("project member", projectId));
+        if (target.role() == ProjectRole.OWNER) {
+            throw new AuthorizationException("project owner cannot be disabled");
+        }
+        repository.deactivateMembership(project.tenantId(), project.id(), memberSubject, clock.instant());
     }
 
     public record RoleCheck(UUID projectId, String subject, ProjectRole role, boolean allowed) { }

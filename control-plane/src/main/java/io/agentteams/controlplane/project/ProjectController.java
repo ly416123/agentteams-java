@@ -1,6 +1,8 @@
 package io.agentteams.controlplane.project;
 
 import java.util.UUID;
+import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,6 +40,17 @@ public final class ProjectController {
                 service.addMember(projectId, idempotencyKey, request.subject(), request.role())));
     }
 
+    @GetMapping("/{projectId}/members")
+    public List<MemberResponse> members(@PathVariable UUID projectId) {
+        return service.listMembers(projectId).stream().map(MemberResponse::from).toList();
+    }
+
+    @DeleteMapping("/{projectId}/members/{subject}")
+    public ResponseEntity<Void> disableMember(@PathVariable UUID projectId, @PathVariable String subject) {
+        service.disableMember(projectId, subject);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{projectId}/role")
     public RoleResponse checkRole(@PathVariable UUID projectId,
             @RequestParam(value = "requiredRole", required = false) ProjectRole requiredRole) {
@@ -55,9 +68,9 @@ public final class ProjectController {
         }
     }
 
-    public record MemberResponse(UUID projectId, String subject, ProjectRole role) {
+    public record MemberResponse(UUID projectId, String subject, ProjectRole role, String status) {
         static MemberResponse from(ProjectMembershipRecord member) {
-            return new MemberResponse(member.projectId(), member.subject(), member.role());
+            return new MemberResponse(member.projectId(), member.subject(), member.role(), member.status());
         }
     }
 

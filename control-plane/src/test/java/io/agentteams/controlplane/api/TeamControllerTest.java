@@ -91,9 +91,10 @@ class TeamControllerTest {
         UUID teamId = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
         TeamRecord team = new TeamRecord(teamId, "research", "Research", "ACTIVE", now, now, 0);
-        when(service.create(eq("research"), eq("Research"), any(), any())).thenReturn(team);
+        when(service.create(eq("team-key"), eq("research"), eq("Research"), any(), any())).thenReturn(team);
 
         mockMvc.perform(post("/api/v1/teams")
+                        .header("Idempotency-Key", "team-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"research\",\"displayName\":\"Research\"}"))
                 .andExpect(status().isCreated())

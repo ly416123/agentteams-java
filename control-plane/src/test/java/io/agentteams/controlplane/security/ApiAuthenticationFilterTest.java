@@ -73,6 +73,20 @@ class ApiAuthenticationFilterTest {
                 .contains(Permission.ARTIFACT_WRITE);
     }
 
+    @Test
+    void mapsTeamRoutesToTeamPermissions() {
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("GET", "/api/v1/teams")))
+                .contains(Permission.TEAM_READ);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("GET", "/api/v1/teams/id/members")))
+                .contains(Permission.TEAM_READ);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("POST", "/api/v1/teams")))
+                .contains(Permission.TEAM_WRITE);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("DELETE", "/api/v1/teams/id")))
+                .contains(Permission.TEAM_WRITE);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("POST", "/api/v1/dashboard/alerts/notify")))
+                .contains(Permission.DASHBOARD_WRITE);
+    }
+
     private static MockHttpServletRequest request(String method, String path) {
         return new MockHttpServletRequest(method, path);
     }

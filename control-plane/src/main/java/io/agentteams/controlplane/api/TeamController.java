@@ -14,12 +14,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/teams")
 public final class TeamController {
+    private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final TeamService service;
 
     public TeamController(TeamService service) {
@@ -37,13 +39,16 @@ public final class TeamController {
     }
 
     @PostMapping
-    public ResponseEntity<TeamResponse> create(@RequestBody CreateTeamRequest request) {
+    public ResponseEntity<TeamResponse> create(
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody CreateTeamRequest request) {
         if (request == null) throw new IllegalArgumentException("request body is required");
+        requireIdempotencyKey(idempotencyKey);
         TeamPolicyRecord policy = new TeamPolicyRecord(UUID.randomUUID(), positive(request.maxConcurrentTasks()),
                 request.requireHumanApproval(), values(request.allowedRuntimes()), values(request.requiredCapabilities()),
                 Instant.now(), 0);
-        TeamRecord team = service.create(required(request.name(), "name"), required(request.displayName(), "displayName"),
-                policy, Instant.now());
+        TeamRecord team = service.create(idempotencyKey, required(request.name(), "name"),
+                required(request.displayName(), "displayName"), policy, Instant.now());
         return ResponseEntity.status(201).body(TeamResponse.from(team));
     }
 
@@ -130,5 +135,10 @@ public final class TeamController {
     private static String required(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
         return value.trim();
+    }
+
+    private static void requireIdempotencyKey(String key) {
+        if (key == null || key.isBlank()) throw new IllegalArgumentException("Idempotency-Key is required");
+        if (key.length() > 255) throw new IllegalArgumentException("Idempotency-Key must be at most 255 characters");
     }
 }

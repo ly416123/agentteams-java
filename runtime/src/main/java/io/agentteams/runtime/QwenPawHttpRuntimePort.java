@@ -113,7 +113,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             response.thenAcceptAsync(value -> processResponse(task, handle, value, sink), executor)
                     .whenComplete((ignored, error) -> {
                         if (error != null) {
-                            publishFailure(task, handle, sink, "QwenPaw HTTP request failed: " + rootMessage(error));
+                            publishFailure(task, handle, sink, "QwenPaw HTTP request failed: " + rootMessage(error), null);
                         }
                     });
         } catch (IOException | RuntimeException error) {
@@ -249,15 +249,16 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             try (InputStream body = response.body()) {
                 String detail = new String(body.readAllBytes(), StandardCharsets.UTF_8);
                 publishFailure(task, handle, sink, "QwenPaw HTTP " + response.statusCode()
-                        + (detail.isBlank() ? "" : ": " + truncate(detail)));
+                        + (detail.isBlank() ? "" : ": " + truncate(detail)), null);
             } catch (IOException error) {
                 publishFailure(task, handle, sink, "QwenPaw HTTP " + response.statusCode()
-                        + ": unable to read error response: " + error.getMessage());
+                        + ": unable to read error response: " + error.getMessage(), null);
             }
             return;
         }
 
         String latestOutput = "";
+        RuntimeCallUsage latestUsage = null;
         StringBuilder data = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
@@ -270,13 +271,14 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
                         continue;
                     }
                     latestOutput = event.output().isBlank() ? latestOutput : event.output();
+                    latestUsage = event.callUsage() == null ? latestUsage : event.callUsage();
                     if (event.terminal() && "completed".equals(event.status())) {
-                        publishSuccess(task, handle, sink, latestOutput);
+                        publishSuccess(task, handle, sink, latestOutput, latestUsage);
                         return;
                     }
                     if (event.terminal() && "failed".equals(event.status())) {
                         publishFailure(task, handle, sink,
-                                event.error().isBlank() ? latestOutput : event.error());
+                                event.error().isBlank() ? latestOutput : event.error(), latestUsage);
                         return;
                     }
                 } else if (line.startsWith("data:")) {
@@ -289,32 +291,33 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             SseEvent event = parseEvent(data);
             if (event != null) {
                 latestOutput = event.output().isBlank() ? latestOutput : event.output();
+                latestUsage = event.callUsage() == null ? latestUsage : event.callUsage();
                 if (event.terminal() && "completed".equals(event.status())) {
-                    publishSuccess(task, handle, sink, latestOutput);
+                    publishSuccess(task, handle, sink, latestOutput, latestUsage);
                     return;
                 }
                 if (event.terminal() && "failed".equals(event.status())) {
                     publishFailure(task, handle, sink,
-                            event.error().isBlank() ? latestOutput : event.error());
+                            event.error().isBlank() ? latestOutput : event.error(), latestUsage);
                     return;
                 }
             }
-            publishFailure(task, handle, sink, "QwenPaw SSE stream ended before completion");
+            publishFailure(task, handle, sink, "QwenPaw SSE stream ended before completion", latestUsage);
         } catch (IOException error) {
-            publishFailure(task, handle, sink, "QwenPaw SSE stream failed: " + error.getMessage());
+            publishFailure(task, handle, sink, "QwenPaw SSE stream failed: " + error.getMessage(), latestUsage);
         } finally {
             handle.stream = null;
         }
     }
 
     private void publishSuccess(RuntimeTask task, RequestHandle handle,
-            RuntimeResultSink sink, String output) {
-        publish(task, handle, sink, RuntimeResult.success(task.id(), output, now()));
+            RuntimeResultSink sink, String output, RuntimeCallUsage callUsage) {
+        publish(task, handle, sink, RuntimeResult.success(task.id(), output, now(), callUsage));
     }
 
     private void publishFailure(RuntimeTask task, RequestHandle handle,
-            RuntimeResultSink sink, String output) {
-        publish(task, handle, sink, RuntimeResult.failure(task.id(), output, now()));
+            RuntimeResultSink sink, String output, RuntimeCallUsage callUsage) {
+        publish(task, handle, sink, RuntimeResult.failure(task.id(), output, now(), callUsage));
     }
 
     private void publish(RuntimeTask task, RequestHandle handle,
@@ -333,10 +336,29 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             String object = event.path("object").asText();
             boolean terminal = object.isBlank() || "response".equals(object);
             return new SseEvent(event.path("status").asText(), eventOutput(event),
-                    errorText(event.path("error")), terminal);
+                    errorText(event.path("error")), terminal, usage(event));
         } catch (IOException error) {
-            return new SseEvent("failed", "", "invalid QwenPaw SSE event: " + error.getMessage(), true);
+            return new SseEvent("failed", "", "invalid QwenPaw SSE event: " + error.getMessage(), true, null);
         }
+    }
+
+    private RuntimeCallUsage usage(JsonNode event) {
+        JsonNode usage = event.path("usage");
+        if (!usage.isObject()
+                || (!usage.has("prompt_tokens") && !usage.has("completion_tokens"))) {
+            return null;
+        }
+        long promptTokens = nonNegativeLong(usage.path("prompt_tokens"));
+        long completionTokens = nonNegativeLong(usage.path("completion_tokens"));
+        String model = event.path("model").asText(usage.path("model").asText("unknown"));
+        if (model.isBlank()) {
+            model = "unknown";
+        }
+        return new RuntimeCallUsage("qwenpaw", model, 0, promptTokens, completionTokens);
+    }
+
+    private static long nonNegativeLong(JsonNode value) {
+        return value.isIntegralNumber() && value.asLong() >= 0 ? value.asLong() : 0;
     }
 
     private String requestBody(RuntimeTask task) throws IOException {
@@ -459,7 +481,8 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    private record SseEvent(String status, String output, String error, boolean terminal) {
+    private record SseEvent(String status, String output, String error, boolean terminal,
+            RuntimeCallUsage callUsage) {
     }
 
     private static final class RequestHandle {
