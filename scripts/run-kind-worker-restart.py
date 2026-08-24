@@ -109,14 +109,39 @@ def agent_phase(namespace: str, postgres_pod: str, agent_id: str) -> str:
                f"select phase from agents where id = '{agent_id}';").strip()
 
 
+def gateway_connection_state(namespace: str, postgres_pod: str, agent_id: str) -> tuple[str, str]:
+    row = sql(namespace, postgres_pod, f"""
+        select coalesce(connection_id::text, '') || '|' || coalesce(presence, '')
+          from gateway_agent_state
+         where agent_id = '{agent_id}';
+    """).strip()
+    if not row:
+        return "", ""
+    connection_id, presence = row.split("|", 1)
+    return connection_id, presence
+
+
 def gateway_connection_id(namespace: str, postgres_pod: str, agent_id: str) -> str:
-    return sql(namespace, postgres_pod,
-               f"select connection_id from gateway_agent_state where agent_id = '{agent_id}';").strip()
+    return gateway_connection_state(namespace, postgres_pod, agent_id)[0]
 
 
 def task_phase(namespace: str, postgres_pod: str, task_id: str) -> str:
     return sql(namespace, postgres_pod,
                f"select phase from tasks where id = '{task_id}';").strip()
+
+
+def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
+    connection_id, presence = gateway_connection_state(namespace, postgres_pod, agent_id)
+    return bool(connection_id and presence == "ONLINE"
+                and agent_phase(namespace, postgres_pod, agent_id) == "READY")
+
+
+def task_snapshot(namespace: str, postgres_pod: str, task_id: str, agent_id: str) -> str:
+    attempts, succeeded = task_attempts(namespace, postgres_pod, task_id)
+    connection_id, presence = gateway_connection_state(namespace, postgres_pod, agent_id)
+    return (f"phase={task_phase(namespace, postgres_pod, task_id)!r} attempts={attempts} "
+            f"succeeded={succeeded} agent_phase={agent_phase(namespace, postgres_pod, agent_id)!r} "
+            f"gateway_presence={presence!r} connection_id={connection_id or '<missing>'}")
 
 
 def task_attempts(namespace: str, postgres_pod: str, task_id: str) -> tuple[int, int]:
@@ -181,6 +206,8 @@ def main() -> int:
         wait_until("Control Plane API", lambda: api_request(f"{base_url}/actuator/health"), args.timeout)
         delay_configured = True
         set_mock_delay(args.namespace, args.mock_deployment, args.response_delay_seconds, args.timeout)
+        wait_until(f"QwenPaw Agent registration for {args.agent_id}", lambda: qwenpaw_agent_ready(
+            args.namespace, args.postgres_pod, args.agent_id), args.timeout)
 
         created = api_request(
             f"{base_url}/api/v1/tasks", "POST",
@@ -192,9 +219,12 @@ def main() -> int:
         task_id = created["id"]
         api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},
                     f"kind-worker-restart-queue-{uuid.uuid4()}")
-        wait_until("task RUNNING before Worker restart",
-                   lambda: task_phase(args.namespace, args.postgres_pod, task_id) == "RUNNING",
-                   args.timeout)
+        try:
+            wait_until("task RUNNING before Worker restart",
+                       lambda: task_phase(args.namespace, args.postgres_pod, task_id) == "RUNNING",
+                       args.timeout)
+        except RuntimeError as error:
+            fail(f"{error}; {task_snapshot(args.namespace, args.postgres_pod, task_id, args.agent_id)}")
         attempts_before, _ = task_attempts(args.namespace, args.postgres_pod, task_id)
         if attempts_before != 1:
             fail(f"expected one active attempt before Worker restart, got {attempts_before}")
