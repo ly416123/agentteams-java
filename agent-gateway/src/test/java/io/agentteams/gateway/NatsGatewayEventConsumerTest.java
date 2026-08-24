@@ -126,6 +126,20 @@ class NatsGatewayEventConsumerTest {
     }
 
     @Test
+    void acknowledgesWorkerExecutionEventsOnConfigSubscriptionWithoutParsingAsOutboxEnvelope() {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(
+                new TaskAssignedCommandHandler(delivery), new ObjectMapper());
+        Message message = message("{\"schemaVersion\":1,\"type\":\"TASK\","
+                + "\"taskId\":\"" + TASK_ID + "\",\"taskExecution\":{}}");
+
+        consumer.processConfig(message);
+
+        verify(message).ack();
+        verifyNoInteractions(delivery);
+    }
+
+    @Test
     void rebuildsDurableSubscriptionsAfterNatsResubscribedEvent() throws Exception {
         CommandDeliveryService delivery = mock(CommandDeliveryService.class);
         Connection connection = mock(Connection.class);

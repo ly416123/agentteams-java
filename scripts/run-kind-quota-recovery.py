@@ -118,6 +118,10 @@ def grpc_call(args: argparse.Namespace, method: str, request: dict) -> dict:
         request,
         grpcurl=args.grpcurl,
         tls=args.gateway_tls,
+        tls_ca=args.gateway_ca,
+        tls_cert=args.gateway_client_cert,
+        tls_key=args.gateway_client_key,
+        tls_server_name=args.gateway_server_name,
         timeout=args.timeout,
     )
 
@@ -138,6 +142,40 @@ def wait_for_gateway_quota_service(args: argparse.Namespace) -> None:
             return False
 
     wait_until("Gateway quota gRPC service", ready, timeout=args.timeout, interval=1.0)
+
+
+def restart_control_plane_forward(args: argparse.Namespace, current: PortForward) -> PortForward:
+    """Restart the Control Plane and reconnect the HTTP port-forward to a new Pod."""
+    run("rollout", "restart", f"deployment/{args.control_plane_service}",
+        namespace=args.namespace)
+    run("rollout", "status", f"deployment/{args.control_plane_service}",
+        f"--timeout={int(args.restart_timeout)}s", namespace=args.namespace,
+        timeout=args.restart_timeout + 15)
+    current.close()
+    replacement = PortForward(args.namespace, args.control_plane_service,
+                               args.control_plane_port, 8080)
+    return replacement.start(timeout=args.restart_timeout)
+
+
+def wait_for_idempotent_acquire(args: argparse.Namespace, scope: Scope,
+                                idempotency_key: str, reservation_id: str) -> dict:
+    """Tolerate a short Gateway-to-Control-Plane window after a restart.
+
+    The request is intentionally retried with the same idempotency key. A
+    transient internal response therefore cannot increment durable counters;
+    the success condition remains the original reservation id.
+    """
+    last: dict = {}
+
+    def ready() -> bool:
+        response = grpc_call(args, "Acquire", acquire_request(
+            scope, idempotency_key, 10, future_deadline()))
+        last["response"] = response
+        return accepted(response) and str(response.get("reservationId")) == reservation_id
+
+    wait_until("idempotent acquire after Control Plane restart", ready,
+               timeout=args.timeout, interval=1.0)
+    return last["response"]
 
 
 def accepted(response: dict) -> bool:
@@ -191,11 +229,26 @@ def main() -> int:
     parser.add_argument("--project", default=os.environ.get("AGENTTEAMS_API_PROJECT", "project-a"))
     parser.add_argument("--grpcurl", default=os.environ.get("GRPCURL_BIN"))
     parser.add_argument("--gateway-tls", action="store_true")
+    mtls_dir = Path(os.environ.get("AGENTTEAMS_MTLS_DIR", str(ROOT / ".local" / "kind-mtls")))
+    parser.add_argument("--gateway-ca", default=os.environ.get(
+        "AGENTTEAMS_GATEWAY_TLS_CA_CERT",
+        str(mtls_dir / "ca.crt") if (mtls_dir / "ca.crt").is_file() else ""))
+    parser.add_argument("--gateway-client-cert", default=os.environ.get(
+        "AGENTTEAMS_GATEWAY_TLS_CLIENT_CERT",
+        str(mtls_dir / "worker.crt") if (mtls_dir / "worker.crt").is_file() else ""))
+    parser.add_argument("--gateway-client-key", default=os.environ.get(
+        "AGENTTEAMS_GATEWAY_TLS_CLIENT_KEY",
+        str(mtls_dir / "worker.key") if (mtls_dir / "worker.key").is_file() else ""))
+    parser.add_argument("--gateway-server-name", default=os.environ.get(
+        "AGENTTEAMS_GATEWAY_TLS_SERVER_NAME",
+        "agentteams-agentteams-java-gateway.agentteams.svc.cluster.local"))
     parser.add_argument("--max-concurrent", type=int, default=1)
     parser.add_argument("--max-daily-calls", type=int, default=20)
     parser.add_argument("--max-daily-tokens", type=int, default=1000)
     parser.add_argument("--restart-control-plane", action=argparse.BooleanOptionalAction, default=False,
                         help="restart Control Plane after the first acquire before retrying it")
+    parser.add_argument("--restart-timeout", type=float, default=120.0,
+                        help="maximum seconds for Control Plane rollout and port-forward recovery")
     args = parser.parse_args()
     if args.max_concurrent != 1 or args.max_daily_calls < 8 or args.max_daily_tokens < 40:
         parser.error("quota limits must be max-concurrent=1, daily-calls>=8 and daily-tokens>=40")
@@ -233,16 +286,12 @@ def main() -> int:
         reservations.append((scope_a, reservation_a))
 
         if args.restart_control_plane:
-            run("rollout", "restart", f"deployment/{args.control_plane_service}", namespace=args.namespace)
-            run("rollout", "status", f"deployment/{args.control_plane_service}",
-                f"--timeout={int(args.timeout)}s", namespace=args.namespace, timeout=args.timeout + 15)
+            control_plane_forward = restart_control_plane_forward(args, control_plane_forward)
             wait_until("Control Plane API after restart",
                        lambda: api_request(f"{base_url}/actuator/health").status == 200,
                        timeout=args.timeout)
 
-        retry = grpc_call(args, "Acquire", acquire_request(scope_a, acquire_key, 10, future_deadline()))
-        if not accepted(retry) or str(retry.get("reservationId")) != reservation_a:
-            raise KindTestError(f"acquire retry did not return the original reservation: {retry!r}")
+        retry = wait_for_idempotent_acquire(args, scope_a, acquire_key, reservation_a)
         after_acquire_retry = snapshot(base_url, scope_a)
         assert_snapshot(after_acquire_retry, baseline_a, 1, 1, 10, "acquire retry")
         print("KIND_QUOTA_ACQUIRE_IDEMPOTENCY_OK accepted=2 same_reservation=true current_delta=1 daily_calls_delta=1 daily_tokens_delta=10")

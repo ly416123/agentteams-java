@@ -90,16 +90,21 @@ def main() -> int:
         # QwenPaw's native /api/models/active configuration requires a model
         # for every manifest applied by the real Worker. Keep both revisions
         # deterministic and independent of any pre-existing local selection.
+        # CI default: "model": "agentteams-kind-mock". Local real QwenPaw can
+        # override it with AGENTTEAMS_QWENPAW_MODEL.
+        smoke_model = os.environ.get("AGENTTEAMS_QWENPAW_MODEL", "agentteams-kind-mock").strip()
+        if not smoke_model:
+            fail("AGENTTEAMS_QWENPAW_MODEL must not be blank")
         old_manifest = {
             "kind": "KindConfigRollbackSmoke",
             "revision": "stable",
-            "model": "agentteams-kind-mock",
+            "model": smoke_model,
             "marker": str(uuid.uuid4()),
         }
         new_manifest = {
             "kind": "KindConfigRollbackSmoke",
             "revision": "candidate",
-            "model": "agentteams-kind-mock",
+            "model": smoke_model,
             "marker": str(uuid.uuid4()),
         }
         old_snapshot = api_request(

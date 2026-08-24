@@ -140,12 +140,17 @@ def main() -> int:
         # even for the compatibility (no resourceBindings) manifest. Keep the
         # model deterministic so the real Worker can apply every revision in
         # the smoke test without relying on a pre-existing active selection.
+        # CI default: "model": "agentteams-kind-mock". Local real QwenPaw can
+        # override it with AGENTTEAMS_QWENPAW_MODEL.
+        smoke_model = os.environ.get("AGENTTEAMS_QWENPAW_MODEL", "agentteams-kind-mock").strip()
+        if not smoke_model:
+            fail("AGENTTEAMS_QWENPAW_MODEL must not be blank")
         legacy = {"kind": "KindResourceBindingAckSmoke", "revision": "legacy",
-                  "model": "agentteams-kind-mock", "marker": str(uuid.uuid4())}
+                  "model": smoke_model, "marker": str(uuid.uuid4())}
         valid = {
             "kind": "KindResourceBindingAckSmoke",
             "revision": "resource-bindings-valid",
-            "model": "agentteams-kind-mock",
+            "model": smoke_model,
             "marker": str(uuid.uuid4()),
             "resourceBindings": [
                 {"type": "MODEL", "reference": "kind-model", "revision": "model-1",
@@ -159,7 +164,7 @@ def main() -> int:
         invalid = {
             "kind": "KindResourceBindingAckSmoke",
             "revision": "resource-bindings-invalid",
-            "model": "agentteams-kind-mock",
+            "model": smoke_model,
             "marker": str(uuid.uuid4()),
             "resourceBindings": [
                 {"type": "MODEL", "reference": "kind-model", "revision": "",

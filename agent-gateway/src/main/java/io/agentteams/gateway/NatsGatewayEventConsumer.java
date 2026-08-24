@@ -10,6 +10,7 @@ import io.nats.client.Message;
 import io.nats.client.Connection;
 import io.nats.client.ConnectionListener;
 import io.nats.client.PushSubscribeOptions;
+import io.nats.client.api.ConsumerConfiguration;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -27,7 +28,9 @@ import io.agentteams.application.api.TraceContext;
 public final class NatsGatewayEventConsumer implements AutoCloseable {
 
     private static final Logger LOGGER = Logger.getLogger(NatsGatewayEventConsumer.class.getName());
-    private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(500);
+    private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(1);
+    private static final Duration IDLE_BACKOFF = Duration.ofMillis(10);
+    private static final long CONFIG_MAX_ACK_PENDING = 10_000;
 
     private final JetStream jetStream;
     private final Connection connection;
@@ -136,8 +139,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             }
             subscription = jetStream.subscribe(subject, durable,
                     PushSubscribeOptions.builder().durable(durable).build());
-            configSubscription = jetStream.subscribe(configSubject, configDurable,
-                    PushSubscribeOptions.builder().durable(configDurable).build());
+            configSubscription = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
             running.set(true);
             if (connection != null) {
                 connection.addConnectionListener(connectionListener);
@@ -222,8 +224,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             try {
                 subscription = jetStream.subscribe(subject, durable,
                         PushSubscribeOptions.builder().durable(durable).build());
-                configSubscription = jetStream.subscribe(configSubject, configDurable,
-                        PushSubscribeOptions.builder().durable(configDurable).build());
+                configSubscription = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
                 LOGGER.info("Agent Gateway NATS subscriptions restored after reconnect");
             } catch (IOException | JetStreamApiException error) {
                 LOGGER.log(Level.WARNING, "Unable to restore Agent Gateway NATS subscriptions after reconnect", error);
@@ -237,16 +238,31 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         }
     }
 
+    private PushSubscribeOptions configSubscribeOptions() {
+        return PushSubscribeOptions.builder().durable(configDurable)
+                .configuration(ConsumerConfiguration.builder()
+                        .durable(configDurable)
+                        .maxAckPending(CONFIG_MAX_ACK_PENDING)
+                        .build())
+                .build();
+    }
+
     private void consumeLoop() {
         while (running.get()) {
             try {
+                boolean processed = false;
                 Message message = subscription.nextMessage(RECEIVE_TIMEOUT);
                 if (message != null) {
                     process(message);
+                    processed = true;
                 }
                 Message configMessage = configSubscription.nextMessage(RECEIVE_TIMEOUT);
                 if (configMessage != null) {
                     processConfig(configMessage);
+                    processed = true;
+                }
+                if (!processed) {
+                    Thread.sleep(IDLE_BACKOFF.toMillis());
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
@@ -260,12 +276,30 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     }
 
     /** The agent event stream also carries worker-to-control-plane events; consume those without redelivery. */
-    private void processConfig(Message message) {
+    void processConfig(Message message) {
+        if (isWorkerEvent(message.getData())) {
+            metrics.natsEventRejected();
+            message.ack();
+            return;
+        }
         try {
             process(message);
         } catch (IllegalArgumentException ignored) {
             metrics.natsEventRejected();
             message.ack();
+        }
+    }
+
+    private boolean isWorkerEvent(byte[] data) {
+        if (data == null || data.length == 0) {
+            return false;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(new String(data, StandardCharsets.UTF_8));
+            return root != null && root.isObject() && root.has("schemaVersion") && root.has("type")
+                    && !root.has("event_type");
+        } catch (JsonProcessingException ignored) {
+            return false;
         }
     }
 

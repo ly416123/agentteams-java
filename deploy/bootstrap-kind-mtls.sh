@@ -65,6 +65,11 @@ helm upgrade --install "$CONTROL_PLANE_RELEASE" "$ROOT/deploy/helm/agentteams-ja
   -f "$ROOT/deploy/helm/kind-values.yaml" --set gateway.tls.enabled=true \
   --set gateway.tls.secretName="$GATEWAY_SECRET"
 
+# The gRPC server loads its certificate chain during process startup. Updating
+# the mounted Secret alone does not reload the in-memory Netty SSL context.
+kubectl -n "$NAMESPACE" rollout restart deployment/agentteams-agentteams-java-gateway
+kubectl -n "$NAMESPACE" rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
+
 # The image tag is intentionally stable for Kind. Restart the Operator so a
 # freshly loaded image is used before it reconciles Worker TLS volumes.
 kubectl -n "$NAMESPACE" rollout restart deployment/agentteams-agentteams-java-operator
@@ -76,9 +81,11 @@ for worker in "${workers[@]}"; do
   patch=$(jq -nc --arg secret "$WORKER_SECRET" --arg run_id "$RUN_ID" \
     '{metadata:{annotations:{"agentteams.io/mtls-configured":$run_id}},spec:{tlsSecret:$secret,env:{AGENTTEAMS_GATEWAY_TLS_ENABLED:"true",AGENTTEAMS_GATEWAY_TLS_CA_CERT_PATH:"/etc/agentteams/gateway-tls/ca.crt",AGENTTEAMS_GATEWAY_TLS_CLIENT_CERT_PATH:"/etc/agentteams/gateway-tls/tls.crt",AGENTTEAMS_GATEWAY_TLS_CLIENT_KEY_PATH:"/etc/agentteams/gateway-tls/tls.key"}}}')
   kubectl -n "$NAMESPACE" patch worker "$worker" --type=merge -p "$patch" >/dev/null
+  # The Worker loads its client certificate into the gRPC channel at startup;
+  # updating the mounted Secret does not refresh that in-memory channel.
+  kubectl -n "$NAMESPACE" rollout restart deployment/"$worker"
 done
 
-kubectl -n "$NAMESPACE" rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
 for worker in "${workers[@]}"; do
   [[ -n "$worker" ]] || continue
   kubectl -n "$NAMESPACE" wait --for=condition=available "deployment/$worker" --timeout=300s

@@ -132,6 +132,8 @@ class PortForward:
 
 def grpcurl_call(endpoint: str, proto_root: Path, proto_file: str, method: str,
                  request: dict, grpcurl: str | None = None, tls: bool = False,
+                 tls_ca: str | None = None, tls_cert: str | None = None,
+                 tls_key: str | None = None, tls_server_name: str | None = None,
                  timeout: float = 20.0) -> dict:
     """Call a local-proto gRPC method through grpcurl's JSON codec."""
     binary = grpcurl or os.environ.get("GRPCURL_BIN", "grpcurl")
@@ -141,6 +143,15 @@ def grpcurl_call(endpoint: str, proto_root: Path, proto_file: str, method: str,
     command = [resolved]
     if not tls:
         command.append("-plaintext")
+    else:
+        if tls_ca:
+            command += ["-cacert", tls_ca]
+        if bool(tls_cert) != bool(tls_key):
+            raise KindTestError("TLS client certificate and key must be supplied together")
+        if tls_cert:
+            command += ["-cert", tls_cert, "-key", tls_key]
+        if tls_server_name:
+            command += ["-authority", tls_server_name]
     command += ["-import-path", str(proto_root), "-proto", proto_file,
                 "-format", "json", "-d", "@", endpoint, method]
     result = subprocess.run(command, input=json.dumps(request), check=False,

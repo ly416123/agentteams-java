@@ -10,6 +10,7 @@ import io.agentteams.application.api.TraceContext;
 import io.agentteams.controlplane.observability.AsyncConsumerTracing;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.agentteams.domain.task.StaleTaskVersionException;
+import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamSubscription;
@@ -30,7 +31,8 @@ import java.util.logging.Logger;
 /** Consumes Agent execution events and applies them through the application boundary. */
 public final class NatsExecutionEventConsumer implements AutoCloseable {
     private static final Logger LOGGER = Logger.getLogger(NatsExecutionEventConsumer.class.getName());
-    private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(500);
+    private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(1);
+    private static final Duration IDLE_BACKOFF = Duration.ofMillis(10);
     private static final Duration OUT_OF_ORDER_REDELIVERY_DELAY = Duration.ofMillis(250);
 
     private final JetStream jetStream;
@@ -127,9 +129,14 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private void consumeLoop() {
         while (running.get()) {
             try {
+                boolean processed = false;
                 Message message = subscription.nextMessage(RECEIVE_TIMEOUT);
                 if (message != null) {
                     process(message);
+                    processed = true;
+                }
+                if (!processed) {
+                    Thread.sleep(IDLE_BACKOFF.toMillis());
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
@@ -205,6 +212,12 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 }
                 message.nakWithDelay(outOfOrderRedeliveryDelay(message));
             }
+        } catch (IllegalTaskTransitionException terminal) {
+            // A terminal task cannot be moved back to an earlier phase. The
+            // event is permanently invalid for this aggregate; ACK it so one
+            // historical bad event cannot poison the durable consumer.
+            LOGGER.log(Level.WARNING, "Acknowledging impossible Agent task transition: {0}", terminal.getMessage());
+            message.ack();
         } catch (IOException | RuntimeException error) {
             if (span != null) {
                 span.error(error).tag("agentteams.consumer.result", "redeliver");

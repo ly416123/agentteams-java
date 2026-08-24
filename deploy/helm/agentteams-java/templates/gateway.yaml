@@ -63,6 +63,11 @@ spec:
             - name: SPRING_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: password }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 36
+            periodSeconds: 5
+            timeoutSeconds: 2
           readinessProbe:
             httpGet: { path: /actuator/health/readiness, port: http }
           livenessProbe:

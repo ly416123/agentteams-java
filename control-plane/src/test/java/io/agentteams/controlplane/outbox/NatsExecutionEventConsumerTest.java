@@ -8,8 +8,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.domain.task.StaleTaskVersionException;
+import io.agentteams.domain.task.IllegalTaskTransitionException;
+import io.agentteams.domain.task.TaskPhase;
 import io.nats.client.Connection;
 import io.nats.client.ConnectionListener;
 import io.nats.client.JetStream;
@@ -58,6 +61,22 @@ class NatsExecutionEventConsumerTest {
     }
 
     @Test
+    void acknowledgesImpossibleTerminalTransitionInsteadOfPoisoningTheConsumer() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(taskEventJson().getBytes(StandardCharsets.UTF_8));
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        doThrow(new IllegalTaskTransitionException(TaskPhase.CANCELLED, TaskPhase.RUNNING))
+                .when(executionEvents).apply(any(), any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        verify(message).ack();
+    }
+
+    @Test
     void backsOffOutOfOrderRedeliveryAfterRepeatedDeliveryAttempts() {
         Message message = mock(Message.class);
         when(message.getData()).thenReturn(taskEventJson().getBytes(StandardCharsets.UTF_8));
@@ -96,6 +115,36 @@ class NatsExecutionEventConsumerTest {
         assertThat(command.getValue().traceparent())
                 .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
         assertThat(command.getValue().tracestate()).isEqualTo("vendor=value");
+    }
+
+    @Test
+    void acknowledgesConfigAppliedEventsWithoutWaitingBehindExecutionBacklog() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn("""
+                {
+                  "schemaVersion": 1,
+                  "type": "CONFIG_APPLIED",
+                  "eventId": "11111111-1111-1111-1111-111111111111",
+                  "bindingId": "22222222-2222-2222-2222-222222222222",
+                  "snapshotId": "33333333-3333-3333-3333-333333333333",
+                  "agentId": "44444444-4444-4444-4444-444444444444",
+                  "configVersion": 2,
+                  "applied": true,
+                  "errorMessage": "",
+                  "occurredAt": "2026-08-21T00:00:00Z",
+                  "source": "gateway",
+                  "correlationId": "config-test"
+                }
+                """.getBytes(StandardCharsets.UTF_8));
+        ConfigEventPort configEvents = mock(ConfigEventPort.class);
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), mock(ExecutionEventPort.class), configEvents,
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        verify(configEvents).applied(any(ConfigEventPort.ConfigAppliedCommand.class));
+        verify(message).ack();
     }
 
     @Test

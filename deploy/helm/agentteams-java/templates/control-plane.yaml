@@ -96,6 +96,11 @@ spec:
 {{- end }}
           envFrom:
             - configMapRef: { name: {{ include "agentteams-java.fullname" . }}-control-plane }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 36
+            periodSeconds: 5
+            timeoutSeconds: 2
           readinessProbe:
             httpGet: { path: /actuator/health/readiness, port: http }
           livenessProbe:
