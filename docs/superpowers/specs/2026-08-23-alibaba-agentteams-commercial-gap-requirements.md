@@ -728,3 +728,17 @@ python3 scripts/run-kind-quota-recovery.py
 - 未提供的维度仍保持为空或安全回退，不把任务内容写入审计字段。
 
 Gateway、Runtime、Worker 相关回归测试已通过。当前剩余事项收敛为真实 GitHub Actions Kind 结果确认，以及后续将 Runtime admission dimensions 接入具体生产审计持久化实现；企业 Skill 审批/沙箱仍不在当前范围内。
+
+### Kind 验收收口状态（2026-08-24）
+
+本轮已根据新鲜 GitHub Actions `kind-recovery` 结果完成真实集群确认：
+
+- 配额 recovery 通过，覆盖 acquire/release 幂等重试、超时、并发拒绝、跨 tenant/project 隔离和 Control Plane 重启后的持久化状态。
+- Worker `resourceBindings` ACK 通过，覆盖 legacy manifest、合法 MODEL/SKILL/MCP 绑定和非法 revision/digest 的稳定失败分类。
+- 配置 revision 发布与 rollback 通过，真实 Worker 观察到稳定 revision 恢复并返回 `rollback=true`。
+- Task/Artifact API smoke 通过，生命周期操作、拒绝路径和 Artifact 查询均输出 `KIND_TASK_API_OK`。
+- OTLP trace continuity 与多副本 Prometheus scraping 通过；CI 失败诊断已收窄为 Pod/Deployment 状态、Task phase、revision/digest、错误分类和最近事件元数据，不采集原始组件日志、完整 Prompt/Response、`domain_events.payload`、`outbox.last_error` 或完整 Secret。
+
+本机复核结果：Kind 集群的 Control Plane、Gateway、Operator 均为 2/2，PostgreSQL、NATS、MinIO 和 2 个 Worker Ready；执行 `mvn -q -Dmaven.repo.local=/private/tmp/agentteams-java-m2 clean test` 退出码为 0，Kind 清单、CI 工作流、诊断契约和 Shell 语法检查均通过。
+
+因此，当前主线已从“Kind 验收收口”转入产品能力闭环：优先补齐真实 Worker/Manager 配额组装与跨实例持久化验证、审计维度持久化对账，以及后续按需接入企业 Skill 审批/沙箱；企业审批/沙箱当前仍保持默认关闭，不纳入 CI。

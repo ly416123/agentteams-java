@@ -309,29 +309,29 @@ jobs:
           cp /tmp/agent-registration-response.json /tmp/agentteams-kind-recovery-diagnostics/agent-registration-response.json 2>/dev/null || true
           cp /tmp/control-plane-port-forward.log /tmp/agentteams-kind-recovery-diagnostics/control-plane-port-forward.log 2>/dev/null || true
           kubectl -n agentteams get prometheusrule -o yaml > /tmp/agentteams-kind-recovery-diagnostics/prometheusrules.yaml || true
-          kubectl -n agentteams get worker/qwenpaw-real -o yaml > /tmp/agentteams-kind-recovery-diagnostics/worker.yaml || true
-          kubectl -n agentteams describe worker/qwenpaw-real > /tmp/agentteams-kind-recovery-diagnostics/worker-describe.txt 2>&1 || true
-          kubectl -n agentteams get deployment/qwenpaw-real -o yaml > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-real.yaml || true
-          kubectl -n agentteams logs deployment/qwenpaw-real --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/worker.log 2>&1 || true
-          kubectl -n agentteams logs deployment/qwenpaw --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw.log 2>&1 || true
-          kubectl -n agentteams logs deployment/qwenpaw-openai-mock --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-openai-mock.log 2>&1 || true
-          kubectl -n agentteams logs deployment/otel-collector --tail=1000 > /tmp/agentteams-kind-recovery-diagnostics/otel-collector.log 2>&1 || true
-          kubectl -n agentteams logs statefulset/nats --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/nats.log 2>&1 || true
+          kubectl -n agentteams get worker/qwenpaw-real -o json \
+            | jq '{metadata:{name:.metadata.name,namespace:.metadata.namespace},status:{phase:.status.phase,observedRevision:.status.observedRevision,conditions:.status.conditions}}' \
+            > /tmp/agentteams-kind-recovery-diagnostics/worker-status.json || true
+          kubectl -n agentteams get deployment/qwenpaw-real \
+            -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,REVISION:.metadata.generation' \
+            > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-real-status.txt || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
-            "select event_type,status,attempts,last_error,created_at,updated_at from outbox_events order by updated_at desc limit 200" \
+            "select event_type,status,attempts,created_at,updated_at from outbox_events order by updated_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/outbox-events.txt 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select id,phase,version,updated_at from tasks order by updated_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/task-phases.txt 2>&1 || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select agent_id,sequence,event_id,created_at from gateway_commands order by created_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/gateway-commands.txt 2>&1 || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select agent_id,last_ack_sequence,updated_at from gateway_ack_cursors order by updated_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/gateway-ack-cursors.txt 2>&1 || true
-          kubectl -n agentteams logs deployment/agentteams-agentteams-java-operator --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/operator.log 2>&1 || true
-          kubectl -n agentteams get pods -l app.kubernetes.io/name=agentteams-worker -o yaml > /tmp/agentteams-kind-recovery-diagnostics/worker-pods.yaml || true
-          kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/control-plane.log 2>&1 || true
-          kubectl -n agentteams logs deployment/agentteams-agentteams-java-gateway --tail=300 > /tmp/agentteams-kind-recovery-diagnostics/gateway.log 2>&1 || true
+          kubectl -n agentteams get pods -l app.kubernetes.io/name=agentteams-worker \
+            -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount,REVISION:.metadata.labels.agentteams\.io/config-revision' \
+            > /tmp/agentteams-kind-recovery-diagnostics/worker-pod-status.txt || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
-            "select event_type,aggregate_id,created_at,payload from domain_events order by created_at desc limit 200" \
+            "select event_type,aggregate_id,created_at from domain_events order by created_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/domain-events.txt 2>&1 || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select tenant_id,project_id,current_concurrent_calls,daily_calls,daily_tokens,max_concurrent_calls,max_daily_calls,max_daily_tokens,usage_day,updated_at from project_quota_policies order by updated_at desc limit 200" \
