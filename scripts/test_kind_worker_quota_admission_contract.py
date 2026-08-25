@@ -35,6 +35,7 @@ class KindWorkerQuotaAdmissionContractTest(unittest.TestCase):
 
         script = (ROOT / "scripts/run-kind-worker-quota-admission.py").read_text(encoding="utf-8")
         self.assertIn("/api/v1/teams", script)
+        self.assertIn('f"kind-worker-quota-team-{uuid.uuid4()}"', script)
         self.assertIn('"teamId"', script)
         self.assertIn("/members", script)
 

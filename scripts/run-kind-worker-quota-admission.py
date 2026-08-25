@@ -55,7 +55,8 @@ def create_team(base_url: str, agent_id: str) -> str:
          "maxConcurrentTasks": 1,
          "requireHumanApproval": False,
          "allowedRuntimes": ["qwenpaw"],
-         "requiredCapabilities": ["qwenpaw"]}), 201, "create quota admission team")
+         "requiredCapabilities": ["qwenpaw"]},
+        f"kind-worker-quota-team-{uuid.uuid4()}"), 201, "create quota admission team")
     team_id = payload.get("id")
     if not team_id:
         raise KindTestError(f"create team response has no id: {payload!r}")
