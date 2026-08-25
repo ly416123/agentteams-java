@@ -30,7 +30,11 @@
         <dependency>
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-harness</artifactId>
-            <version>${agentscope.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agentteams</groupId>
+            <artifactId>agentteams-application-contracts</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>io.agentteams</groupId>

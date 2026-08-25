@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.Timestamp;
+import io.agentteams.application.api.ExecutionRuntime;
 import io.agentteams.contracts.v1.AgentHello;
 import java.time.Clock;
 import java.time.Instant;
@@ -25,7 +26,7 @@ class QwenPawWorkerTest {
         assertThat(configuration.gatewayHost()).isEqualTo("agentteams-agentteams-java-gateway");
         assertThat(configuration.gatewayPort()).isEqualTo(9090);
         assertThat(configuration.qwenPawEndpoint()).isEqualTo("http://qwenpaw:8088");
-        assertThat(configuration.runtime()).isEqualTo(QwenPawWorker.RuntimeType.QWENPAW);
+        assertThat(configuration.runtime()).isEqualTo(ExecutionRuntime.QWENPAW);
         assertThat(configuration.modelProvider()).isEqualTo("qwenpaw");
         assertThat(configuration.model()).isEqualTo("unknown");
         assertThat(configuration.modelMaxTokens()).isEqualTo(1024);
@@ -44,7 +45,7 @@ class QwenPawWorkerTest {
                 "AGENTTEAMS_AGENT_ID", "agent-a",
                 "AGENTTEAMS_RUNTIME", "AGENTSCOPE"));
 
-        assertThat(configuration.runtime()).isEqualTo(QwenPawWorker.RuntimeType.AGENTSCOPE);
+        assertThat(configuration.runtime()).isEqualTo(ExecutionRuntime.AGENTSCOPE);
     }
 
     @Test
@@ -53,7 +54,16 @@ class QwenPawWorkerTest {
                 "AGENTTEAMS_AGENT_ID", "agent-a",
                 "AGENTTEAMS_RUNTIME", "QWENPAW"));
 
-        assertThat(configuration.runtime()).isEqualTo(QwenPawWorker.RuntimeType.QWENPAW);
+        assertThat(configuration.runtime()).isEqualTo(ExecutionRuntime.QWENPAW);
+    }
+
+    @Test
+    void fallsBackToQwenPawForBlankRuntimeConfiguration() {
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_RUNTIME", "  "));
+
+        assertThat(configuration.runtime()).isEqualTo(ExecutionRuntime.QWENPAW);
     }
 
     @Test
@@ -62,7 +72,18 @@ class QwenPawWorkerTest {
                 "AGENTTEAMS_AGENT_ID", "agent-a",
                 "AGENTTEAMS_RUNTIME", "UNKNOWN")))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("AGENTTEAMS_RUNTIME must be one of QWENPAW or AGENTSCOPE");
+                .hasMessage("Unsupported execution runtime: UNKNOWN; expected QWENPAW or AGENTSCOPE");
+    }
+
+    @Test
+    void rejectsAgentScopeBeforeWorkerStartsAnUnimplementedRuntime() {
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_RUNTIME", "AGENTSCOPE"));
+
+        assertThatThrownBy(() -> new QwenPawWorker(configuration, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("AgentScope runtime is not implemented yet; use QWENPAW until it is integrated");
     }
 
     @Test

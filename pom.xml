@@ -120,6 +120,11 @@
                 <artifactId>jnats</artifactId>
                 <version>${nats.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-harness</artifactId>
+                <version>${agentscope.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
