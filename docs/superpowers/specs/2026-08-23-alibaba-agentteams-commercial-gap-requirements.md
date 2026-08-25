@@ -789,4 +789,15 @@ Gateway、Runtime、Worker 相关回归测试已通过。当前剩余事项收�
 - 定时器使用既有数据库 scheduler lease，在多副本下只由 leader 枚举有审计数据的项目并评估滚动窗口；调度默认关闭，开启前仍需显式配置调度开关，外部 Webhook 继续默认关闭。
 - 已认证的手工通知入口复用持久化投递服务；未认证开发调用保持原有即时通知兼容行为。
 
-Control Plane 定向测试（Usage 显式作用域、告警去重/重试、scheduler lease）12/12 通过。下一步应在全仓回归后，用配置开启调度并在 Kind 中验证 V40 迁移、Webhook 失败重试和多副本 lease 行为。
+Control Plane 定向测试（Usage 显式作用域、告警去重/重试、scheduler lease）12/12 通过。
+
+### 2026-08-25 Kind Dashboard 告警端到端验收接线
+
+已将上述集群验收接入 `kind-recovery`：
+
+- 调度器在 Kind 中开启 1 秒轮询、2 秒失败重试和 24 小时窗口；评估窗口按分钟对齐，避免滚动轮询生成不同指纹而重复投递。
+- 新增确定性 `dashboard-alert-receiver` Deployment/Service，支持 2xx 成功和 500 失败两种模式，不依赖真实外部 Webhook 或凭据。
+- 新增 `run-kind-dashboard-alerts.py`：向 `model_call_audits` 注入合成成功/失败调用，验证 V36 规则、V40 事件、COST 去重、Webhook 失败、退避重试为 SENT，以及事件查询 API。
+- 失败时仅上传接收器 Deployment 状态和告警事件摘要，不上传容器日志或请求正文。
+
+本地验证已完成 Python 契约测试（20/20）、Kind/Observability 静态校验、Helm lint/template 和 `mvn test`；本机无 Docker socket，真实 Kind 集群验收尚未在本机运行，需由 GitHub Actions `kind-recovery` 首次执行确认。

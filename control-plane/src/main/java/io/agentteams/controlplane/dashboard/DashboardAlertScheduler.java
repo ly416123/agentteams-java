@@ -4,6 +4,7 @@ import io.agentteams.controlplane.service.SchedulerLeaseService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -41,6 +42,7 @@ public final class DashboardAlertScheduler {
 
     public RunResult runOnce() {
         Instant now = clock.instant();
+        Instant evaluationAt = now.truncatedTo(ChronoUnit.MINUTES);
         return lease.run("dashboard-alert", owner, now, leaseDuration, () -> {
             DashboardAlertDeliveryService.DeliveryResult retries = delivery.retryDue(now);
             int evaluated = 0;
@@ -49,7 +51,7 @@ public final class DashboardAlertScheduler {
             for (DashboardAlertEventRepository.AlertScope scope : events.findUsageScopes()) {
                 if (evaluated >= maxProjectsPerRun) break;
                 DashboardAlertDeliveryService.DeliveryResult result = delivery.deliver(scope.tenantId(),
-                        scope.projectId(), now.minus(window), now);
+                        scope.projectId(), evaluationAt.minus(window), evaluationAt);
                 evaluated++;
                 delivered += result.delivered();
                 failed += result.failed();

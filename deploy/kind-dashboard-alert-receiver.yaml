@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-alert-receiver
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: dashboard-alert-receiver
+    app.kubernetes.io/part-of: agentteams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dashboard-alert-receiver
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dashboard-alert-receiver
+        app.kubernetes.io/part-of: agentteams
+    spec:
+      containers:
+        - name: receiver
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/app/server.py"]
+          env:
+            - name: DASHBOARD_ALERT_RECEIVER_MODE
+              value: success
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: server
+              mountPath: /app/server.py
+              subPath: server.py
+      volumes:
+        - name: server
+          configMap:
+            name: dashboard-alert-receiver
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-alert-receiver
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: dashboard-alert-receiver
+    app.kubernetes.io/part-of: agentteams
+spec:
+  selector:
+    app.kubernetes.io/name: dashboard-alert-receiver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

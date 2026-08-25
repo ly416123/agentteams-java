@@ -57,13 +57,16 @@ public final class DashboardAlertController {
     }
 
     @GetMapping("/alerts/events")
-    public List<DashboardAlertEvent> events(@RequestParam(name = "limit", required = false, defaultValue = "50") int limit) {
+    public List<DashboardAlertEvent> events(@RequestParam(name = "limit", required = false, defaultValue = "50") int limit,
+            @RequestParam(name = "tenant", required = false) String tenant,
+            @RequestParam(name = "project", required = false) String project) {
         if (events == null) return List.of();
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("limit must be between 1 and 100");
         return PrincipalContext.current()
                 .map(principal -> principal.scope())
                 .map(scope -> events.findRecent(scope.tenant(), scope.project(), limit))
-                .orElseGet(List::of);
+                .orElseGet(() -> tenant != null && !tenant.isBlank() && project != null && !project.isBlank()
+                        ? events.findRecent(tenant, project, limit) : List.of());
     }
 
     private Evaluation evaluate(Instant from, Instant to) {

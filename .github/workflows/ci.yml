@@ -165,6 +165,14 @@ jobs:
             >/tmp/qwenpaw-model-test.json
           jq -e '.success == true' /tmp/qwenpaw-model-test.json >/dev/null
           echo 'QWENPAW_KIND_MOCK_OK provider=openai model=agentteams-kind-mock'
+      - name: Configure Kind Dashboard alert receiver
+        run: |
+          set -euo pipefail
+          kubectl -n agentteams create configmap dashboard-alert-receiver \
+            --from-file=server.py=scripts/dashboard-alert-receiver.py \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f deploy/kind-dashboard-alert-receiver.yaml
+          kubectl -n agentteams rollout status deployment/dashboard-alert-receiver --timeout=180s
       - name: Build and load service images
         run: ./deploy/build-images.sh
       - name: Install AgentTeams chart
@@ -182,6 +190,15 @@ jobs:
             --set observability.tracing.enabled=true \
             --set observability.tracing.samplingProbability=1.0 \
             --set observability.tracing.otlpEndpoint=http://otel-collector:4318/v1/traces \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_ENABLED=true \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_POLL_INTERVAL_MS=1000 \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_LEASE_DURATION=30s \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_WINDOW=24h \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_MAX_PROJECTS_PER_RUN=100 \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_RETRY_DELAY=2s \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_ENABLED=true \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL=http://dashboard-alert-receiver:8080/alerts \
+            --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_TIMEOUT=3s \
             -f deploy/helm/kind-values.yaml
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
@@ -229,6 +246,10 @@ jobs:
             sleep 2
           done
           echo "AGENTTEAMS_AGENT_ID=$AGENT_ID" >> "$GITHUB_ENV"
+      - name: Run Kind Dashboard alert acceptance
+        run: |
+          set -euo pipefail
+          python scripts/run-kind-dashboard-alerts.py
       - name: Run Kind Worker quota admission
         env:
           AGENTTEAMS_AGENT_ID: ${{ env.AGENTTEAMS_AGENT_ID }}
@@ -323,6 +344,12 @@ jobs:
           kubectl -n agentteams get deployment/qwenpaw-real \
             -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,REVISION:.metadata.generation' \
             > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-real-status.txt || true
+          kubectl -n agentteams get deployment/dashboard-alert-receiver \
+            -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,MODE:.spec.template.spec.containers[0].env[0].value' \
+            > /tmp/agentteams-kind-recovery-diagnostics/dashboard-alert-receiver-status.txt || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select tenant_id,project_id,rule,status,attempts,next_attempt_at,last_error from dashboard_alert_events order by updated_at desc limit 200" \
+            > /tmp/agentteams-kind-recovery-diagnostics/dashboard-alert-events.txt 2>&1 || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select event_type,status,attempts,created_at,updated_at from outbox_events order by updated_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/outbox-events.txt 2>&1 || true

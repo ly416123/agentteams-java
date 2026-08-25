@@ -36,4 +36,28 @@ class DashboardAlertSchedulerTest {
         verify(leases).release("dashboard-alert", "pod-a", NOW);
         verify(delivery).deliver("tenant-a", "project-a", NOW.minus(Duration.ofHours(24)), NOW);
     }
+
+    @Test
+    void anchorsRollingWindowToMinuteBoundaryForStableEventFingerprints() {
+        Instant now = Instant.parse("2026-08-25T01:00:42.123Z");
+        SchedulerLeaseRepository leases = mock(SchedulerLeaseRepository.class);
+        when(leases.tryAcquire("dashboard-alert", "pod-a", now, Duration.ofSeconds(30))).thenReturn(true);
+        DashboardAlertDeliveryService delivery = mock(DashboardAlertDeliveryService.class);
+        DashboardAlertEventRepository events = mock(DashboardAlertEventRepository.class);
+        when(events.findUsageScopes()).thenReturn(java.util.List.of(
+                new DashboardAlertEventRepository.AlertScope("tenant-a", "project-a")));
+        when(delivery.retryDue(now)).thenReturn(new DashboardAlertDeliveryService.DeliveryResult(0, 0, 0));
+        when(delivery.deliver("tenant-a", "project-a",
+                Instant.parse("2026-08-24T01:00:00Z"), Instant.parse("2026-08-25T01:00:00Z")))
+                .thenReturn(new DashboardAlertDeliveryService.DeliveryResult(1, 0, 0));
+
+        DashboardAlertScheduler scheduler = new DashboardAlertScheduler(delivery, events,
+                new SchedulerLeaseService(leases), Clock.fixed(now, ZoneOffset.UTC), "pod-a",
+                Duration.ofSeconds(30), Duration.ofHours(24), 10);
+
+        scheduler.runOnce();
+
+        verify(delivery).deliver("tenant-a", "project-a",
+                Instant.parse("2026-08-24T01:00:00Z"), Instant.parse("2026-08-25T01:00:00Z"));
+    }
 }

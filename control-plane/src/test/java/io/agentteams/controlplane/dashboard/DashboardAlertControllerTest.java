@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -23,6 +24,7 @@ class DashboardAlertControllerTest {
     @Mock private UsageQueryService usage;
     @Mock private DashboardAlertService alerts;
     @Mock private DashboardAlertNotificationPort notifications;
+    @Mock private DashboardAlertEventRepository events;
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -51,5 +53,23 @@ class DashboardAlertControllerTest {
                 .andExpect(jsonPath("$.alertCount").value(1));
 
         verify(notifications).notify(any());
+    }
+
+    @Test
+    void readsEventsForExplicitScopeWhenDevelopmentAuthenticationIsDisabled() throws Exception {
+        Instant now = Instant.parse("2026-08-25T01:00:00Z");
+        DashboardAlertEvent event = DashboardAlertEvent.pending("fingerprint", "tenant-a", "project-a",
+                new DashboardAlertService.Alert("COST", "WARNING", 150, "cost exceeded"),
+                now.minusSeconds(60), now, now);
+        when(events.findRecent("tenant-a", "project-a", 10)).thenReturn(List.of(event));
+        mockMvc = MockMvcBuilders.standaloneSetup(
+                new DashboardAlertController(usage, alerts, notifications, null, events)).build();
+
+        mockMvc.perform(get("/api/v1/dashboard/alerts/events")
+                        .param("tenant", "tenant-a").param("project", "project-a").param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].rule").value("COST"));
+
+        verify(events).findRecent("tenant-a", "project-a", 10);
     }
 }

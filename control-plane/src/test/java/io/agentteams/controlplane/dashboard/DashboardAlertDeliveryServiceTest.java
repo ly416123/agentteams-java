@@ -50,6 +50,8 @@ class DashboardAlertDeliveryServiceTest {
         DashboardAlertDeliveryService.DeliveryResult retried = service.retryDue(NOW.plus(Duration.ofMinutes(2)));
         assertThat(retried.delivered()).isEqualTo(1);
         assertThat(events.findDue(NOW.plus(Duration.ofMinutes(2)), 10)).isEmpty();
+        assertThat(events.findRecent("tenant-a", "project-a", 10))
+                .singleElement().extracting(DashboardAlertEvent::attempts).isEqualTo(2);
         assertThat(notification.notifications()).hasSize(2);
     }
 

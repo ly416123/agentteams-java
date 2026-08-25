@@ -55,7 +55,11 @@ public final class DashboardAlertDeliveryService {
     public DeliveryResult retryDue(Instant now) {
         Objects.requireNonNull(now, "now");
         List<DashboardAlertEvent> due = events.findDue(now, DEFAULT_RETRY_LIMIT);
-        return deliverClaimed(due, 0, now);
+        List<DashboardAlertEvent> claimed = due.stream()
+                .map(event -> events.claim(event.retryClaimed(now), now))
+                .flatMap(java.util.Optional::stream)
+                .toList();
+        return deliverClaimed(claimed, 0, now);
     }
 
     private DeliveryResult deliverClaimed(List<DashboardAlertEvent> claimed, int suppressed, Instant now) {
