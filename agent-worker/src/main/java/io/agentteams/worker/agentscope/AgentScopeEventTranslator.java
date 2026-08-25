@@ -21,9 +21,8 @@ import java.util.regex.Pattern;
  * Converts AgentScope events into a small, project-owned execution event model.
  *
  * <p>Before calling this translator, the Worker must inject the current Attempt
- * context with {@code AgentEvent.withMetadataEntry("attemptId", currentAttemptId)}.
- * Task 3 must preserve this requirement when it builds the AgentScope runtime
- * event pipeline; events without this metadata are stale and are not accepted.
+ * and lease context with {@code AgentEvent.withMetadataEntry(...)}. Events with
+ * missing or mismatched context are stale and are not accepted.
  */
 public final class AgentScopeEventTranslator {
     private static final int MAX_SAFE_MESSAGE_LENGTH = 128;
@@ -79,11 +78,15 @@ public final class AgentScopeEventTranslator {
         if (metadata == null) {
             metadata = Map.of();
         }
-        if (!metadata.containsKey("attemptId")
-                || !attemptId.equals(String.valueOf(metadata.get("attemptId")))) {
-            return lifecycleEvent(eventId, "stale attempt event");
+        String eventAttemptId = metadata.containsKey("attemptId")
+                ? String.valueOf(metadata.get("attemptId")) : "<missing-attempt>";
+        boolean duplicate = !seenEventKeys.add(eventAttemptId + "\u0000" + eventId);
+        boolean currentAttempt = attemptId.equals(eventAttemptId);
+        boolean currentLease = metadata.containsKey("leaseId")
+                && leaseId.equals(String.valueOf(metadata.get("leaseId")));
+        if (!currentAttempt || !currentLease) {
+            return lifecycleEvent(eventId, "stale execution context", duplicate);
         }
-        boolean duplicate = !seenEventKeys.add(attemptId + "\u0000" + eventId);
 
         if (event instanceof AgentStartEvent) {
             return mapped(eventId, AgentScopeExecutionEvent.Kind.AGENT_STARTED,
@@ -146,8 +149,13 @@ public final class AgentScopeEventTranslator {
     }
 
     private AgentScopeExecutionEvent lifecycleEvent(String eventId, String message) {
+        return lifecycleEvent(eventId, message, false);
+    }
+
+    private AgentScopeExecutionEvent lifecycleEvent(String eventId, String message,
+            boolean duplicate) {
         return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, correlationId, runtime,
-                AgentScopeExecutionEvent.Kind.STALE, message, false, false, false);
+                AgentScopeExecutionEvent.Kind.STALE, message, false, false, duplicate);
     }
 
     private static String safeText(String value) {

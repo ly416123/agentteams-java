@@ -179,7 +179,7 @@ class AgentScopeEventTranslatorTest {
         assertThat(result.runtime()).isEqualTo(RUNTIME);
         assertThat(result.eventId()).isEqualTo("stale-id");
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
-        assertThat(result.safeMessage()).isEqualTo("stale attempt event");
+        assertThat(result.safeMessage()).isEqualTo("stale execution context");
         assertThat(result.terminal()).isFalse();
         assertThat(result.success()).isFalse();
         assertThat(result.duplicate()).isFalse();
@@ -191,10 +191,37 @@ class AgentScopeEventTranslatorTest {
                 new AgentStartEvent("missing-attempt-id", CREATED_AT, "session", "reply", "agent", "assistant"));
 
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
-        assertThat(result.safeMessage()).isEqualTo("stale attempt event");
+        assertThat(result.safeMessage()).isEqualTo("stale execution context");
         assertThat(result.terminal()).isFalse();
         assertThat(result.success()).isFalse();
         assertThat(result.duplicate()).isFalse();
+    }
+
+    @Test
+    void rejectsEventFromAnotherLeaseEvenWhenAttemptMatches() {
+        AgentScopeExecutionEvent result = translator.translate(new AgentStartEvent(
+                "stale-lease-id", CREATED_AT, "session", "reply", "agent", "assistant")
+                .withMetadata(Map.of("attemptId", "attempt-a", "leaseId", "lease-old")));
+
+        assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+        assertThat(result.safeMessage()).isEqualTo("stale execution context");
+        assertThat(result.terminal()).isFalse();
+        assertThat(result.success()).isFalse();
+    }
+
+    @Test
+    void staleEventsAreIdempotentBySuppliedAttemptAndEventId() {
+        AgentEvent event = new AgentStartEvent(
+                "same-stale-id", CREATED_AT, "session", "reply", "agent", "assistant")
+                .withMetadata(Map.of("attemptId", "attempt-old", "leaseId", "lease-old"));
+
+        AgentScopeExecutionEvent first = translator.translate(event);
+        AgentScopeExecutionEvent second = translator.translate(event);
+
+        assertThat(first.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+        assertThat(first.duplicate()).isFalse();
+        assertThat(second.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+        assertThat(second.duplicate()).isTrue();
     }
 
     @Test
@@ -257,6 +284,7 @@ class AgentScopeEventTranslatorTest {
     }
 
     private static AgentEvent eventWithAttempt(AgentEvent event, String attemptId) {
-        return event.withMetadataEntry("attemptId", attemptId);
+        return event.withMetadataEntry("attemptId", attemptId)
+                .withMetadataEntry("leaseId", LEASE_ID);
     }
 }

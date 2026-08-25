@@ -10,6 +10,7 @@ import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.UserMessage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeResult;
@@ -238,7 +239,7 @@ class AgentScopeRuntimeTest {
         RuntimeTask task = task("attempt-disposable", "lease-disposable", "corr-disposable");
         HarnessAgent agent = newHarness(new BlockingModel(), task);
         AgentScopeRuntime.Execution execution = new AgentScopeRuntime.Execution(task, agent,
-                translator(task), "attempt-disposable", 1);
+                translator(task), "attempt-disposable", "lease-disposable", 1);
         RecordingDisposable disposable = new RecordingDisposable(false);
 
         execution.close();
@@ -253,7 +254,7 @@ class AgentScopeRuntimeTest {
         HarnessAgent agent = newHarness(new BlockingModel(), task);
         AgentScopeEventTranslator translator = translator(task);
         AgentScopeRuntime.Execution execution = new AgentScopeRuntime.Execution(task, agent, translator,
-                "attempt-cleanup", 1);
+                "attempt-cleanup", "lease-cleanup", 1);
         RecordingDisposable disposable = new RecordingDisposable(true);
         assertThat(execution.installDisposable(disposable)).isTrue();
 
@@ -340,7 +341,7 @@ class AgentScopeRuntimeTest {
 
         assertThat(events).last().satisfies(event -> {
             assertThat(event.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
-            assertThat(event.safeMessage()).isEqualTo("stale attempt event");
+            assertThat(event.safeMessage()).isEqualTo("stale execution context");
         });
         assertThat(results).isEmpty();
         assertThat(runtime.status(task.id())).get().extracting(status -> status.state())
@@ -353,6 +354,59 @@ class AgentScopeRuntimeTest {
         assertThat(results).singleElement().satisfies(result -> assertThat(result.success()).isFalse());
         assertThat(runtime.status(task.id())).get().extracting(status -> status.state())
                 .isEqualTo(RuntimeTaskState.FAILED);
+    }
+
+    @Test
+    void staleAttemptAgentResultCannotPolluteCurrentResultCandidate() throws Exception {
+        List<AgentScopeExecutionEvent> events = new CopyOnWriteArrayList<>();
+        List<RuntimeResult> results = new CopyOnWriteArrayList<>();
+        runtime = newRuntime(new BlockingModel(), events::add);
+        runtime.start(context(1, results::add));
+        RuntimeTask task = task("attempt-current", "lease-current", "corr-current");
+        assertThat(runtime.submit(task).accepted()).isTrue();
+        Object execution = activeExecution(task.id());
+
+        invokeOnEvent(execution, new io.agentscope.core.event.AgentResultEvent(
+                "stale-result", "2026-08-25T00:00:00Z", new UserMessage("old attempt result"))
+                .withMetadata(Map.of("attemptId", "attempt-old", "leaseId", "lease-old")));
+        invokeOnEvent(execution, new io.agentscope.core.event.AgentEndEvent(
+                "current-end", "2026-08-25T00:00:00Z", "reply")
+                .withMetadata(Map.of("attemptId", "attempt-current", "leaseId", "lease-current")));
+
+        assertThat(results).singleElement().satisfies(result -> {
+            assertThat(result.success()).isTrue();
+            assertThat(result.output()).isEmpty();
+        });
+        assertThat(events).filteredOn(event -> event.eventId().equals("stale-result"))
+                .singleElement().satisfies(event -> {
+                    assertThat(event.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+                    assertThat(event.duplicate()).isFalse();
+                });
+    }
+
+    @Test
+    void expiredLeaseClosesExecutionWithoutSubmittingResult() throws Exception {
+        AdjustableClock clock = new AdjustableClock(NOW);
+        List<RuntimeResult> results = new CopyOnWriteArrayList<>();
+        runtime = newRuntime(new BlockingModel(), event -> { });
+        runtime.start(context(1, clock, results::add));
+        RuntimeTask task = task("attempt-expiry", "lease-expiry", "corr-expiry",
+                NOW.plusSeconds(30).toString());
+        assertThat(runtime.submit(task).accepted()).isTrue();
+        AgentScopeRuntime.Execution execution = (AgentScopeRuntime.Execution) activeExecution(task.id());
+
+        clock.set(NOW.plusSeconds(30));
+        runtime.expireLeases();
+
+        assertThat(results).isEmpty();
+        assertThat(executionClosed(execution)).isTrue();
+        assertThat(executionDisposable(execution)).isNull();
+        assertThat(activeExecution(task.id())).isNull();
+        assertThat(runtime.status(task.id())).get().extracting(status -> status.state())
+                .isEqualTo(RuntimeTaskState.CANCELLED);
+        assertThat(runtime.snapshot().running()).isZero();
+        assertThat(runtime.complete(RuntimeResult.success(task.id(), "late", clock.instant())))
+                .isEqualTo(io.agentteams.runtime.CompletionStatus.DUPLICATE);
     }
 
     private AgentScopeRuntime newRuntime(Model model, Consumer<AgentScopeExecutionEvent> eventSink) {
@@ -458,16 +512,57 @@ class AgentScopeRuntimeTest {
     }
 
     private static AgentRuntimeContext context(int maxConcurrency, Consumer<RuntimeResult> sink) {
+        return context(maxConcurrency, Clock.fixed(NOW, ZoneOffset.UTC), sink);
+    }
+
+    private static AgentRuntimeContext context(int maxConcurrency, Clock clock,
+            Consumer<RuntimeResult> sink) {
         return new AgentRuntimeContext("agentscope-test", maxConcurrency,
-                Clock.fixed(NOW, ZoneOffset.UTC), sink::accept, Map.of());
+                clock, sink::accept, Map.of());
     }
 
     private static RuntimeTask task(String attemptId, String leaseId, String correlationId) {
-        return new RuntimeTask(UUID.randomUUID(), "chat", "hello", Map.of(
+        return task(attemptId, leaseId, correlationId, null);
+    }
+
+    private static RuntimeTask task(String attemptId, String leaseId, String correlationId,
+            String leaseExpiresAt) {
+        Map<String, String> metadata = new java.util.HashMap<>(Map.of(
                 "attemptId", attemptId,
                 "leaseId", leaseId,
                 "correlationId", correlationId,
                 "agentId", "worker-test"));
+        if (leaseExpiresAt != null) {
+            metadata.put("leaseExpiresAt", leaseExpiresAt);
+        }
+        return new RuntimeTask(UUID.randomUUID(), "chat", "hello", metadata);
+    }
+
+    private static final class AdjustableClock extends Clock {
+        private final AtomicReference<Instant> current;
+
+        private AdjustableClock(Instant initial) {
+            this.current = new AtomicReference<>(initial);
+        }
+
+        @Override
+        public Instant instant() {
+            return current.get();
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        private void set(Instant instant) {
+            current.set(instant);
+        }
     }
 
     private static final class DeterministicModel implements Model {

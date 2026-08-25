@@ -2,7 +2,6 @@ package io.agentteams.worker.agentscope;
 
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
-import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentteams.runtime.AgentRuntime;
@@ -16,6 +15,7 @@ import io.agentteams.runtime.RuntimeStatus;
 import io.agentteams.runtime.RuntimeSubmission;
 import io.agentteams.runtime.RuntimeTask;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -69,6 +69,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         Objects.requireNonNull(task, "task");
         synchronized (lifecycleLock) {
             AgentRuntimeContext currentContext = requireContextLocked();
+            expireLeasesLocked();
             RuntimeSubmission submission = state.submit(task);
             if (!submission.accepted()) {
                 return submission;
@@ -87,11 +88,14 @@ public final class AgentScopeRuntime implements AgentRuntime {
         String attemptId = requiredMetadata(task, "attemptId");
         String leaseId = requiredMetadata(task, "leaseId");
         String correlationId = task.metadata().getOrDefault("correlationId", task.id().toString());
+        // Validate lease metadata before creating a provider Agent, so malformed
+        // expiry metadata cannot leave an untracked Harness resource behind.
+        parseLeaseExpiresAt(task.metadata().get("leaseExpiresAt"));
         AgentScopeEventTranslator translator = new AgentScopeEventTranslator(
                 task.id().toString(), attemptId, leaseId, correlationId, currentContext.runtimeName());
         HarnessAgent agent = Objects.requireNonNull(harnessFactory.create(task, currentContext),
                 "harnessFactory returned null");
-        Execution execution = new Execution(task, agent, translator, attemptId, currentGeneration);
+        Execution execution = new Execution(task, agent, translator, attemptId, leaseId, currentGeneration);
         Execution previous = executions.putIfAbsent(task.id(), execution);
         if (previous != null) {
             execution.close();
@@ -121,11 +125,13 @@ public final class AgentScopeRuntime implements AgentRuntime {
 
     private void onEvent(Execution execution, AgentEvent originalEvent) {
         synchronized (lifecycleLock) {
+            expireLeasesLocked();
             if (!isCurrentLocked(execution)) {
                 return;
             }
             try {
-                AgentEvent event = withAttemptIfMissing(originalEvent, execution.attemptId);
+                AgentEvent event = withExecutionMetadataIfMissing(originalEvent,
+                        execution.attemptId, execution.leaseId);
                 AgentScopeExecutionEvent translated = execution.translator.translate(event);
                 if (!isCurrentLocked(execution)) {
                     return;
@@ -134,7 +140,8 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 if (!isCurrentLocked(execution) || translated.duplicate()) {
                     return;
                 }
-                if (originalEvent instanceof AgentResultEvent) {
+                if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_RESULT
+                        && !translated.duplicate()) {
                     execution.resultCandidate = execution.translator.safeResultCandidate(event);
                 }
                 if (translated.kind() == AgentScopeExecutionEvent.Kind.ERROR) {
@@ -152,6 +159,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
 
     private void onStreamError(Execution execution) {
         synchronized (lifecycleLock) {
+            expireLeasesLocked();
             if (isCurrentLocked(execution)) {
                 completeFailureLocked(execution, FAILURE_MESSAGE);
             }
@@ -160,6 +168,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
 
     private void onStreamComplete(Execution execution) {
         synchronized (lifecycleLock) {
+            expireLeasesLocked();
             if (isCurrentLocked(execution)) {
                 completeFailureLocked(execution, FAILURE_MESSAGE);
             }
@@ -213,6 +222,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     public CompletionStatus complete(RuntimeResult result) {
         Objects.requireNonNull(result, "result");
         synchronized (lifecycleLock) {
+            expireLeasesLocked();
             Execution execution = executions.get(result.taskId());
             if (execution == null) {
                 return state.complete(result);
@@ -236,6 +246,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     @Override
     public Optional<RuntimeStatus> status(UUID taskId) {
         synchronized (lifecycleLock) {
+            expireLeasesLocked();
             return state.status(taskId);
         }
     }
@@ -243,7 +254,19 @@ public final class AgentScopeRuntime implements AgentRuntime {
     @Override
     public RuntimeSnapshot snapshot() {
         synchronized (lifecycleLock) {
+            expireLeasesLocked();
             return state.snapshot();
+        }
+    }
+
+    /**
+     * Closes active executions whose lease has expired according to the injected
+     * runtime clock. Callers can invoke this from an existing lifecycle tick;
+     * this runtime deliberately does not create a background scheduler.
+     */
+    public void expireLeases() {
+        synchronized (lifecycleLock) {
+            expireLeasesLocked();
         }
     }
 
@@ -285,13 +308,34 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 && executions.get(execution.task.id()) == execution;
     }
 
-    private static AgentEvent withAttemptIfMissing(AgentEvent event, String attemptId) {
+    private static AgentEvent withExecutionMetadataIfMissing(AgentEvent event, String attemptId,
+            String leaseId) {
         Objects.requireNonNull(event, "event");
-        Map<String, Object> metadata = event.getMetadata();
-        if (metadata != null && metadata.containsKey("attemptId")) {
-            return event;
+        AgentEvent enriched = event;
+        Map<String, Object> metadata = enriched.getMetadata();
+        if (metadata == null || !metadata.containsKey("attemptId")) {
+            enriched = enriched.withMetadataEntry("attemptId", attemptId);
         }
-        return event.withMetadataEntry("attemptId", attemptId);
+        metadata = enriched.getMetadata();
+        if (metadata == null || !metadata.containsKey("leaseId")) {
+            enriched = enriched.withMetadataEntry("leaseId", leaseId);
+        }
+        return enriched;
+    }
+
+    private void expireLeasesLocked() {
+        if (context == null) {
+            return;
+        }
+        Instant now = context.clock().instant();
+        for (Execution execution : executions.values()) {
+            Instant expiresAt = execution.leaseExpiresAt;
+            if (expiresAt != null && !now.isBefore(expiresAt)
+                    && executions.remove(execution.task.id(), execution)) {
+                execution.close();
+                state.cancel(execution.task.id());
+            }
+        }
     }
 
     private static String requiredMetadata(RuntimeTask task, String name) {
@@ -302,11 +346,28 @@ public final class AgentScopeRuntime implements AgentRuntime {
         return value;
     }
 
+    private static Instant parseLeaseExpiresAt(String value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.isBlank()) {
+            throw new IllegalArgumentException("task metadata leaseExpiresAt must be ISO-8601");
+        }
+        try {
+            return Instant.parse(value);
+        } catch (DateTimeParseException error) {
+            throw new IllegalArgumentException(
+                    "task metadata leaseExpiresAt must be ISO-8601", error);
+        }
+    }
+
     static final class Execution {
         private final RuntimeTask task;
         private final HarnessAgent agent;
         private final AgentScopeEventTranslator translator;
         private final String attemptId;
+        private final String leaseId;
+        private final Instant leaseExpiresAt;
         private final long generation;
         private final AtomicBoolean terminalSubmitted = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
@@ -314,11 +375,13 @@ public final class AgentScopeRuntime implements AgentRuntime {
         private volatile String resultCandidate;
 
         Execution(RuntimeTask task, HarnessAgent agent, AgentScopeEventTranslator translator,
-                String attemptId, long generation) {
+                String attemptId, String leaseId, long generation) {
             this.task = task;
             this.agent = agent;
             this.translator = translator;
             this.attemptId = attemptId;
+            this.leaseId = leaseId;
+            this.leaseExpiresAt = parseLeaseExpiresAt(task.metadata().get("leaseExpiresAt"));
             this.generation = generation;
         }
 
