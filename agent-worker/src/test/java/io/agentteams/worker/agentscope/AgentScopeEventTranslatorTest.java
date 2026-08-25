@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.AgentStartEvent;
+import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AllToolsDeniedEvent;
 import io.agentscope.core.event.CustomEvent;
 import io.agentscope.core.event.ExceedMaxItersEvent;
@@ -31,7 +32,7 @@ class AgentScopeEventTranslatorTest {
     @Test
     void translatesAgentStartEventWithoutLeakingAgentScopeType() {
         AgentScopeExecutionEvent result = translator.translate(
-                new AgentStartEvent("agent-start-id", CREATED_AT, "session", "reply", "planner", "assistant"));
+                withAttempt(new AgentStartEvent("agent-start-id", CREATED_AT, "session", "reply", "planner", "assistant")));
 
         assertThat(result.eventId()).isEqualTo("agent-start-id");
         assertThat(result.taskId()).isEqualTo(TASK_ID);
@@ -47,9 +48,9 @@ class AgentScopeEventTranslatorTest {
     @Test
     void translatesModelCallStartAndEndEvents() {
         AgentScopeExecutionEvent started = translator.translate(
-                new ModelCallStartEvent("model-start-id", CREATED_AT, "reply"));
+                withAttempt(new ModelCallStartEvent("model-start-id", CREATED_AT, "reply")));
         AgentScopeExecutionEvent completed = translator.translate(
-                new ModelCallEndEvent("model-end-id", CREATED_AT, "reply", new ChatUsage(4, 6, 0.2)));
+                withAttempt(new ModelCallEndEvent("model-end-id", CREATED_AT, "reply", new ChatUsage(4, 6, 0.2))));
 
         assertThat(started.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.MODEL_CALL_STARTED);
         assertThat(started.terminal()).isFalse();
@@ -64,7 +65,7 @@ class AgentScopeEventTranslatorTest {
                 + "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
 
         AgentScopeExecutionEvent result = translator.translate(
-                new TextBlockDeltaEvent("text-id", CREATED_AT, "reply", "block", text));
+                withAttempt(new TextBlockDeltaEvent("text-id", CREATED_AT, "reply", "block", text)));
 
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TEXT_DELTA);
         assertThat(result.safeMessage()).hasSizeLessThanOrEqualTo(128);
@@ -78,7 +79,7 @@ class AgentScopeEventTranslatorTest {
                 + "\"Authorization\":\"Bearer authorization-secret\"}";
 
         AgentScopeExecutionEvent result = translator.translate(
-                new TextBlockDeltaEvent("json-secret-id", CREATED_AT, "reply", "block", text));
+                withAttempt(new TextBlockDeltaEvent("json-secret-id", CREATED_AT, "reply", "block", text)));
 
         assertThat(result.safeMessage()).contains("[REDACTED]");
         assertThat(result.safeMessage()).doesNotContain("token-secret");
@@ -89,10 +90,10 @@ class AgentScopeEventTranslatorTest {
     @Test
     void translatesToolCallStartAndEndWithoutToolArguments() {
         AgentScopeExecutionEvent started = translator.translate(
-                new ToolCallStartEvent("tool-start-id", CREATED_AT, "reply", "call", "shell"
-                        + "(command=do-not-copy-this-secret)"));
+                withAttempt(new ToolCallStartEvent("tool-start-id", CREATED_AT, "reply", "call", "shell"
+                        + "(command=do-not-copy-this-secret)")));
         AgentScopeExecutionEvent completed = translator.translate(
-                new ToolCallEndEvent("tool-end-id", CREATED_AT, "reply", "call", "shell"));
+                withAttempt(new ToolCallEndEvent("tool-end-id", CREATED_AT, "reply", "call", "shell")));
 
         assertThat(started.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED);
         assertThat(started.safeMessage()).isEqualTo("tool shell started");
@@ -104,9 +105,9 @@ class AgentScopeEventTranslatorTest {
     @Test
     void translatesAgentResultBeforeAgentEndWithoutPrematureTerminalState() {
         AgentScopeExecutionEvent result = translator.translate(
-                new AgentResultEvent("result-id", CREATED_AT, null));
+                withAttempt(new AgentResultEvent("result-id", CREATED_AT, null)));
         AgentScopeExecutionEvent ended = translator.translate(
-                new AgentEndEvent("end-id", CREATED_AT, "reply"));
+                withAttempt(new AgentEndEvent("end-id", CREATED_AT, "reply")));
 
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.AGENT_RESULT);
         assertThat(result.terminal()).isFalse();
@@ -119,7 +120,7 @@ class AgentScopeEventTranslatorTest {
     @Test
     void translatesAgentScopeErrorAsFailedTerminalEventWithoutCopyingDetails() {
         AgentScopeExecutionEvent result = translator.translate(
-                new ExceedMaxItersEvent("error-id", CREATED_AT, "reply", 5, 5));
+                withAttempt(new ExceedMaxItersEvent("error-id", CREATED_AT, "reply", 5, 5)));
 
         assertThat(result.eventId()).isEqualTo("error-id");
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.ERROR);
@@ -130,7 +131,7 @@ class AgentScopeEventTranslatorTest {
 
     @Test
     void translatesAllToolsDeniedAsAnErrorTerminalEvent() {
-        AgentScopeExecutionEvent result = translator.translate(new AllToolsDeniedEvent(List.of()));
+        AgentScopeExecutionEvent result = translator.translate(withAttempt(new AllToolsDeniedEvent(List.of())));
 
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.ERROR);
         assertThat(result.terminal()).isTrue();
@@ -140,7 +141,7 @@ class AgentScopeEventTranslatorTest {
     @Test
     void translatesRequestStopAsAnErrorUntilCancelledIsASeparateProjectEvent() {
         // 当前项目事件模型尚未区分 CANCELLED，因此 RequestStop 保持 ERROR 终态。
-        AgentScopeExecutionEvent result = translator.translate(new RequestStopEvent("user requested stop"));
+        AgentScopeExecutionEvent result = translator.translate(withAttempt(new RequestStopEvent("user requested stop")));
 
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.ERROR);
         assertThat(result.terminal()).isTrue();
@@ -150,7 +151,7 @@ class AgentScopeEventTranslatorTest {
     @Test
     void mapsUnknownEventToUnmappedWithoutBlockingTerminalState() {
         AgentScopeExecutionEvent result = translator.translate(
-                new CustomEvent("unknown-id", CREATED_AT, "future-event", Map.of("secret", "do-not-copy")));
+                withAttempt(new CustomEvent("unknown-id", CREATED_AT, "future-event", Map.of("secret", "do-not-copy"))));
 
         assertThat(result.eventId()).isEqualTo("unknown-id");
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.UNMAPPED);
@@ -178,13 +179,28 @@ class AgentScopeEventTranslatorTest {
     }
 
     @Test
+    void rejectsEventWithoutAttemptContextAsStale() {
+        AgentScopeExecutionEvent result = translator.translate(
+                new AgentStartEvent("missing-attempt-id", CREATED_AT, "session", "reply", "agent", "assistant"));
+
+        assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+        assertThat(result.safeMessage()).isEqualTo("stale attempt event");
+        assertThat(result.terminal()).isFalse();
+        assertThat(result.success()).isFalse();
+        assertThat(result.duplicate()).isFalse();
+    }
+
+    @Test
     void scopesIdempotencyByAttemptAndReleasesSeenEventIdsOnClear() {
-        AgentStartEvent event = new AgentStartEvent("same-id", CREATED_AT, "session", "reply", "agent", "assistant");
+        AgentEvent event = withAttempt(
+                new AgentStartEvent("same-id", CREATED_AT, "session", "reply", "agent", "assistant"));
 
         AgentScopeExecutionEvent first = translator.translate(event);
         AgentScopeExecutionEvent second = translator.translate(event);
         AgentScopeExecutionEvent otherAttempt = new AgentScopeEventTranslator(TASK_ID, "attempt-b", LEASE_ID)
-                .translate(event);
+                .translate(eventWithAttempt(
+                        new AgentStartEvent("same-id", CREATED_AT, "session", "reply", "agent", "assistant"),
+                        "attempt-b"));
 
         assertThat(first.attemptId()).isEqualTo("attempt-a");
         assertThat(first.duplicate()).isFalse();
@@ -213,5 +229,13 @@ class AgentScopeEventTranslatorTest {
         assertThatThrownBy(() -> new AgentScopeEventTranslator(TASK_ID, "attempt-a", "  "))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("leaseId must not be blank");
+    }
+
+    private static AgentEvent withAttempt(AgentEvent event) {
+        return eventWithAttempt(event, "attempt-a");
+    }
+
+    private static AgentEvent eventWithAttempt(AgentEvent event, String attemptId) {
+        return event.withMetadataEntry("attemptId", attemptId);
     }
 }

@@ -17,7 +17,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
-/** Converts AgentScope events into a small, project-owned execution event model. */
+/**
+ * Converts AgentScope events into a small, project-owned execution event model.
+ *
+ * <p>Before calling this translator, the Worker must inject the current Attempt
+ * context with {@code AgentEvent.withMetadataEntry("attemptId", currentAttemptId)}.
+ * Task 3 must preserve this requirement when it builds the AgentScope runtime
+ * event pipeline; events without this metadata are stale and are not accepted.
+ */
 public final class AgentScopeEventTranslator {
     private static final int MAX_SAFE_MESSAGE_LENGTH = 128;
     private static final Pattern SENSITIVE_VALUE = Pattern.compile(
@@ -67,8 +74,8 @@ public final class AgentScopeEventTranslator {
         if (metadata == null) {
             metadata = Map.of();
         }
-        if (metadata.containsKey("attemptId")
-                && !attemptId.equals(String.valueOf(metadata.get("attemptId")))) {
+        if (!metadata.containsKey("attemptId")
+                || !attemptId.equals(String.valueOf(metadata.get("attemptId")))) {
             return lifecycleEvent(eventId, "stale attempt event");
         }
         boolean duplicate = !seenEventKeys.add(attemptId + "\u0000" + eventId);
