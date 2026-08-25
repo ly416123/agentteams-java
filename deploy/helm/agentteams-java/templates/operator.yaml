@@ -29,4 +29,12 @@ spec:
             - name: AGENTTEAMS_OPERATOR_NAMESPACE
               valueFrom:
                 fieldRef: { fieldPath: metadata.namespace }
+            - name: AGENTTEAMS_SANDBOX_RUNTIMECLASS_ISOLATED
+              value: {{ .Values.sandbox.runtimeClasses.isolated | quote }}
+            - name: AGENTTEAMS_SANDBOX_RUNTIMECLASS_HARDENED
+              value: {{ .Values.sandbox.runtimeClasses.hardened | quote }}
+            - name: AGENTTEAMS_SANDBOX_PROVIDER
+              value: {{ .Values.sandbox.provider | quote }}
+            - name: AGENTTEAMS_SANDBOX_ENABLED
+              value: {{ .Values.sandbox.enabled | quote }}
           resources: {{- toYaml .Values.resources | nindent 12 }}

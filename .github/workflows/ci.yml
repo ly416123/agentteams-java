@@ -34,6 +34,8 @@ jobs:
         run: python -m unittest discover -s scripts -p 'test_*.py'
       - name: Validate production endpoint preflight script
         run: bash -n scripts/validate-production-endpoints.sh
+      - name: Validate TaskSandbox security contract
+        run: python -m unittest scripts/test_kind_task_sandbox_contract.py
       - name: Set up Java
         uses: actions/setup-java@v5
         with:

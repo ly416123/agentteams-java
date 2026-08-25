@@ -79,6 +79,17 @@ operator:
   leaderElection:
     enabled: true
     leaseName: agentteams-operator
+sandbox:
+  # Sandbox is opt-in. Existing tasks keep the in-process/NONE execution path.
+  enabled: false
+  defaultProfile: NONE
+  provider: fake
+  runtimeClasses:
+    isolated: gvisor
+    hardened: kata-qemu
+  defaultTtlSeconds: 1800
+  maxTtlSeconds: 86400
+  image: ghcr.io/ly416123/agentteams-task-sandbox:latest
 database:
   jdbcUrl: jdbc:postgresql://postgresql:5432/agentteams
   username: agentteams
