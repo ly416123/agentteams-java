@@ -29,9 +29,11 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 
 class AgentScopeRuntimeTest {
@@ -186,6 +188,108 @@ class AgentScopeRuntimeTest {
                 .hasMessage("runtime is not started");
     }
 
+    @Test
+    void stopWaitsForAnInFlightSubmitAndLeavesNoOrphanExecution() throws Exception {
+        CountDownLatch factoryEntered = new CountDownLatch(1);
+        CountDownLatch releaseFactory = new CountDownLatch(1);
+        CountDownLatch stopReturned = new CountDownLatch(1);
+        AtomicReference<RuntimeSubmission> submission = new AtomicReference<>();
+        runtime = new AgentScopeRuntime((task, context) -> {
+            factoryEntered.countDown();
+            await(releaseFactory);
+            return newHarness(new DeterministicModel("race-safe"), task);
+        }, event -> { });
+        runtime.start(context(1, result -> { }));
+        RuntimeTask task = task("attempt-race", "lease-race", "corr-race");
+
+        Thread submitThread = new Thread(() -> submission.set(runtime.submit(task)), "agentscope-submit-test");
+        submitThread.start();
+        assertThat(factoryEntered.await(2, TimeUnit.SECONDS)).isTrue();
+
+        Thread stopThread = new Thread(() -> {
+            runtime.stop();
+            stopReturned.countDown();
+        }, "agentscope-stop-test");
+        stopThread.start();
+
+        assertThat(stopReturned.await(100, TimeUnit.MILLISECONDS)).isFalse();
+        releaseFactory.countDown();
+        submitThread.join(2000);
+        stopThread.join(2000);
+
+        assertThat(submission.get()).isEqualTo(RuntimeSubmission.acceptedSubmission());
+        assertThat(stopReturned.getCount()).isZero();
+        assertThat(runtime.snapshot()).isEqualTo(new RuntimeSnapshot(0, 0));
+    }
+
+    @Test
+    void submitAfterStopFailsClearly() {
+        runtime = newRuntime(new DeterministicModel("unused"), event -> { });
+        runtime.start(context(1, result -> { }));
+        runtime.stop();
+
+        assertThatThrownBy(() -> runtime.submit(task("attempt-stopped", "lease-stopped", "corr-stopped")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("runtime is not started");
+    }
+
+    @Test
+    void installsDisposableAtomicallyAndDisposesItAfterSynchronousClose() {
+        RuntimeTask task = task("attempt-disposable", "lease-disposable", "corr-disposable");
+        HarnessAgent agent = newHarness(new BlockingModel(), task);
+        AgentScopeRuntime.Execution execution = new AgentScopeRuntime.Execution(task, agent,
+                translator(task), "attempt-disposable", 1);
+        RecordingDisposable disposable = new RecordingDisposable(false);
+
+        execution.close();
+
+        assertThat(execution.installDisposable(disposable)).isFalse();
+        assertThat(disposable.disposed).isTrue();
+    }
+
+    @Test
+    void cleanupContinuesWhenDisposableDisposalFailsAndDoesNotLeakErrorDetails() {
+        RuntimeTask task = task("attempt-cleanup", "lease-cleanup", "corr-cleanup");
+        HarnessAgent agent = newHarness(new BlockingModel(), task);
+        AgentScopeEventTranslator translator = translator(task);
+        AgentScopeRuntime.Execution execution = new AgentScopeRuntime.Execution(task, agent, translator,
+                "attempt-cleanup", 1);
+        RecordingDisposable disposable = new RecordingDisposable(true);
+        assertThat(execution.installDisposable(disposable)).isTrue();
+
+        execution.close();
+
+        assertThat(disposable.disposed).isTrue();
+        AgentScopeExecutionEvent afterClose = translator.translate(
+                new io.agentscope.core.event.AgentStartEvent("late-cleanup", "2026-08-25T00:00:00Z",
+                        "session", "reply", "agent", "assistant")
+                        .withMetadataEntry("attemptId", "attempt-cleanup"));
+        assertThat(afterClose.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+        assertThat(afterClose.safeMessage()).isEqualTo("translator closed");
+    }
+
+    @Test
+    void rejectsLateEventsAfterAgentEndBeforeEventSink() throws Exception {
+        List<AgentScopeExecutionEvent> events = new CopyOnWriteArrayList<>();
+        List<RuntimeResult> results = new CopyOnWriteArrayList<>();
+        runtime = newRuntime(new BlockingModel(), events::add);
+        runtime.start(context(1, results::add));
+        RuntimeTask task = task("attempt-late", "lease-late", "corr-late");
+        assertThat(runtime.submit(task).accepted()).isTrue();
+
+        Object execution = activeExecution(task.id());
+        invokeOnEvent(execution, new io.agentscope.core.event.AgentEndEvent(
+                "end-late", "2026-08-25T00:00:00Z", "reply")
+                .withMetadataEntry("attemptId", "attempt-late"));
+        int eventCountAfterEnd = events.size();
+        invokeOnEvent(execution, new io.agentscope.core.event.AgentStartEvent(
+                "after-end", "2026-08-25T00:00:00Z", "session", "reply", "agent", "assistant")
+                .withMetadataEntry("attemptId", "attempt-late"));
+
+        assertThat(events).hasSize(eventCountAfterEnd);
+        assertThat(results).hasSize(1);
+    }
+
     private AgentScopeRuntime newRuntime(Model model, Consumer<AgentScopeExecutionEvent> eventSink) {
         return new AgentScopeRuntime((task, context) -> {
             Path workspace;
@@ -194,21 +298,86 @@ class AgentScopeRuntimeTest {
             } catch (java.io.IOException error) {
                 throw new IllegalStateException("unable to create test workspace", error);
             }
-            HarnessAgent agent = HarnessAgent.builder()
-                    .name("test-agent")
-                    .agentId("agent-" + task.id())
-                    .defaultSessionId(task.metadata().get("attemptId"))
-                    .model(model)
-                    .workspace(workspace)
-                    .disableFilesystemTools()
-                    .disableShellTool()
-                    .disableSubagents()
-                    .disableSessionPersistence()
-                    .maxIters(2)
-                    .build();
+            HarnessAgent agent = newHarness(model, task, workspace);
             agents.add(agent);
             return agent;
         }, eventSink);
+    }
+
+    private HarnessAgent newHarness(Model model, RuntimeTask task) {
+        try {
+            return newHarness(model, task, Files.createTempDirectory("agentscope-runtime-test-"));
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException("unable to create test workspace", error);
+        }
+    }
+
+    private static HarnessAgent newHarness(Model model, RuntimeTask task, Path workspace) {
+        return HarnessAgent.builder()
+                .name("test-agent")
+                .agentId("agent-" + task.id())
+                .defaultSessionId(task.metadata().get("attemptId"))
+                .model(model)
+                .workspace(workspace)
+                .disableFilesystemTools()
+                .disableShellTool()
+                .disableSubagents()
+                .disableSessionPersistence()
+                .maxIters(2)
+                .build();
+    }
+
+    private AgentScopeEventTranslator translator(RuntimeTask task) {
+        return new AgentScopeEventTranslator(task.id().toString(), task.metadata().get("attemptId"),
+                task.metadata().get("leaseId"), task.metadata().get("correlationId"), "agentscope-test");
+    }
+
+    private Object activeExecution(UUID taskId) throws Exception {
+        java.lang.reflect.Field field = AgentScopeRuntime.class.getDeclaredField("executions");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<UUID, Object> executions = (Map<UUID, Object>) field.get(runtime);
+        return executions.get(taskId);
+    }
+
+    private void invokeOnEvent(Object execution, io.agentscope.core.event.AgentEvent event) throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "onEvent", execution.getClass(), io.agentscope.core.event.AgentEvent.class);
+        method.setAccessible(true);
+        method.invoke(runtime, execution, event);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(2, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("test latch timed out");
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("test latch interrupted", error);
+        }
+    }
+
+    private static final class RecordingDisposable implements Disposable {
+        private final boolean failOnDispose;
+        private boolean disposed;
+
+        private RecordingDisposable(boolean failOnDispose) {
+            this.failOnDispose = failOnDispose;
+        }
+
+        @Override
+        public void dispose() {
+            disposed = true;
+            if (failOnDispose) {
+                throw new IllegalStateException("disposable secret must not leak");
+            }
+        }
+
+        @Override
+        public boolean isDisposed() {
+            return disposed;
+        }
     }
 
     private static AgentRuntimeContext context(int maxConcurrency, Consumer<RuntimeResult> sink) {

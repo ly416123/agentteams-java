@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import reactor.core.Disposable;
 
@@ -35,11 +36,13 @@ import reactor.core.Disposable;
 public final class AgentScopeRuntime implements AgentRuntime {
     private static final String FAILURE_MESSAGE = "AgentScope execution failed";
 
+    private final Object lifecycleLock = new Object();
     private volatile FakeRuntime state = new FakeRuntime();
     private final AgentScopeHarnessFactory harnessFactory;
     private final Consumer<AgentScopeExecutionEvent> eventSink;
     private final Map<UUID, Execution> executions = new ConcurrentHashMap<>();
-    private volatile AgentRuntimeContext context;
+    private AgentRuntimeContext context;
+    private long generation;
 
     public AgentScopeRuntime(AgentScopeHarnessFactory harnessFactory) {
         this(harnessFactory, ignored -> { });
@@ -52,29 +55,35 @@ public final class AgentScopeRuntime implements AgentRuntime {
     }
 
     @Override
-    public synchronized void start(AgentRuntimeContext context) {
+    public void start(AgentRuntimeContext context) {
         Objects.requireNonNull(context, "context");
-        state.start(context);
-        this.context = context;
+        synchronized (lifecycleLock) {
+            state.start(context);
+            this.context = context;
+            generation++;
+        }
     }
 
     @Override
     public RuntimeSubmission submit(RuntimeTask task) {
         Objects.requireNonNull(task, "task");
-        AgentRuntimeContext currentContext = requireContext();
-        RuntimeSubmission submission = state.submit(task);
-        if (!submission.accepted()) {
+        synchronized (lifecycleLock) {
+            AgentRuntimeContext currentContext = requireContextLocked();
+            RuntimeSubmission submission = state.submit(task);
+            if (!submission.accepted()) {
+                return submission;
+            }
+            try {
+                startExecutionLocked(task, currentContext, generation);
+            } catch (RuntimeException error) {
+                completeFailureLocked(task.id());
+            }
             return submission;
         }
-        try {
-            startExecution(task, currentContext);
-        } catch (RuntimeException error) {
-            completeFailure(task.id());
-        }
-        return submission;
     }
 
-    private void startExecution(RuntimeTask task, AgentRuntimeContext currentContext) {
+    private void startExecutionLocked(RuntimeTask task, AgentRuntimeContext currentContext,
+            long currentGeneration) {
         String attemptId = requiredMetadata(task, "attemptId");
         String leaseId = requiredMetadata(task, "leaseId");
         String correlationId = task.metadata().getOrDefault("correlationId", task.id().toString());
@@ -82,10 +91,10 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 task.id().toString(), attemptId, leaseId, correlationId, currentContext.runtimeName());
         HarnessAgent agent = Objects.requireNonNull(harnessFactory.create(task, currentContext),
                 "harnessFactory returned null");
-        Execution execution = new Execution(task, agent, translator, attemptId, currentContext);
+        Execution execution = new Execution(task, agent, translator, attemptId, currentGeneration);
         Execution previous = executions.putIfAbsent(task.id(), execution);
         if (previous != null) {
-            close(execution);
+            execution.close();
             throw new IllegalStateException("task already has an AgentScope execution");
         }
         try {
@@ -102,143 +111,183 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     .subscribe(event -> onEvent(execution, event),
                             error -> onStreamError(execution),
                             () -> onStreamComplete(execution));
-            execution.disposable = disposable;
+            execution.installDisposable(disposable);
         } catch (RuntimeException error) {
             executions.remove(task.id(), execution);
-            close(execution);
+            execution.close();
             throw error;
         }
     }
 
     private void onEvent(Execution execution, AgentEvent originalEvent) {
-        if (execution.closed.get()) {
-            return;
-        }
-        try {
-            AgentEvent event = originalEvent.withMetadataEntry("attemptId", execution.attemptId);
-            AgentScopeExecutionEvent translated = execution.translator.translate(event);
-            eventSink.accept(translated);
-            if (translated.duplicate()) {
+        synchronized (lifecycleLock) {
+            if (!isCurrentLocked(execution)) {
                 return;
             }
-            if (originalEvent instanceof AgentResultEvent) {
-                execution.resultCandidate = execution.translator.safeResultCandidate(event);
+            try {
+                AgentEvent event = withAttemptIfMissing(originalEvent, execution.attemptId);
+                AgentScopeExecutionEvent translated = execution.translator.translate(event);
+                if (!isCurrentLocked(execution)) {
+                    return;
+                }
+                eventSink.accept(translated);
+                if (!isCurrentLocked(execution) || translated.duplicate()) {
+                    return;
+                }
+                if (originalEvent instanceof AgentResultEvent) {
+                    execution.resultCandidate = execution.translator.safeResultCandidate(event);
+                }
+                if (translated.kind() == AgentScopeExecutionEvent.Kind.STALE
+                        || translated.kind() == AgentScopeExecutionEvent.Kind.ERROR) {
+                    completeFailureLocked(execution, FAILURE_MESSAGE);
+                } else if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_ENDED) {
+                    completeSuccessLocked(execution);
+                }
+            } catch (RuntimeException error) {
+                if (isCurrentLocked(execution)) {
+                    completeFailureLocked(execution, FAILURE_MESSAGE);
+                }
             }
-            if (translated.kind() == AgentScopeExecutionEvent.Kind.STALE) {
-                completeFailure(execution, FAILURE_MESSAGE);
-            } else if (translated.kind() == AgentScopeExecutionEvent.Kind.ERROR) {
-                completeFailure(execution, FAILURE_MESSAGE);
-            } else if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_ENDED) {
-                completeSuccess(execution);
-            }
-        } catch (RuntimeException error) {
-            completeFailure(execution, FAILURE_MESSAGE);
         }
     }
 
     private void onStreamError(Execution execution) {
-        completeFailure(execution, FAILURE_MESSAGE);
+        synchronized (lifecycleLock) {
+            if (isCurrentLocked(execution)) {
+                completeFailureLocked(execution, FAILURE_MESSAGE);
+            }
+        }
     }
 
     private void onStreamComplete(Execution execution) {
-        if (!execution.terminalSubmitted.get() && !execution.closed.get()) {
-            completeFailure(execution, FAILURE_MESSAGE);
-        }
-    }
-
-    private void completeSuccess(Execution execution) {
-        complete(execution, RuntimeResult.success(execution.task.id(),
-                execution.resultCandidate == null ? "" : execution.resultCandidate,
-                Instant.now(context().clock())));
-    }
-
-    private void completeFailure(UUID taskId) {
-        Execution execution = executions.get(taskId);
-        if (execution == null) {
-            state.complete(RuntimeResult.failure(taskId, FAILURE_MESSAGE, Instant.now(context().clock())));
-            return;
-        }
-        completeFailure(execution, FAILURE_MESSAGE);
-    }
-
-    private void completeFailure(Execution execution, String message) {
-        complete(execution, RuntimeResult.failure(execution.task.id(), message,
-                Instant.now(context().clock())));
-    }
-
-    private void complete(Execution execution, RuntimeResult result) {
-        if (!execution.terminalSubmitted.compareAndSet(false, true)) {
-            return;
-        }
-        try {
-            state.complete(result);
-        } finally {
-            executions.remove(execution.task.id(), execution);
-            close(execution);
-        }
-    }
-
-    @Override
-    public CompletionStatus complete(RuntimeResult result) {
-        Objects.requireNonNull(result, "result");
-        CompletionStatus status = state.complete(result);
-        if (status == CompletionStatus.COMPLETED) {
-            Execution execution = executions.remove(result.taskId());
-            if (execution != null) {
-                close(execution);
+        synchronized (lifecycleLock) {
+            if (isCurrentLocked(execution)) {
+                completeFailureLocked(execution, FAILURE_MESSAGE);
             }
+        }
+    }
+
+    private void completeSuccessLocked(Execution execution) {
+        AgentRuntimeContext currentContext = requireContextLocked();
+        completeLocked(execution, RuntimeResult.success(execution.task.id(),
+                execution.resultCandidate == null ? "" : execution.resultCandidate,
+                Instant.now(currentContext.clock())));
+    }
+
+    private void completeFailureLocked(UUID taskId) {
+        AgentRuntimeContext currentContext = requireContextLocked();
+        state.complete(RuntimeResult.failure(taskId, FAILURE_MESSAGE, Instant.now(currentContext.clock())));
+    }
+
+    private void completeFailureLocked(Execution execution, String message) {
+        AgentRuntimeContext currentContext = requireContextLocked();
+        completeLocked(execution, RuntimeResult.failure(execution.task.id(), message,
+                Instant.now(currentContext.clock())));
+    }
+
+    private CompletionStatus completeLocked(Execution execution, RuntimeResult result) {
+        if (!execution.terminalSubmitted.compareAndSet(false, true)) {
+            return CompletionStatus.DUPLICATE;
+        }
+        CompletionStatus status;
+        try {
+            status = state.complete(result);
+        } catch (RuntimeException error) {
+            execution.terminalSubmitted.set(false);
+            throw error;
+        }
+        if (status == CompletionStatus.COMPLETED) {
+            executions.remove(execution.task.id(), execution);
+            execution.close();
+        } else {
+            execution.terminalSubmitted.set(false);
         }
         return status;
     }
 
     @Override
+    public CompletionStatus complete(RuntimeResult result) {
+        Objects.requireNonNull(result, "result");
+        synchronized (lifecycleLock) {
+            Execution execution = executions.get(result.taskId());
+            if (execution == null) {
+                return state.complete(result);
+            }
+            return completeLocked(execution, result);
+        }
+    }
+
+    @Override
     public boolean cancel(UUID taskId) {
         Objects.requireNonNull(taskId, "taskId");
-        Execution execution = executions.remove(taskId);
-        if (execution != null) {
-            execution.cancel();
+        synchronized (lifecycleLock) {
+            Execution execution = executions.remove(taskId);
+            if (execution != null) {
+                execution.close();
+            }
+            return state.cancel(taskId);
         }
-        return state.cancel(taskId);
     }
 
     @Override
     public Optional<RuntimeStatus> status(UUID taskId) {
-        return state.status(taskId);
+        synchronized (lifecycleLock) {
+            return state.status(taskId);
+        }
     }
 
     @Override
     public RuntimeSnapshot snapshot() {
-        return state.snapshot();
+        synchronized (lifecycleLock) {
+            return state.snapshot();
+        }
     }
 
     @Override
     public void applyConfig(RuntimeConfigSnapshot snapshot) {
-        state.applyConfig(snapshot);
+        synchronized (lifecycleLock) {
+            state.applyConfig(snapshot);
+        }
     }
 
     @Override
-    public synchronized void stop() {
-        for (Execution execution : executions.values()) {
-            execution.cancel();
-        }
-        executions.clear();
-        if (context != null) {
-            state.stop();
-            state = new FakeRuntime();
-            context = null;
+    public void stop() {
+        synchronized (lifecycleLock) {
+            generation++;
+            for (Execution execution : executions.values()) {
+                execution.close();
+            }
+            executions.clear();
+            if (context != null) {
+                state.stop();
+                state = new FakeRuntime();
+                context = null;
+            }
         }
     }
 
-    private AgentRuntimeContext requireContext() {
-        AgentRuntimeContext current = context;
-        if (current == null) {
+    private AgentRuntimeContext requireContextLocked() {
+        if (context == null) {
             throw new IllegalStateException("runtime is not started");
         }
-        return current;
+        return context;
     }
 
-    private AgentRuntimeContext context() {
-        return requireContext();
+    private boolean isCurrentLocked(Execution execution) {
+        return context != null
+                && execution.generation == generation
+                && !execution.closed.get()
+                && !execution.terminalSubmitted.get()
+                && executions.get(execution.task.id()) == execution;
+    }
+
+    private static AgentEvent withAttemptIfMissing(AgentEvent event, String attemptId) {
+        Objects.requireNonNull(event, "event");
+        Map<String, Object> metadata = event.getMetadata();
+        if (metadata != null && metadata.containsKey("attemptId")) {
+            return event;
+        }
+        return event.withMetadataEntry("attemptId", attemptId);
     }
 
     private static String requiredMetadata(RuntimeTask task, String name) {
@@ -249,45 +298,63 @@ public final class AgentScopeRuntime implements AgentRuntime {
         return value;
     }
 
-    private static void close(Execution execution) {
-        if (!execution.closed.compareAndSet(false, true)) {
-            return;
-        }
-        Disposable disposable = execution.disposable;
-        if (disposable != null) {
-            disposable.dispose();
-        }
-        execution.translator.clear();
-        try {
-            execution.agent.interrupt();
-        } finally {
-            execution.agent.close();
-        }
-    }
-
-    private static final class Execution {
+    static final class Execution {
         private final RuntimeTask task;
         private final HarnessAgent agent;
         private final AgentScopeEventTranslator translator;
         private final String attemptId;
-        @SuppressWarnings("unused")
-        private final AgentRuntimeContext context;
+        private final long generation;
         private final AtomicBoolean terminalSubmitted = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
-        private volatile Disposable disposable;
+        private final AtomicReference<Disposable> disposable = new AtomicReference<>();
         private volatile String resultCandidate;
 
-        private Execution(RuntimeTask task, HarnessAgent agent, AgentScopeEventTranslator translator,
-                String attemptId, AgentRuntimeContext context) {
+        Execution(RuntimeTask task, HarnessAgent agent, AgentScopeEventTranslator translator,
+                String attemptId, long generation) {
             this.task = task;
             this.agent = agent;
             this.translator = translator;
             this.attemptId = attemptId;
-            this.context = context;
+            this.generation = generation;
         }
 
-        private void cancel() {
-            close(this);
+        boolean installDisposable(Disposable candidate) {
+            Objects.requireNonNull(candidate, "candidate");
+            if (closed.get() || !disposable.compareAndSet(null, candidate)) {
+                disposeQuietly(candidate);
+                return false;
+            }
+            if (closed.get() && disposable.compareAndSet(candidate, null)) {
+                disposeQuietly(candidate);
+                return false;
+            }
+            return true;
+        }
+
+        void close() {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
+            Disposable current = disposable.getAndSet(null);
+            disposeQuietly(current);
+            runCleanup("translator", translator::clear);
+            runCleanup("interrupt", agent::interrupt);
+            runCleanup("agent", agent::close);
+        }
+
+        private static void disposeQuietly(Disposable disposable) {
+            if (disposable != null) {
+                runCleanup("stream", disposable::dispose);
+            }
+        }
+
+        private static void runCleanup(String component, Runnable cleanup) {
+            try {
+                cleanup.run();
+            } catch (RuntimeException ignored) {
+                // Do not expose provider, prompt, credential, or filesystem details.
+                System.err.println("AgentScope cleanup failed component=" + component);
+            }
         }
     }
 }
