@@ -23,7 +23,20 @@ public final class AgentScopeEventTranslator {
             "(?:authorization|api[-_ ]?key|token|password|secret)\\s*[:=]\\s*(?:bearer\\s+)?[^\\s,;]+"
                     + "|bearer\\s+[^\\s,;]+|sk-[A-Za-z0-9_-]{8,}",
             Pattern.CASE_INSENSITIVE);
-    private final Set<String> seenEventIds = ConcurrentHashMap.newKeySet();
+    private final String attemptId;
+    private final Set<String> seenEventKeys = ConcurrentHashMap.newKeySet();
+
+    public AgentScopeEventTranslator(String attemptId) {
+        if (attemptId == null || attemptId.isBlank()) {
+            throw new IllegalArgumentException("attemptId must not be blank");
+        }
+        this.attemptId = attemptId;
+    }
+
+    /** Releases the attempt-scoped idempotency keys when the execution lifecycle ends. */
+    public void clear() {
+        seenEventKeys.clear();
+    }
 
     public AgentScopeExecutionEvent translate(AgentEvent event) {
         if (event == null) {
@@ -33,7 +46,7 @@ public final class AgentScopeEventTranslator {
         if (eventId == null || eventId.isBlank()) {
             throw new IllegalArgumentException("AgentScope event id must not be blank");
         }
-        boolean duplicate = !seenEventIds.add(eventId);
+        boolean duplicate = !seenEventKeys.add(attemptId + "\u0000" + eventId);
 
         if (event instanceof AgentStartEvent) {
             return mapped(eventId, AgentScopeExecutionEvent.Kind.AGENT_STARTED,
@@ -63,7 +76,7 @@ public final class AgentScopeEventTranslator {
         }
         if (event instanceof AgentResultEvent) {
             return mapped(eventId, AgentScopeExecutionEvent.Kind.AGENT_RESULT,
-                    "agent result", true, true, duplicate);
+                    "agent result", false, true, duplicate);
         }
         if (event instanceof AgentEndEvent) {
             return mapped(eventId, AgentScopeExecutionEvent.Kind.AGENT_ENDED,
@@ -72,6 +85,7 @@ public final class AgentScopeEventTranslator {
         if (event instanceof ExceedMaxItersEvent
                 || event instanceof AllToolsDeniedEvent
                 || event instanceof RequestStopEvent) {
+            // 当前项目事件模型尚未区分 CANCELLED，停止请求保持 ERROR 终态。
             return mapped(eventId, AgentScopeExecutionEvent.Kind.ERROR,
                     "agent execution error", true, false, duplicate);
         }
@@ -79,9 +93,10 @@ public final class AgentScopeEventTranslator {
                 "unmapped AgentScope event", false, true, duplicate);
     }
 
-    private static AgentScopeExecutionEvent mapped(String eventId, AgentScopeExecutionEvent.Kind kind,
+    private AgentScopeExecutionEvent mapped(String eventId, AgentScopeExecutionEvent.Kind kind,
             String safeMessage, boolean terminal, boolean success, boolean duplicate) {
-        return new AgentScopeExecutionEvent(eventId, kind, safeMessage, terminal, success, duplicate);
+        return new AgentScopeExecutionEvent(attemptId, eventId, kind, safeMessage,
+                terminal, success, duplicate);
     }
 
     private static String safeText(String value) {

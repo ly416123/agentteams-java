@@ -4,6 +4,7 @@ import java.util.Objects;
 
 /** Project-owned event boundary for AgentScope execution events. */
 public record AgentScopeExecutionEvent(
+        String attemptId,
         String eventId,
         Kind kind,
         String safeMessage,
@@ -12,6 +13,9 @@ public record AgentScopeExecutionEvent(
         boolean duplicate) {
 
     public AgentScopeExecutionEvent {
+        if (attemptId == null || attemptId.isBlank()) {
+            throw new IllegalArgumentException("attemptId must not be blank");
+        }
         if (eventId == null || eventId.isBlank()) {
             throw new IllegalArgumentException("eventId must not be blank");
         }

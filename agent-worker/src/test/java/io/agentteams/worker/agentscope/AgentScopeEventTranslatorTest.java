@@ -1,18 +1,22 @@
 package io.agentteams.worker.agentscope;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.AgentStartEvent;
+import io.agentscope.core.event.AllToolsDeniedEvent;
 import io.agentscope.core.event.CustomEvent;
 import io.agentscope.core.event.ExceedMaxItersEvent;
 import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.ModelCallStartEvent;
+import io.agentscope.core.event.RequestStopEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ToolCallEndEvent;
 import io.agentscope.core.event.ToolCallStartEvent;
 import io.agentscope.core.model.ChatUsage;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +24,7 @@ class AgentScopeEventTranslatorTest {
 
     private static final String CREATED_AT = "2026-08-25T00:00:00Z";
 
-    private final AgentScopeEventTranslator translator = new AgentScopeEventTranslator();
+    private final AgentScopeEventTranslator translator = new AgentScopeEventTranslator("attempt-a");
 
     @Test
     void translatesAgentStartEventWithoutLeakingAgentScopeType() {
@@ -79,14 +83,14 @@ class AgentScopeEventTranslatorTest {
     }
 
     @Test
-    void translatesAgentResultAndEndAsSuccessfulTerminalEvents() {
+    void translatesAgentResultBeforeAgentEndWithoutPrematureTerminalState() {
         AgentScopeExecutionEvent result = translator.translate(
                 new AgentResultEvent("result-id", CREATED_AT, null));
         AgentScopeExecutionEvent ended = translator.translate(
                 new AgentEndEvent("end-id", CREATED_AT, "reply"));
 
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.AGENT_RESULT);
-        assertThat(result.terminal()).isTrue();
+        assertThat(result.terminal()).isFalse();
         assertThat(result.success()).isTrue();
         assertThat(ended.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.AGENT_ENDED);
         assertThat(ended.terminal()).isTrue();
@@ -106,6 +110,25 @@ class AgentScopeEventTranslatorTest {
     }
 
     @Test
+    void translatesAllToolsDeniedAsAnErrorTerminalEvent() {
+        AgentScopeExecutionEvent result = translator.translate(new AllToolsDeniedEvent(List.of()));
+
+        assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.ERROR);
+        assertThat(result.terminal()).isTrue();
+        assertThat(result.success()).isFalse();
+    }
+
+    @Test
+    void translatesRequestStopAsAnErrorUntilCancelledIsASeparateProjectEvent() {
+        // 当前项目事件模型尚未区分 CANCELLED，因此 RequestStop 保持 ERROR 终态。
+        AgentScopeExecutionEvent result = translator.translate(new RequestStopEvent("user requested stop"));
+
+        assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.ERROR);
+        assertThat(result.terminal()).isTrue();
+        assertThat(result.success()).isFalse();
+    }
+
+    @Test
     void mapsUnknownEventToUnmappedWithoutBlockingTerminalState() {
         AgentScopeExecutionEvent result = translator.translate(
                 new CustomEvent("unknown-id", CREATED_AT, "future-event", Map.of("secret", "do-not-copy")));
@@ -119,14 +142,28 @@ class AgentScopeEventTranslatorTest {
     }
 
     @Test
-    void marksRepeatedEventIdAsDuplicateButKeepsTheTranslatedBoundaryEvent() {
+    void scopesIdempotencyByAttemptAndReleasesSeenEventIdsOnClear() {
         AgentStartEvent event = new AgentStartEvent("same-id", CREATED_AT, "session", "reply", "agent", "assistant");
 
         AgentScopeExecutionEvent first = translator.translate(event);
         AgentScopeExecutionEvent second = translator.translate(event);
+        AgentScopeExecutionEvent otherAttempt = new AgentScopeEventTranslator("attempt-b").translate(event);
 
+        assertThat(first.attemptId()).isEqualTo("attempt-a");
         assertThat(first.duplicate()).isFalse();
         assertThat(second.eventId()).isEqualTo("same-id");
         assertThat(second.duplicate()).isTrue();
+        assertThat(otherAttempt.attemptId()).isEqualTo("attempt-b");
+        assertThat(otherAttempt.duplicate()).isFalse();
+
+        translator.clear();
+        assertThat(translator.translate(event).duplicate()).isFalse();
+    }
+
+    @Test
+    void requiresAnAttemptIdForTheIdempotencyBoundary() {
+        assertThatThrownBy(() -> new AgentScopeEventTranslator("  "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("attemptId must not be blank");
     }
 }
