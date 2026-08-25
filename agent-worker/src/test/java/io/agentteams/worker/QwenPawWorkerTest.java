@@ -25,6 +25,7 @@ class QwenPawWorkerTest {
         assertThat(configuration.gatewayHost()).isEqualTo("agentteams-agentteams-java-gateway");
         assertThat(configuration.gatewayPort()).isEqualTo(9090);
         assertThat(configuration.qwenPawEndpoint()).isEqualTo("http://qwenpaw:8088");
+        assertThat(configuration.runtime()).isEqualTo(QwenPawWorker.RuntimeType.QWENPAW);
         assertThat(configuration.modelProvider()).isEqualTo("qwenpaw");
         assertThat(configuration.model()).isEqualTo("unknown");
         assertThat(configuration.modelMaxTokens()).isEqualTo(1024);
@@ -35,6 +36,33 @@ class QwenPawWorkerTest {
         assertThat(hello.getCapabilitiesMap()).containsEntry("http-sse", "v1");
         assertThat(hello.getMetadata().getOccurredAt()).isEqualTo(Timestamp.newBuilder()
                 .setSeconds(Instant.parse("2026-08-19T00:00:00Z").getEpochSecond()).build());
+    }
+
+    @Test
+    void parsesAgentScopeRuntimeTypeWithoutChangingExecutionPath() {
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_RUNTIME", "AGENTSCOPE"));
+
+        assertThat(configuration.runtime()).isEqualTo(QwenPawWorker.RuntimeType.AGENTSCOPE);
+    }
+
+    @Test
+    void parsesExplicitQwenPawRuntimeType() {
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_RUNTIME", "QWENPAW"));
+
+        assertThat(configuration.runtime()).isEqualTo(QwenPawWorker.RuntimeType.QWENPAW);
+    }
+
+    @Test
+    void rejectsUnknownRuntimeType() {
+        assertThatThrownBy(() -> QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_RUNTIME", "UNKNOWN")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("AGENTTEAMS_RUNTIME must be one of QWENPAW or AGENTSCOPE");
     }
 
     @Test

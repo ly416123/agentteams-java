@@ -535,6 +535,11 @@ public final class QwenPawWorker implements AutoCloseable {
         return value.length() <= 512 ? value : value.substring(0, 512) + "...";
     }
 
+    enum RuntimeType {
+        QWENPAW,
+        AGENTSCOPE
+    }
+
     record WorkerConfiguration(
             String agentId,
             String gatewayHost,
@@ -549,6 +554,7 @@ public final class QwenPawWorker implements AutoCloseable {
             String qwenPawUserId,
             String qwenPawChannel,
             String qwenPawConfigurationPath,
+            RuntimeType runtime,
             String modelProvider,
             String model,
             int modelMaxTokens,
@@ -603,6 +609,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     value(environment, "QWENPAW_USER_ID", "agentteams"),
                     value(environment, "QWENPAW_CHANNEL", "console"),
                     value(environment, "QWENPAW_CONFIG_PATH", "/api/models/active"),
+                    runtimeType(environment, "AGENTTEAMS_RUNTIME", RuntimeType.QWENPAW),
                     value(environment, "AGENTTEAMS_MODEL_PROVIDER", "qwenpaw"),
                     value(environment, "AGENTTEAMS_MODEL", "unknown"),
                     integer(environment, "AGENTTEAMS_MODEL_MAX_TOKENS", 1024),
@@ -664,6 +671,17 @@ public final class QwenPawWorker implements AutoCloseable {
         private static String value(Map<String, String> environment, String name, String fallback) {
             String result = optional(environment, name);
             return result == null ? fallback : result;
+        }
+
+        private static RuntimeType runtimeType(Map<String, String> environment, String name, RuntimeType fallback) {
+            String result = optional(environment, name);
+            if (result == null) return fallback;
+            try {
+                return RuntimeType.valueOf(result.toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException error) {
+                throw new IllegalArgumentException(
+                        name + " must be one of QWENPAW or AGENTSCOPE", error);
+            }
         }
 
         private static String scopedValue(Map<String, String> environment, String primaryName,
