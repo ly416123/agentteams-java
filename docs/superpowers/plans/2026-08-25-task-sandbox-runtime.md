@@ -461,8 +461,10 @@ python3 scripts/run-kind-dashboard-alerts.py --timeout 180
 kubectl get runtimeclass
 kubectl apply -f deploy/examples/task-sandbox-isolated.yaml
 kubectl apply -f deploy/examples/task-sandbox-hardened.yaml
-kubectl wait --for=condition=Ready tasksandbox/task-sandbox-isolated --timeout=180s
-kubectl wait --for=condition=Ready tasksandbox/task-sandbox-hardened --timeout=180s
+kubectl wait --for=jsonpath='{.status.phase}'=READY \
+  tasksandbox/task-sandbox-isolated --timeout=180s
+kubectl wait --for=jsonpath='{.status.phase}'=READY \
+  tasksandbox/task-sandbox-hardened --timeout=180s
 kubectl get pod -o custom-columns=NAME:.metadata.name,RUNTIME:.spec.runtimeClassName,STATUS:.status.phase
 ```
 
