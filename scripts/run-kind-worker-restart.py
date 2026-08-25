@@ -125,6 +125,22 @@ def gateway_connection_id(namespace: str, postgres_pod: str, agent_id: str) -> s
     return gateway_connection_state(namespace, postgres_pod, agent_id)[0]
 
 
+def latest_gateway_sequence(namespace: str, postgres_pod: str, agent_id: str) -> int:
+    return int(sql(namespace, postgres_pod, f"""
+        select coalesce(max(sequence), 0)
+          from gateway_commands
+         where agent_id = '{agent_id}';
+    """))
+
+
+def gateway_ack_sequence(namespace: str, postgres_pod: str, agent_id: str) -> int:
+    return int(sql(namespace, postgres_pod, f"""
+        select coalesce((select last_ack_sequence
+                           from gateway_ack_cursors
+                          where agent_id = '{agent_id}'), 0);
+    """))
+
+
 def task_phase(namespace: str, postgres_pod: str, task_id: str) -> str:
     return sql(namespace, postgres_pod,
                f"select phase from tasks where id = '{task_id}';").strip()
@@ -228,6 +244,17 @@ def main() -> int:
         attempts_before, _ = task_attempts(args.namespace, args.postgres_pod, task_id)
         if attempts_before != 1:
             fail(f"expected one active attempt before Worker restart, got {attempts_before}")
+        initial_command_sequence = latest_gateway_sequence(
+            args.namespace, args.postgres_pod, args.agent_id)
+        if initial_command_sequence <= 0:
+            fail("could not find the initial TaskAssigned Gateway command")
+        wait_until(
+            "initial TaskAssigned acknowledgement",
+            lambda: gateway_ack_sequence(args.namespace, args.postgres_pod, args.agent_id)
+            >= initial_command_sequence,
+            args.timeout,
+        )
+        print(f"KIND_WORKER_RESTART_ACKED task={task_id} sequence={initial_command_sequence}")
         print(f"KIND_WORKER_RESTART_RUNNING task={task_id} pod={pods[0]}")
 
         failed_worker_pod = pods[0]
@@ -260,6 +287,15 @@ def main() -> int:
             fail("could not find the in-flight active lease after Worker restart")
         print(f"KIND_WORKER_RESTART_LEASE_EXPIRED task={task_id}")
 
+        def recovered_attempts():
+            attempts, _ = task_attempts(args.namespace, args.postgres_pod, task_id)
+            return attempts if attempts >= 2 else None
+
+        try:
+            wait_until("second task attempt after Worker restart", recovered_attempts, args.timeout)
+        except RuntimeError as error:
+            fail(f"{error}; {task_snapshot(args.namespace, args.postgres_pod, task_id, args.agent_id)}")
+
         def terminal_task():
             task = api_request(f"{base_url}/api/v1/tasks/{task_id}")
             return task if task.get("phase") in {"SUCCEEDED", "FAILED", "CANCELLED"} else None
@@ -269,7 +305,7 @@ def main() -> int:
             fail(f"task did not recover after Worker restart: {final}")
         attempts, succeeded = task_attempts(args.namespace, args.postgres_pod, task_id)
         if attempts != 2 or succeeded != 1:
-            fail(f"expected two attempts with one success after Worker restart, got attempts={attempts} succeeded={succeeded}")
+            fail(f"expected two attempts with one success after lease recovery, got attempts={attempts} succeeded={succeeded}")
         print(f"KIND_WORKER_RESTART_OK task={task_id} attempts={attempts} succeeded={succeeded} phase={final['phase']}")
         return 0
     finally:

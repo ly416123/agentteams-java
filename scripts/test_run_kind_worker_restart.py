@@ -30,6 +30,19 @@ class KindWorkerRestartContractTest(unittest.TestCase):
         self.assertIn("task_snapshot(args.namespace", source)
         self.assertIn("gateway_connection_state", source)
 
+    def test_waits_for_initial_assignment_ack_before_deleting_worker(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("def gateway_ack_sequence", source)
+        self.assertIn("initial TaskAssigned acknowledgement", source)
+        self.assertIn("initial_command_sequence", source)
+
+    def test_waits_for_a_second_attempt_after_expiring_the_lease(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("second task attempt after Worker restart", source)
+        self.assertIn("expected two attempts with one success after lease recovery", source)
+
 
 if __name__ == "__main__":
     unittest.main()
