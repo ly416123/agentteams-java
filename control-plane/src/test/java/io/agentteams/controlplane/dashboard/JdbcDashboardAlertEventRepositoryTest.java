@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.lang.reflect.Modifier;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -15,6 +16,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 class JdbcDashboardAlertEventRepositoryTest {
     private static final Instant NOW = Instant.parse("2026-08-25T01:00:00Z");
+
+    @Test
+    void remainsSubclassableForSpringRepositoryExceptionTranslation() {
+        assertThat(Modifier.isFinal(JdbcDashboardAlertEventRepository.class.getModifiers())).isFalse();
+    }
 
     @Test
     void doesNotReclaimAnActiveFingerprint() {

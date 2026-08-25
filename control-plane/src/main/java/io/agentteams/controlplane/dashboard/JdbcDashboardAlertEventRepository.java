@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL-backed alert event state with a unique fingerprint for idempotency. */
 @Repository
-public final class JdbcDashboardAlertEventRepository implements DashboardAlertEventRepository {
+public class JdbcDashboardAlertEventRepository implements DashboardAlertEventRepository {
     private static final String SELECT_COLUMNS = """
             SELECT id, fingerprint, tenant_id, project_id, rule, severity, actual, message,
                    from_at, to_at, status, attempts, next_attempt_at, last_error, delivered_at,
