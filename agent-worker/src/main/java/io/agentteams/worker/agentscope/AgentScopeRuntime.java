@@ -137,8 +137,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 if (originalEvent instanceof AgentResultEvent) {
                     execution.resultCandidate = execution.translator.safeResultCandidate(event);
                 }
-                if (translated.kind() == AgentScopeExecutionEvent.Kind.STALE
-                        || translated.kind() == AgentScopeExecutionEvent.Kind.ERROR) {
+                if (translated.kind() == AgentScopeExecutionEvent.Kind.ERROR) {
                     completeFailureLocked(execution, FAILURE_MESSAGE);
                 } else if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_ENDED) {
                     completeSuccessLocked(execution);
@@ -193,7 +192,12 @@ public final class AgentScopeRuntime implements AgentRuntime {
         try {
             status = state.complete(result);
         } catch (RuntimeException error) {
-            execution.terminalSubmitted.set(false);
+            // FakeRuntime records the terminal state before resultSink runs.
+            // Keep the CAS closed and clean every resource even when the sink
+            // rejects the callback, otherwise a terminal task can be retried
+            // with a live orphaned Harness session.
+            executions.remove(execution.task.id(), execution);
+            execution.close();
             throw error;
         }
         if (status == CompletionStatus.COMPLETED) {

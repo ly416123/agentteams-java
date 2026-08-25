@@ -290,6 +290,71 @@ class AgentScopeRuntimeTest {
         assertThat(results).hasSize(1);
     }
 
+    @Test
+    void resultSinkFailureStillCleansExecutionAndKeepsTerminalCommitted() throws Exception {
+        AtomicReference<Integer> sinkCalls = new AtomicReference<>(0);
+        List<AgentScopeExecutionEvent> events = new CopyOnWriteArrayList<>();
+        runtime = newRuntime(new BlockingModel(), events::add);
+        runtime.start(context(1, result -> {
+            sinkCalls.updateAndGet(calls -> calls + 1);
+            throw new IllegalStateException("result sink secret must not leak");
+        }));
+        RuntimeTask task = task("attempt-sink-error", "lease-sink-error", "corr-sink-error");
+        assertThat(runtime.submit(task).accepted()).isTrue();
+
+        AgentScopeRuntime.Execution execution = (AgentScopeRuntime.Execution) activeExecution(task.id());
+
+        assertThatThrownBy(() -> runtime.complete(RuntimeResult.success(task.id(), "external", NOW)))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(sinkCalls).hasValue(1);
+        assertThat(activeExecution(task.id())).isNull();
+        assertThat(executionClosed(execution)).isTrue();
+        assertThat(executionDisposable(execution)).isNull();
+        assertThat(runtime.status(task.id())).get().extracting(status -> status.state())
+                .isEqualTo(RuntimeTaskState.SUCCEEDED);
+        assertThat(runtime.snapshot().running()).isZero();
+        assertThat(runtime.complete(RuntimeResult.success(task.id(), "duplicate", NOW)))
+                .isEqualTo(io.agentteams.runtime.CompletionStatus.DUPLICATE);
+
+        int eventsBeforeLateEvent = events.size();
+        invokeOnEvent(execution, new io.agentscope.core.event.AgentStartEvent(
+                "late-after-sink-error", "2026-08-25T00:00:00Z", "session", "reply", "agent", "assistant")
+                .withMetadataEntry("attemptId", "attempt-sink-error"));
+        assertThat(events).hasSize(eventsBeforeLateEvent);
+    }
+
+    @Test
+    void staleAttemptEventIsRecordedButDoesNotFailCurrentAttempt() throws Exception {
+        List<AgentScopeExecutionEvent> events = new CopyOnWriteArrayList<>();
+        List<RuntimeResult> results = new CopyOnWriteArrayList<>();
+        runtime = newRuntime(new BlockingModel(), events::add);
+        runtime.start(context(1, results::add));
+        RuntimeTask task = task("attempt-current", "lease-current", "corr-current");
+        assertThat(runtime.submit(task).accepted()).isTrue();
+        Object execution = activeExecution(task.id());
+
+        invokeOnEvent(execution, new io.agentscope.core.event.AgentStartEvent(
+                "stale-attempt", "2026-08-25T00:00:00Z", "session", "reply", "agent", "assistant")
+                .withMetadataEntry("attemptId", "attempt-old"));
+
+        assertThat(events).last().satisfies(event -> {
+            assertThat(event.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+            assertThat(event.safeMessage()).isEqualTo("stale attempt event");
+        });
+        assertThat(results).isEmpty();
+        assertThat(runtime.status(task.id())).get().extracting(status -> status.state())
+                .isEqualTo(RuntimeTaskState.RUNNING);
+
+        invokeOnEvent(execution, new io.agentscope.core.event.ExceedMaxItersEvent(
+                "real-error", "2026-08-25T00:00:00Z", "reply", 2, 2)
+                .withMetadataEntry("attemptId", "attempt-current"));
+
+        assertThat(results).singleElement().satisfies(result -> assertThat(result.success()).isFalse());
+        assertThat(runtime.status(task.id())).get().extracting(status -> status.state())
+                .isEqualTo(RuntimeTaskState.FAILED);
+    }
+
     private AgentScopeRuntime newRuntime(Model model, Consumer<AgentScopeExecutionEvent> eventSink) {
         return new AgentScopeRuntime((task, context) -> {
             Path workspace;
@@ -345,6 +410,18 @@ class AgentScopeRuntimeTest {
                 "onEvent", execution.getClass(), io.agentscope.core.event.AgentEvent.class);
         method.setAccessible(true);
         method.invoke(runtime, execution, event);
+    }
+
+    private static boolean executionClosed(AgentScopeRuntime.Execution execution) throws Exception {
+        java.lang.reflect.Field field = AgentScopeRuntime.Execution.class.getDeclaredField("closed");
+        field.setAccessible(true);
+        return ((java.util.concurrent.atomic.AtomicBoolean) field.get(execution)).get();
+    }
+
+    private static Object executionDisposable(AgentScopeRuntime.Execution execution) throws Exception {
+        java.lang.reflect.Field field = AgentScopeRuntime.Execution.class.getDeclaredField("disposable");
+        field.setAccessible(true);
+        return ((java.util.concurrent.atomic.AtomicReference<?>) field.get(execution)).get();
     }
 
     private static void await(CountDownLatch latch) {
