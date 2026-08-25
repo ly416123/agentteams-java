@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import io.agentteams.contracts.v1.EventMetadata;
+import io.agentteams.contracts.v1.SandboxAssignment;
 import io.agentteams.contracts.v1.ServerMessage;
 import io.agentteams.contracts.v1.TaskAssigned;
 import io.agentteams.application.api.TraceContext;
@@ -16,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Converts a TaskAssigned outbox payload into a durable Gateway command. */
@@ -80,6 +82,18 @@ public final class TaskAssignedCommandHandler {
                 .setQuotaId(dimensions.quotaIdOrEmpty())
                 .setQuotaDimension(dimensions.quotaDimensionOrEmpty())
                 .build();
+        if (payload.sandbox().isPresent()) {
+            TaskAssignedCommandPayload.SandboxAssignmentPayload sandbox = payload.sandbox().get();
+            assigned = assigned.toBuilder().setSandbox(SandboxAssignment.newBuilder()
+                    .setProviderSandboxId(sandbox.providerSandboxId())
+                    .setProfile(sandbox.profile())
+                    .setStatus(sandbox.status())
+                    .setEndpointRef(sandbox.endpointRef())
+                    .setExpiresAt(timestamp(sandbox.expiresAt()))
+                    .setOwnerTaskId(sandbox.ownerTaskId().toString())
+                    .setOwnerAttemptId(sandbox.ownerAttemptId().toString())
+                    .build()).build();
+        }
         delivery.deliver(payload.agentId(), ServerMessage.newBuilder().setTaskAssigned(assigned).build());
         return true;
     }
@@ -186,11 +200,45 @@ public final class TaskAssignedCommandHandler {
                     extensions.put(field.getKey(), field.getValue());
                 }
             }
+            Optional<TaskAssignedCommandPayload.SandboxAssignmentPayload> sandbox = parseSandbox(root, taskId,
+                    attemptId);
             return new TaskAssignedCommandPayload(taskId, agentId, attemptId, assignmentId, leaseId,
-                    spec, extensions);
+                    spec, extensions, sandbox);
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("payloadJson is invalid JSON", error);
         }
+    }
+
+    private Optional<TaskAssignedCommandPayload.SandboxAssignmentPayload> parseSandbox(JsonNode root,
+            UUID taskId, UUID attemptId) {
+        JsonNode sandbox = root.get("sandbox");
+        if (sandbox == null) return Optional.empty();
+        if (!sandbox.isObject()) throw new IllegalArgumentException("sandbox must be an object");
+        UUID ownerTaskId = parseUuid(requiredText(sandbox, "ownerTaskId"), "sandbox.ownerTaskId");
+        UUID ownerAttemptId = parseUuid(requiredText(sandbox, "ownerAttemptId"), "sandbox.ownerAttemptId");
+        if (!taskId.equals(ownerTaskId) || !attemptId.equals(ownerAttemptId)) {
+            throw new IllegalArgumentException("sandbox owner does not match assignment");
+        }
+        Instant expiresAt;
+        try {
+            expiresAt = Instant.parse(requiredText(sandbox, "expiresAt"));
+        } catch (java.time.DateTimeException error) {
+            throw new IllegalArgumentException("sandbox.expiresAt is invalid", error);
+        }
+        if (!expiresAt.isAfter(Instant.EPOCH)) {
+            throw new IllegalArgumentException("sandbox.expiresAt must be positive");
+        }
+        String profile = requiredText(sandbox, "profile");
+        String status = requiredText(sandbox, "status");
+        if (!("ISOLATED".equals(profile) || "HARDENED".equals(profile))) {
+            throw new IllegalArgumentException("sandbox.profile is not executable");
+        }
+        if (!("READY".equals(status) || "RUNNING".equals(status))) {
+            throw new IllegalArgumentException("sandbox.status is not executable");
+        }
+        return Optional.of(new TaskAssignedCommandPayload.SandboxAssignmentPayload(
+                requiredText(sandbox, "providerSandboxId"), profile, status,
+                requiredText(sandbox, "endpointRef"), expiresAt, ownerTaskId, ownerAttemptId));
     }
 
     private static String requiredText(JsonNode root, String field) {
@@ -319,6 +367,6 @@ public final class TaskAssignedCommandHandler {
                 "taskId", "agentId", "attemptId", "assignmentId", "leaseId", "spec", "taskType",
                 "inputJson", "requiredCapabilities", "leaseExpiresAt", "expectedVersion", "tenantId",
                 "tenant_id", "projectId", "project_id", "teamId", "team_id", "toolId", "tool_id",
-                "quotaId", "quota_id", "quotaDimension", "quota_dimension");
+                "quotaId", "quota_id", "quotaDimension", "quota_dimension", "sandbox");
     }
 }

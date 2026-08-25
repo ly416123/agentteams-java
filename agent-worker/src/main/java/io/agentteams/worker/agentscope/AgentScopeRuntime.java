@@ -43,18 +43,26 @@ public final class AgentScopeRuntime implements AgentRuntime {
     private volatile FakeRuntime state = new FakeRuntime();
     private final AgentScopeHarnessFactory harnessFactory;
     private final Consumer<AgentScopeExecutionEvent> eventSink;
+    private final AgentScopeWorkspaceActiveGuard workspaceGuard;
     private final Map<UUID, Execution> executions = new ConcurrentHashMap<>();
     private AgentRuntimeContext context;
     private long generation;
 
     public AgentScopeRuntime(AgentScopeHarnessFactory harnessFactory) {
-        this(harnessFactory, ignored -> { });
+        this(harnessFactory, ignored -> { }, AgentScopeWorkspaceActiveGuard.noop());
     }
 
     public AgentScopeRuntime(AgentScopeHarnessFactory harnessFactory,
             Consumer<AgentScopeExecutionEvent> eventSink) {
+        this(harnessFactory, eventSink, AgentScopeWorkspaceActiveGuard.noop());
+    }
+
+    public AgentScopeRuntime(AgentScopeHarnessFactory harnessFactory,
+            Consumer<AgentScopeExecutionEvent> eventSink,
+            AgentScopeWorkspaceActiveGuard workspaceGuard) {
         this.harnessFactory = Objects.requireNonNull(harnessFactory, "harnessFactory");
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
+        this.workspaceGuard = Objects.requireNonNull(workspaceGuard, "workspaceGuard");
     }
 
     @Override
@@ -133,6 +141,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 return;
             }
             try {
+                workspaceGuard.assertActive(execution.task, requireContextLocked());
                 AgentEvent event = withExecutionMetadataIfMissing(originalEvent,
                         execution.attemptId, execution.leaseId);
                 AgentScopeExecutionEvent translated = execution.translator.translate(event);
@@ -257,8 +266,22 @@ public final class AgentScopeRuntime implements AgentRuntime {
             if (execution == null) {
                 return state.complete(result);
             }
+            if (result.success()) {
+                try {
+                    workspaceGuard.assertActive(execution.task, requireContextLocked());
+                } catch (RuntimeException error) {
+                    return completeFailureLockedWithStatus(execution,
+                            "AgentScope workspace fencing failed");
+                }
+            }
             return completeLocked(execution, result);
         }
+    }
+
+    private CompletionStatus completeFailureLockedWithStatus(Execution execution, String message) {
+        AgentRuntimeContext currentContext = requireContextLocked();
+        return completeLocked(execution, RuntimeResult.failure(execution.task.id(), message,
+                Instant.now(currentContext.clock()), usage(execution, currentContext)));
     }
 
     @Override

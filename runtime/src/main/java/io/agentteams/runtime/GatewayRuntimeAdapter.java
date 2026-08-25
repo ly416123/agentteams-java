@@ -51,6 +51,17 @@ public final class GatewayRuntimeAdapter {
         putIfPresent(metadata, "toolId", assignment.getToolId());
         putIfPresent(metadata, "quotaId", assignment.getQuotaId());
         putIfPresent(metadata, "quotaDimension", assignment.getQuotaDimension());
+        if (assignment.hasSandbox()) {
+            var sandbox = assignment.getSandbox();
+            metadata.put("sandbox.providerSandboxId", sandbox.getProviderSandboxId());
+            metadata.put("sandbox.profile", sandbox.getProfile());
+            metadata.put("sandbox.status", sandbox.getStatus());
+            metadata.put("sandbox.endpointRef", sandbox.getEndpointRef());
+            metadata.put("sandbox.expiresAt", Instant.ofEpochSecond(
+                    sandbox.getExpiresAt().getSeconds(), sandbox.getExpiresAt().getNanos()).toString());
+            metadata.put("sandbox.ownerTaskId", sandbox.getOwnerTaskId());
+            metadata.put("sandbox.ownerAttemptId", sandbox.getOwnerAttemptId());
+        }
         RuntimeTask task = new RuntimeTask(taskId, assignment.getTaskType(),
                 assignment.getInputJson().toStringUtf8(), metadata);
         AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt(),

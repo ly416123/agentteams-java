@@ -409,7 +409,35 @@ class AgentScopeRuntimeTest {
                 .isEqualTo(io.agentteams.runtime.CompletionStatus.DUPLICATE);
     }
 
+    @Test
+    void workspaceGuardBlocksEventsAndCompletesAsFailure() throws Exception {
+        List<RuntimeResult> results = new CopyOnWriteArrayList<>();
+        List<AgentScopeExecutionEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch completed = new CountDownLatch(1);
+        runtime = newRuntime(new DeterministicModel("must not be accepted"), events::add,
+                (task, context) -> { throw new SandboxWorkspaceException(
+                        SandboxWorkspaceException.Reason.LOST); });
+        runtime.start(context(1, result -> {
+            results.add(result);
+            completed.countDown();
+        }));
+
+        assertThat(runtime.submit(task("attempt-workspace-lost", "lease-workspace-lost",
+                "corr-workspace-lost")).accepted()).isTrue();
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(results).singleElement().satisfies(result -> {
+            assertThat(result.success()).isFalse();
+            assertThat(result.output()).isEqualTo("AgentScope execution failed");
+        });
+        assertThat(events).isEmpty();
+    }
+
     private AgentScopeRuntime newRuntime(Model model, Consumer<AgentScopeExecutionEvent> eventSink) {
+        return newRuntime(model, eventSink, AgentScopeWorkspaceActiveGuard.noop());
+    }
+
+    private AgentScopeRuntime newRuntime(Model model, Consumer<AgentScopeExecutionEvent> eventSink,
+            AgentScopeWorkspaceActiveGuard guard) {
         return new AgentScopeRuntime((task, context) -> {
             Path workspace;
             try {
@@ -420,7 +448,7 @@ class AgentScopeRuntimeTest {
             HarnessAgent agent = newHarness(model, task, workspace);
             agents.add(agent);
             return agent;
-        }, eventSink);
+        }, eventSink, guard);
     }
 
     private HarnessAgent newHarness(Model model, RuntimeTask task) {

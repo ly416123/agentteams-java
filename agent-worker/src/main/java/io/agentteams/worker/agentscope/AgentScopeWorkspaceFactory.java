@@ -40,7 +40,8 @@ public final class AgentScopeWorkspaceFactory {
     private final boolean testMode;
 
     public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock) {
-        this(sandboxRuntime, clock, ensureDefaultSandboxRoot(), new InMemorySandboxWorkspaceOwnershipPort(), true);
+        throw new IllegalArgumentException(
+                "production WorkspaceFactory requires an explicit sandbox root and shared ownership port");
     }
 
     public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock,
@@ -121,8 +122,7 @@ public final class AgentScopeWorkspaceFactory {
         Endpoint endpoint = endpoint(handle.endpointRef());
         SandboxWorkspaceOwnershipPort.WorkspaceOwner owner = new SandboxWorkspaceOwnershipPort.WorkspaceOwner(
                 task.id(), ownerAttemptId, scope.scopeId());
-        claimSandbox(handle.providerSandboxId(), owner);
-        endpoint.path().ifPresent(path -> claimWorkspace(path, owner));
+        claimBinding(handle.providerSandboxId(), endpoint.path(), owner);
 
         return new WorkspaceBinding(scope.scopeId(), handle.profile(), endpoint.path(),
                 Optional.of(handle.providerSandboxId()), Optional.of(handle.expiresAt()),
@@ -132,6 +132,12 @@ public final class AgentScopeWorkspaceFactory {
     /** Rechecks the provider, TTL, scope and shared ownership before an event or workspace write. */
     public void validateActive(WorkspaceBinding binding, RuntimeTask task, AgentRuntimeContext context) {
         assertUsable(binding, task, context);
+    }
+
+    /** Creates the guard to inject into AgentScopeRuntime for this binding. */
+    public AgentScopeWorkspaceActiveGuard activeGuard(WorkspaceBinding binding) {
+        Objects.requireNonNull(binding, "binding must not be null");
+        return (task, context) -> assertUsable(binding, task, context);
     }
 
     /** Explicit active-use gate for every event or write operation. */
@@ -174,6 +180,7 @@ public final class AgentScopeWorkspaceFactory {
                 && ownership.findWorkspaceOwner(binding.workspacePath().get()).filter(expected::equals).isEmpty()) {
             throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
         }
+        binding.workspacePath().ifPresent(this::validateActivePath);
     }
 
     private Scope scope(RuntimeTask task, AgentRuntimeContext context) {
@@ -233,19 +240,12 @@ public final class AgentScopeWorkspaceFactory {
         }
     }
 
-    private void claimSandbox(String providerSandboxId, SandboxWorkspaceOwnershipPort.WorkspaceOwner owner) {
+    private void claimBinding(String providerSandboxId, Optional<Path> workspacePath,
+            SandboxWorkspaceOwnershipPort.WorkspaceOwner owner) {
         try {
-            ownership.claimSandbox(providerSandboxId, owner);
+            ownership.claimBinding(providerSandboxId, workspacePath, owner);
         } catch (RuntimeException error) {
-            throw new IllegalArgumentException("sandbox ownership conflict for scope", error);
-        }
-    }
-
-    private void claimWorkspace(Path workspacePath, SandboxWorkspaceOwnershipPort.WorkspaceOwner owner) {
-        try {
-            ownership.claimWorkspace(workspacePath, owner);
-        } catch (RuntimeException error) {
-            throw new IllegalArgumentException("workspace ownership conflict", error);
+            throw new IllegalArgumentException("sandbox workspace ownership conflict for scope", error);
         }
     }
 
@@ -290,7 +290,8 @@ public final class AgentScopeWorkspaceFactory {
             throw new IllegalArgumentException("file endpointRef is not a local absolute path", error);
         }
         candidate = candidate.normalize();
-        if (!candidate.isAbsolute() || containsTraversal(candidate) || !candidate.startsWith(sandboxRoot)) {
+        if (!candidate.isAbsolute() || containsTraversal(candidate)
+                || (!candidate.startsWith(sandboxRoot) && !candidate.startsWith(realSandboxRoot))) {
             throw new IllegalArgumentException("file endpointRef contains an unsafe path");
         }
         if (candidate.getFileName() != null && "docker.sock".equals(candidate.getFileName().toString())) {
@@ -328,6 +329,29 @@ public final class AgentScopeWorkspaceFactory {
             }
         } catch (java.io.IOException error) {
             throw new IllegalArgumentException("workspace path cannot be verified", error);
+        }
+    }
+
+    private void validateActivePath(Path candidate) {
+        if (!candidate.isAbsolute() || containsTraversal(candidate) || !candidate.startsWith(realSandboxRoot)) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
+        }
+        if (!Files.exists(candidate)) {
+            if (testMode) {
+                return;
+            }
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.UNAVAILABLE);
+        }
+        try {
+            if (!Files.isDirectory(candidate, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    || Files.isSymbolicLink(candidate)
+                    || !candidate.toRealPath().startsWith(realSandboxRoot)
+                    || (candidate.getFileName() != null
+                    && "docker.sock".equals(candidate.getFileName().toString()))) {
+                throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
+            }
+        } catch (java.io.IOException error) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.UNAVAILABLE);
         }
     }
 

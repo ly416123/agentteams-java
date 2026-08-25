@@ -67,6 +67,18 @@ message AgentReady {
   string rejection_reason = 4;
 }
 
+// Optional task-scoped sandbox reference. Older workers may ignore this field;
+// sandboxed assignments must be capability/version gated by the Gateway.
+message SandboxAssignment {
+  string provider_sandbox_id = 1;
+  string profile = 2;
+  string status = 3;
+  string endpoint_ref = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  string owner_task_id = 6;
+  string owner_attempt_id = 7;
+}
+
 message TaskAssigned {
   EventMetadata metadata = 1;
   string task_type = 2;
@@ -81,6 +93,7 @@ message TaskAssigned {
   string tool_id = 9;
   string quota_id = 10;
   string quota_dimension = 11;
+  SandboxAssignment sandbox = 12;
 }
 
 message TaskAccepted {

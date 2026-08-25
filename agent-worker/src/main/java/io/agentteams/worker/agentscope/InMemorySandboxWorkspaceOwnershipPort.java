@@ -34,6 +34,27 @@ public final class InMemorySandboxWorkspaceOwnershipPort implements SandboxWorks
         claim(workspaceOwners, normalize(workspacePath), owner, "workspace");
     }
 
+    @Override
+    public synchronized void claimBinding(String providerSandboxId, Optional<Path> workspacePath,
+            WorkspaceOwner owner) {
+        Objects.requireNonNull(providerSandboxId, "providerSandboxId must not be null");
+        Objects.requireNonNull(workspacePath, "workspacePath must not be null");
+        Objects.requireNonNull(owner, "owner must not be null");
+        Path normalizedWorkspace = workspacePath.map(InMemorySandboxWorkspaceOwnershipPort::normalize).orElse(null);
+        WorkspaceOwner existingSandbox = sandboxOwners.get(providerSandboxId);
+        if (existingSandbox != null && !existingSandbox.equals(owner)) {
+            throw new IllegalArgumentException("sandbox ownership conflict");
+        }
+        WorkspaceOwner existingWorkspace = normalizedWorkspace == null ? null : workspaceOwners.get(normalizedWorkspace);
+        if (existingWorkspace != null && !existingWorkspace.equals(owner)) {
+            throw new IllegalArgumentException("workspace ownership conflict");
+        }
+        sandboxOwners.putIfAbsent(providerSandboxId, owner);
+        if (normalizedWorkspace != null) {
+            workspaceOwners.putIfAbsent(normalizedWorkspace, owner);
+        }
+    }
+
     private static <K> void claim(Map<K, WorkspaceOwner> owners, K key, WorkspaceOwner owner, String kind) {
         WorkspaceOwner previous = owners.get(key);
         if (previous != null && !previous.equals(owner)) {

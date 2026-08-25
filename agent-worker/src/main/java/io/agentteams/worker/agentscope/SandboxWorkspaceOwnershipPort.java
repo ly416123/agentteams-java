@@ -18,6 +18,15 @@ public interface SandboxWorkspaceOwnershipPort {
     /** Must atomically claim or reject a normalized workspace path owner. */
     void claimWorkspace(Path workspacePath, WorkspaceOwner owner);
 
+    /**
+     * Must atomically claim the provider sandbox and optional workspace path.
+     * Implementations backed by a durable store should use one transaction.
+     */
+    default void claimBinding(String providerSandboxId, Optional<Path> workspacePath, WorkspaceOwner owner) {
+        claimSandbox(providerSandboxId, owner);
+        workspacePath.ifPresent(path -> claimWorkspace(path, owner));
+    }
+
     record WorkspaceOwner(UUID taskId, UUID attemptId, String scopeId) {
         public WorkspaceOwner {
             Objects.requireNonNull(taskId, "taskId must not be null");

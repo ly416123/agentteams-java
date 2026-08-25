@@ -9,6 +9,7 @@ import java.util.Objects;
 
 /** Persists commands first, then pushes them to the current stream or replays them after reconnect. */
 public final class CommandDeliveryService {
+    static final String SANDBOX_ASSIGNMENT_CAPABILITY = "sandbox-assignment-v1";
 
     private final ConnectionRegistry registry;
     private final CommandReplayPort commands;
@@ -34,6 +35,7 @@ public final class CommandDeliveryService {
         if (!command.hasTaskAssigned() && !command.hasConfigChanged()) {
             throw new IllegalArgumentException("unsupported Agent command payload");
         }
+        registry.current(agentId).ifPresent(connection -> requireCapabilities(connection, command));
         SequencedCommand persisted = commands.append(agentId, command);
         registry.current(agentId).ifPresent(connection -> sendIfCurrent(connection, persisted));
         return persisted;
@@ -91,10 +93,19 @@ public final class CommandDeliveryService {
         if (!registry.isCurrent(connection)) {
             throw new GatewayExceptions.StaleConnection("command target is no longer current");
         }
+        requireCapabilities(connection, command.message());
         StreamObserver<ServerMessage> outbound = connection.outbound();
         outbound.onNext(command.message());
         commands.markDelivered(connection.profile().orElseThrow().agentId(), connection.connectionId(),
                 command.sequence());
+    }
+
+    private static void requireCapabilities(AgentConnection connection, ServerMessage command) {
+        if (command.hasTaskAssigned() && command.getTaskAssigned().hasSandbox()
+                && !connection.profile().orElseThrow().capabilities()
+                .containsKey(SANDBOX_ASSIGNMENT_CAPABILITY)) {
+            throw new IllegalStateException("Agent does not advertise " + SANDBOX_ASSIGNMENT_CAPABILITY);
+        }
     }
 
     private ConnectionRegistry.ConnectionSnapshot requireCurrent(AgentConnection connection) {

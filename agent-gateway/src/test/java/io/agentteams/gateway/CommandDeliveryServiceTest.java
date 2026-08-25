@@ -93,6 +93,33 @@ class CommandDeliveryServiceTest {
         assertThat(store.acknowledged).containsExactly(1L);
     }
 
+    @Test
+    void refusesSandboxAssignmentForWorkerWithoutSandboxCapability() {
+        ConnectionRegistry registry = new ConnectionRegistry();
+        GatewayTestFixtures.RecordingCommandStore store = new GatewayTestFixtures.RecordingCommandStore();
+        CommandDeliveryService delivery = new CommandDeliveryService(registry, store, fixedClock());
+        AgentChannelService service = service(registry, delivery, store);
+        GatewayTestFixtures.RecordingObserver outbound = new GatewayTestFixtures.RecordingObserver();
+        service.connect(outbound).onNext(GatewayTestFixtures.hello("agent-1"));
+
+        ServerMessage command = ServerMessage.newBuilder().setTaskAssigned(
+                GatewayTestFixtures.assignment("agent-1", "assignment-sandbox").toBuilder()
+                        .setSandbox(io.agentteams.contracts.v1.SandboxAssignment.newBuilder()
+                                .setProviderSandboxId("sandbox-1")
+                                .setProfile("ISOLATED")
+                                .setStatus("READY")
+                                .setEndpointRef("sandbox://provider/sandbox-1")
+                                .setOwnerTaskId("task-1")
+                                .setOwnerAttemptId("attempt-1")
+                                .build())
+                        .build()).build();
+
+        assertThatThrownBy(() -> delivery.deliver("agent-1", command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Agent does not advertise sandbox-assignment-v1");
+        assertThat(store.appended).isEmpty();
+    }
+
     private static AgentChannelService service(ConnectionRegistry registry, CommandDeliveryService delivery,
             GatewayTestFixtures.RecordingCommandStore store) {
         GatewayTestFixtures.RecordingStateStore state = new GatewayTestFixtures.RecordingStateStore();
