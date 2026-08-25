@@ -79,6 +79,16 @@ operator:
   leaderElection:
     enabled: true
     leaseName: agentteams-operator
+agentRuntime:
+  # Workers consume the rendered runtime ConfigMap. Keep the safe QwenPaw path
+  # as the default until an AgentScope-capable worker advertises its capability.
+  default: QWENPAW
+  agentScope:
+    enabled: false
+    rolloutPercentage: 0
+    agentAllowlist: []
+    teamAllowlist: []
+    tenantAllowlist: []
 sandbox:
   # Sandbox is opt-in. Existing tasks keep the in-process/NONE execution path.
   enabled: false

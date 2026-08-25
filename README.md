@@ -248,6 +248,30 @@ real model task can complete. Worker readiness only proves the Agent channel
 is connected, and the bootstrap script intentionally does not invent external
 credentials.
 
+### AgentScope 灰度与回滚
+
+AgentScope 的运行时选择采用默认关闭、确定性分桶和显式 allowlist。Helm
+会渲染 `<release>-agentteams-java-agent-runtime` ConfigMap，供兼容的 Worker
+以 `envFrom` 方式读取；ConfigMap 不包含任何模型凭证。默认值为：
+
+```yaml
+agentRuntime:
+  default: QWENPAW
+  agentScope:
+    enabled: false
+    rolloutPercentage: 0
+    agentAllowlist: []
+    teamAllowlist: []
+    tenantAllowlist: []
+```
+
+灰度前必须先确认 Worker 在 Hello 中声明 `sandbox-assignment-v1`（若任务
+带 Sandbox），再逐步提高 `rolloutPercentage` 或配置 allowlist。回滚只需将
+`agentScope.enabled` 设为 `false`、`rolloutPercentage` 设为 `0`，并滚动更新
+Worker；缺少租户/Team/Agent 稳定标识时策略会 fail-closed 到 QwenPaw。
+当前默认 Worker 仍保持 QwenPaw 执行路径，AgentScope Harness 的生产接线需
+在兼容 Worker 镜像和真实模型配置完成后再开启。
+
 The chart resource names include both the Helm release and chart name. The
 Control Plane API can be exposed for a smoke check with:
 
