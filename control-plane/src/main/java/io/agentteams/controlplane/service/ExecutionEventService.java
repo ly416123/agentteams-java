@@ -6,6 +6,7 @@ import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.domain.task.AppliedTransition;
 import io.agentteams.domain.task.DuplicateTransition;
 import io.agentteams.domain.task.Task;
@@ -129,6 +130,7 @@ public final class ExecutionEventService {
                     nextAttempt.updatedAt());
         }
         if (next.phase().terminal()) {
+            requestSandboxTermination(tx, next.attempt(), next.updatedAt());
             teamId(current).ifPresent(team -> tx.teams().releaseTaskAssignment(team, taskId, next.updatedAt()));
             if (next.attempt() != null) {
                 var lease = tx.agentLeases().findById(next.attempt().leaseId())
@@ -152,6 +154,23 @@ public final class ExecutionEventService {
         FoundationPersistenceService.appendEvent(tx, command.eventId(), "task", taskId, "TaskTransitionApplied",
                 transitionPayload(command, applied), command.occurredAt(), next.version());
         return result;
+    }
+
+    private static void requestSandboxTermination(FoundationTransaction tx, TaskAttempt attempt, java.time.Instant at) {
+        if (attempt == null) {
+            return;
+        }
+        tx.taskSandboxes().findByAttemptId(attempt.id()).ifPresent(sandbox -> {
+            if (sandbox.status() == SandboxStatus.DESTROYED || sandbox.status() == SandboxStatus.FAILED
+                    || sandbox.status() == SandboxStatus.EXPIRED || sandbox.status() == SandboxStatus.STOPPING) {
+                return;
+            }
+            tx.taskSandboxes().updateStatus(sandbox.id(), SandboxStatus.STOPPING, at, null, null,
+                    null, null, sandbox.version(), at);
+            FoundationPersistenceService.appendEvent(tx, "task_sandbox", sandbox.id(),
+                    "SandboxTerminateRequested", "{\"attemptId\":\"" + attempt.id()
+                            + "\",\"reason\":\"TASK_TERMINAL\"}", at, sandbox.version() + 1);
+        });
     }
 
     private static Task toDomain(TaskRecord task, TaskAttemptRecord attempt, Set<UUID> processedEvents) {

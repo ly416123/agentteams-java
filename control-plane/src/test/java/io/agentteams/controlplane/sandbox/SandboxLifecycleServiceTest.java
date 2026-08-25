@@ -7,6 +7,9 @@ import io.agentteams.application.api.SandboxProfile;
 import io.agentteams.application.api.SandboxRequest;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.application.api.SandboxTerminationReason;
+import io.agentteams.controlplane.persistence.TaskAttemptRecord;
+import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.domain.task.TaskPhase;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -31,5 +34,25 @@ class SandboxLifecycleServiceTest {
         assertEquals(1, runtime.provisionCalls());
         assertEquals(1, runtime.renewCalls());
         assertEquals(1, runtime.terminateCalls());
+    }
+
+    @Test
+    void parsesOnlyExplicitSandboxProfileAndKeepsTaskSpecOutOfTheRequest() {
+        Instant now = Instant.parse("2026-08-25T08:00:00Z");
+        UUID taskId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+        TaskRecord task = new TaskRecord(taskId, "sandbox", "description", TaskPhase.ASSIGNED, 0,
+                "{\"input\":{\"secret\":\"must-not-copy\"},\"sandbox\":{"
+                        + "\"profile\":\"ISOLATED\",\"template\":\"python-untrusted\",\"ttlSeconds\":120}}",
+                "actor", "test", null, null, now, now, 1);
+        TaskAttemptRecord attempt = new TaskAttemptRecord(attemptId, taskId, UUID.randomUUID(),
+                TaskPhase.ASSIGNED, now.plusSeconds(60), null, "scheduler", "test", null, null, now, now, 1);
+
+        SandboxRequest request = SandboxLifecycleService.requestFor(task, attempt, now).orElseThrow();
+
+        assertEquals(SandboxProfile.ISOLATED, request.profile());
+        assertEquals(Duration.ofSeconds(120), request.ttl());
+        assertEquals("python-untrusted", request.template());
+        assertEquals("task-attempt:" + attemptId, request.idempotencyKey());
     }
 }
