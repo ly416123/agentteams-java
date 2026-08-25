@@ -308,3 +308,16 @@ Kind CI 只执行 CRD、Helm、RBAC、NetworkPolicy、Fake Provider 和状态机
 - Control Plane 不需要 Docker Socket 或任意 Pod 管理权限；
 - gVisor、Kata、CubeSandbox 可以在不修改 Task/Team 领域模型的前提下替换。
 
+## 12. 当前实施状态（2026-08-25）
+
+已完成并独立提交：应用契约与 Fake Provider、Flyway V41 与 Attempt 一对一
+持久化、Assignment/Lease/Outbox 生命周期接入、TaskSandbox CRD/Operator、Helm
+安全配置和默认关闭的 Kind 契约。默认 `NONE` 路径保持兼容；Provider 调用位于
+数据库事务之外；Operator 只拥有命名空间内 TaskSandbox、Job、Worker/Team
+子资源的权限，不接触 Docker Socket。
+
+已验证：`mvn -q -Pintegration-tests verify` 退出码 0，Operator 测试、Sandbox
+安全契约、Helm lint/template、Kind 清单校验通过。当前 macOS 没有 Docker Socket，
+本地 Kind 和 Testcontainers 数据库实机测试未执行；真实 gVisor/Kata RuntimeClass
+需要独立 Linux/KVM 集群，不能用 Fake Provider 或静态渲染替代。下一验收入口是
+在具备该环境后执行计划中的 Kind 默认路径和 Linux/KVM RuntimeClass 验收。

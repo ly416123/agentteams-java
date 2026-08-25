@@ -65,6 +65,31 @@ inside the resource payload: Agent metadata uses `metadata.scope`, tasks use
 must exactly match the caller's claims; missing or cross-scope access returns
 `403`.
 
+## Task Sandbox isolation
+
+Sandbox isolation is opt-in and Task-scoped, not Team-, Worker-, or Kubernetes
+Node-scoped. Keep the production values explicit and let the Operator own the
+restricted Job lifecycle:
+
+```yaml
+sandbox:
+  enabled: true
+  defaultProfile: NONE
+  provider: kubernetes
+  runtimeClasses:
+    isolated: gvisor
+    hardened: kata-qemu
+  defaultTtlSeconds: 1800
+  maxTtlSeconds: 86400
+```
+
+The chart and Operator enforce namespace-scoped CRD/Job permissions, disable
+the ServiceAccount token, reject privileged/host namespace/hostPath settings,
+and apply a default-deny sandbox NetworkPolicy with DNS only. Before enabling
+a non-`NONE` profile, verify that the configured RuntimeClass exists and run
+the independent Linux/KVM acceptance for both gVisor and Kata. Do not grant
+the Control Plane Docker Socket or arbitrary Pod/Job permissions.
+
 ## Rollout verification
 
 After installing or updating the external secret controller, verify that the

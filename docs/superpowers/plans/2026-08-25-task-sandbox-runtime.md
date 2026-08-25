@@ -65,7 +65,7 @@
 - 创建：`control-plane/src/main/java/io/agentteams/controlplane/sandbox/FakeSandboxRuntime.java`；
 - 测试：`control-plane/src/test/java/io/agentteams/controlplane/sandbox/SandboxLifecycleServiceTest.java`。
 
-- [ ] **步骤 1：编写契约失败测试。**
+- [x] **步骤 1：编写契约失败测试。**
 
 测试必须覆盖：
 
@@ -79,7 +79,7 @@ assertThat(FakeSandboxRuntime.provision(request).providerSandboxId())
         .isNotBlank();
 ```
 
-- [ ] **步骤 2：运行契约测试确认失败。**
+- [x] **步骤 2：运行契约测试确认失败。**
 
 运行：
 
@@ -90,7 +90,7 @@ mvn -q -pl application-contracts,control-plane -am \
 
 预期：编译失败，原因是 Sandbox 类型和 Fake Provider 尚不存在。
 
-- [ ] **步骤 3：实现不可变契约类型。**
+- [x] **步骤 3：实现不可变契约类型。**
 
 要求：
 
@@ -100,15 +100,15 @@ mvn -q -pl application-contracts,control-plane -am \
 - `SandboxHandle` 只保存 Provider ID、profile、状态、Endpoint 引用和到期时间；
 - `SandboxRuntimePort` 不依赖 Spring、Kubernetes 或具体 Provider 类型。
 
-- [ ] **步骤 4：实现 Fake Provider 和最小契约测试。**
+- [x] **步骤 4：实现 Fake Provider 和最小契约测试。**
 
 Fake Provider 必须按幂等键返回同一个 `SandboxHandle`，支持配置创建失败和销毁失败，记录续期和销毁调用次数，且不访问文件、Docker Socket 或外部网络。
 
-- [ ] **步骤 5：运行测试确认通过。**
+- [x] **步骤 5：运行测试确认通过。**
 
 运行相同 Maven 命令，预期相关测试全部通过。
 
-- [ ] **步骤 6：提交任务 1。**
+- [x] **步骤 6：提交任务 1。**
 
 ```bash
 git add application-contracts/src/main/java/io/agentteams/application/api \
@@ -132,11 +132,11 @@ git commit -m "feat(sandbox): 增加运行时契约和 Fake Provider（任务 1/
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/persistence/FoundationTransaction.java`；
 - 测试：`control-plane/src/test/java/io/agentteams/controlplane/sandbox/TaskSandboxRepositoryIT.java`。
 
-- [ ] **步骤 1：编写 Repository 失败测试。**
+- [x] **步骤 1：编写 Repository 失败测试。**
 
 测试插入 `REQUESTED`、按 Attempt 查询、重复 Attempt 唯一约束、错误 version 乐观锁拒绝、`claimRequested` 的 `FOR UPDATE SKIP LOCKED`、以及 `markReady`/`markFailed`/`markDestroyed` 的时间和脱敏错误持久化。
 
-- [ ] **步骤 2：运行测试确认迁移和类型缺失。**
+- [x] **步骤 2：运行测试确认迁移和类型缺失。**
 
 ```bash
 mvn -q -pl control-plane -am -Dtest=TaskSandboxRepositoryIT test
@@ -144,11 +144,11 @@ mvn -q -pl control-plane -am -Dtest=TaskSandboxRepositoryIT test
 
 预期：因 V41 和 Repository 不存在而失败。
 
-- [ ] **步骤 3：编写 V41 迁移。**
+- [x] **步骤 3：编写 V41 迁移。**
 
 迁移创建 `task_sandboxes`，包含 Task/Attempt/Agent 外键、`UNIQUE(attempt_id)`、幂等键唯一索引、Provider ID 部分唯一索引、`(status, expires_at)` 回收索引和 JSONB 对象约束。
 
-- [ ] **步骤 4：实现 Record、Repository 和事务访问器。**
+- [x] **步骤 4：实现 Record、Repository 和事务访问器。**
 
 Repository 提供以下方法：
 
@@ -166,7 +166,7 @@ TaskSandboxRecord markDestroyed(UUID id, long expectedVersion, Instant at);
 
 所有更新都必须带 version 条件。
 
-- [ ] **步骤 5：运行 Flyway 和 Repository 集成测试。**
+- [x] **步骤 5：运行 Flyway 和 Repository 集成测试。**
 
 ```bash
 mvn -q -pl control-plane -am \
@@ -175,7 +175,7 @@ mvn -q -pl control-plane -am \
 
 预期：迁移成功，Sandbox Repository 测试全部通过。
 
-- [ ] **步骤 6：提交任务 2。**
+- [x] **步骤 6：提交任务 2。**
 
 ```bash
 git add control-plane/src/main/resources/db/migration/V41__task_sandboxes.sql \
@@ -201,15 +201,15 @@ git commit -m "feat(sandbox): 增加 Attempt 绑定和持久化（任务 2/6）"
 - 测试：`control-plane/src/test/java/io/agentteams/controlplane/service/ExecutionEventServiceTest.java`；
 - 测试：`control-plane/src/test/java/io/agentteams/controlplane/sandbox/SandboxLifecycleServiceTest.java`。
 
-- [ ] **步骤 1：增加 Assignment 的 Sandbox profile 失败测试。**
+- [x] **步骤 1：增加 Assignment 的 Sandbox profile 失败测试。**
 
 验证无 `sandbox` 字段和 `profile=NONE` 的任务与现有行为完全一致；`profile=ISOLATED` 在同一事务写入 `REQUESTED`，并追加 `SandboxProvisionRequested`；事务回滚时 Assignment 和 Sandbox 都不存在。
 
-- [ ] **步骤 2：增加终态销毁事件失败测试。**
+- [x] **步骤 2：增加终态销毁事件失败测试。**
 
 对 `SUCCEEDED`、`FAILED`、`CANCELLED` 验证 Agent Lease 释放、Sandbox 进入 `STOPPING`、追加一次 `SandboxTerminateRequested`，并验证相同 execution event 重放不会重复追加销毁事件。
 
-- [ ] **步骤 3：实现 profile 解析和请求构造。**
+- [x] **步骤 3：实现 profile 解析和请求构造。**
 
 从 Task spec 读取：
 
@@ -225,11 +225,11 @@ git commit -m "feat(sandbox): 增加 Attempt 绑定和持久化（任务 2/6）"
 
 缺失字段按 `NONE`；profile 必须是大写枚举；TTL 范围为 60 到 86,400 秒；template 最大 128 字符；不复制完整 Task spec 到 Sandbox details。
 
-- [ ] **步骤 4：修改 TaskAssigned payload。**
+- [x] **步骤 4：修改 TaskAssigned payload。**
 
 只有 Sandbox 为 `READY` 时才加入 sandbox 引用；`NONE` 任务保持现有 payload 兼容。对于需要 Sandbox 但尚未 READY 的 Assignment，暂不发布可执行的 `TaskAssigned`，由 SandboxReady 路径补发一次。
 
-- [ ] **步骤 5：实现生命周期服务。**
+- [x] **步骤 5：实现生命周期服务。**
 
 `SandboxLifecycleService` 提供：
 
@@ -241,7 +241,7 @@ int terminateStopping(Instant now, int limit);
 
 服务先 claim 数据库记录，再在事务外调用 Provider；创建最多重试 3 次，销毁最多重试 10 次；旧 Attempt 不能更新新 Sandbox；Lease 到期时 Sandbox 进入 `EXPIRED`。
 
-- [ ] **步骤 6：运行定向测试。**
+- [x] **步骤 6：运行定向测试。**
 
 ```bash
 mvn -q -pl control-plane -am \
@@ -250,7 +250,7 @@ mvn -q -pl control-plane -am \
 
 预期：既有 Assignment/Execution 测试和新增 Sandbox 测试全部通过。
 
-- [ ] **步骤 7：提交任务 3。**
+- [x] **步骤 7：提交任务 3。**
 
 ```bash
 git add control-plane/src/main/java/io/agentteams/controlplane/sandbox \
@@ -278,11 +278,11 @@ git commit -m "feat(sandbox): 接入任务分配和租约生命周期（任务 3
 - 创建：`deploy/helm/agentteams-java/crds/task-sandboxes.yaml`；
 - 修改：`operator/src/main/java/io/agentteams/operator/AgentTeamsOperatorApplication.java`。
 
-- [ ] **步骤 1：编写 ResourceFactory 失败测试。**
+- [x] **步骤 1：编写 ResourceFactory 失败测试。**
 
 验证固定 Job 名称、profile 到 RuntimeClass 的配置映射、关闭 ServiceAccount token、禁止 privileged/hostNetwork/hostPID/hostPath、资源和 TTL、Task/Attempt 标签，以及重复 reconcile 的幂等结果。
 
-- [ ] **步骤 2：运行测试确认类型不存在。**
+- [x] **步骤 2：运行测试确认类型不存在。**
 
 ```bash
 mvn -q -pl operator -am -Dtest=TaskSandboxResourceFactoryTest test
@@ -290,19 +290,19 @@ mvn -q -pl operator -am -Dtest=TaskSandboxResourceFactoryTest test
 
 预期：因 TaskSandbox 类型不存在而失败。
 
-- [ ] **步骤 3：实现 CRD Java 类型和资源工厂。**
+- [x] **步骤 3：实现 CRD Java 类型和资源工厂。**
 
 `TaskSandboxSpec` 固定包含 taskId、attemptId、profile、runtimeClassName、image、resources、ttlSeconds。资源工厂只接受三个 profile，RuntimeClass 映射来自 Operator 配置。
 
-- [ ] **步骤 4：实现 Reconciler。**
+- [x] **步骤 4：实现 Reconciler。**
 
 Reconciler 创建或替换 Job，通过 Job 状态更新 CR status；Job 成功/失败分别设置状态；删除 CR 时清理 Job；使用 owner reference，禁止 orphan 子资源。
 
-- [ ] **步骤 5：补充 CRD、Operator 注册和 RBAC。**
+- [x] **步骤 5：补充 CRD、Operator 注册和 RBAC。**
 
 CRD 限制 profile、TTL 和资源字段；Operator 只增加对 tasksandboxes、jobs 和 status 的最小权限；Control Plane 不增加 Pod/Job 管理权限。
 
-- [ ] **步骤 6：运行 Operator 测试和 YAML 校验。**
+- [x] **步骤 6：运行 Operator 测试和 YAML 校验。**
 
 ```bash
 mvn -q -pl operator -am -Dtest=TaskSandboxResourceFactoryTest test
@@ -314,7 +314,7 @@ helm template agentteams deploy/helm/agentteams-java \
 
 预期：测试、Kind 和 Helm 校验通过，渲染结果包含 TaskSandbox CRD 和最小 RBAC。
 
-- [ ] **步骤 7：提交任务 4。**
+- [x] **步骤 7：提交任务 4。**
 
 ```bash
 git add operator/src/main/java/io/agentteams/operator \
@@ -340,11 +340,11 @@ git commit -m "feat(sandbox): 增加 TaskSandbox CRD 和 Operator（任务 4/6�
 - 修改：`deploy/helm/agentteams-java/templates/crds.yaml`；
 - 修改：`.github/workflows/ci.yml`。
 
-- [ ] **步骤 1：编写 Python 契约失败测试。**
+- [x] **步骤 1：编写 Python 契约失败测试。**
 
 检查默认 `sandbox.enabled=false`、默认 profile `NONE`、gVisor/Kata RuntimeClass 配置、Operator RBAC 不含任意 Pod/Secret 管理权限、TaskSandbox CRD 被 Helm 安装，以及 Kind CI 不安装真实 gVisor/Kata。
 
-- [ ] **步骤 2：运行测试确认失败。**
+- [x] **步骤 2：运行测试确认失败。**
 
 ```bash
 python3 -m unittest scripts/test_kind_task_sandbox_contract.py
@@ -352,7 +352,7 @@ python3 -m unittest scripts/test_kind_task_sandbox_contract.py
 
 预期：因 Sandbox Helm 配置和契约测试不存在而失败。
 
-- [ ] **步骤 3：实现 Helm 配置和 Operator 参数。**
+- [x] **步骤 3：实现 Helm 配置和 Operator 参数。**
 
 配置固定为：
 
@@ -370,11 +370,11 @@ sandbox:
 
 部署环境可以覆盖 Provider 和 RuntimeClass 名称，但 Task spec 不能直接提交任意运行时名称。
 
-- [ ] **步骤 4：增加 NetworkPolicy 和资源限制模板。**
+- [x] **步骤 4：增加 NetworkPolicy 和资源限制模板。**
 
 TaskSandbox 默认拒绝出站，只允许配置的 Control Plane、Gateway、Model 和 Artifact 服务；关闭 ServiceAccount token；不开放 Kubernetes API、Docker Socket、hostPath 和宿主设备；为不同 profile 设置可审计标签。
 
-- [ ] **步骤 5：接入 CI 静态契约。**
+- [x] **步骤 5：接入 CI 静态契约。**
 
 在 verify job 中加入：
 
@@ -386,7 +386,7 @@ python3 scripts/validate-kind-manifests.py
 
 不在现有 kind-recovery 中安装 gVisor/Kata，不改变 QwenPaw 冒烟路径。
 
-- [ ] **步骤 6：运行契约和 Helm 验证。**
+- [x] **步骤 6：运行契约和 Helm 验证。**
 
 ```bash
 python3 -m unittest scripts/test_kind_task_sandbox_contract.py
@@ -398,7 +398,7 @@ python3 scripts/validate-kind-manifests.py
 
 预期：全部退出码为 0，默认渲染结果不创建真实 Sandbox Provider。
 
-- [ ] **步骤 7：提交任务 5。**
+- [x] **步骤 7：提交任务 5。**
 
 ```bash
 git add scripts/test_kind_task_sandbox_contract.py \
@@ -421,7 +421,7 @@ git commit -m "feat(sandbox): 增加 Helm 与 Kind 安全契约（任务 5/6）"
 - 修改：`README.md`；
 - 修改：`deploy/production/README.md`。
 
-- [ ] **步骤 1：运行模块回归。**
+- [x] **步骤 1：运行模块回归。**
 
 ```bash
 mvn -q -DskipITs test
@@ -429,7 +429,7 @@ mvn -q -DskipITs test
 
 预期：所有模块测试退出码为 0，失败数为 0。
 
-- [ ] **步骤 2：运行集成和静态校验。**
+- [x] **步骤 2：运行集成和静态校验。**
 
 ```bash
 mvn -q -pl control-plane -am \
@@ -470,11 +470,13 @@ kubectl get pod -o custom-columns=NAME:.metadata.name,RUNTIME:.spec.runtimeClass
 
 预期：ISOLATED 使用 gVisor，HARDENED 使用 Kata；未配置 RuntimeClass 的集群只通过 Fake Provider，不创建失败 Pod。
 
-- [ ] **步骤 5：同步规格验收结果并检查状态。**
+- [x] **步骤 5：同步规格验收结果并检查状态。**
 
 文档只记录实际运行过的命令和结果，不把 Fake Provider 结果写成真实 gVisor/Kata 验收结果。
 
 - [ ] **步骤 6：提交任务 6。**
+
+> 当前验收状态：模块回归、Operator 测试、Helm lint、模板渲染、Kind 清单校验和 Sandbox 安全契约已通过。当前 macOS 环境没有 Docker Socket，无法执行本地 Kind；真实 gVisor/Kata RuntimeClass 需要独立 Linux/KVM 集群，尚未执行。上述两项不能用 Fake Provider 或静态渲染结果替代。
 
 ```bash
 git add docs/superpowers/specs/2026-08-25-task-sandbox-runtime-design.md \
