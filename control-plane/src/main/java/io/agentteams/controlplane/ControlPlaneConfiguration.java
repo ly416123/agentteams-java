@@ -52,6 +52,12 @@ import io.agentteams.controlplane.security.SecretResolver;
 import io.agentteams.controlplane.security.ValidationOnlySecretResolver;
 import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
 import io.agentteams.controlplane.service.ValidationOnlyModelProviderConnectionProbe;
+import io.agentteams.controlplane.dashboard.DashboardAlertDeliveryService;
+import io.agentteams.controlplane.dashboard.DashboardAlertEventRepository;
+import io.agentteams.controlplane.dashboard.DashboardAlertScheduler;
+import io.agentteams.controlplane.dashboard.DashboardAlertService;
+import io.agentteams.controlplane.dashboard.DashboardAlertNotificationPort;
+import io.agentteams.controlplane.usage.UsageQueryService;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -195,6 +201,29 @@ public class ControlPlaneConfiguration {
             @Value("${agentteams.scheduler.batch-size:16}") int batchSize) {
         return new TaskAssignmentScheduler(assignments, schedulerLease, clock,
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
+    }
+
+    @Bean
+    DashboardAlertDeliveryService dashboardAlertDeliveryService(UsageQueryService usage,
+            DashboardAlertService alerts, DashboardAlertEventRepository events,
+            DashboardAlertNotificationPort notifications, Clock clock,
+            @Value("${agentteams.dashboard.alerts.scheduler.retry-delay:1m}") java.time.Duration retryDelay) {
+        return new DashboardAlertDeliveryService(usage::summarizeForScope, alerts, events, notifications,
+                clock, retryDelay);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "agentteams.dashboard.alerts.scheduler.enabled", havingValue = "true")
+    DashboardAlertScheduler dashboardAlertScheduler(DashboardAlertDeliveryService delivery,
+            DashboardAlertEventRepository events, SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.dashboard.alerts.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.dashboard.alerts.scheduler.window:24h}") java.time.Duration window,
+            @Value("${agentteams.dashboard.alerts.scheduler.max-projects-per-run:100}") int maxProjectsPerRun) {
+        return new DashboardAlertScheduler(delivery, events, schedulerLease, clock,
+                podName == null || podName.isBlank() ? "dashboard-alert" : podName,
+                leaseDuration, window, maxProjectsPerRun);
     }
 
     @Bean

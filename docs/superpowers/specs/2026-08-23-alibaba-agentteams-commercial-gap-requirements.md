@@ -778,3 +778,15 @@ Gateway、Runtime、Worker 相关回归测试已通过。当前剩余事项收�
 - Control Plane 在终态任务事件落库后写入 `model_call_audits`，新增 V38 `source_event_id` 唯一索引，以事件 ID 保证重复投递不重复计数。
 - Gateway 校验 `model_call.task_id` 与事件元数据一致、`worker_id` 与当前连接一致；缺失维度仍保持安全空值，由 Usage 查询回退 `unknown`。
 - Runtime、Gateway、Control Plane 全量测试和 API/可观测性契约校验通过；通知通道仍保持为下一阶段的独立适配器，不在本次改动中接入外部供应商。
+
+### 2026-08-25 Dashboard 告警投递闭环
+
+已完成告警通知链路的基础闭环：
+
+- Usage 增加不依赖请求登录态的显式 tenant/project 查询，后台调度不会串用其他请求的 PrincipalContext。
+- 新增 V40 `dashboard_alert_events` 与 JDBC/内存 repository，按项目、时间窗口和规则指纹幂等去重，持久化 `PENDING/SENT/FAILED` 状态、尝试次数和脱敏错误。
+- 告警投递服务复用现有日志/Webhook port，通知异常进入 FAILED，采用指数退避重试；已成功投递的同一窗口规则会被抑制。
+- 定时器使用既有数据库 scheduler lease，在多副本下只由 leader 枚举有审计数据的项目并评估滚动窗口；调度默认关闭，开启前仍需显式配置调度开关，外部 Webhook 继续默认关闭。
+- 已认证的手工通知入口复用持久化投递服务；未认证开发调用保持原有即时通知兼容行为。
+
+Control Plane 定向测试（Usage 显式作用域、告警去重/重试、scheduler lease）12/12 通过。下一步应在全仓回归后，用配置开启调度并在 Kind 中验证 V40 迁移、Webhook 失败重试和多副本 lease 行为。

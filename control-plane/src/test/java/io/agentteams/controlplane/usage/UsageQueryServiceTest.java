@@ -121,6 +121,23 @@ class UsageQueryServiceTest {
     }
 
     @Test
+    void summarizesAnExplicitProjectScopeWithoutUsingTheRequestPrincipal() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a")))
+                .thenReturn(new UsageQueryService.UsageTotals(2, 0, 10, 5, 0));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"))).thenReturn(List.of());
+
+        UsageQueryService.UsageSummary summary = service().summarizeForScope("tenant-a", "project-a",
+                NOW.minusSeconds(3600), NOW);
+
+        assertThat(summary.totals().calls()).isEqualTo(2);
+        verify(jdbc).queryForObject(org.mockito.ArgumentMatchers.contains("tenant_id = ? AND project_id = ?"),
+                ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"));
+    }
+
+    @Test
     void supportsSafeOperationalDimensionsAndKeepsMissingValuesInOneBucket() throws Exception {
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
                 .thenReturn(new UsageQueryService.UsageTotals(2, 0, 10, 5, 1.5));

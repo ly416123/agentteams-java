@@ -58,6 +58,15 @@ agentteams:
     poll-interval-ms: 1000
     lease-duration: 30s
     batch-size: 16
+  dashboard:
+    alerts:
+      scheduler:
+        enabled: false
+        poll-interval-ms: 60000
+        lease-duration: 30s
+        window: 24h
+        max-projects-per-run: 100
+        retry-delay: 1m
   security:
     api:
       enabled: false

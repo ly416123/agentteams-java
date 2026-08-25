@@ -62,14 +62,27 @@ public final class UsageQueryService {
         return summarize(from, to, null, null);
     }
 
+    /**
+     * Aggregates usage for a deployment-owned scope without consulting the
+     * request thread's principal. This is the boundary used by background
+     * dashboard jobs.
+     */
+    public UsageSummary summarizeForScope(String tenantId, String projectId, Instant from, Instant to) {
+        if (tenantId == null || tenantId.isBlank()) throw new IllegalArgumentException("tenantId is required");
+        if (projectId == null || projectId.isBlank()) throw new IllegalArgumentException("projectId is required");
+        return summarize(from, to, null, null, ScopeFilter.explicit(tenantId, projectId));
+    }
+
     public UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit) {
+        return summarize(from, to, groupBy, limit, ScopeFilter.current());
+    }
+
+    private UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit, ScopeFilter scope) {
         UsageRange range = UsageRange.resolve(from, to, clock.instant());
         GroupBy grouping = GroupBy.parse(groupBy);
         int validatedLimit = validateLimit(limit);
         Timestamp start = Timestamp.from(range.from());
         Timestamp end = Timestamp.from(range.to());
-        ScopeFilter scope = ScopeFilter.current();
-
         UsageTotals totals = jdbc.queryForObject(TOTALS_SQL + scope.whereClause(), (resultSet, rowNum) -> new UsageTotals(
                 resultSet.getLong("calls"),
                 resultSet.getLong("failures"),
@@ -290,6 +303,10 @@ public final class UsageQueryService {
             long completionTokens, double costUsd, double averageLatencyMillis) { }
 
     private record ScopeFilter(String clause, String tenant, String project, String team) {
+        static ScopeFilter explicit(String tenant, String project) {
+            return new ScopeFilter(" AND tenant_id = ? AND project_id = ?", tenant, project, null);
+        }
+
         static ScopeFilter current() {
             return PrincipalContext.current().map(principal -> {
                 String clause = " AND tenant_id = ? AND project_id = ?";
