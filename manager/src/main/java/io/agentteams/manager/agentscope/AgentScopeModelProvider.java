@@ -10,6 +10,7 @@ import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ToolSchema;
 import io.agentteams.manager.ModelProvider;
 import io.agentteams.manager.ModelProviderException;
+import io.agentteams.manager.ModelIdentity;
 import java.util.List;
 import java.util.Objects;
 
@@ -23,14 +24,14 @@ import java.util.Objects;
 public final class AgentScopeModelProvider implements ModelProvider {
     private static final String FAILURE_MESSAGE = "AgentScope model call failed";
     private static final String INVALID_RESPONSE_MESSAGE = "AgentScope model response was invalid";
+    private static final String DEFAULT_PROVIDER_NAME = "agentscope";
 
     private final Model model;
     private final String providerName;
 
     public AgentScopeModelProvider(Model model, String providerName) {
         this.model = Objects.requireNonNull(model, "model");
-        this.providerName = requireText(providerName, "providerName");
-        requireText(model.getModelName(), "modelName");
+        this.providerName = ModelIdentity.normalize(providerName, DEFAULT_PROVIDER_NAME);
     }
 
     public AgentScopeModelProvider(Model model) {
@@ -41,7 +42,7 @@ public final class AgentScopeModelProvider implements ModelProvider {
     public static AgentScopeModelProvider fromModelProvider(ModelProvider provider) {
         Objects.requireNonNull(provider, "provider");
         return new AgentScopeModelProvider(ModelProviderAgentScopeModel.from(provider),
-                requireText(provider.providerName(), "providerName"));
+                ModelIdentity.read(provider::providerName, DEFAULT_PROVIDER_NAME));
     }
 
     @Override
@@ -104,16 +105,17 @@ public final class AgentScopeModelProvider implements ModelProvider {
         if (content.toString().isBlank() || usage == null) {
             throw protocolFailure();
         }
-        return new ModelResponse(content.toString(), safeModelName(), usage.getInputTokens(),
-                usage.getOutputTokens());
+        long inputTokens = usage.getInputTokens();
+        long outputTokens = usage.getOutputTokens();
+        if (inputTokens < 0 || inputTokens > Integer.MAX_VALUE
+                || outputTokens < 0 || outputTokens > Integer.MAX_VALUE) {
+            throw protocolFailure();
+        }
+        return new ModelResponse(content.toString(), safeModelName(), inputTokens, outputTokens);
     }
 
     private String safeModelName() {
-        try {
-            return requireText(model.getModelName(), "modelName");
-        } catch (RuntimeException error) {
-            throw new ModelProviderException(FAILURE_MESSAGE, ModelProviderException.Category.UNKNOWN);
-        }
+        return ModelIdentity.read(model::getModelName, "unknown");
     }
 
     private static ModelProviderException protocolFailure() {
@@ -125,10 +127,4 @@ public final class AgentScopeModelProvider implements ModelProvider {
         return new ModelProviderException(FAILURE_MESSAGE, error.category(), error.retryable(), error.statusCode(), null);
     }
 
-    private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-        return value.trim();
-    }
 }

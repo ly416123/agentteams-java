@@ -25,6 +25,7 @@ import io.agentteams.manager.ModelProviderException;
 import io.agentteams.manager.ModelProviderRegistry;
 import io.agentteams.manager.ReloadableModelProvider;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +84,76 @@ class AgentScopeModelProviderTest {
     }
 
     @Test
+    void rejectsNegativeChatUsageAsSanitizedProtocolFailure() {
+        assertProtocolFailure(new AgentScopeModelProvider(new RecordingModel("model",
+                (ignoredMessages, ignoredOptions) -> Flux.just(response(List.of(text("ok")),
+                        new ChatUsage(-1, 1, 0)))), "provider"));
+        assertProtocolFailure(new AgentScopeModelProvider(new RecordingModel("model",
+                (ignoredMessages, ignoredOptions) -> Flux.just(response(List.of(text("ok")),
+                        new ChatUsage(1, -1, 0)))), "provider"));
+    }
+
+    @Test
+    void invalidChatUsageIsRecordedAsProtocolFailureAudit() {
+        AgentScopeModelProvider provider = new AgentScopeModelProvider(new RecordingModel("model",
+                (ignoredMessages, ignoredOptions) -> Flux.just(response(List.of(text("ok")),
+                        new ChatUsage(-1, 1, 0)))), "provider");
+        List<ModelCallAudit> audits = new ArrayList<>();
+        ManagerSessionService service = new ManagerSessionService(provider,
+                new com.fasterxml.jackson.databind.ObjectMapper(), new ManagerToolRegistry(Map.of()), audits::add,
+                java.time.Clock.systemUTC());
+
+        assertThatThrownBy(() -> service.handleCreateTask("private prompt",
+                new ManagerToolRegistry.ToolContext(Set.of(), false)))
+                .isInstanceOfSatisfying(ModelProviderException.class, error -> {
+                    assertThat(error.category()).isEqualTo(ModelProviderException.Category.PROTOCOL);
+                    assertThat(error.getMessage()).isEqualTo("AgentScope model call failed");
+                });
+        assertThat(audits).singleElement().satisfies(audit -> {
+            assertThat(audit.outcome()).isEqualTo(ModelCallAudit.Outcome.FAILURE);
+            assertThat(audit.errorCategory()).isEqualTo(ModelProviderException.Category.PROTOCOL.name());
+        });
+    }
+
+    @Test
+    void normalizesProviderAndModelIdentityBeforeExposingMetadata() {
+        AgentScopeModelProvider provider = new AgentScopeModelProvider(
+                new RecordingModel("apiKey=secret prompt=private", (ignoredMessages, ignoredOptions) -> Flux.empty()),
+                "apiKey=secret prompt=private");
+
+        assertThat(provider.providerName()).isEqualTo("agentscope");
+        assertThat(provider.modelName()).isEqualTo("unknown");
+        assertThat(provider.providerName()).doesNotContain("secret", "private");
+        assertThat(provider.modelName()).doesNotContain("secret", "private");
+    }
+
+    @Test
+    void normalizesIdentityGetterExceptionsWithoutLeakingDetails() {
+        Model model = new Model() {
+            @Override
+            public Flux<ChatResponse> stream(List<io.agentscope.core.message.Msg> messages,
+                    List<ToolSchema> tools, GenerateOptions options) {
+                return Flux.empty();
+            }
+
+            @Override
+            public String getModelName() {
+                throw new IllegalStateException("apiKey=secret prompt=private");
+            }
+        };
+
+        AgentScopeModelProvider provider = new AgentScopeModelProvider(model,
+                "configured-provider");
+
+        assertThat(provider.modelName()).isEqualTo("unknown");
+        assertThatThrownBy(() -> provider.complete(request()))
+                .isInstanceOfSatisfying(ModelProviderException.class, error -> {
+                    assertThat(error.getMessage()).doesNotContain("secret", "private");
+                    assertThat(error.getCause()).isNull();
+                });
+    }
+
+    @Test
     void registryProviderUsesAdmissionAuditAndManagerPriceCatalog() {
         Model model = new RecordingModel("deepseek-chat", (ignoredMessages, ignoredOptions) -> Flux.just(response(
                 List.of(text("{\"intent\":\"CREATE_TASK\",\"title\":\"AgentScope\",\"description\":\"ok\"}")),
@@ -104,7 +175,8 @@ class AgentScopeModelProviderTest {
         assertThat(service.handleCreateTask("create task",
                 new ManagerToolRegistry.ToolContext(Set.of("task:create"), false))).isEqualTo("accepted");
         assertThat(admission.requests).singleElement().satisfies(request -> {
-            assertThat(request.provider()).isEqualTo(AgentScopeModelProvider.class.getSimpleName());
+            assertThat(request.provider()).isEqualTo("deepseek");
+            assertThat(request.model()).isEqualTo("deepseek-chat");
             assertThat(request.maxTokens()).isEqualTo(1024);
         });
         assertThat(audits).singleElement().satisfies(audit -> {
@@ -221,6 +293,51 @@ class AgentScopeModelProviderTest {
                     assertThat(error.getMessage()).doesNotContain("secret-key", prompt);
                     assertThat(error.getCause()).isNull();
                 });
+    }
+
+    private static void assertProtocolFailure(AgentScopeModelProvider provider) {
+        assertThatThrownBy(() -> provider.complete(request()))
+                .isInstanceOfSatisfying(ModelProviderException.class, error -> {
+                    assertThat(error.category()).isEqualTo(ModelProviderException.Category.PROTOCOL);
+                    assertThat(error.getMessage()).isEqualTo("AgentScope model call failed");
+                    assertThat(error.getCause()).isNull();
+                });
+    }
+
+    @Test
+    void managerProviderBridgeDefersBlockingCallUntilSubscriptionAndUsesBoundedElastic() {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<String> providerThread = new AtomicReference<>();
+        ModelProvider provider = request -> {
+            calls.incrementAndGet();
+            providerThread.set(Thread.currentThread().getName());
+            return new ModelProvider.ModelResponse("answer", "recorded-model", 1, 2);
+        };
+        Model model = ModelProviderAgentScopeModel.from(provider);
+
+        Flux<ChatResponse> stream = model.stream(List.of(new UserMessage("hello")), List.of(),
+                GenerateOptions.builder().modelName("recorded-model").maxTokens(8).stream(true).build());
+
+        assertThat(calls).hasValue(0);
+        assertThat(stream.blockFirst(Duration.ofSeconds(5))).isNotNull();
+        assertThat(calls).hasValue(1);
+        assertThat(providerThread.get()).startsWith("boundedElastic-");
+    }
+
+    @Test
+    void cancellingBeforeSubscriptionDoesNotInvokeBlockingProvider() {
+        AtomicInteger calls = new AtomicInteger();
+        ModelProvider provider = request -> {
+            calls.incrementAndGet();
+            return new ModelProvider.ModelResponse("answer", "recorded-model", 1, 2);
+        };
+        Flux<ChatResponse> stream = ModelProviderAgentScopeModel.from(provider).stream(
+                List.of(new UserMessage("hello")), List.of(),
+                GenerateOptions.builder().modelName("recorded-model").maxTokens(8).stream(true).build());
+
+        stream.take(0).subscribe();
+
+        assertThat(calls).hasValue(0);
     }
 
     @FunctionalInterface

@@ -113,8 +113,8 @@ class ManagerSessionServiceTest {
         service.handleCreateTask("hello", new ManagerToolRegistry.ToolContext(Set.of("task:create"), false));
 
         assertThat(admission.requests()).singleElement().satisfies(request -> {
-            assertThat(request.provider()).isEqualTo(provider.getClass().getSimpleName());
-            assertThat(request.model()).isEqualTo("unknown");
+            assertThat(request.provider()).isEqualTo("qwen");
+            assertThat(request.model()).isEqualTo("qwen-plus");
             assertThat(request.maxTokens()).isEqualTo(1024);
         });
         assertThat(admission.releases()).isEqualTo(1);
@@ -155,7 +155,8 @@ class ManagerSessionServiceTest {
 
         assertThatThrownBy(() -> service.handleCreateTask("quota", new ManagerToolRegistry.ToolContext(Set.of(), false)))
                 .isInstanceOf(ModelCallAdmissionRejectedException.class);
-        org.mockito.Mockito.verifyNoInteractions(provider);
+        org.mockito.Mockito.verify(provider, org.mockito.Mockito.never())
+                .complete(org.mockito.ArgumentMatchers.any());
         assertThat(admission.releases()).isZero();
     }
 
@@ -180,6 +181,46 @@ class ManagerSessionServiceTest {
         assertThat(audits).singleElement().satisfies(audit -> {
             assertThat(audit.costUsd()).isZero();
             assertThat(audit.costStatus()).isEqualTo(ModelCallAudit.CostStatus.NOT_APPLICABLE);
+        });
+    }
+
+    @Test
+    void unsafeProviderIdentityCannotReachAdmissionOrFailureAudit() {
+        String secret = "rotated-secret";
+        String prompt = "private prompt";
+        ModelProvider provider = new ModelProvider() {
+            @Override
+            public ModelResponse complete(ModelRequest request) {
+                throw new ModelProviderException("upstream secret=" + secret + " prompt=" + prompt,
+                        ModelProviderException.Category.NETWORK);
+            }
+
+            @Override
+            public String providerName() {
+                return "apiKey=" + secret;
+            }
+
+            @Override
+            public String modelName() {
+                return "prompt=" + prompt;
+            }
+        };
+        List<ModelCallAudit> audits = new ArrayList<>();
+        FakeModelCallAdmission admission = new FakeModelCallAdmission();
+        ManagerSessionService service = new ManagerSessionService(provider, new ObjectMapper(),
+                new ManagerToolRegistry(Map.of()), audits::add, java.time.Clock.systemUTC(), admission);
+
+        assertThatThrownBy(() -> service.handleCreateTask(prompt,
+                new ManagerToolRegistry.ToolContext(Set.of(), false)))
+                .isInstanceOf(ModelProviderException.class);
+        assertThat(admission.requests()).singleElement().satisfies(request -> {
+            assertThat(request.provider()).isEqualTo("unknown");
+            assertThat(request.model()).isEqualTo("unknown");
+        });
+        assertThat(audits).singleElement().satisfies(audit -> {
+            assertThat(audit.toString()).doesNotContain(secret, prompt);
+            assertThat(audit.provider()).isEqualTo("unknown");
+            assertThat(audit.model()).isEqualTo("unknown");
         });
     }
 
