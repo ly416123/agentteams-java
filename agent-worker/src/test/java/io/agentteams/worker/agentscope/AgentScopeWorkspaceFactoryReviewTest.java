@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.io.TempDir;
 
 class AgentScopeWorkspaceFactoryReviewTest {
@@ -66,7 +67,12 @@ class AgentScopeWorkspaceFactoryReviewTest {
         Path workspace = Files.createDirectories(root.resolve("workspace-a"));
         Path outside = Files.createDirectories(root.getParent().resolve("outside-workspace"));
         Path symlink = root.resolve("link");
-        Files.createSymbolicLink(symlink, outside);
+        try {
+            Files.createSymbolicLink(symlink, outside);
+        } catch (UnsupportedOperationException | java.io.IOException error) {
+            Assumptions.assumeTrue(false,
+                    "symbolic links are unavailable in this test environment: " + error.getMessage());
+        }
         AgentScopeWorkspaceFactory factory = factory(new RecordingSandboxRuntime(SandboxStatus.READY));
 
         assertThat(factory.resolve(task(TASK_ID, "attempt-a", "tenant-a"), context(),

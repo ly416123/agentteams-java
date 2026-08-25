@@ -17,6 +17,9 @@ spec:
     AGENTTEAMS_CONFIG_MANIFEST_BASE_URL: http://agentteams-agentteams-java-control-plane:8080
     AGENTTEAMS_CONFIG_DIRECTORY: /tmp/agentteams-config
     AGENTTEAMS_MAX_CONFIG_FILE_BYTES: "16777216"
+    # Keep the legacy QwenPaw execution path explicit until AgentScope is enabled
+    # for a compatible Worker image and rollout policy.
+    AGENTTEAMS_RUNTIME: "QWENPAW"
     # Remote quota is opt-in. If enabled, set both scope values to the same
     # tenant/project used by the caller; blank scopes keep this example safe.
     AGENTTEAMS_QUOTA_REMOTE_ENABLED: "false"
