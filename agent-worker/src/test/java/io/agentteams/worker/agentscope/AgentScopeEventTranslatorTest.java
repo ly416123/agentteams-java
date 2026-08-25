@@ -23,8 +23,10 @@ import org.junit.jupiter.api.Test;
 class AgentScopeEventTranslatorTest {
 
     private static final String CREATED_AT = "2026-08-25T00:00:00Z";
+    private static final String TASK_ID = "task-a";
+    private static final String LEASE_ID = "lease-a";
 
-    private final AgentScopeEventTranslator translator = new AgentScopeEventTranslator("attempt-a");
+    private final AgentScopeEventTranslator translator = new AgentScopeEventTranslator(TASK_ID, "attempt-a", LEASE_ID);
 
     @Test
     void translatesAgentStartEventWithoutLeakingAgentScopeType() {
@@ -32,6 +34,9 @@ class AgentScopeEventTranslatorTest {
                 new AgentStartEvent("agent-start-id", CREATED_AT, "session", "reply", "planner", "assistant"));
 
         assertThat(result.eventId()).isEqualTo("agent-start-id");
+        assertThat(result.taskId()).isEqualTo(TASK_ID);
+        assertThat(result.attemptId()).isEqualTo("attempt-a");
+        assertThat(result.leaseId()).isEqualTo(LEASE_ID);
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.AGENT_STARTED);
         assertThat(result.safeMessage()).isEqualTo("agent started");
         assertThat(result.terminal()).isFalse();
@@ -65,6 +70,20 @@ class AgentScopeEventTranslatorTest {
         assertThat(result.safeMessage()).hasSizeLessThanOrEqualTo(128);
         assertThat(result.safeMessage()).doesNotContain("sk-secret-token-1234567890");
         assertThat(result.safeMessage()).doesNotContain("Authorization");
+    }
+
+    @Test
+    void redactsJsonQuotedTokenApiKeyAndAuthorizationValues() {
+        String text = "{\"token\":\"token-secret\",\"apiKey\":\"api-key-secret\","
+                + "\"Authorization\":\"Bearer authorization-secret\"}";
+
+        AgentScopeExecutionEvent result = translator.translate(
+                new TextBlockDeltaEvent("json-secret-id", CREATED_AT, "reply", "block", text));
+
+        assertThat(result.safeMessage()).contains("[REDACTED]");
+        assertThat(result.safeMessage()).doesNotContain("token-secret");
+        assertThat(result.safeMessage()).doesNotContain("api-key-secret");
+        assertThat(result.safeMessage()).doesNotContain("authorization-secret");
     }
 
     @Test
@@ -142,12 +161,30 @@ class AgentScopeEventTranslatorTest {
     }
 
     @Test
+    void rejectsEventFromAnotherAttemptAsStaleWithoutMarkingItCurrent() {
+        AgentScopeExecutionEvent result = translator.translate(new AgentStartEvent(
+                "stale-id", CREATED_AT, "session", "reply", "agent", "assistant")
+                .withMetadata(Map.of("attemptId", "attempt-other")));
+
+        assertThat(result.taskId()).isEqualTo(TASK_ID);
+        assertThat(result.attemptId()).isEqualTo("attempt-a");
+        assertThat(result.leaseId()).isEqualTo(LEASE_ID);
+        assertThat(result.eventId()).isEqualTo("stale-id");
+        assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+        assertThat(result.safeMessage()).isEqualTo("stale attempt event");
+        assertThat(result.terminal()).isFalse();
+        assertThat(result.success()).isFalse();
+        assertThat(result.duplicate()).isFalse();
+    }
+
+    @Test
     void scopesIdempotencyByAttemptAndReleasesSeenEventIdsOnClear() {
         AgentStartEvent event = new AgentStartEvent("same-id", CREATED_AT, "session", "reply", "agent", "assistant");
 
         AgentScopeExecutionEvent first = translator.translate(event);
         AgentScopeExecutionEvent second = translator.translate(event);
-        AgentScopeExecutionEvent otherAttempt = new AgentScopeEventTranslator("attempt-b").translate(event);
+        AgentScopeExecutionEvent otherAttempt = new AgentScopeEventTranslator(TASK_ID, "attempt-b", LEASE_ID)
+                .translate(event);
 
         assertThat(first.attemptId()).isEqualTo("attempt-a");
         assertThat(first.duplicate()).isFalse();
@@ -157,13 +194,24 @@ class AgentScopeEventTranslatorTest {
         assertThat(otherAttempt.duplicate()).isFalse();
 
         translator.clear();
-        assertThat(translator.translate(event).duplicate()).isFalse();
+        AgentScopeExecutionEvent closed = translator.translate(event);
+        assertThat(closed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
+        assertThat(closed.safeMessage()).isEqualTo("translator closed");
+        assertThat(closed.terminal()).isFalse();
+        assertThat(closed.success()).isFalse();
+        assertThat(closed.duplicate()).isFalse();
     }
 
     @Test
-    void requiresAnAttemptIdForTheIdempotencyBoundary() {
-        assertThatThrownBy(() -> new AgentScopeEventTranslator("  "))
+    void requiresAllExecutionIdsForTheIdempotencyBoundary() {
+        assertThatThrownBy(() -> new AgentScopeEventTranslator("  ", "attempt-a", LEASE_ID))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("taskId must not be blank");
+        assertThatThrownBy(() -> new AgentScopeEventTranslator(TASK_ID, "  ", LEASE_ID))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("attemptId must not be blank");
+        assertThatThrownBy(() -> new AgentScopeEventTranslator(TASK_ID, "attempt-a", "  "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("leaseId must not be blank");
     }
 }

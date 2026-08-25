@@ -12,6 +12,7 @@ import io.agentscope.core.event.RequestStopEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ToolCallEndEvent;
 import io.agentscope.core.event.ToolCallStartEvent;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -20,31 +21,55 @@ import java.util.regex.Pattern;
 public final class AgentScopeEventTranslator {
     private static final int MAX_SAFE_MESSAGE_LENGTH = 128;
     private static final Pattern SENSITIVE_VALUE = Pattern.compile(
-            "(?:authorization|api[-_ ]?key|token|password|secret)\\s*[:=]\\s*(?:bearer\\s+)?[^\\s,;]+"
+            "\\\"(?:authorization|apiKey|api[-_ ]?key|token|password|secret)\\\"\\s*:\\s*\\\""
+                    + "(?:bearer\\s+)?[^\\\"]*\\\""
+                    + "|(?:authorization|apiKey|api[-_ ]?key|token|password|secret)\\s*[:=]\\s*"
+                    + "(?:bearer\\s+)?[^\\s,;]+"
                     + "|bearer\\s+[^\\s,;]+|sk-[A-Za-z0-9_-]{8,}",
             Pattern.CASE_INSENSITIVE);
+    private final String taskId;
     private final String attemptId;
+    private final String leaseId;
     private final Set<String> seenEventKeys = ConcurrentHashMap.newKeySet();
+    private volatile boolean closed;
 
-    public AgentScopeEventTranslator(String attemptId) {
-        if (attemptId == null || attemptId.isBlank()) {
-            throw new IllegalArgumentException("attemptId must not be blank");
+    public AgentScopeEventTranslator(String taskId, String attemptId, String leaseId) {
+        this.taskId = requireId(taskId, "taskId");
+        this.attemptId = requireId(attemptId, "attemptId");
+        this.leaseId = requireId(leaseId, "leaseId");
+    }
+
+    private static String requireId(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " must not be blank");
         }
-        this.attemptId = attemptId;
+        return value;
     }
 
     /** Releases the attempt-scoped idempotency keys when the execution lifecycle ends. */
-    public void clear() {
+    public synchronized void clear() {
         seenEventKeys.clear();
+        closed = true;
     }
 
-    public AgentScopeExecutionEvent translate(AgentEvent event) {
+    public synchronized AgentScopeExecutionEvent translate(AgentEvent event) {
         if (event == null) {
             throw new IllegalArgumentException("event must not be null");
         }
         String eventId = event.getId();
         if (eventId == null || eventId.isBlank()) {
             throw new IllegalArgumentException("AgentScope event id must not be blank");
+        }
+        if (closed) {
+            return lifecycleEvent(eventId, "translator closed");
+        }
+        Map<String, Object> metadata = event.getMetadata();
+        if (metadata == null) {
+            metadata = Map.of();
+        }
+        if (metadata.containsKey("attemptId")
+                && !attemptId.equals(String.valueOf(metadata.get("attemptId")))) {
+            return lifecycleEvent(eventId, "stale attempt event");
         }
         boolean duplicate = !seenEventKeys.add(attemptId + "\u0000" + eventId);
 
@@ -95,8 +120,13 @@ public final class AgentScopeEventTranslator {
 
     private AgentScopeExecutionEvent mapped(String eventId, AgentScopeExecutionEvent.Kind kind,
             String safeMessage, boolean terminal, boolean success, boolean duplicate) {
-        return new AgentScopeExecutionEvent(attemptId, eventId, kind, safeMessage,
+        return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, kind, safeMessage,
                 terminal, success, duplicate);
+    }
+
+    private AgentScopeExecutionEvent lifecycleEvent(String eventId, String message) {
+        return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId,
+                AgentScopeExecutionEvent.Kind.STALE, message, false, false, false);
     }
 
     private static String safeText(String value) {

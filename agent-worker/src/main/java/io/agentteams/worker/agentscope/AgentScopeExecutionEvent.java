@@ -4,7 +4,9 @@ import java.util.Objects;
 
 /** Project-owned event boundary for AgentScope execution events. */
 public record AgentScopeExecutionEvent(
+        String taskId,
         String attemptId,
+        String leaseId,
         String eventId,
         Kind kind,
         String safeMessage,
@@ -13,8 +15,14 @@ public record AgentScopeExecutionEvent(
         boolean duplicate) {
 
     public AgentScopeExecutionEvent {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("taskId must not be blank");
+        }
         if (attemptId == null || attemptId.isBlank()) {
             throw new IllegalArgumentException("attemptId must not be blank");
+        }
+        if (leaseId == null || leaseId.isBlank()) {
+            throw new IllegalArgumentException("leaseId must not be blank");
         }
         if (eventId == null || eventId.isBlank()) {
             throw new IllegalArgumentException("eventId must not be blank");
@@ -33,6 +41,7 @@ public record AgentScopeExecutionEvent(
         AGENT_RESULT,
         AGENT_ENDED,
         ERROR,
+        STALE,
         IGNORED,
         UNMAPPED
     }
