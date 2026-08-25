@@ -80,7 +80,7 @@ mvn -q -pl application-contracts,agent-worker -am \
 
 要求：
 
-- 运行时只允许 \`LEGACY\`、\`QWENPAW\`、\`AGENTSCOPE\`；
+- 运行时只允许 \`QWENPAW\`、\`AGENTSCOPE\`；
 - 缺省值为 \`QWENPAW\`；
 - \`AGENTSCOPE\` 未启用时启动失败并给出明确配置错误，不能静默切换；
 - 配置读取不打印任何凭证值。
@@ -413,4 +413,3 @@ git commit -m "docs(AgentScope): 补充集成验收和回滚说明"
 - Sandbox Workspace 隔离、Lease fencing 和 Worker 重启恢复通过；
 - Helm、Kind、权限和 Secret 扫描通过；
 - 文档明确启用、灰度、回滚和本地真实模型验证方式。
-

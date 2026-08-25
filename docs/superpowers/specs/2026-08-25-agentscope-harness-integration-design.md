@@ -51,7 +51,7 @@ AgentTeams Control Plane
       Agent Gateway
           ↓
        Agent Worker
-          ├─ Legacy / QwenPaw Runtime
+          ├─ QwenPaw Runtime
           ├─ AgentScope Harness Runtime
           ├─ Workspace Adapter
           ├─ Model Adapter
@@ -88,7 +88,6 @@ public interface AgentExecutionRuntimePort {
 实现包括：
 
 ~~~text
-LegacyAgentRuntime
 QwenPawHttpRuntime
 AgentScopeWorkerRuntime
 ~~~
@@ -160,7 +159,7 @@ DeepSeek Key 只允许从本机环境变量或本地 Secret 读取，禁止写�
 - Worker 不授予 Docker Socket、宿主机路径或 Kubernetes API 权限；
 - Sandbox 的网络出口由现有 NetworkPolicy 和 Provider 控制；
 - AgentScope Workspace 不存放 Provider 凭证和完整环境变量；
-- 运行时配置只允许选择白名单中的 LEGACY、QWENPAW、AGENTSCOPE。
+- 运行时配置只允许选择白名单中的 QWENPAW、AGENTSCOPE。
 
 AgentScope 官方提供 Permission System 和 Middleware 能力，可用于执行层的工具调用控制，但项目仍需保留自己的租户和资源授权边界。[权限官方文档](https://java.agentscope.io/v2/zh/docs/building-blocks/permission-system.html)
 
@@ -206,7 +205,7 @@ agentteams.model.call.cost
 
 ## 11. 验收标准
 
-1. 默认配置下现有 QwenPaw 和 Legacy 测试全部保持通过。
+1. 默认配置下现有 QwenPaw 测试全部保持通过。
 2. AgentScope Fake Model 能完成 Worker → Gateway → Control Plane 的完整任务闭环。
 3. AgentScope 事件能转换为现有 ExecutionEvent，且重复和旧 Attempt 事件被正确拒绝。
 4. Task、Attempt、Lease、Sandbox 和 AgentScope Session 的状态不会互相越权覆盖。
@@ -226,4 +225,3 @@ agentteams.model.call.cost
 | 模型价格重复计算 | 统一复用 ModelPriceCatalogPort 和现有审计器 |
 | Worker 阻塞式 API 与事件流并发冲突 | 在 Adapter 内统一线程、取消和背压策略，应用层只接收有序事件 |
 | Sandbox 隔离被误认为 AgentScope Workspace 隔离 | Workspace 负责文件和 Session 范围，真正的进程、网络和内核隔离仍由 Sandbox Provider 负责 |
-
