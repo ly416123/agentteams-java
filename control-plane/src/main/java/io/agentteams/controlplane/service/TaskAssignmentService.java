@@ -248,6 +248,8 @@ public final class TaskAssignmentService {
                 sandboxNode.put("profile", sandbox.profile().name());
                 sandboxNode.put("endpointRef", sandbox.endpointRef());
                 sandboxNode.put("expiresAt", sandbox.expiresAt().toString());
+                sandboxNode.put("ownerTaskId", sandbox.taskId().toString());
+                sandboxNode.put("ownerAttemptId", sandbox.attemptId().toString());
                 payload.set("sandbox", sandboxNode);
             }
             return OBJECT_MAPPER.writeValueAsString(payload);

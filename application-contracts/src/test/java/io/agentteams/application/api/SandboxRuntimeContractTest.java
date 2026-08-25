@@ -33,6 +33,21 @@ class SandboxRuntimeContractTest {
     void rejectsMissingAttemptIdentity() {
         assertThrows(NullPointerException.class,
                 () -> SandboxRequest.of(TASK_ID, null, SandboxProfile.ISOLATED,
-                        Duration.ofMinutes(5), "python", NOW));
+                Duration.ofMinutes(5), "python", NOW));
+    }
+
+    @Test
+    void sandboxHandleCarriesOptionalOwnerAndKeepsFiveArgumentCompatibility() {
+        SandboxHandle owned = new SandboxHandle("provider", SandboxProfile.ISOLATED, SandboxStatus.READY,
+                "sandbox://provider/workspace", NOW.plusSeconds(60), TASK_ID, ATTEMPT_ID);
+        SandboxHandle legacy = new SandboxHandle("provider-legacy", SandboxProfile.ISOLATED, SandboxStatus.READY,
+                "sandbox://provider/workspace", NOW.plusSeconds(60));
+
+        assertEquals(TASK_ID, owned.taskId());
+        assertEquals(ATTEMPT_ID, owned.attemptId());
+        assertEquals(null, legacy.taskId());
+        assertEquals(null, legacy.attemptId());
+        assertThrows(IllegalArgumentException.class,
+                () -> owned.withOwner(UUID.randomUUID(), UUID.randomUUID()));
     }
 }

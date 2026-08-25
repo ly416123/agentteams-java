@@ -27,8 +27,12 @@ class SandboxLifecycleServiceTest {
         var duplicate = runtime.provision(request);
 
         assertSame(first, duplicate);
+        assertEquals(request.taskId(), first.taskId());
+        assertEquals(request.attemptId(), first.attemptId());
         assertEquals(SandboxStatus.READY, runtime.inspect(first.providerSandboxId()));
         runtime.renew(first.providerSandboxId(), Instant.parse("2026-08-25T08:10:00Z"));
+        assertEquals(request.taskId(), runtime.handle(first.providerSandboxId()).taskId());
+        assertEquals(request.attemptId(), runtime.handle(first.providerSandboxId()).attemptId());
         runtime.terminate(first.providerSandboxId(), SandboxTerminationReason.TASK_COMPLETED);
         assertEquals(SandboxStatus.DESTROYED, runtime.inspect(first.providerSandboxId()));
         assertEquals(1, runtime.provisionCalls());

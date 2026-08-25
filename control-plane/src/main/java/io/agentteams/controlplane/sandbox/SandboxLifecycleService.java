@@ -105,7 +105,8 @@ public final class SandboxLifecycleService {
         int completed = 0;
         for (TaskSandboxRecord provisioning : claimed) {
             try {
-                SandboxHandle handle = runtime.provision(toRequest(provisioning));
+                SandboxHandle handle = runtime.provision(toRequest(provisioning))
+                        .withOwner(provisioning.taskId(), provisioning.attemptId());
                 TaskSandboxRecord ready = persistence.inTransaction(tx -> tx.taskSandboxes().markReady(
                         provisioning.id(), handle.providerSandboxId(), handle.endpointRef(), handle.expiresAt(),
                         provisioning.version() + 1, now));

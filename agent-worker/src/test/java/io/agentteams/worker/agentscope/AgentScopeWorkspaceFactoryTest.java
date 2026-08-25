@@ -10,6 +10,8 @@ import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.application.api.SandboxTerminationReason;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeTask;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -18,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class AgentScopeWorkspaceFactoryTest {
 
@@ -28,10 +31,13 @@ class AgentScopeWorkspaceFactoryTest {
     private static final String TEAM = "team-a";
     private static final String AGENT = "agent-a";
 
+    @TempDir
+    Path root;
+
     @Test
     void noneUsesAnExplicitNonSandboxBindingWithoutInspectingOrForgingAHandle() {
         RecordingSandboxRuntime runtime = new RecordingSandboxRuntime(SandboxStatus.READY);
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(runtime, fixedClock());
+        AgentScopeWorkspaceFactory factory = factory(runtime, fixedClock());
 
         AgentScopeWorkspaceFactory.WorkspaceBinding binding = factory.resolve(
                 task("attempt-a"), context(Map.of()), Optional.empty());
@@ -42,11 +48,12 @@ class AgentScopeWorkspaceFactoryTest {
         assertThat(binding.expiresAt()).isEmpty();
         assertThat(binding.scopeId()).doesNotContain(TENANT, PROJECT, TEAM, AGENT);
         assertThat(runtime.inspectCalls).isZero();
+        factory.validateActive(binding, task("attempt-a"), context(Map.of()));
     }
 
     @Test
     void isolatedRequiresAReadyOrRunningSandboxHandle() {
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(
+        AgentScopeWorkspaceFactory factory = factory(
                 new RecordingSandboxRuntime(SandboxStatus.READY), fixedClock());
 
         assertThatThrownBy(() -> factory.resolve(task("attempt-a"), context(Map.of()),
@@ -63,7 +70,7 @@ class AgentScopeWorkspaceFactoryTest {
     @Test
     void sandboxStatusIsInspectedAndLostOrExpiredIsRejected() {
         RecordingSandboxRuntime runtime = new RecordingSandboxRuntime(SandboxStatus.LOST);
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(runtime, fixedClock());
+        AgentScopeWorkspaceFactory factory = factory(runtime, fixedClock());
 
         assertThatThrownBy(() -> factory.resolve(task("attempt-a"), context(Map.of()),
                 Optional.of(handle(SandboxProfile.ISOLATED, SandboxStatus.READY,
@@ -82,7 +89,7 @@ class AgentScopeWorkspaceFactoryTest {
     @Test
     void expiredHandleIsRejectedUsingTheInjectedClock() {
         MutableClock clock = new MutableClock(NOW);
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(
+        AgentScopeWorkspaceFactory factory = factory(
                 new RecordingSandboxRuntime(SandboxStatus.READY), clock);
         SandboxHandle handle = handle(SandboxProfile.HARDENED, SandboxStatus.READY,
                 "sandbox://provider/sandbox-a", NOW.plusSeconds(30));
@@ -95,14 +102,20 @@ class AgentScopeWorkspaceFactoryTest {
     }
 
     @Test
-    void onlyAbsoluteFileUrisWithoutTraversalOrProviderSocketsBecomePaths() {
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(
+    void onlyAbsoluteFileUrisWithoutTraversalOrProviderSocketsBecomePaths() throws Exception {
+        AgentScopeWorkspaceFactory factory = factory(
                 new RecordingSandboxRuntime(SandboxStatus.READY), fixedClock());
+        Path workspace;
+        try {
+            workspace = Files.createDirectories(root.resolve("attempt-a"));
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException(error);
+        }
 
         AgentScopeWorkspaceFactory.WorkspaceBinding fileBinding = factory.resolve(
                 task("attempt-a"), context(Map.of()), Optional.of(handle(
-                        SandboxProfile.ISOLATED, SandboxStatus.READY, "file:///srv/sandboxes/attempt-a", NOW.plusSeconds(60))));
-        assertThat(fileBinding.workspacePath()).contains(java.nio.file.Path.of("/srv/sandboxes/attempt-a"));
+                        SandboxProfile.ISOLATED, SandboxStatus.READY, workspace.toUri().toString(), NOW.plusSeconds(60))));
+        assertThat(fileBinding.workspacePath()).contains(workspace.toRealPath());
 
         for (String endpoint : new String[] {
                 "file:relative/workspace",
@@ -120,7 +133,7 @@ class AgentScopeWorkspaceFactoryTest {
 
     @Test
     void providerNeutralSandboxUriIsAcceptedWithoutPretendingItIsAHostPath() {
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(
+        AgentScopeWorkspaceFactory factory = factory(
                 new RecordingSandboxRuntime(SandboxStatus.RUNNING), fixedClock());
 
         AgentScopeWorkspaceFactory.WorkspaceBinding binding = factory.resolve(
@@ -135,15 +148,23 @@ class AgentScopeWorkspaceFactoryTest {
     @Test
     void sameTaskAttemptIsStableAcrossRecoveryButDifferentAttemptGetsAnotherBinding() {
         SandboxRuntimePort runtime = new RecordingSandboxRuntime(SandboxStatus.READY);
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(runtime, fixedClock());
+        AgentScopeWorkspaceFactory factory = factory(runtime, fixedClock());
+        Path firstWorkspace;
+        Path secondWorkspace;
+        try {
+            firstWorkspace = Files.createDirectories(root.resolve("attempt-a"));
+            secondWorkspace = Files.createDirectories(root.resolve("attempt-b"));
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException(error);
+        }
         SandboxHandle first = handle(SandboxProfile.ISOLATED, SandboxStatus.READY,
-                "file:///srv/sandboxes/attempt-a", NOW.plusSeconds(60));
-        SandboxHandle second = handle(SandboxProfile.ISOLATED, SandboxStatus.READY,
-                "file:///srv/sandboxes/attempt-b", NOW.plusSeconds(60));
+                firstWorkspace.toUri().toString(), NOW.plusSeconds(60));
+        SandboxHandle second = handle("attempt-b", SandboxProfile.ISOLATED, SandboxStatus.READY,
+                secondWorkspace.toUri().toString(), NOW.plusSeconds(60));
 
         AgentScopeWorkspaceFactory.WorkspaceBinding recovered = factory.resolve(
                 task("attempt-a"), context(Map.of()), Optional.of(first));
-        AgentScopeWorkspaceFactory.WorkspaceBinding restarted = new AgentScopeWorkspaceFactory(runtime, fixedClock())
+        AgentScopeWorkspaceFactory.WorkspaceBinding restarted = factory(runtime, fixedClock())
                 .resolve(task("attempt-a"), context(Map.of()), Optional.of(first));
         AgentScopeWorkspaceFactory.WorkspaceBinding retry = factory.resolve(
                 task("attempt-b"), context(Map.of()), Optional.of(second));
@@ -155,7 +176,7 @@ class AgentScopeWorkspaceFactoryTest {
 
     @Test
     void oldAttemptCannotReuseItsSandboxForAnotherAttempt() {
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(
+        AgentScopeWorkspaceFactory factory = factory(
                 new RecordingSandboxRuntime(SandboxStatus.READY), fixedClock());
         SandboxHandle handle = handle(SandboxProfile.ISOLATED, SandboxStatus.READY,
                 "sandbox://provider/sandbox-a", NOW.plusSeconds(60));
@@ -169,7 +190,7 @@ class AgentScopeWorkspaceFactoryTest {
 
     @Test
     void scopeMetadataMustAgreeWithTheRuntimeTaskAndCannotCrossTenantOrTeam() {
-        AgentScopeWorkspaceFactory factory = new AgentScopeWorkspaceFactory(
+        AgentScopeWorkspaceFactory factory = factory(
                 new RecordingSandboxRuntime(SandboxStatus.READY), fixedClock());
         SandboxHandle handle = handle(SandboxProfile.ISOLATED, SandboxStatus.READY,
                 "sandbox://provider/sandbox-a", NOW.plusSeconds(60));
@@ -192,7 +213,26 @@ class AgentScopeWorkspaceFactoryTest {
 
     private static SandboxHandle handle(SandboxProfile profile, SandboxStatus status,
             String endpointRef, Instant expiresAt) {
-        return new SandboxHandle("provider-" + endpointRef.hashCode(), profile, status, endpointRef, expiresAt);
+        return handle("attempt-a", profile, status, endpointRef, expiresAt);
+    }
+
+    private static SandboxHandle handle(String attemptId, SandboxProfile profile, SandboxStatus status,
+            String endpointRef, Instant expiresAt) {
+        return new SandboxHandle("provider-" + endpointRef.hashCode(), profile, status, endpointRef, expiresAt,
+                TASK_ID, attemptOwnerId(attemptId));
+    }
+
+    private static UUID attemptOwnerId(String attemptId) {
+        try {
+            return UUID.fromString(attemptId);
+        } catch (IllegalArgumentException error) {
+            return UUID.nameUUIDFromBytes(attemptId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
+    private AgentScopeWorkspaceFactory factory(SandboxRuntimePort runtime, Clock clock) {
+        return new AgentScopeWorkspaceFactory(runtime, clock, root,
+                new InMemorySandboxWorkspaceOwnershipPort(), true);
     }
 
     private static RuntimeTask task(String attemptId) {

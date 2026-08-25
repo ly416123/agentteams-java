@@ -35,8 +35,8 @@ public final class FakeSandboxRuntime implements SandboxRuntimePort {
                 "fake-" + UUID.randomUUID(),
                 request.profile(),
                 SandboxStatus.READY,
-                "fake://sandbox/" + request.attemptId(),
-                request.expiresAt());
+                "sandbox://fake/sandbox/" + request.attemptId(),
+                request.expiresAt(), request.taskId(), request.attemptId());
         byIdempotencyKey.put(request.idempotencyKey(), handle);
         byProviderId.put(handle.providerSandboxId(), handle);
         provisionCalls.incrementAndGet();
@@ -56,7 +56,7 @@ public final class FakeSandboxRuntime implements SandboxRuntimePort {
             throw new IllegalStateException("cannot renew a destroyed sandbox");
         }
         SandboxHandle renewed = new SandboxHandle(current.providerSandboxId(), current.profile(), current.status(),
-                current.endpointRef(), expiresAt);
+                current.endpointRef(), expiresAt, current.taskId(), current.attemptId());
         replace(renewed);
         renewCalls.incrementAndGet();
     }
@@ -69,7 +69,8 @@ public final class FakeSandboxRuntime implements SandboxRuntimePort {
             return;
         }
         SandboxHandle terminated = new SandboxHandle(current.providerSandboxId(), current.profile(),
-                SandboxStatus.DESTROYED, current.endpointRef(), current.expiresAt());
+                SandboxStatus.DESTROYED, current.endpointRef(), current.expiresAt(), current.taskId(),
+                current.attemptId());
         replace(terminated);
         terminateCalls.incrementAndGet();
     }

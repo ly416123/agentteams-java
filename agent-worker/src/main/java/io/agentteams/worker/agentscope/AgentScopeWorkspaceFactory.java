@@ -8,6 +8,7 @@ import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeTask;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -16,10 +17,10 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Resolves the platform sandbox reference into a provider-neutral AgentScope workspace binding.
@@ -33,12 +34,28 @@ public final class AgentScopeWorkspaceFactory {
             SandboxStatus.READY, SandboxStatus.RUNNING);
     private final SandboxRuntimePort sandboxRuntime;
     private final Clock clock;
-    private final Map<String, String> sandboxOwners = new java.util.HashMap<>();
-    private final Map<String, String> attemptSandboxes = new java.util.HashMap<>();
+    private final Path sandboxRoot;
+    private final Path realSandboxRoot;
+    private final SandboxWorkspaceOwnershipPort ownership;
+    private final boolean testMode;
 
     public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock) {
+        this(sandboxRuntime, clock, ensureDefaultSandboxRoot(), new InMemorySandboxWorkspaceOwnershipPort(), true);
+    }
+
+    public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock,
+            Path sandboxRoot, SandboxWorkspaceOwnershipPort ownership) {
+        this(sandboxRuntime, clock, sandboxRoot, ownership, false);
+    }
+
+    public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock,
+            Path sandboxRoot, SandboxWorkspaceOwnershipPort ownership, boolean testMode) {
         this.sandboxRuntime = Objects.requireNonNull(sandboxRuntime, "sandboxRuntime");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.ownership = Objects.requireNonNull(ownership, "ownership");
+        this.testMode = testMode;
+        this.sandboxRoot = normalizeRoot(sandboxRoot);
+        this.realSandboxRoot = realRoot(this.sandboxRoot);
     }
 
     /**
@@ -96,20 +113,67 @@ public final class AgentScopeWorkspaceFactory {
             throw new IllegalArgumentException("sandbox is not usable: " + observedStatus);
         }
 
+        UUID ownerAttemptId = attemptOwnerId(scope.attemptId());
+        if (handle.taskId() == null || handle.attemptId() == null
+                || !handle.taskId().equals(task.id()) || !handle.attemptId().equals(ownerAttemptId)) {
+            throw new IllegalArgumentException("sandbox handle owner does not match task attempt");
+        }
         Endpoint endpoint = endpoint(handle.endpointRef());
-        String previousSandbox = attemptSandboxes.get(scope.scopeId());
-        if (previousSandbox != null && !previousSandbox.equals(handle.providerSandboxId())) {
-            throw new IllegalArgumentException("attempt is fenced to another sandbox");
-        }
-        String previousOwner = sandboxOwners.get(handle.providerSandboxId());
-        if (previousOwner != null && !previousOwner.equals(scope.scopeId())) {
-            throw new IllegalArgumentException("sandbox scope is fenced to another attempt");
-        }
-        sandboxOwners.putIfAbsent(handle.providerSandboxId(), scope.scopeId());
-        attemptSandboxes.putIfAbsent(scope.scopeId(), handle.providerSandboxId());
+        SandboxWorkspaceOwnershipPort.WorkspaceOwner owner = new SandboxWorkspaceOwnershipPort.WorkspaceOwner(
+                task.id(), ownerAttemptId, scope.scopeId());
+        claimSandbox(handle.providerSandboxId(), owner);
+        endpoint.path().ifPresent(path -> claimWorkspace(path, owner));
 
         return new WorkspaceBinding(scope.scopeId(), handle.profile(), endpoint.path(),
-                Optional.of(handle.providerSandboxId()), Optional.of(handle.expiresAt()));
+                Optional.of(handle.providerSandboxId()), Optional.of(handle.expiresAt()),
+                task.id(), ownerAttemptId);
+    }
+
+    /** Rechecks the provider, TTL, scope and shared ownership before an event or workspace write. */
+    public void validateActive(WorkspaceBinding binding, RuntimeTask task, AgentRuntimeContext context) {
+        assertUsable(binding, task, context);
+    }
+
+    /** Explicit active-use gate for every event or write operation. */
+    public void assertUsable(WorkspaceBinding binding, RuntimeTask task, AgentRuntimeContext context) {
+        Objects.requireNonNull(binding, "binding must not be null");
+        Objects.requireNonNull(task, "task must not be null");
+        Objects.requireNonNull(context, "context must not be null");
+        Scope scope = scope(task, context);
+        UUID ownerAttemptId = attemptOwnerId(scope.attemptId());
+        if (!binding.scopeId().equals(scope.scopeId())) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
+        }
+        if (binding.profile() == SandboxProfile.NONE) {
+            return;
+        }
+        if (!task.id().equals(binding.taskId()) || !ownerAttemptId.equals(binding.attemptId())) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
+        }
+        if (binding.sandboxId().isEmpty() || binding.expiresAt().isEmpty()) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.INACTIVE);
+        }
+        if (!clock.instant().isBefore(binding.expiresAt().get())) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.EXPIRED);
+        }
+        SandboxStatus observed;
+        try {
+            observed = sandboxRuntime.inspect(binding.sandboxId().get());
+        } catch (RuntimeException error) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.UNAVAILABLE);
+        }
+        if (!USABLE_STATUSES.contains(observed)) {
+            throw new SandboxWorkspaceException(activeReason(observed));
+        }
+        SandboxWorkspaceOwnershipPort.WorkspaceOwner expected = new SandboxWorkspaceOwnershipPort.WorkspaceOwner(
+                task.id(), ownerAttemptId, binding.scopeId());
+        if (ownership.findSandboxOwner(binding.sandboxId().get()).filter(expected::equals).isEmpty()) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
+        }
+        if (binding.workspacePath().isPresent()
+                && ownership.findWorkspaceOwner(binding.workspacePath().get()).filter(expected::equals).isEmpty()) {
+            throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
+        }
     }
 
     private Scope scope(RuntimeTask task, AgentRuntimeContext context) {
@@ -132,7 +196,7 @@ public final class AgentScopeWorkspaceFactory {
         }
 
         String scopeId = stableScopeId(tenantId, projectId, teamId, agentId, taskId, attemptId);
-        return new Scope(scopeId);
+        return new Scope(scopeId, attemptId);
     }
 
     private static void checkContextScope(AgentRuntimeContext context, String field, String expected) {
@@ -169,7 +233,23 @@ public final class AgentScopeWorkspaceFactory {
         }
     }
 
-    private static Endpoint endpoint(String endpointRef) {
+    private void claimSandbox(String providerSandboxId, SandboxWorkspaceOwnershipPort.WorkspaceOwner owner) {
+        try {
+            ownership.claimSandbox(providerSandboxId, owner);
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("sandbox ownership conflict for scope", error);
+        }
+    }
+
+    private void claimWorkspace(Path workspacePath, SandboxWorkspaceOwnershipPort.WorkspaceOwner owner) {
+        try {
+            ownership.claimWorkspace(workspacePath, owner);
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("workspace ownership conflict", error);
+        }
+    }
+
+    private Endpoint endpoint(String endpointRef) {
         if (endpointRef == null || endpointRef.isBlank()) {
             throw new IllegalArgumentException("sandbox endpointRef must be present");
         }
@@ -193,7 +273,7 @@ public final class AgentScopeWorkspaceFactory {
         throw new IllegalArgumentException("sandbox endpointRef scheme is not allowed");
     }
 
-    private static Optional<Path> filePath(URI uri) {
+    private Optional<Path> filePath(URI uri) {
         if (uri.getRawAuthority() != null && !uri.getRawAuthority().isEmpty()
                 || uri.getRawQuery() != null || uri.getRawFragment() != null) {
             throw new IllegalArgumentException("file endpointRef must not name a host");
@@ -209,10 +289,46 @@ public final class AgentScopeWorkspaceFactory {
         } catch (RuntimeException error) {
             throw new IllegalArgumentException("file endpointRef is not a local absolute path", error);
         }
-        if (!candidate.isAbsolute() || containsTraversal(candidate) || !candidate.normalize().equals(candidate)) {
+        candidate = candidate.normalize();
+        if (!candidate.isAbsolute() || containsTraversal(candidate) || !candidate.startsWith(sandboxRoot)) {
             throw new IllegalArgumentException("file endpointRef contains an unsafe path");
         }
-        return Optional.of(candidate);
+        if (candidate.getFileName() != null && "docker.sock".equals(candidate.getFileName().toString())) {
+            throw new IllegalArgumentException("file endpointRef names a forbidden socket");
+        }
+        validateRealPath(candidate);
+        try {
+            return Optional.of(Files.exists(candidate) ? candidate.toRealPath() : candidate);
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("workspace path cannot be resolved", error);
+        }
+    }
+
+    private void validateRealPath(Path candidate) {
+        try {
+            if (Files.exists(candidate)) {
+                if (Files.isSymbolicLink(candidate)
+                        || !Files.isDirectory(candidate, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IllegalArgumentException("workspace path must be a real directory");
+                }
+                if (!candidate.toRealPath().startsWith(realSandboxRoot)) {
+                    throw new IllegalArgumentException("workspace path escapes sandbox root");
+                }
+                return;
+            }
+            if (!testMode) {
+                throw new IllegalArgumentException("workspace path must already exist");
+            }
+            Path existing = candidate;
+            while (existing != null && !Files.exists(existing)) {
+                existing = existing.getParent();
+            }
+            if (existing == null || !existing.toRealPath().startsWith(realSandboxRoot)) {
+                throw new IllegalArgumentException("workspace path escapes sandbox root");
+            }
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("workspace path cannot be verified", error);
+        }
     }
 
     private static boolean containsTraversal(Path path) {
@@ -234,7 +350,57 @@ public final class AgentScopeWorkspaceFactory {
         }
     }
 
-    private record Scope(String scopeId) {
+    private static SandboxWorkspaceException.Reason activeReason(SandboxStatus status) {
+        return switch (status) {
+            case LOST -> SandboxWorkspaceException.Reason.LOST;
+            case EXPIRED -> SandboxWorkspaceException.Reason.EXPIRED;
+            default -> SandboxWorkspaceException.Reason.INACTIVE;
+        };
+    }
+
+    private static UUID attemptOwnerId(String attemptId) {
+        try {
+            return UUID.fromString(attemptId);
+        } catch (IllegalArgumentException error) {
+            return UUID.nameUUIDFromBytes(attemptId.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private static Path defaultSandboxRoot() {
+        return Paths.get(System.getProperty("java.io.tmpdir"), "agentteams-sandbox").toAbsolutePath().normalize();
+    }
+
+    private static Path ensureDefaultSandboxRoot() {
+        Path root = defaultSandboxRoot();
+        try {
+            Files.createDirectories(root);
+            return root;
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException("default sandbox root cannot be created", error);
+        }
+    }
+
+    private static Path normalizeRoot(Path root) {
+        Objects.requireNonNull(root, "sandboxRoot must not be null");
+        if (!root.isAbsolute()) {
+            throw new IllegalArgumentException("sandboxRoot must be absolute");
+        }
+        Path normalized = root.normalize();
+        if (!Files.exists(normalized) || !Files.isDirectory(normalized)) {
+            throw new IllegalArgumentException("sandboxRoot must be an existing directory");
+        }
+        return normalized;
+    }
+
+    private static Path realRoot(Path root) {
+        try {
+            return root.toRealPath();
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("sandboxRoot cannot be verified", error);
+        }
+    }
+
+    private record Scope(String scopeId, String attemptId) {
     }
 
     private record Endpoint(Optional<Path> path) {
@@ -245,7 +411,12 @@ public final class AgentScopeWorkspaceFactory {
 
     /** Data-only binding for a later Harness factory; it contains no AgentScope API type. */
     public record WorkspaceBinding(String scopeId, SandboxProfile profile, Optional<Path> workspacePath,
-            Optional<String> sandboxId, Optional<Instant> expiresAt) {
+            Optional<String> sandboxId, Optional<Instant> expiresAt, UUID taskId, UUID attemptId) {
+        public WorkspaceBinding(String scopeId, SandboxProfile profile, Optional<Path> workspacePath,
+                Optional<String> sandboxId, Optional<Instant> expiresAt) {
+            this(scopeId, profile, workspacePath, sandboxId, expiresAt, null, null);
+        }
+
         public WorkspaceBinding {
             if (scopeId == null || scopeId.isBlank()) {
                 throw new IllegalArgumentException("scopeId must be non-blank");
@@ -254,12 +425,19 @@ public final class AgentScopeWorkspaceFactory {
             workspacePath = Optional.ofNullable(workspacePath).orElseGet(Optional::empty);
             sandboxId = Optional.ofNullable(sandboxId).orElseGet(Optional::empty);
             expiresAt = Optional.ofNullable(expiresAt).orElseGet(Optional::empty);
+            if ((taskId == null) != (attemptId == null)) {
+                throw new IllegalArgumentException("binding task and attempt owners must be supplied together");
+            }
             if (profile == SandboxProfile.NONE
-                    && (!workspacePath.isEmpty() || !sandboxId.isEmpty() || !expiresAt.isEmpty())) {
+                    && (!workspacePath.isEmpty() || !sandboxId.isEmpty() || !expiresAt.isEmpty()
+                    || taskId != null || attemptId != null)) {
                 throw new IllegalArgumentException("NONE binding must not contain sandbox fields");
             }
             if (profile != SandboxProfile.NONE && sandboxId.isEmpty()) {
                 throw new IllegalArgumentException("sandbox binding must contain sandboxId");
+            }
+            if (profile != SandboxProfile.NONE && (taskId == null || attemptId == null)) {
+                throw new IllegalArgumentException("sandbox binding must contain owner");
             }
         }
     }
