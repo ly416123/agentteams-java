@@ -559,6 +559,7 @@ MCP registry ─> connector 健康/缓存/限流 ─> Worker/AgentSpec 工具绑
 本批次已完成，结果如下：
 
 - Manager 已将可选价格目录接入成功模型调用的 `estimated cost` 审计；无价格不阻断调用，失败调用标记 `NOT_APPLICABLE`，旧构造器保持兼容。
+- Manager 已增加 `ReloadableModelProvider`：Secret/endpoint 轮换时先构造并校验新 Provider，再原子切换连接；重连失败保留旧连接，且已有真实 HTTP Authorization 轮换测试。
 - MCP 已增加 5 分钟/256 条默认配置的有界 LRU tools/list 缓存和健康探针；缓存失败不污染，探针只返回状态、分类和延迟。
 - MCP 运行时已增加按 server 的并发租约、限流、熔断和半开恢复；tools/list 缓存键升级为 `serverId + version`，服务更新或停用后不会复用旧结果。
 - Skill 已增加默认关闭、可显式启用的确定性安全扫描器，覆盖危险执行字段、明文凭证、路径穿越、外部脚本/不可信 URL 和 malformed JSON，并输出低基数脱敏结果。
