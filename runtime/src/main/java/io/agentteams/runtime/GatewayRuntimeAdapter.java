@@ -46,6 +46,8 @@ public final class GatewayRuntimeAdapter {
         metadata.put("agentId", agentId);
         metadata.put("attemptId", input.getAttemptId());
         metadata.put("leaseId", input.getLeaseId());
+        metadata.put("leaseExpiresAt", Instant.ofEpochSecond(
+                assignment.getLeaseExpiresAt().getSeconds(), assignment.getLeaseExpiresAt().getNanos()).toString());
         putIfPresent(metadata, "tenantId", assignment.getTenantId());
         putIfPresent(metadata, "projectId", assignment.getProjectId());
         putIfPresent(metadata, "teamId", assignment.getTeamId());

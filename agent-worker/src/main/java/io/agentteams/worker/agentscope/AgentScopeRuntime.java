@@ -2,12 +2,15 @@ package io.agentteams.worker.agentscope;
 
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentteams.runtime.AgentRuntime;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.CompletionStatus;
 import io.agentteams.runtime.FakeRuntime;
+import io.agentteams.runtime.RuntimeCallUsage;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
 import io.agentteams.runtime.RuntimeResult;
 import io.agentteams.runtime.RuntimeSnapshot;
@@ -149,6 +152,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 if (!isCurrentLocked(execution)) {
                     return;
                 }
+                execution.recordUsage(modelCallUsage(event, context));
                 eventSink.accept(translated);
                 if (!isCurrentLocked(execution) || translated.duplicate()) {
                     return;
@@ -192,7 +196,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         AgentRuntimeContext currentContext = requireContextLocked();
         completeLocked(execution, RuntimeResult.success(execution.task.id(),
                 execution.resultCandidate == null ? "" : execution.resultCandidate,
-                Instant.now(currentContext.clock())));
+                Instant.now(currentContext.clock()), execution.callUsage));
     }
 
     private void completeFailureLocked(UUID taskId) {
@@ -203,7 +207,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     private void completeFailureLocked(Execution execution, String message) {
         AgentRuntimeContext currentContext = requireContextLocked();
         completeLocked(execution, RuntimeResult.failure(execution.task.id(), message,
-                Instant.now(currentContext.clock())));
+                Instant.now(currentContext.clock()), execution.callUsage));
     }
 
     private CompletionStatus completeLocked(Execution execution, RuntimeResult result) {
@@ -416,6 +420,19 @@ public final class AgentScopeRuntime implements AgentRuntime {
         }
     }
 
+    private static RuntimeCallUsage modelCallUsage(AgentEvent event, AgentRuntimeContext context) {
+        if (!(event instanceof ModelCallEndEvent modelCallEnd) || modelCallEnd.getUsage() == null) {
+            return null;
+        }
+        ChatUsage usage = modelCallEnd.getUsage();
+        return new RuntimeCallUsage(
+                context.configuration().getOrDefault("provider_id", "agentscope"),
+                context.configuration().getOrDefault("model", "unknown"),
+                0,
+                Math.max(0, usage.getInputTokens()),
+                Math.max(0, usage.getOutputTokens()));
+    }
+
     static final class Execution {
         private final RuntimeTask task;
         private final HarnessAgent agent;
@@ -428,6 +445,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicReference<Disposable> disposable = new AtomicReference<>();
         private volatile String resultCandidate;
+        private volatile RuntimeCallUsage callUsage;
 
         Execution(RuntimeTask task, HarnessAgent agent, AgentScopeEventTranslator translator,
                 String attemptId, String leaseId, long generation) {
@@ -438,6 +456,21 @@ public final class AgentScopeRuntime implements AgentRuntime {
             this.leaseId = leaseId;
             this.leaseExpiresAt = parseLeaseExpiresAt(task.metadata().get("leaseExpiresAt"));
             this.generation = generation;
+        }
+
+        void recordUsage(RuntimeCallUsage observed) {
+            if (observed == null) {
+                return;
+            }
+            RuntimeCallUsage previous = callUsage;
+            if (previous == null) {
+                callUsage = observed;
+                return;
+            }
+            callUsage = new RuntimeCallUsage(previous.provider(), previous.model(),
+                    Math.addExact(previous.latencyMillis(), observed.latencyMillis()),
+                    Math.addExact(previous.promptTokens(), observed.promptTokens()),
+                    Math.addExact(previous.completionTokens(), observed.completionTokens()));
         }
 
         boolean installDisposable(Disposable candidate) {

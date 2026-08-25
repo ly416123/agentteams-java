@@ -72,8 +72,10 @@ public final class ManagerSessionService {
 
     public Object handleCreateTask(String prompt, ManagerToolRegistry.ToolContext context) {
         ModelProvider.ModelRequest request = new ModelProvider.ModelRequest(prompt, 1024);
+        String providerName = providerIdentity();
+        String modelName = modelIdentity();
         ModelCallLease lease = admission.acquire(new ModelCallAdmissionRequest(
-                provider.getClass().getSimpleName(), "unknown", request.maxTokens(),
+                providerName, modelName, request.maxTokens(),
                 context.tenantId(), context.projectId(), admissionDimensions(context, "create_task")));
         if (lease == null) {
             throw new IllegalStateException("model call admission returned null lease");
@@ -85,10 +87,12 @@ public final class ManagerSessionService {
             try {
                 response = provider.complete(request);
             } catch (RuntimeException error) {
-                recordFailure(request, context, occurredAt, elapsedSince(startedNanos), error);
+                recordFailure(request, context, occurredAt, elapsedSince(startedNanos), error,
+                        providerName, modelName);
                 throw error;
             }
-            recordSuccess(request, response, context, occurredAt, elapsedSince(startedNanos));
+            recordSuccess(request, response, context, occurredAt, elapsedSince(startedNanos),
+                    providerName, modelName);
             CreateTaskIntent intent = validator.parseCreateTask(response.content());
             return tools.invoke("create_task", intent, context);
         } finally {
@@ -98,12 +102,13 @@ public final class ManagerSessionService {
     }
 
     private void recordSuccess(ModelProvider.ModelRequest request, ModelProvider.ModelResponse response,
-            ManagerToolRegistry.ToolContext context, Instant occurredAt, Duration latency) {
-        String providerName = nonBlankOr(provider.providerName(), provider.getClass().getSimpleName());
+            ManagerToolRegistry.ToolContext context, Instant occurredAt, Duration latency,
+            String providerName, String configuredModelName) {
+        String modelName = ModelIdentity.normalize(response.model(), configuredModelName);
         ModelCallAudit.TokenUsage tokenUsage = new ModelCallAudit.TokenUsage(
                 response.promptTokens(), response.completionTokens());
-        ModelCostEstimate costEstimate = estimateCost(providerName, response, tokenUsage);
-        record(new ModelCallAudit(providerName, response.model(), latency, tokenUsage,
+        ModelCostEstimate costEstimate = estimateCost(providerName, modelName, tokenUsage);
+        record(new ModelCallAudit(providerName, modelName, latency, tokenUsage,
                 ModelCallAuditHasher.hashRedacted(request.prompt()),
                 ModelCallAuditHasher.hashRedacted(response.content()), ModelCallAudit.Outcome.SUCCESS, null, occurredAt,
                 context.tenantId(), context.projectId(), costUsd(costEstimate), costStatus(costEstimate),
@@ -112,11 +117,10 @@ public final class ManagerSessionService {
 
     private void recordFailure(ModelProvider.ModelRequest request, ManagerToolRegistry.ToolContext context,
             Instant occurredAt, Duration latency,
-            RuntimeException error) {
+            RuntimeException error, String providerName, String modelName) {
         String category = error instanceof ModelProviderException providerError
                 ? providerError.category().name() : "UNKNOWN";
-        record(new ModelCallAudit(nonBlankOr(provider.providerName(), provider.getClass().getSimpleName()),
-                nonBlankOr(provider.modelName(), "unknown"), latency,
+        record(new ModelCallAudit(providerName, modelName, latency,
                 new ModelCallAudit.TokenUsage(0, 0), ModelCallAuditHasher.hashRedacted(request.prompt()), null,
                 ModelCallAudit.Outcome.FAILURE, category, occurredAt, context.tenantId(), context.projectId(), 0,
                 ModelCallAudit.CostStatus.NOT_APPLICABLE, dimensions(context, "create_task")));
@@ -136,12 +140,12 @@ public final class ManagerSessionService {
                 context.quotaId(), context.quotaDimension());
     }
 
-    private ModelCostEstimate estimateCost(String providerName, ModelProvider.ModelResponse response,
+    private ModelCostEstimate estimateCost(String providerName, String modelName,
             ModelCallAudit.TokenUsage tokenUsage) {
         if (costCalculator == null) {
             return null;
         }
-        return costCalculator.estimate(providerName, response.model(), AUDIT_CURRENCY,
+        return costCalculator.estimate(providerName, modelName, AUDIT_CURRENCY,
                 new ModelTokenUsage(tokenUsage.promptTokens(), tokenUsage.completionTokens()));
     }
 
@@ -166,7 +170,12 @@ public final class ManagerSessionService {
         return Duration.ofNanos(Math.max(0, System.nanoTime() - startedNanos));
     }
 
-    private static String nonBlankOr(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
+    private String providerIdentity() {
+        String fallback = ModelIdentity.normalize(provider.getClass().getSimpleName(), "unknown");
+        return ModelIdentity.read(provider::providerName, fallback);
+    }
+
+    private String modelIdentity() {
+        return ModelIdentity.read(provider::modelName, "unknown");
     }
 }

@@ -38,6 +38,7 @@ class GatewayRuntimeAdapterSandboxReviewTest {
         assertThat(runtime.status(taskId)).get().extracting(status -> status.task().metadata())
                 .isEqualTo(Map.ofEntries(Map.entry("agentId", "agent-1"), Map.entry("attemptId", attemptId),
                         Map.entry("leaseId", "lease-1"),
+                        Map.entry("leaseExpiresAt", "1970-01-01T00:00:00Z"),
                         Map.entry("sandboxId", "sandbox-1"),
                         Map.entry("providerSandboxId", "provider-sandbox-1"), Map.entry("profile", "ISOLATED"),
                         Map.entry("status", "READY"),

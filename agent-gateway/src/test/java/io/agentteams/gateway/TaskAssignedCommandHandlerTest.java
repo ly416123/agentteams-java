@@ -68,6 +68,26 @@ class TaskAssignedCommandHandlerTest {
     }
 
     @Test
+    void mapsAndFencesSandboxAssignmentInTheGatewayCommand() {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        TaskAssignedCommandHandler handler = new TaskAssignedCommandHandler(delivery);
+        String payload = payloadJson().replace(",\"futureField\"",
+                ",\"sandbox\":{\"sandboxId\":\"sandbox-1\",\"providerSandboxId\":\"sandbox-1\",\"profile\":\"ISOLATED\","
+                        + "\"status\":\"READY\",\"endpointRef\":\"sandbox://provider/sandbox-1\","
+                        + "\"expiresAt\":\"2026-08-16T00:20:00Z\",\"ownerTaskId\":\"" + TASK_ID
+                        + "\",\"ownerAttemptId\":\"" + ATTEMPT_ID + "\"},\"futureField\"");
+
+        assertThat(handler.handle("TaskAssigned", TASK_ID.toString(), payload, OCCURRED_AT,
+                knownTaskFields())).isTrue();
+        var command = org.mockito.ArgumentCaptor.forClass(ServerMessage.class);
+        verify(delivery).deliver(eq(AGENT_ID.toString()), command.capture());
+        var sandbox = command.getValue().getTaskAssigned().getSandbox();
+        assertThat(sandbox.getProviderSandboxId()).isEqualTo("sandbox-1");
+        assertThat(sandbox.getOwnerTaskId()).isEqualTo(TASK_ID.toString());
+        assertThat(sandbox.getOwnerAttemptId()).isEqualTo(ATTEMPT_ID.toString());
+    }
+
+    @Test
     void preservesUnknownPayloadFieldsForForwardCompatibleConsumers() {
         CommandDeliveryService delivery = mock(CommandDeliveryService.class);
         TaskAssignedCommandHandler handler = new TaskAssignedCommandHandler(delivery);

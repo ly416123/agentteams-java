@@ -87,7 +87,8 @@ class TaskAssignedCommandHandlerSandboxReviewTest {
     }
 
     private static String missingSandboxPayload() {
-        return """{"taskId":"%s","agentId":"%s","attemptId":"%s",
+        return """
+                {"taskId":"%s","agentId":"%s","attemptId":"%s",
                 "assignmentId":"55555555-5555-5555-5555-555555555555",
                 "leaseId":"66666666-6666-6666-6666-666666666666",
                 "spec":{"sandbox":{"profile":"ISOLATED"}}}"""

@@ -11,10 +11,12 @@ import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ToolSchema;
 import io.agentteams.manager.ModelProvider;
 import io.agentteams.manager.ModelProviderException;
+import io.agentteams.manager.ModelIdentity;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * AgentScope {@link Model} facade over an existing synchronous Manager
@@ -36,33 +38,34 @@ public final class ModelProviderAgentScopeModel implements Model {
 
     @Override
     public Flux<ChatResponse> stream(List<Msg> messages, List<ToolSchema> tools, GenerateOptions options) {
-        try {
-            String prompt = extractPrompt(messages);
-            int maxTokens = extractMaxTokens(options);
-            ModelProvider.ModelResponse response = provider.complete(
-                    new ModelProvider.ModelRequest(prompt, maxTokens));
-            validateResponse(response);
-            ChatUsage usage = toChatUsage(response);
-            ChatResponse chatResponse = ChatResponse.builder()
-                    .id("manager-model-response")
-                    .content(List.<ContentBlock>of(TextBlock.builder().text(response.content()).build()))
-                    .usage(usage)
-                    .metadata(Map.of())
-                    .finishReason("stop")
-                    .build();
-            return Flux.just(chatResponse);
-        } catch (ModelProviderException error) {
-            return Flux.error(safeProviderFailure(error));
-        } catch (RuntimeException error) {
-            return Flux.error(new ModelProviderException(FAILURE_MESSAGE,
-                    ModelProviderException.Category.UNKNOWN));
-        }
+        return Flux.defer(() -> {
+            try {
+                String prompt = extractPrompt(messages);
+                int maxTokens = extractMaxTokens(options);
+                ModelProvider.ModelResponse response = provider.complete(
+                        new ModelProvider.ModelRequest(prompt, maxTokens));
+                validateResponse(response);
+                ChatUsage usage = toChatUsage(response);
+                ChatResponse chatResponse = ChatResponse.builder()
+                        .id("manager-model-response")
+                        .content(List.<ContentBlock>of(TextBlock.builder().text(response.content()).build()))
+                        .usage(usage)
+                        .metadata(Map.of())
+                        .finishReason("stop")
+                        .build();
+                return Flux.just(chatResponse);
+            } catch (ModelProviderException error) {
+                return Flux.error(safeProviderFailure(error));
+            } catch (RuntimeException error) {
+                return Flux.error(new ModelProviderException(FAILURE_MESSAGE,
+                        ModelProviderException.Category.UNKNOWN));
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public String getModelName() {
-        String modelName = provider.modelName();
-        return modelName == null || modelName.isBlank() ? "unknown" : modelName;
+        return ModelIdentity.read(provider::modelName, "unknown");
     }
 
     private static String extractPrompt(List<Msg> messages) {

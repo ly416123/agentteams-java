@@ -36,6 +36,8 @@ jobs:
         run: bash -n scripts/validate-production-endpoints.sh
       - name: Validate TaskSandbox security contract
         run: python -m unittest scripts/test_kind_task_sandbox_contract.py
+      - name: Validate AgentScope Fake Model runtime contract
+        run: python scripts/test-agentscope-runtime-contract.py
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
