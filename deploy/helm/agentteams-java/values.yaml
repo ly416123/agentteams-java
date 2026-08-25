@@ -97,6 +97,11 @@ availability:
     minAvailable: 1
 networkPolicy:
   enabled: true
+  dashboardAlertReceiver:
+    # Allow an in-cluster dashboard alert receiver when explicitly enabled.
+    # External webhook egress requires a separate, deployment-specific rule.
+    enabled: false
+    port: 8080
   # Allow the Control Plane to reach the configured OIDC issuer. This is only
   # rendered when OIDC is enabled; set a narrower CIDR for a production IdP.
   oidcEgressCIDR: 0.0.0.0/0

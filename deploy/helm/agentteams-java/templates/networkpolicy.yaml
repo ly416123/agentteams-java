@@ -33,6 +33,13 @@ spec:
       ports:
         - { protocol: TCP, port: 4318 }
     {{- end }}
+    {{- if .Values.networkPolicy.dashboardAlertReceiver.enabled }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: dashboard-alert-receiver }
+      ports:
+        - { protocol: TCP, port: {{ .Values.networkPolicy.dashboardAlertReceiver.port }} }
+    {{- end }}
     - to:
         - namespaceSelector: {}
       ports:

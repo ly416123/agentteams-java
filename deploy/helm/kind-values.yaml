@@ -28,6 +28,8 @@ gateway:
     remoteEnabled: true
     internalToken: kind-quota-internal
 networkPolicy:
+  dashboardAlertReceiver:
+    enabled: true
   # Kind's kindnet evaluates the Kubernetes API path after node-level DNAT;
   # allow only API HTTPS ports while keeping all other egress restrictions.
   kubernetesApiAllowAllEgress: true

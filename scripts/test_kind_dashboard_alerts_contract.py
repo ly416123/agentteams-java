@@ -25,7 +25,8 @@ class KindDashboardAlertsContractTest(unittest.TestCase):
         for required in (
                 "dashboard_alert_rules", "model_call_audits", "dashboard_alert_events",
                 "FAILED", "SENT", "KIND_DASHBOARD_ALERTS_OK", "/api/v1/dashboard/alerts/events",
-                "date_trunc('minute', clock_timestamp()) - interval '1 second'"):
+                "date_trunc('minute', clock_timestamp()) - interval '1 second'",
+                "from_at", "to_at", "cost_windows"):
             self.assertIn(required, script_text)
         receiver_text = receiver.read_text(encoding="utf-8")
         for required in ("DASHBOARD_ALERT_RECEIVER_MODE", "500", "200"):
@@ -40,6 +41,15 @@ class KindDashboardAlertsContractTest(unittest.TestCase):
         self.assertIn("AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL", install_run)
         alert_step = next(step for step in steps if step.get("name") == "Run Kind Dashboard alert acceptance")
         self.assertIn("scripts/run-kind-dashboard-alerts.py", alert_step["run"])
+
+    def test_kind_values_allow_control_plane_to_reach_receiver(self):
+        values = yaml.safe_load((ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8"))
+        network_policy = (ROOT / "deploy/helm/agentteams-java/templates/networkpolicy.yaml").read_text(
+            encoding="utf-8")
+
+        self.assertTrue(values["networkPolicy"]["dashboardAlertReceiver"]["enabled"])
+        self.assertIn("dashboardAlertReceiver.enabled", network_policy)
+        self.assertIn("app.kubernetes.io/name: dashboard-alert-receiver", network_policy)
 
 
 if __name__ == "__main__":

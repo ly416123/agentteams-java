@@ -801,17 +801,28 @@ Control Plane 定向测试（Usage 显式作用域、告警去重/重试、sched
 - 新增 `run-kind-dashboard-alerts.py`：向 `model_call_audits` 注入合成成功/失败调用，验证 V36 规则、V40 事件、COST 去重、Webhook 失败、退避重试为 SENT，以及事件查询 API。
 - 失败时仅上传接收器 Deployment 状态和告警事件摘要，不上传容器日志或请求正文。
 
-本地验证已完成 Python 契约测试（20/20）、Kind/Observability 静态校验、Helm lint/template 和 `mvn test`；本机无 Docker socket，真实 Kind 集群需由 GitHub Actions `kind-recovery` 在修复后重新执行确认。
+本地验证已完成 Python 契约测试（21/21）、Kind/Observability 静态校验、Helm lint/template、真实 Kind 告警端到端验收和 `mvn test`；GitHub Actions `kind-recovery` 仍需以新提交重新执行确认。
 
-### 2026-08-25 CI Dashboard 告警时间窗口修复
+### 2026-08-25 CI Dashboard 告警验收稳定性修复
 
 GitHub Actions 的 `kind-recovery` 曾在 `COST` 告警验收中超时，日志为
-`timed out waiting for COST event status SENT; last=None`。根因不是接收器或重试逻辑，
-而是验收脚本以当前精确时间写入合成 `model_call_audits`；调度器按分钟起点对齐窗口，
-跨过分钟边界时该记录落在半开查询窗口 `[from, to)` 的上界之后，因而不会产生 COST
-事件。
+`timed out waiting for COST event status SENT; last=None`。排查发现有两个连续问题：
 
-现已将验收审计记录的 `occurred_at` 固定为当前分钟起点前 1 秒，确保记录始终落在
-调度器评估窗口内；契约测试已锁定该时间边界。该修复不改变生产告警窗口或业务数据，
-只增强 Kind 合成数据的确定性。修复后的真实集群结果仍以 GitHub Actions 新鲜运行
-为最终验收依据。
+1. Control Plane 的 NetworkPolicy 没有允许访问 Kind 专用的
+   `dashboard-alert-receiver:8080`，事件虽然已生成，但 Webhook 投递会失败，验收脚本
+   只等待 `SENT`，所以错误表现为 `last=None`。
+2. 放通网络后，验收流程可能跨越分钟边界；调度器按分钟生成窗口指纹，后续窗口产生
+   新的 COST 事件是合法行为，原脚本却把持久化事件总数固定为两条，导致把合法的滚动窗口
+   误判为重复投递。
+
+现已完成以下修复：
+
+- 默认关闭、Kind 显式开启 Control Plane 到告警接收器的最小端口白名单；生产环境不会因
+  Kind 测试配置而放宽外部 Webhook 出站策略。
+- 验收审计记录的 `occurred_at` 固定为当前分钟起点前 1 秒，确保合成记录始终落在调度器
+  评估窗口内；契约测试锁定该时间边界。
+- 验收脚本改为按 `(rule, from_at, to_at)` 检查窗口级去重，并分别验证 COST 成功投递与
+  FAILURE_RATE 失败后重试为 `SENT`，不再依赖固定事件总数；等待超时时输出当前事件行，
+  便于区分网络、调度和窗口问题。
+
+这些改动不改变生产告警窗口或业务数据，只修复 Kind 验收环境的网络接线和断言稳定性。

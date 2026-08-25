@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import os
 import sys
 import uuid
@@ -20,17 +21,18 @@ def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def event_rows(namespace: str, postgres_pod: str, tenant: str, project: str) -> list[tuple[str, str, int, str]]:
+def event_rows(namespace: str, postgres_pod: str, tenant: str, project: str) -> list[tuple[str, str, str, str, str, str]]:
     statement = f"""
-        select rule, status, attempts, coalesce(next_attempt_at::text, '')
+        select rule, status, attempts, coalesce(next_attempt_at::text, ''),
+               from_at::text, to_at::text
           from dashboard_alert_events
          where tenant_id = {sql_literal(tenant)} and project_id = {sql_literal(project)}
-         order by rule
+         order by rule, from_at, to_at
     """
     rows = sql(namespace, postgres_pod, statement)
     if not rows:
         return []
-    return [tuple(line.split("|", 3)) for line in rows.splitlines()]
+    return [tuple(line.split("|", 5)) for line in rows.splitlines()]
 
 
 def insert_audit(namespace: str, postgres_pod: str, tenant: str, project: str,
@@ -61,15 +63,21 @@ def set_receiver_mode(args: argparse.Namespace, mode: str) -> None:
 
 
 def wait_for_event(args: argparse.Namespace, tenant: str, project: str, rule: str,
-                   status: str, minimum_attempts: int = 1) -> tuple[str, str, int, str]:
+                   status: str, minimum_attempts: int = 1) -> tuple[str, str, str, str, str, str]:
+    last_rows: list[tuple[str, str, str, str, str, str]] = []
+
     def matching():
-        rows = event_rows(args.namespace, args.postgres_pod, tenant, project)
-        for row in rows:
+        nonlocal last_rows
+        last_rows = event_rows(args.namespace, args.postgres_pod, tenant, project)
+        for row in last_rows:
             if row[0] == rule and row[1] == status and int(row[2]) >= minimum_attempts:
                 return row
         return None
 
-    return wait_until(f"{rule} event status {status}", matching, timeout=args.timeout)
+    try:
+        return wait_until(f"{rule} event status {status}", matching, timeout=args.timeout)
+    except KindTestError as error:
+        raise KindTestError(f"{error}; events={last_rows!r}") from error
 
 
 def main() -> int:
@@ -102,11 +110,14 @@ def main() -> int:
             raise KindTestError(f"first COST delivery must be one attempt, got {sent}")
 
         # The scheduler evaluates the same scope repeatedly. The unique fingerprint
-        # must suppress a second event for the same COST/window/rule.
+        # must suppress a second event for the same COST/window/rule. A long-running
+        # acceptance can cross a minute boundary, so later windows are legitimate.
         rows_after_repeat = event_rows(args.namespace, args.postgres_pod, tenant, project)
         cost_rows = [row for row in rows_after_repeat if row[0] == "COST"]
-        if len(cost_rows) != 1:
-            raise KindTestError(f"expected one deduplicated COST event, got {cost_rows}")
+        cost_windows = Counter((row[4], row[5]) for row in cost_rows)
+        duplicate_windows = {window: count for window, count in cost_windows.items() if count != 1}
+        if duplicate_windows:
+            raise KindTestError(f"expected one COST event per window, duplicates={duplicate_windows}; rows={cost_rows}")
 
         set_receiver_mode(args, "fail")
         second_audit = insert_audit(args.namespace, args.postgres_pod, tenant, project, "FAILURE", 0)
@@ -116,8 +127,12 @@ def main() -> int:
 
         set_receiver_mode(args, "success")
         recovered = wait_for_event(args, tenant, project, "FAILURE_RATE", "SENT", minimum_attempts=2)
-        if len(event_rows(args.namespace, args.postgres_pod, tenant, project)) != 2:
-            raise KindTestError("expected exactly two durable events after retry recovery")
+        final_rows = event_rows(args.namespace, args.postgres_pod, tenant, project)
+        if not any(row[0] == "COST" and row[1] == "SENT" for row in final_rows):
+            raise KindTestError(f"expected a durable SENT COST event, got {final_rows}")
+        if not any(row[0] == "FAILURE_RATE" and row[1] == "SENT" and int(row[2]) >= 2
+                   for row in final_rows):
+            raise KindTestError(f"expected a retried SENT FAILURE_RATE event, got {final_rows}")
 
         events_response = api_request(
             f"{base_url}/api/v1/dashboard/alerts/events?tenant={tenant}&project={project}&limit=100")
