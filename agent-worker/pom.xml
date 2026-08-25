@@ -76,6 +76,8 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>io.agentteams.worker.QwenPawWorkerApplication</mainClass>
+                    <!-- Keep the thin jar available to integration-test consumers. -->
+                    <classifier>boot</classifier>
                 </configuration>
                 <executions>
                     <execution>

@@ -2,12 +2,15 @@ package io.agentteams.worker.agentscope;
 
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentteams.runtime.AgentRuntime;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.CompletionStatus;
 import io.agentteams.runtime.FakeRuntime;
+import io.agentteams.runtime.RuntimeCallUsage;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
 import io.agentteams.runtime.RuntimeResult;
 import io.agentteams.runtime.RuntimeSnapshot;
@@ -140,6 +143,9 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 if (!isCurrentLocked(execution) || translated.duplicate()) {
                     return;
                 }
+                if (event instanceof ModelCallEndEvent modelCallEnd && modelCallEnd.getUsage() != null) {
+                    execution.modelUsage = modelCallEnd.getUsage();
+                }
                 if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_RESULT
                         && !translated.duplicate()) {
                     execution.resultCandidate = execution.translator.safeResultCandidate(event);
@@ -179,7 +185,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         AgentRuntimeContext currentContext = requireContextLocked();
         completeLocked(execution, RuntimeResult.success(execution.task.id(),
                 execution.resultCandidate == null ? "" : execution.resultCandidate,
-                Instant.now(currentContext.clock())));
+                Instant.now(currentContext.clock()), usage(execution, currentContext)));
     }
 
     private void completeFailureLocked(UUID taskId) {
@@ -190,7 +196,31 @@ public final class AgentScopeRuntime implements AgentRuntime {
     private void completeFailureLocked(Execution execution, String message) {
         AgentRuntimeContext currentContext = requireContextLocked();
         completeLocked(execution, RuntimeResult.failure(execution.task.id(), message,
-                Instant.now(currentContext.clock())));
+                Instant.now(currentContext.clock()), usage(execution, currentContext)));
+    }
+
+    private static RuntimeCallUsage usage(Execution execution, AgentRuntimeContext context) {
+        ChatUsage modelUsage = execution.modelUsage;
+        if (modelUsage == null) {
+            return null;
+        }
+        String provider = firstNonBlank(execution.task.metadata().get("provider"),
+                execution.task.metadata().get("provider_id"),
+                context.configuration().get("provider"),
+                context.configuration().get("provider_id"), "agentscope");
+        String model = firstNonBlank(execution.task.metadata().get("model"),
+                context.configuration().get("model"), "unknown");
+        return new RuntimeCallUsage(provider, model, 0,
+                modelUsage.getInputTokens(), modelUsage.getOutputTokens());
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        throw new IllegalStateException("runtime usage requires a provider and model");
     }
 
     private CompletionStatus completeLocked(Execution execution, RuntimeResult result) {
@@ -373,6 +403,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicReference<Disposable> disposable = new AtomicReference<>();
         private volatile String resultCandidate;
+        private volatile ChatUsage modelUsage;
 
         Execution(RuntimeTask task, HarnessAgent agent, AgentScopeEventTranslator translator,
                 String attemptId, String leaseId, long generation) {

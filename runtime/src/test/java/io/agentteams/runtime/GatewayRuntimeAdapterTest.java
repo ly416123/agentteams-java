@@ -132,6 +132,7 @@ class GatewayRuntimeAdapterTest {
         assertThat(runtime.status(taskId)).get().extracting(status -> status.task().metadata())
                 .isEqualTo(java.util.Map.of("agentId", "agent-1", "attemptId",
                         assignment.getMetadata().getAttemptId(), "leaseId", assignment.getMetadata().getLeaseId(),
+                        "leaseExpiresAt", "1970-01-01T00:00:00Z",
                         "tenantId", "tenant-a", "projectId", "project-a", "teamId", "team-a",
                 "toolId", "create_task", "quotaId", "quota-a", "quotaDimension", "daily_tokens"));
     }

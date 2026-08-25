@@ -22,6 +22,7 @@ public final class FakeSandboxRuntime implements SandboxRuntimePort {
     private final AtomicInteger provisionCalls = new AtomicInteger();
     private final AtomicInteger renewCalls = new AtomicInteger();
     private final AtomicInteger terminateCalls = new AtomicInteger();
+    private volatile SandboxTerminationReason lastTerminationReason;
 
     @Override
     public synchronized SandboxHandle provision(SandboxRequest request) {
@@ -72,6 +73,7 @@ public final class FakeSandboxRuntime implements SandboxRuntimePort {
                 SandboxStatus.DESTROYED, current.endpointRef(), current.expiresAt(), current.taskId(),
                 current.attemptId());
         replace(terminated);
+        lastTerminationReason = reason;
         terminateCalls.incrementAndGet();
     }
 
@@ -89,6 +91,10 @@ public final class FakeSandboxRuntime implements SandboxRuntimePort {
 
     public int terminateCalls() {
         return terminateCalls.get();
+    }
+
+    public SandboxTerminationReason lastTerminationReason() {
+        return lastTerminationReason;
     }
 
     private SandboxHandle requireHandle(String providerSandboxId) {
