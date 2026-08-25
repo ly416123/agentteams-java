@@ -130,6 +130,14 @@ public final class AgentScopeEventTranslator {
                 "unmapped AgentScope event", false, true, duplicate);
     }
 
+    /** Returns only a bounded, redacted text candidate from an AgentResultEvent. */
+    public synchronized String safeResultCandidate(AgentEvent event) {
+        if (!(event instanceof AgentResultEvent resultEvent) || resultEvent.getResult() == null) {
+            return "";
+        }
+        return safeText(resultEvent.getResult().getTextContent());
+    }
+
     private AgentScopeExecutionEvent mapped(String eventId, AgentScopeExecutionEvent.Kind kind,
             String safeMessage, boolean terminal, boolean success, boolean duplicate) {
         return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, correlationId, runtime, kind,
