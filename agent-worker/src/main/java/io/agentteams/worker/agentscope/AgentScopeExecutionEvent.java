@@ -8,6 +8,8 @@ public record AgentScopeExecutionEvent(
         String attemptId,
         String leaseId,
         String eventId,
+        String correlationId,
+        String runtime,
         Kind kind,
         String safeMessage,
         boolean terminal,
@@ -26,6 +28,12 @@ public record AgentScopeExecutionEvent(
         }
         if (eventId == null || eventId.isBlank()) {
             throw new IllegalArgumentException("eventId must not be blank");
+        }
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new IllegalArgumentException("correlationId must not be blank");
+        }
+        if (runtime == null || runtime.isBlank()) {
+            throw new IllegalArgumentException("runtime must not be blank");
         }
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(safeMessage, "safeMessage");

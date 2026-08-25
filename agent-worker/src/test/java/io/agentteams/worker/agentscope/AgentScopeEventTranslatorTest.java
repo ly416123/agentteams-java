@@ -26,8 +26,11 @@ class AgentScopeEventTranslatorTest {
     private static final String CREATED_AT = "2026-08-25T00:00:00Z";
     private static final String TASK_ID = "task-a";
     private static final String LEASE_ID = "lease-a";
+    private static final String CORRELATION_ID = "corr-1";
+    private static final String RUNTIME = "AGENTSCOPE";
 
-    private final AgentScopeEventTranslator translator = new AgentScopeEventTranslator(TASK_ID, "attempt-a", LEASE_ID);
+    private final AgentScopeEventTranslator translator = new AgentScopeEventTranslator(
+            TASK_ID, "attempt-a", LEASE_ID, CORRELATION_ID, RUNTIME);
 
     @Test
     void translatesAgentStartEventWithoutLeakingAgentScopeType() {
@@ -38,6 +41,8 @@ class AgentScopeEventTranslatorTest {
         assertThat(result.taskId()).isEqualTo(TASK_ID);
         assertThat(result.attemptId()).isEqualTo("attempt-a");
         assertThat(result.leaseId()).isEqualTo(LEASE_ID);
+        assertThat(result.correlationId()).isEqualTo(CORRELATION_ID);
+        assertThat(result.runtime()).isEqualTo(RUNTIME);
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.AGENT_STARTED);
         assertThat(result.safeMessage()).isEqualTo("agent started");
         assertThat(result.terminal()).isFalse();
@@ -170,6 +175,8 @@ class AgentScopeEventTranslatorTest {
         assertThat(result.taskId()).isEqualTo(TASK_ID);
         assertThat(result.attemptId()).isEqualTo("attempt-a");
         assertThat(result.leaseId()).isEqualTo(LEASE_ID);
+        assertThat(result.correlationId()).isEqualTo(CORRELATION_ID);
+        assertThat(result.runtime()).isEqualTo(RUNTIME);
         assertThat(result.eventId()).isEqualTo("stale-id");
         assertThat(result.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
         assertThat(result.safeMessage()).isEqualTo("stale attempt event");
@@ -197,7 +204,8 @@ class AgentScopeEventTranslatorTest {
 
         AgentScopeExecutionEvent first = translator.translate(event);
         AgentScopeExecutionEvent second = translator.translate(event);
-        AgentScopeExecutionEvent otherAttempt = new AgentScopeEventTranslator(TASK_ID, "attempt-b", LEASE_ID)
+        AgentScopeExecutionEvent otherAttempt = new AgentScopeEventTranslator(
+                TASK_ID, "attempt-b", LEASE_ID, CORRELATION_ID, RUNTIME)
                 .translate(eventWithAttempt(
                         new AgentStartEvent("same-id", CREATED_AT, "session", "reply", "agent", "assistant"),
                         "attempt-b"));
@@ -213,6 +221,8 @@ class AgentScopeEventTranslatorTest {
         AgentScopeExecutionEvent closed = translator.translate(event);
         assertThat(closed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.STALE);
         assertThat(closed.safeMessage()).isEqualTo("translator closed");
+        assertThat(closed.correlationId()).isEqualTo(CORRELATION_ID);
+        assertThat(closed.runtime()).isEqualTo(RUNTIME);
         assertThat(closed.terminal()).isFalse();
         assertThat(closed.success()).isFalse();
         assertThat(closed.duplicate()).isFalse();
@@ -220,15 +230,26 @@ class AgentScopeEventTranslatorTest {
 
     @Test
     void requiresAllExecutionIdsForTheIdempotencyBoundary() {
-        assertThatThrownBy(() -> new AgentScopeEventTranslator("  ", "attempt-a", LEASE_ID))
+        assertThatThrownBy(() -> new AgentScopeEventTranslator(
+                "  ", "attempt-a", LEASE_ID, CORRELATION_ID, RUNTIME))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("taskId must not be blank");
-        assertThatThrownBy(() -> new AgentScopeEventTranslator(TASK_ID, "  ", LEASE_ID))
+        assertThatThrownBy(() -> new AgentScopeEventTranslator(
+                TASK_ID, "  ", LEASE_ID, CORRELATION_ID, RUNTIME))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("attemptId must not be blank");
-        assertThatThrownBy(() -> new AgentScopeEventTranslator(TASK_ID, "attempt-a", "  "))
+        assertThatThrownBy(() -> new AgentScopeEventTranslator(
+                TASK_ID, "attempt-a", "  ", CORRELATION_ID, RUNTIME))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("leaseId must not be blank");
+        assertThatThrownBy(() -> new AgentScopeEventTranslator(
+                TASK_ID, "attempt-a", LEASE_ID, "  ", RUNTIME))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("correlationId must not be blank");
+        assertThatThrownBy(() -> new AgentScopeEventTranslator(
+                TASK_ID, "attempt-a", LEASE_ID, CORRELATION_ID, "  "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("runtime must not be blank");
     }
 
     private static AgentEvent withAttempt(AgentEvent event) {

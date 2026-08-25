@@ -37,13 +37,18 @@ public final class AgentScopeEventTranslator {
     private final String taskId;
     private final String attemptId;
     private final String leaseId;
+    private final String correlationId;
+    private final String runtime;
     private final Set<String> seenEventKeys = ConcurrentHashMap.newKeySet();
     private volatile boolean closed;
 
-    public AgentScopeEventTranslator(String taskId, String attemptId, String leaseId) {
+    public AgentScopeEventTranslator(String taskId, String attemptId, String leaseId,
+            String correlationId, String runtime) {
         this.taskId = requireId(taskId, "taskId");
         this.attemptId = requireId(attemptId, "attemptId");
         this.leaseId = requireId(leaseId, "leaseId");
+        this.correlationId = requireId(correlationId, "correlationId");
+        this.runtime = requireId(runtime, "runtime");
     }
 
     private static String requireId(String value, String name) {
@@ -127,12 +132,13 @@ public final class AgentScopeEventTranslator {
 
     private AgentScopeExecutionEvent mapped(String eventId, AgentScopeExecutionEvent.Kind kind,
             String safeMessage, boolean terminal, boolean success, boolean duplicate) {
-        return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, kind, safeMessage,
+        return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, correlationId, runtime, kind,
+                safeMessage,
                 terminal, success, duplicate);
     }
 
     private AgentScopeExecutionEvent lifecycleEvent(String eventId, String message) {
-        return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId,
+        return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, correlationId, runtime,
                 AgentScopeExecutionEvent.Kind.STALE, message, false, false, false);
     }
 
