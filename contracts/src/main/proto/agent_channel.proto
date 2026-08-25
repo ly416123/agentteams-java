@@ -67,6 +67,20 @@ message AgentReady {
   string rejection_reason = 4;
 }
 
+// Optional, provider-neutral execution reference for a task attempt. The
+// message deliberately carries identifiers and a controlled endpoint only;
+// provider credentials and host secrets never cross the Agent channel.
+message SandboxAssignment {
+  string sandbox_id = 1;
+  string provider_sandbox_id = 2;
+  string profile = 3;
+  string status = 4;
+  string endpoint_ref = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  string owner_task_id = 7;
+  string owner_attempt_id = 8;
+}
+
 message TaskAssigned {
   EventMetadata metadata = 1;
   string task_type = 2;
@@ -81,6 +95,7 @@ message TaskAssigned {
   string tool_id = 9;
   string quota_id = 10;
   string quota_dimension = 11;
+  SandboxAssignment sandbox = 12;
 }
 
 message TaskAccepted {

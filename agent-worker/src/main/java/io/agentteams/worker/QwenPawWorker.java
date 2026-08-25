@@ -3,6 +3,7 @@ package io.agentteams.worker;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.Timestamp;
+import io.agentteams.application.api.ExecutionRuntime;
 import io.agentteams.contracts.v1.AgentHello;
 import io.agentteams.contracts.v1.AgentMessage;
 import io.agentteams.contracts.v1.AgentReady;
@@ -105,6 +106,7 @@ public final class QwenPawWorker implements AutoCloseable {
 
     QwenPawWorker(WorkerConfiguration configuration, RuntimeQuotaPort quotaPort) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
+        rejectUnimplementedRuntime(configuration.runtime());
         this.clock = Clock.systemUTC();
         this.tracing = WorkerTracing.create();
         this.scheduler = Executors.newScheduledThreadPool(2, runnable -> {
@@ -145,6 +147,13 @@ public final class QwenPawWorker implements AutoCloseable {
     /** Composition hook for an application-provided quota adapter. */
     public static QwenPawWorker fromEnvironment(RuntimeQuotaPort quotaPort) {
         return new QwenPawWorker(WorkerConfiguration.fromEnvironment(), quotaPort);
+    }
+
+    private static void rejectUnimplementedRuntime(ExecutionRuntime runtime) {
+        if (runtime == ExecutionRuntime.AGENTSCOPE) {
+            throw new IllegalStateException(
+                    "AgentScope runtime is not implemented yet; use QWENPAW until it is integrated");
+        }
     }
 
     static RuntimeModelCallAdmission modelCallAdmission(WorkerConfiguration configuration,
@@ -549,6 +558,7 @@ public final class QwenPawWorker implements AutoCloseable {
             String qwenPawUserId,
             String qwenPawChannel,
             String qwenPawConfigurationPath,
+            ExecutionRuntime runtime,
             String modelProvider,
             String model,
             int modelMaxTokens,
@@ -603,6 +613,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     value(environment, "QWENPAW_USER_ID", "agentteams"),
                     value(environment, "QWENPAW_CHANNEL", "console"),
                     value(environment, "QWENPAW_CONFIG_PATH", "/api/models/active"),
+                    ExecutionRuntime.from(environment.get("AGENTTEAMS_RUNTIME")),
                     value(environment, "AGENTTEAMS_MODEL_PROVIDER", "qwenpaw"),
                     value(environment, "AGENTTEAMS_MODEL", "unknown"),
                     integer(environment, "AGENTTEAMS_MODEL_MAX_TOKENS", 1024),

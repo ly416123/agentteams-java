@@ -10,8 +10,13 @@ import io.agentteams.contracts.v1.TaskFailed;
 import io.agentteams.contracts.v1.TaskHeartbeat;
 import io.agentteams.contracts.v1.TaskProgress;
 import io.agentteams.contracts.v1.TaskAssigned;
+import io.agentteams.contracts.v1.SandboxAssignment;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Clock;
 import java.time.Instant;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -47,6 +52,9 @@ public final class GatewayRuntimeAdapter {
         putIfPresent(metadata, "toolId", assignment.getToolId());
         putIfPresent(metadata, "quotaId", assignment.getQuotaId());
         putIfPresent(metadata, "quotaDimension", assignment.getQuotaDimension());
+        if (assignment.hasSandbox()) {
+            addSandboxMetadata(metadata, assignment.getSandbox(), taskId, input.getAttemptId());
+        }
         RuntimeTask task = new RuntimeTask(taskId, assignment.getTaskType(),
                 assignment.getInputJson().toStringUtf8(), metadata);
         AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt(),
@@ -232,5 +240,98 @@ public final class GatewayRuntimeAdapter {
         if (value != null && !value.isBlank()) {
             metadata.put(key, value.trim());
         }
+    }
+
+    private void addSandboxMetadata(Map<String, String> metadata, SandboxAssignment sandbox,
+            UUID taskId, String topLevelAttemptId) {
+        String ownerTaskId = required(sandbox.getOwnerTaskId(), "sandbox.ownerTaskId");
+        String ownerAttemptId = required(sandbox.getOwnerAttemptId(), "sandbox.ownerAttemptId");
+        if (!taskId.toString().equals(ownerTaskId) || !topLevelAttemptId.equals(ownerAttemptId)) {
+            throw new IllegalArgumentException("sandbox owner does not match task assignment");
+        }
+        String sandboxId = bounded(required(sandbox.getSandboxId(), "sandbox.sandboxId"), "sandboxId");
+        String providerSandboxId = bounded(required(sandbox.getProviderSandboxId(), "sandbox.providerSandboxId"),
+                "providerSandboxId");
+        String profile = bounded(required(sandbox.getProfile(), "sandbox.profile"), "profile").toUpperCase();
+        if (!"ISOLATED".equals(profile) && !"HARDENED".equals(profile)) {
+            throw new IllegalArgumentException("sandbox profile is not executable");
+        }
+        String status = bounded(required(sandbox.getStatus(), "sandbox.status"), "status").toUpperCase();
+        if (!"READY".equals(status) && !"RUNNING".equals(status)) {
+            throw new IllegalArgumentException("sandbox status is not executable");
+        }
+        Instant expiresAt = sandboxExpiresAt(sandbox);
+        if (!clock.instant().isBefore(expiresAt)) {
+            throw new IllegalArgumentException("sandbox assignment is expired");
+        }
+        String endpointRef = validateEndpoint(required(sandbox.getEndpointRef(), "sandbox.endpointRef"));
+        metadata.put("sandboxId", sandboxId);
+        metadata.put("providerSandboxId", providerSandboxId);
+        metadata.put("profile", profile);
+        metadata.put("status", status);
+        metadata.put("endpointRef", endpointRef);
+        metadata.put("expiresAt", expiresAt.toString());
+        metadata.put("ownerTaskId", ownerTaskId);
+        metadata.put("ownerAttemptId", ownerAttemptId);
+    }
+
+    private static Instant sandboxExpiresAt(SandboxAssignment sandbox) {
+        if (!sandbox.hasExpiresAt()) {
+            throw new IllegalArgumentException("sandbox.expiresAt must be present");
+        }
+        try {
+            return Instant.ofEpochSecond(sandbox.getExpiresAt().getSeconds(), sandbox.getExpiresAt().getNanos());
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("sandbox.expiresAt is invalid", error);
+        }
+    }
+
+    private static String validateEndpoint(String endpointRef) {
+        final URI uri;
+        try {
+            uri = new URI(endpointRef);
+        } catch (URISyntaxException error) {
+            throw new IllegalArgumentException("sandbox.endpointRef is not a URI", error);
+        }
+        if ("sandbox".equalsIgnoreCase(uri.getScheme())) {
+            if (uri.isOpaque() || uri.getRawAuthority() == null || uri.getRawAuthority().isBlank()
+                    || uri.getRawUserInfo() != null || uri.getPort() != -1
+                    || uri.getRawQuery() != null || uri.getRawFragment() != null
+                    || uri.getRawPath() == null || uri.getRawPath().isBlank()
+                    || containsTraversal(uri.getPath())) {
+                throw new IllegalArgumentException("sandbox.endpointRef is not controlled");
+            }
+            return uri.toString();
+        }
+        if ("file".equalsIgnoreCase(uri.getScheme())) {
+            if (uri.getRawAuthority() != null && !uri.getRawAuthority().isEmpty()
+                    || uri.getRawQuery() != null || uri.getRawFragment() != null
+                    || uri.getPath() == null || !uri.getPath().startsWith("/")
+                    || containsTraversal(uri.getPath())
+                    || "docker.sock".equals(Path.of(uri.getPath()).getFileName().toString())) {
+                throw new IllegalArgumentException("sandbox.endpointRef is not a controlled file path");
+            }
+            return uri.toString();
+        }
+        throw new IllegalArgumentException("sandbox.endpointRef scheme is not allowed");
+    }
+
+    private static boolean containsTraversal(String path) {
+        for (Path part : Paths.get(path)) {
+            if ("..".equals(part.toString())) return true;
+        }
+        return false;
+    }
+
+    private static String required(String value, String field) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " must not be blank");
+        return value.trim();
+    }
+
+    private static String bounded(String value, String field) {
+        if (value.length() > 256 || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException(field + " is invalid");
+        }
+        return value;
     }
 }

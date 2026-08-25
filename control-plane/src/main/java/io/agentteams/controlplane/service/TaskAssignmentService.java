@@ -14,6 +14,9 @@ import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.persistence.TeamMemberRecord;
 import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
+import io.agentteams.controlplane.persistence.TaskSandboxRecord;
+import io.agentteams.controlplane.sandbox.SandboxLifecycleService;
+import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.controlplane.team.TeamSchedulingPolicy;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.domain.task.TaskPhase;
@@ -82,8 +85,11 @@ public final class TaskAssignmentService {
                 tx.teams().insertTaskAssignment(UUID.randomUUID(), team, taskId, agent.id(), member.id(),
                         "ASSIGNED", now);
             });
-            UUID eventId = FoundationPersistenceService.appendEvent(tx, "task", taskId, "TaskAssigned",
-                    taskAssignedPayload(assigned, agent, attempt, assignment, lease), now, assigned.version());
+            java.util.Optional<TaskSandboxRecord> sandbox = SandboxLifecycleService.requestInTransaction(
+                    tx, assigned, attempt, now);
+            UUID eventId = sandbox.isPresent() ? null : FoundationPersistenceService.appendEvent(tx, "task", taskId,
+                    "TaskAssigned", taskAssignedPayload(assigned, agent, attempt, assignment, lease, null), now,
+                    assigned.version());
         return new AssignmentResult(assigned, agent, attempt, assignment, lease, eventId);
     });
         metrics.taskAssigned();
@@ -171,6 +177,16 @@ public final class TaskAssignmentService {
                 }
                 TaskAttemptRecord attempt = tx.taskAttempts().findById(lease.taskAttemptId()).orElseThrow();
                 TaskRecord task = tx.tasks().findById(attempt.taskId()).orElseThrow();
+                tx.taskSandboxes().findByAttemptId(attempt.id()).ifPresent(sandbox -> {
+                    if (sandbox.status() != SandboxStatus.DESTROYED && sandbox.status() != SandboxStatus.FAILED
+                            && sandbox.status() != SandboxStatus.EXPIRED) {
+                        tx.taskSandboxes().updateStatus(sandbox.id(), SandboxStatus.EXPIRED, now, null, null,
+                                "LEASE_EXPIRED", "sandbox lease expired with task attempt", sandbox.version(), now);
+                        FoundationPersistenceService.appendEvent(tx, "task_sandbox", sandbox.id(),
+                                "SandboxExpired", "{\"attemptId\":\"" + attempt.id() + "\"}", now,
+                                sandbox.version() + 1);
+                    }
+                });
                 tx.taskAttempts().updatePhase(attempt.id(), TaskPhase.CANCELLED, now, null, null,
                         attempt.version(), now);
                 teamId(task).ifPresent(team -> tx.teams().releaseTaskAssignment(team, task.id(), now));
@@ -197,8 +213,8 @@ public final class TaskAssignmentService {
         return persistence.inTransaction(tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, limit));
     }
 
-    private static String taskAssignedPayload(TaskRecord task, AgentRecord agent, TaskAttemptRecord attempt,
-            TaskAssignmentRecord assignment, AgentLeaseRecord lease) {
+    public static String taskAssignedPayload(TaskRecord task, AgentRecord agent, TaskAttemptRecord attempt,
+            TaskAssignmentRecord assignment, AgentLeaseRecord lease, TaskSandboxRecord sandbox) {
         try {
             JsonNode spec = OBJECT_MAPPER.readTree(task.specJson());
             if (spec == null || !spec.isObject()) {
@@ -225,6 +241,18 @@ public final class TaskAssignmentService {
             }
             payload.set("requiredCapabilities", capabilityArray);
             payload.put("leaseExpiresAt", lease.expiresAt().toString());
+            if (sandbox != null) {
+                ObjectNode sandboxNode = OBJECT_MAPPER.createObjectNode();
+                sandboxNode.put("id", sandbox.id().toString());
+                sandboxNode.put("providerSandboxId", sandbox.providerSandboxId());
+                sandboxNode.put("profile", sandbox.profile().name());
+                sandboxNode.put("status", sandbox.status().name());
+                sandboxNode.put("endpointRef", sandbox.endpointRef());
+                sandboxNode.put("expiresAt", sandbox.expiresAt().toString());
+                sandboxNode.put("ownerTaskId", sandbox.taskId().toString());
+                sandboxNode.put("ownerAttemptId", sandbox.attemptId().toString());
+                payload.set("sandbox", sandboxNode);
+            }
             return OBJECT_MAPPER.writeValueAsString(payload);
         } catch (Exception error) {
             throw new IllegalArgumentException("task spec cannot be serialized for assignment", error);

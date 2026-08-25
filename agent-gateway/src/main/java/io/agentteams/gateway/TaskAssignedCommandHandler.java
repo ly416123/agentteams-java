@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import io.agentteams.contracts.v1.EventMetadata;
+import io.agentteams.contracts.v1.SandboxAssignment;
 import io.agentteams.contracts.v1.ServerMessage;
 import io.agentteams.contracts.v1.TaskAssigned;
 import io.agentteams.application.api.TraceContext;
@@ -67,7 +68,7 @@ public final class TaskAssignedCommandHandler {
                 .setTraceparent(context.traceparent())
                 .setTracestate(context.tracestate())
                 .build();
-        TaskAssigned assigned = TaskAssigned.newBuilder()
+        TaskAssigned.Builder assignedBuilder = TaskAssigned.newBuilder()
                 .setMetadata(metadata)
                 .setTaskType(taskFields.taskType())
                 .setInputJson(taskFields.inputJson())
@@ -78,8 +79,21 @@ public final class TaskAssignedCommandHandler {
                 .setTeamId(dimensions.teamIdOrEmpty())
                 .setToolId(dimensions.toolIdOrEmpty())
                 .setQuotaId(dimensions.quotaIdOrEmpty())
-                .setQuotaDimension(dimensions.quotaDimensionOrEmpty())
-                .build();
+                .setQuotaDimension(dimensions.quotaDimensionOrEmpty());
+        if (payload.sandbox() != null) {
+            TaskAssignedCommandPayload.SandboxAssignmentPayload sandbox = payload.sandbox();
+            assignedBuilder.setSandbox(SandboxAssignment.newBuilder()
+                    .setSandboxId(sandbox.sandboxId())
+                    .setProviderSandboxId(sandbox.providerSandboxId())
+                    .setProfile(sandbox.profile())
+                    .setStatus(sandbox.status())
+                    .setEndpointRef(sandbox.endpointRef())
+                    .setExpiresAt(timestamp(sandbox.expiresAt()))
+                    .setOwnerTaskId(sandbox.ownerTaskId().toString())
+                    .setOwnerAttemptId(sandbox.ownerAttemptId().toString())
+                    .build());
+        }
+        TaskAssigned assigned = assignedBuilder.build();
         delivery.deliver(payload.agentId(), ServerMessage.newBuilder().setTaskAssigned(assigned).build());
         return true;
     }
@@ -178,6 +192,24 @@ public final class TaskAssignedCommandHandler {
             if (spec == null || !spec.isObject()) {
                 throw new IllegalArgumentException("spec must be a JSON object");
             }
+            TaskAssignedCommandPayload.SandboxAssignmentPayload sandbox = parseSandbox(
+                    root.get("sandbox"), taskId, attemptId);
+            String requestedProfile = requestedSandboxProfile(root, spec);
+            if (requestedProfile != null) {
+                io.agentteams.application.api.SandboxProfile profile;
+                try {
+                    profile = io.agentteams.application.api.SandboxProfile.valueOf(
+                            requestedProfile.toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException error) {
+                    throw new IllegalArgumentException("sandboxProfile is invalid", error);
+                }
+                if (profile == io.agentteams.application.api.SandboxProfile.NONE && sandbox != null) {
+                    throw new IllegalArgumentException("SandboxProfile.NONE must not carry sandbox assignment");
+                }
+                if (profile != io.agentteams.application.api.SandboxProfile.NONE && sandbox == null) {
+                    throw new IllegalArgumentException("sandbox assignment is required for " + profile);
+                }
+            }
             Map<String, JsonNode> extensions = new LinkedHashMap<>();
             Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
             while (fields.hasNext()) {
@@ -187,10 +219,63 @@ public final class TaskAssignedCommandHandler {
                 }
             }
             return new TaskAssignedCommandPayload(taskId, agentId, attemptId, assignmentId, leaseId,
-                    spec, extensions);
+                    spec, sandbox, extensions);
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("payloadJson is invalid JSON", error);
         }
+    }
+
+    private static TaskAssignedCommandPayload.SandboxAssignmentPayload parseSandbox(JsonNode node,
+            UUID taskId, UUID attemptId) {
+        if (node == null) {
+            return null;
+        }
+        if (!node.isObject()) {
+            throw new IllegalArgumentException("sandbox must be a JSON object");
+        }
+        String sandboxId = requiredAnyText(node, "sandboxId", "id");
+        UUID ownerTaskId = parseUuid(requiredText(node, "ownerTaskId"), "sandbox.ownerTaskId");
+        UUID ownerAttemptId = parseUuid(requiredText(node, "ownerAttemptId"), "sandbox.ownerAttemptId");
+        if (!taskId.equals(ownerTaskId) || !attemptId.equals(ownerAttemptId)) {
+            throw new IllegalArgumentException("sandbox owner does not match top-level task/attempt");
+        }
+        Instant expiresAt;
+        try {
+            expiresAt = Instant.parse(requiredText(node, "expiresAt"));
+        } catch (java.time.DateTimeException error) {
+            throw new IllegalArgumentException("sandbox.expiresAt must be ISO-8601", error);
+        }
+        String profile = requiredText(node, "profile").toUpperCase(java.util.Locale.ROOT);
+        if ("NONE".equals(profile)) {
+            throw new IllegalArgumentException("sandbox profile must be isolated or hardened");
+        }
+        String status = requiredText(node, "status").toUpperCase(java.util.Locale.ROOT);
+        if (!"READY".equals(status) && !"RUNNING".equals(status)) {
+            throw new IllegalArgumentException("sandbox status is not executable: " + status);
+        }
+        return new TaskAssignedCommandPayload.SandboxAssignmentPayload(sandboxId,
+                requiredText(node, "providerSandboxId"), profile, status,
+                requiredText(node, "endpointRef"), expiresAt, ownerTaskId, ownerAttemptId);
+    }
+
+    private static String requestedSandboxProfile(JsonNode root, JsonNode spec) {
+        String profile = optionalText(root, "sandboxProfile");
+        if (profile == null) profile = optionalText(root, "sandbox_profile");
+        if (profile == null) profile = optionalText(spec, "sandboxProfile");
+        if (profile == null) profile = optionalText(spec, "sandbox_profile");
+        JsonNode sandbox = spec == null ? null : spec.get("sandbox");
+        if (profile == null) profile = optionalText(sandbox, "profile");
+        return profile;
+    }
+
+    private static String requiredAnyText(JsonNode object, String... fields) {
+        for (String field : fields) {
+            JsonNode value = object.get(field);
+            if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                return value.asText();
+            }
+        }
+        throw new IllegalArgumentException(fields[0] + " must be a non-blank string");
     }
 
     private static String requiredText(JsonNode root, String field) {
@@ -319,6 +404,7 @@ public final class TaskAssignedCommandHandler {
                 "taskId", "agentId", "attemptId", "assignmentId", "leaseId", "spec", "taskType",
                 "inputJson", "requiredCapabilities", "leaseExpiresAt", "expectedVersion", "tenantId",
                 "tenant_id", "projectId", "project_id", "teamId", "team_id", "toolId", "tool_id",
-                "quotaId", "quota_id", "quotaDimension", "quota_dimension");
+                "quotaId", "quota_id", "quotaDimension", "quota_dimension", "sandboxProfile",
+                "sandbox_profile", "sandbox");
     }
 }

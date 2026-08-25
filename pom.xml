@@ -42,6 +42,7 @@
         <flyway.version>11.8.0</flyway.version>
         <postgresql.version>42.7.5</postgresql.version>
         <nats.version>2.20.5</nats.version>
+        <agentscope.version>2.0.1</agentscope.version>
 
         <junit.version>5.12.2</junit.version>
         <assertj.version>3.27.3</assertj.version>
@@ -118,6 +119,11 @@
                 <groupId>io.nats</groupId>
                 <artifactId>jnats</artifactId>
                 <version>${nats.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-harness</artifactId>
+                <version>${agentscope.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

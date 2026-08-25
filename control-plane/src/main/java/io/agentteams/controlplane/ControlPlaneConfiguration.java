@@ -35,6 +35,9 @@ import io.agentteams.controlplane.team.TeamCrdParser;
 import io.agentteams.controlplane.team.TeamCrdSynchronizer;
 import io.agentteams.controlplane.team.TeamResourceSource;
 import io.agentteams.controlplane.service.ExecutionEventService;
+import io.agentteams.controlplane.sandbox.SandboxLifecycleService;
+import io.agentteams.controlplane.sandbox.FakeSandboxRuntime;
+import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.controlplane.audit.JdbcModelCallAuditRecorder;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.storage.MinioObjectStorage;
@@ -189,6 +192,19 @@ public class ControlPlaneConfiguration {
         ControlPlaneMetrics available = metrics.getIfAvailable();
         return new TaskAssignmentService(persistence, leaseDuration,
                 available == null ? TaskMetricsPort.noop() : available);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.sandbox.provider", havingValue = "fake")
+    SandboxRuntimePort fakeSandboxRuntime() {
+        return new FakeSandboxRuntime();
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.sandbox.enabled", havingValue = "true")
+    SandboxLifecycleService sandboxLifecycleService(FoundationPersistenceService persistence,
+            SandboxRuntimePort runtime) {
+        return new SandboxLifecycleService(persistence, runtime);
     }
 
     @Bean

@@ -65,6 +65,15 @@ the Control Plane. Gateway and Manager depend on application contracts rather
 than Control Plane persistence classes. Matrix is an optional
 human-collaboration adapter; it is not the task state database.
 
+Task-level isolation is layered behind `SandboxRuntimePort`. The default
+profile is `NONE`, so existing tasks keep their current path. Explicit
+`ISOLATED`/`HARDENED` tasks are fenced by Attempt, persisted in
+`task_sandboxes`, and represented in Kubernetes by the namespace-scoped
+`TaskSandbox` CRD and an Operator-managed restricted Job. The Control Plane
+does not need Docker Socket or Pod/Job RBAC. Helm keeps the feature disabled by
+default; gVisor/Kata RuntimeClass validation requires a separate Linux/KVM
+environment and is not claimed by the local Fake Provider or Kind static tests.
+
 The runtime module provides `QwenPawHttpRuntimePort` for the official QwenPaw
 HTTP/SSE API, `JsonLinesQwenPawProcessPort` for a custom external process
 boundary, and `GrpcAgentChannelPort` for the protobuf bidirectional stream.

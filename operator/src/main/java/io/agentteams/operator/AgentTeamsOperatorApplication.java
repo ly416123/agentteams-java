@@ -21,11 +21,14 @@ public final class AgentTeamsOperatorApplication {
         if (namespace == null || namespace.isBlank()) {
             operator.register(new WorkerReconciler(operator.getKubernetesClient()));
             operator.register(new TeamReconciler(operator.getKubernetesClient()));
+            operator.register(new TaskSandboxReconciler(operator.getKubernetesClient()));
             return;
         }
         operator.register(new WorkerReconciler(operator.getKubernetesClient()),
                 configuration -> configuration.settingNamespace(namespace));
         operator.register(new TeamReconciler(operator.getKubernetesClient()),
+                configuration -> configuration.settingNamespace(namespace));
+        operator.register(new TaskSandboxReconciler(operator.getKubernetesClient()),
                 configuration -> configuration.settingNamespace(namespace));
     }
 

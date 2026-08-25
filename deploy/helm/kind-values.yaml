@@ -23,6 +23,9 @@ observability:
     enabled: false
 operator:
   replicas: 2
+sandbox:
+  enabled: false
+  provider: fake
 gateway:
   quota:
     remoteEnabled: true
