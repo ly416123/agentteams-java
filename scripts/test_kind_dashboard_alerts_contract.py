@@ -24,7 +24,8 @@ class KindDashboardAlertsContractTest(unittest.TestCase):
         script_text = script.read_text(encoding="utf-8")
         for required in (
                 "dashboard_alert_rules", "model_call_audits", "dashboard_alert_events",
-                "FAILED", "SENT", "KIND_DASHBOARD_ALERTS_OK", "/api/v1/dashboard/alerts/events"):
+                "FAILED", "SENT", "KIND_DASHBOARD_ALERTS_OK", "/api/v1/dashboard/alerts/events",
+                "date_trunc('minute', clock_timestamp()) - interval '1 second'"):
             self.assertIn(required, script_text)
         receiver_text = receiver.read_text(encoding="utf-8")
         for required in ("DASHBOARD_ALERT_RECEIVER_MODE", "500", "200"):

@@ -1,9 +1,9 @@
 # AgentTeams 商业版能力对齐：需求、技术方案与实施计划
 
-**基准日期**：2026-08-23
+**基准日期**：2026-08-25
 **适用仓库**：`agentteams-java`
 **对比对象**：阿里云 AgentTeams 商业版公开文档
-**当前代码基线**：`5803604`（Dashboard Summary 读模型已落地；本轮并行治理改动尚未提交）
+**当前代码基线**：本分支截至 2026-08-25 的最新提交（Dashboard 告警、配额、绑定 ACK 和真实 Kind 验收已接入）
 
 ## 1. 文档目标与范围
 
@@ -44,15 +44,17 @@
 - **缺失**：当前代码中未形成完整能力。
 - **可选**：对核心开源 AgentTeams 不构成阻塞，可在主线稳定后实现。
 
-## 3.1 当前执行进度（2026-08-23）
+> **状态同步规则（2026-08-25）**：本文早期路线段落保留了需求演进背景；其中与后续收口记录冲突的“缺失/待实现”描述已按当前代码修正。阅读时以本节矩阵及文档中日期较新的收口记录为准。当前已经落地的能力包括：真实模型调用价格与成本审计、Secret/endpoint 轮换后的原子重连、远程配额生产组装与 Kind 验收、AgentSpec resourceBindings 的 Worker ACK、Dashboard 多维聚合、持久化告警规则与 Kind 告警投递验收。
+
+## 3.1 当前执行进度（2026-08-25）
 
 已完成并通过 Control Plane 全量测试的基础能力：
 
-- Model Provider/Model Catalog 基础目录（V16）。
+- Model Provider/Model Catalog 基础目录、价格目录、真实 HTTP 连接测试和成本审计（V16 及后续版本）。
 - AgentSpec v1 草案资源、幂等创建、查询和权限入口（V20）。
 - AgentSpec 到现有 ConfigSnapshot/Outbox/Worker ACK 管道的部署适配，可通过
   `POST /api/v1/agent-specs/{specId}/deployments/{agentId}` 发布配置。
-- Skill Registry、MCP Server Registry、Usage Summary、Operation Audit 基础 API（V17–V21）。
+- Skill Registry、MCP Server Registry、Usage Summary、Dashboard 多维聚合、持久化告警和 Operation Audit 基础 API（V17–V40）。
 - Keycloak/OIDC 身份验证、权限策略、敏感字段脱敏和 Flyway/Testcontainers 验证。
 
 本轮已选择并行推进的下一组任务：
@@ -63,25 +65,25 @@
 | P0 | Skill manifest/digest/版本发布校验 | Skill Registry | 已完成：manifest、SemVer、digest、入口和大小校验 |
 | P1 | Model/MCP 写操作接入持久化审计 | Audit、Model/MCP Registry | 已完成：成功/失败事件、脱敏、REQUIRES_NEW |
 | P1 | Usage 增加 Dashboard/Prometheus 稳定分组契约 | model_call_audits、Usage API | 已完成：provider/model/status 分组和 limit |
-| P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成第二段：Snapshot/Outbox/ACK、旧版本保护、绑定状态、失败重试；Worker 实际回滚待收口 |
+| P1 | AgentSpec → Worker 配置发布、ACK、旧版本拒绝和回滚 | ConfigSnapshot、Outbox、Worker ACK | 已完成：Snapshot/Outbox/ACK、旧版本保护、绑定状态、失败重试、resourceBindings 校验和真实 Kind 回滚验收 |
 
-前一轮第二波已提交；本轮第三波正在收口，目标是把基础治理接入实际生命周期：
+前一轮基础治理已完成并接入实际生命周期；当前进入真实部署验证和生产化补齐阶段：
 
 - **Worker 配置治理**：增加绑定状态查询、最新 revision 保护、失败配置重试，以及 ACK 幂等处理。
 - **Model Provider/Model 治理**：增加启停、删除依赖检查、连接测试结果分类和模型/Provider 依赖索引；默认连接探针只做配置校验，不会误发真实模型请求。
 - **项目级 IAM 基线**：Keycloak/OIDC 提供身份和租户上下文，Control Plane 持久化项目、成员和 OWNER/ADMIN/OPERATOR/DEVELOPER/VIEWER 角色，并提供幂等成员管理。
 - **MCP/Skill 安全基线**：MCP 出站 scheme/domain/tool/timeout 策略、失败分类，以及 Skill 版本安全扫描和审核字段。
-- **Dashboard**：提供 `GET /api/v1/dashboard/summary`，复用 Usage 查询口径输出模型调用、Token、成功率和延迟摘要。
+- **Dashboard**：提供 Summary、Worker/Task/Team/Tool/Quota 分组、hour/day 历史聚合、成本字段和持久化告警投递闭环。
 
-本轮第三波已实现：
+已完成的治理能力：
 
 - **配置回滚**：`POST /api/v1/config/bindings/{bindingId}/rollback` 选择最近一次稳定的 `APPLIED` revision，更新期望态并发出幂等配置事件。
 - **Skill 安全门禁**：版本持久化 `securityScanStatus/reviewStatus`，发布前执行可插拔扫描器并要求 `APPROVED`；增加审核 API 和安全状态返回。
-- **MCP 运行时策略入口**：连接器执行前统一检查启用状态、健康状态、endpoint、超时和工具 allowlist。
+- **MCP 运行时策略入口**：连接器执行前统一检查启用状态、健康状态、endpoint、超时和工具 allowlist，并具备连接器、发现缓存、限流/熔断与调用审计基础。
 
 前一轮加本轮改动已通过干净全量测试；当前回归口径以本文第 10 节最新结果为准。
 
-尚未宣称为完整商业版能力的部分：真实 Provider 网络探针和 Secret Manager 接入、Worker 实际回滚执行、项目角色覆盖全部资源 API、MCP 真正连接器/工具发现、Skill 包安全扫描器、Prometheus 告警规则、成本/配额、Worker 模板和 Console。
+尚未宣称为完整商业版能力的部分：生产 Secret Manager/外部凭据轮换平台、Worker 优雅下线和完整管理 API、全资源 RBAC/成员生命周期集成、具体企业 Skill 沙箱与审批系统、Team 级 Skill/MCP 运行时绑定、预算/预测/最终账单、Worker 模板以及 Console/SDK。真实 DeepSeek/QwenPaw 供应商验收仍依赖可用凭据和外部网络，不作为本地默认依赖。
 
 推荐的依赖关键路径为：
 
@@ -99,18 +101,18 @@ Skill、MCP、Audit 可以在关键路径上并行建设，但 Skill/MCP 的最�
 
 | 能力域 | 当前项目 | 差距 | 优先级 |
 |---|---|---|---|
-| Model Provider/Model | **部分具备**。已有目录、启停/删除依赖检查、配置型/真实 HTTP 连接测试、项目级价格目录和 AgentSpec 引用校验 | 缺少 Secret Manager、能力目录和 Worker 侧生效确认 | P0 |
-| Worker 生命周期 | **部分具备**。有 Agent 注册 API、Worker CRD/Operator、Gateway 注册/租约/重放和 mTLS 基础；配置绑定支持状态、ACK 幂等和失败重试 | 缺少 Worker 实际回滚执行、优雅下线和完整 Worker/Team 管理 API | P0 |
+| Model Provider/Model | **部分具备**。已有目录、启停/删除依赖检查、配置型/真实 HTTP 连接测试、项目级价格目录、AgentSpec 引用校验和成功模型调用成本审计；支持凭据/endpoint 轮换后的原子重连 | 缺少企业 Secret Manager、完整能力目录和 Worker 侧生效回执；真实供应商验收依赖外部凭据 | P0 |
+| Worker 生命周期 | **部分具备**。有 Agent 注册 API、Worker CRD/Operator、Gateway 注册/租约/重放和 mTLS 基础；配置绑定支持状态、ACK 幂等、失败重试、resourceBindings 校验和真实 Kind 回滚验收 | 缺少生产级优雅下线、完整 Worker/Team 管理 API 和跨版本部署运维闭环 | P0 |
 | Worker Team | **部分具备**。已有 Team CRD、同步、调度和策略基础 | 缺少成员/管理员模型、Leader 配置、Team 级模型/文件/Skill/MCP 绑定及版本化发布 | P0 |
-| AgentSpec | **部分具备**。已有 AgentSpec v1、Schema 校验、Model/Skill/MCP 真实目录适配、配置修订和 Worker ACK | 缺少 Worker 实际回滚执行、Team 级绑定和完整模板化生命周期 | P0 |
-| 用户/租户/项目/RBAC | **部分具备**。已有 OIDC/Keycloak、JWT scope、项目成员/角色表和租户隔离基线 | 缺少角色覆盖全部资源、成员禁用/邀请、跨资源授权过滤和完整成员审计 API | P0 |
-| Skill 管理 | **部分具备**。已有 Registry、digest/manifest/版本校验、包存储、ZIP/tar 内容扫描、审核门禁和状态 API | 缺少外部沙箱扫描、可见性管理和 Worker/Team 绑定 | P1 |
-| MCP Server 管理 | **部分具备**。已有 Registry、认证引用、HTTP/SSE/Streamable HTTP、工具发现缓存、健康探针、限流/熔断、出站策略和低基数审计指标 | 缺少 Worker/Team 绑定、集中告警规则和跨实例状态汇总 | P1 |
-| Dashboard/使用分析 | **部分具备**。已有 Micrometer、OTel、Prometheus/Grafana、Usage API、Dashboard Summary、成本和 MCP/配额运行指标 | 缺少 Worker/Task/Team/Tool 全维度历史聚合、预算告警和统一大盘 | P1 |
-| 审计与安全治理 | **部分具备**。已有模型调用审计、敏感信息脱敏、OIDC/mTLS/RBAC 基础 | 缺少配置变更审计、Skill/MCP 操作审计、Secret 轮换、审批、出站策略和完整合规事件 | P1 |
+| AgentSpec | **部分具备**。已有 AgentSpec v1、Schema 校验、Model/Skill/MCP 真实目录适配、配置修订、resourceBindings 和 Worker ACK/失败分类 | 缺少生产 Worker 优雅回滚的全链路管理、Team 级绑定和完整模板化生命周期 | P0 |
+| 用户/租户/项目/RBAC | **部分具备**。已有 OIDC/Keycloak、JWT scope、项目成员/角色表、统一 resource_scopes 和租户隔离查询 | 缺少全资源角色覆盖的集成矩阵、成员禁用/邀请/转移和完整成员审计 API | P0 |
+| Skill 管理 | **部分具备**。已有 Registry、digest/manifest/版本校验、包存储、ZIP/tar 内容扫描、可插拔审批/外部扫描边界和状态 API | 缺少具体企业沙箱/审批接入、完整可见性策略和 Worker/Team 运行时绑定 | P1 |
+| MCP Server 管理 | **部分具备**。已有 Registry、认证引用、HTTP/SSE/Streamable HTTP、工具发现缓存、健康探针、限流/熔断、出站策略和低基数审计指标 | 缺少 Worker/Team 运行时绑定、跨实例发现状态汇总和完整集中告警 | P1 |
+| Dashboard/使用分析 | **部分具备**。已有 Micrometer、OTel、Prometheus/Grafana、Usage API、Summary、多维 hour/day 聚合、成本/配额指标、持久化告警和 Kind 投递验收 | 缺少预算/预测告警、统一大盘及所有历史事件均带齐 Worker/Task/Team/Tool/Quota 维度 | P1 |
+| 审计与安全治理 | **部分具备**。已有模型调用/配置/Skill/MCP 审计、敏感信息脱敏、OIDC/mTLS/RBAC、价格成本审计和 Secret 轮换重连验证 | 缺少企业 Secret Manager、完整审批/出站合规策略、全资源审计查询和合规事件闭环 | P1 |
 | Worker 模板 | **缺失** | 缺少可复用模板、版本、审批、实例化和升级策略 | P1 |
 | 渠道接入 | **部分具备**。当前已有 Matrix/Tuwunel 方向 | DingTalk 等商业渠道未接入；需要统一 Channel SPI 和异步投递语义 | P2 |
-| 配额、成本、计费 | **部分具备**。已有项目配额持久化、Manager/Runtime admission、成本估算和 quota protobuf/gRPC 传输边界 | 缺少 Worker 客户端、跨进程 Control Plane 适配、日调用/Token 端到端验收、预算告警；真实账单属于云厂商扩展 | P1 |
+| 配额、成本、计费 | **部分具备**。已有项目配额持久化、Manager/Runtime admission、远程 quota protobuf/gRPC、真实 Worker/Manager 生产组装、Kind 验收、价格目录和成本审计 | 缺少跨实例高并发压力验证、预算/预测告警和最终账单；真实账单属于云厂商扩展 | P1 |
 | 云实例/网络生命周期 | **缺失** | 本项目当前以 Helm/Kind/Kubernetes 部署为主，不负责云资源购买、VPC 和实例生命周期 | P2（可选） |
 | 控制台 UI/开放 SDK | **部分具备**。后端 API 和 Helm 运维入口已有 | 缺少统一 Web Console、前端权限模型和 Java/TypeScript SDK | P2 |
 
@@ -380,18 +382,18 @@ agentteams.audit.events
 - 增加 Model 与 AgentSpec/Worker 的绑定表和绑定查询。
 - 补齐 OpenAPI、权限矩阵、契约测试和迁移回滚说明。
 
-当前状态：目录、AgentSpec 基础、配置 ACK/重试、项目 IAM 基线和 Dashboard Summary 已落地；本轮补齐了配置 observed revision/失败分类、AgentSpec tenant/project 归属、Model/MCP/Skill 资源归属、Provider credentialRef 校验和 Kind 回滚验收接入。Secret Manager、真实 admission 组装和全资源跨项目集成验证仍需继续。
+当前状态：目录、AgentSpec、配置 ACK/重试/回滚、项目 IAM 基线、真实 admission 组装、价格成本审计和 Dashboard 告警验收均已落地；本轮补齐了配置 observed revision/失败分类、AgentSpec tenant/project 归属、Model/MCP/Skill 资源归属、Provider credentialRef 校验和 Kind 真实验收。企业 Secret Manager、全资源跨项目集成矩阵和生产级优雅下线仍需继续。
 
 **出口条件**：创建 Provider → 创建 Model → 连接测试 → 创建 AgentSpec → 发布 revision 的链路可通过自动化测试。
 
-### 阶段 P1：Worker/Team 配置发布（当前主线）
+### 阶段 P1：Worker/Team 配置发布（基础闭环已完成，进入生产化收口）
 
 - 将 AgentSpec 映射到现有 Worker CRD 和 Operator。
 - 增加 revision、ACK、失败重试、回滚和优雅下线。
 - 完善 Worker/Team 管理 API、成员、Leader、文件和配置引用。
 - 增加 Worker 重启、Gateway 断线、NATS 重放、重复事件和旧 revision 拒绝测试。
-- 将当前 Control Plane 的绑定状态/重试 API 接到 Worker 实际回滚执行，并补充 Prometheus 指标和告警。
-- 已增加稳定 revision 选择和回滚事件，持久化 Worker ACK 的 observed revision、失败分类和 `rollback` 标记，并增加回滚完成/失败指标；已接入 Kind 中真实 Worker 的双 revision 回滚验收脚本，待新鲜 CI 集群运行确认。
+- 将现有绑定状态/重试 API继续接入生产级优雅下线、完整 Worker/Team 管理 API 和跨版本运维策略，并补充 Prometheus 指标和告警。
+- 已增加稳定 revision 选择和回滚事件，持久化 Worker ACK 的 observed revision、失败分类和 `rollback` 标记，并增加回滚完成/失败指标；已接入 Kind 中真实 Worker 的双 revision 回滚验收脚本，CI 已覆盖基础验收，后续补充压力和长期运行验证。
 
 **出口条件**：一个新 Worker 可通过 AgentSpec 完成注册、模型配置同步、任务执行、升级和回滚。
 
@@ -415,7 +417,7 @@ agentteams.audit.events
 - MCP Server CRUD、认证引用、传输适配和健康检查。
 - 工具发现、allowlist、出站域名策略、超时/限流/熔断。
 - MCP 工具调用审计、OTel span 和失败重试测试。
-- 已接入 MCP 策略放行/拒绝指标和 opt-in 的 HTTP/SSE/Streamable HTTP 连接器基础，覆盖 allowlist、超时、重定向拒绝、tools/list schema 和错误分类；仍需接入连接器注册、发现缓存、限流/熔断和调用审计。
+- 已接入 MCP 策略放行/拒绝指标和 opt-in 的 HTTP/SSE/Streamable HTTP 连接器，覆盖 allowlist、超时、重定向拒绝、tools/list schema、发现缓存、限流/熔断和错误分类；仍需补齐具体 Worker/Team 运行时绑定及跨实例状态汇总。
 
 ### 阶段 P5：使用分析与告警（Summary API 已落地，继续扩展）
 
@@ -423,7 +425,7 @@ agentteams.audit.events
 - PostgreSQL 小规模聚合表、查询 API、Grafana Dashboard。
 - Worker/Task/Team/Model/Tool 维度、时间范围和 Token/估算成本。
 - Prometheus 告警与审计事件关联。
-- 已补齐 MCP/Skill 基础治理指标、配置 apply/rollback 告警、项目级并发/日调用/Token 配额基础，以及 Usage/Dashboard 成本字段；Manager 增加可插拔 model-call admission port、项目范围审计字段和独立价格/估算成本计算契约，Control Plane 已增加项目级价格目录持久化；仍需接入真实 Worker 组装链、Manager 成本审计和 Worker/Task/Team/Tool 聚合。
+- 已补齐 MCP/Skill 基础治理指标、配置 apply/rollback 告警、项目级并发/日调用/Token 配额、Usage/Dashboard 成本字段、Manager 真实 model-call admission、价格目录和成本审计；Dashboard 已支持 Worker/Task/Team/Tool/Quota 分组及 hour/day 聚合，仍需补齐预算/预测告警、统一大盘和历史数据维度完整性。
 
 ### 阶段 P6：模板、渠道和商业扩展
 
@@ -494,7 +496,7 @@ agentteams.audit.events
 - Task/Artifact 创建、读取和下载 URL 已接入项目隔离，跨项目访问返回稳定 `403`；Usage/Audit SQL 按项目范围过滤，model-call audit 增加 `tenant_id/project_id/cost_usd`，Dashboard/Usage 返回成本字段；新增 V32 迁移。
 - Manager 在真实 Provider 调用前接入可插拔 `ModelCallAdmission`，配额拒绝短路 Provider，所有退出路径 finally 释放幂等 lease；ToolContext 和 audit 支持项目范围。
 - Kind recovery 已加入双 revision 配置回滚验收（成功/失败轮询与 `rollback=true` 检查），并纳入 manifest validator/CI。
-- 从空库执行 34 个 Flyway migration；本轮 Control Plane/Manager/Worker 及依赖模块全量回归通过，当前报告共 **393** 个测试，失败 0、错误 0；Helm lint 通过。Kind Python 脚本仍需由 CI/Kind 集群执行确认。
+- 该段测试数字属于早期快照；当前以文档末尾最新收口记录和 CI 实际结果为准。后续已完成 V40 告警事件迁移、真实 Worker 维度审计，以及 Kind 配额、绑定、回滚和告警验收接线。
 
 本轮实现仍保持旧构造器和未认证内部调用兼容；认证请求对无归属的历史资源默认不可见，避免把遗留全局数据误暴露给项目用户。并行测试期间出现过一次 target 目录竞争，已在所有 agent 停止写入后通过干净全量回归排除。
 
@@ -524,14 +526,13 @@ agentteams.audit.events
 - 增加 `ScopeIsolationMatrixTest`，覆盖 Worker、Team、Model、MCP、Skill、Task、Artifact、Usage、Audit 等资源的 tenant/project/team 三轴漂移拒绝契约。
 - 当前整合回归为 **407/407** 通过（失败 0、错误 0），Helm lint 和 `git diff --check` 通过；Docker 已恢复并完成 Testcontainers 迁移验证。
 
-推荐下一轮按以下依赖并行推进：
+推荐下一轮按以下依赖推进（已同步到 2026-08-25）：
 
-1. **P0 远程配额端到端接线**：当前已有 Manager port、Control Plane adapter 和 Worker 本地 admission；下一步接入真实 Manager/Worker 组装链，透传 tenant/project，并增加项目级日调用/Token 配额的 Kind 验收。
-2. **P1 真实模型治理闭环**：连接探针和项目级价格目录已完成；下一步把 `ModelPriceCatalogPort` 接入 Manager 成本估算/调用审计，并补 Secret 轮换后的重新连接测试。
-3. **P1 MCP 生产化接线**：HTTP/SSE/Streamable HTTP connector 和 registry/selector 已完成；下一步接入健康探针、发现缓存、限流/熔断，并把 connector 调用纳入 Worker/AgentSpec 绑定闭环。
-4. **P1 Skill/AgentSpec 绑定闭环**：Skill 包存储和 AgentSpec 引用校验基础已完成；下一步接入真实 Skill/MCP/Model 目录适配、恶意内容扫描器和 Worker/Team 绑定。
-5. **P1 跨项目集成矩阵**：覆盖 Worker/Team/Model/MCP/Skill/Task/Artifact/Usage/Audit，明确历史无归属数据的迁移、隔离和清理策略。
-6. **P2 控制台与扩展能力**：Dashboard/Console、模板、渠道、SDK、云厂商专属实例与账单能力。
+1. **P0 生产化 Worker 生命周期**：在已有 revision/ACK/回滚和 Kind 验收基础上，补齐优雅下线、完整 Worker/Team 管理 API 和跨版本运维策略。
+2. **P1 Dashboard 运营闭环**：接入预算/预测告警、统一大盘，并补齐历史审计中 Worker/Task/Team/Tool/Quota 维度的完整写入与对账。
+3. **P1 安全治理集成**：接入企业 Secret Manager、外部 Skill 沙箱/审批系统；保持默认关闭、fail-closed 和敏感信息不落日志。
+4. **P1 RBAC 与跨项目集成矩阵**：覆盖成员邀请/禁用/转移、全资源角色过滤、历史无归属数据迁移和审计 API。
+5. **P2 控制台与扩展能力**：Dashboard/Console、模板、渠道、SDK、云厂商专属实例与账单能力。
 
 ### 当前并行执行批次（2026-08-23）
 
@@ -571,13 +572,13 @@ MCP registry ─> connector 健康/缓存/限流 ─> Worker/AgentSpec 工具绑
 
 | 轨道 | 任务 | 依赖 | 交付出口 |
 |---|---|---|---|
-| P0-A | Worker/Manager 远程配额客户端与 Control Plane 后端接线 | `quota.proto`、Quota gRPC、RuntimeQuotaPort、Manager QuotaPort | 基础客户端/后端已完成；真实 Worker/Manager 组装和跨实例 durable reservation 仍待补齐 |
+| P0-A | Worker/Manager 远程配额客户端与 Control Plane 后端接线 | `quota.proto`、Quota gRPC、RuntimeQuotaPort、Manager QuotaPort | 生产组装和数据库 reservation/release 持久化已完成；补充高并发跨实例压力和长期运行验证 |
 | P1-B | 配额幂等持久化与 Kind 端到端验收 | project quota policy、Outbox/Gateway/Worker、Kind | 已新增 `scripts/run-kind-quota-recovery.py`，覆盖 acquire/release 重试、超时/拒绝码及 tenant/project 隔离；Java 持久化实现和 CI 接入另行推进 |
-| P1-C | Skill/MCP Worker/Team 绑定与版本发布 | AgentSpec、Team、Worker 配置同步 | AgentSpec 发布绑定已完成；Worker 运行时加载与 ACK 验收仍待补齐 |
+| P1-C | Skill/MCP Worker/Team 绑定与版本发布 | AgentSpec、Team、Worker 配置同步 | AgentSpec 发布绑定、Worker resourceBindings 加载、ACK/失败分类和 Kind 验收已完成；补齐 Team 级运行时生命周期绑定 |
 | P1-D | 外部 Skill 沙箱扫描与审批集成 | 确定性扫描器、扫描服务 SPI、审核状态 | SPI、超时/失败分类和默认关闭已完成；具体企业沙箱/审批回调仍待接入 |
-| P1-E | Dashboard 历史聚合与告警规则 | Usage/Audit、Prometheus、MCP/配额指标 | hour/day 历史聚合和只读告警评估已完成；多维审计数据源与持久化规则仍待补齐 |
+| P1-E | Dashboard 历史聚合与告警规则 | Usage/Audit、Prometheus、MCP/配额指标 | hour/day 聚合、多维审计字段、持久化规则、通知去重/重试和 Kind 验收接线已完成；补齐预算/预测告警、统一大盘和维度对账 |
 
-其中 P0-A 的基础接线已完成，下一条关键路径是生产组装与跨实例持久化；P1-B 至 P1-E 的基础能力已并行落地，后续转入真实部署验收和数据源闭环。远程配额继续使用已落地的 protobuf/gRPC 契约，不再另起临时 HTTP API。
+其中 P0-A 的生产组装与跨实例持久化已完成，后续转入压力和长期运行验证；P1-B 至 P1-E 的基础能力已并行落地，后续转入真实部署验收和数据源闭环。远程配额继续使用已落地的 protobuf/gRPC 契约，不再另起临时 HTTP API。
 
 ### P1-B Kind 配额验收脚本（2026-08-23）
 
@@ -617,13 +618,13 @@ python3 scripts/run-kind-quota-recovery.py
 
 | 轨道 | 当前状态 | 已交付 | 仍需补齐 |
 |---|---|---|---|
-| P0-A 远程配额 | 基础接线完成 | Runtime/Manager gRPC quota client、Gateway QuotaService、Control Plane reservation adapter、超时/拒绝/trace/tenant-project 透传 | 将真实 Worker/Manager 生产组装链绑定到远程 port；reservation/idempotency 做跨实例持久化 |
-| P1-B Kind 配额验收 | 脚本完成 | `run-kind-quota-recovery.py` 覆盖 acquire/release 重试、deadline、并发拒绝、跨 project/tenant 隔离及可选 Control Plane 重启 | 在稳定的跨进程持久化实现后接入 CI recovery job；当前需要 Kind、grpcurl 环境执行 |
-| P1-C Skill/MCP/Model 绑定 | 已完成基础闭环 | AgentSpec 发布 manifest 生成稳定排序的 `resourceBindings`，包含 worker/team/scope/revision/digest；跨项目资源拒绝 | Worker 真实运行时加载与 ACK 仍需 Kind 验收 |
+| P0-A 远程配额 | 生产接线完成 | Runtime/Manager gRPC quota client、Gateway QuotaService、Control Plane reservation adapter、超时/拒绝/trace/tenant-project 透传和跨进程持久化 | 补充高并发跨实例压力及长期运行验证 |
+| P1-B Kind 配额验收 | 已接入 CI | `run-kind-quota-recovery.py` 覆盖 acquire/release 重试、deadline、并发拒绝、跨 project/tenant 隔离及 Control Plane 重启 | 根据新鲜 CI 结果调优超时和诊断 |
+| P1-C Skill/MCP/Model 绑定 | 基础闭环已完成 | AgentSpec 发布 manifest 生成稳定排序的 `resourceBindings`，包含 worker/team/scope/revision/digest；Worker 真实加载、ACK、失败分类和 Kind 验收 | 补齐 Team 级运行时生命周期绑定 |
 | P1-D 外部 Skill 扫描 | SPI 完成，默认关闭 | 本地扫描先行、外部扫描可插拔、超时/不可用/非法响应/归档大小分类，供应商详情不外泄 | 接入具体企业沙箱客户端和审批回调；不在默认配置中开启 |
-| P1-E Dashboard | API 基础完成 | 历史 hour/day 时间桶、项目范围复用、错误率/延迟/成本只读告警评估端点 | Worker/Task/Team/Tool/配额维度的审计数据源和持久化告警规则 |
+| P1-E Dashboard | 告警投递闭环已完成 | 历史 hour/day 时间桶、多维审计字段、持久化告警规则、通知去重/重试和 Kind 验收接线 | 补齐预算/预测告警、统一大盘和维度完整性对账 |
 
-本批次串行收口验证：`control-plane` 全量测试通过；contracts、application-contracts、agent-gateway、runtime、agent-worker、manager、domain 合计 **559** 个测试通过，失败 0、错误 0、跳过 0。Docker/Testcontainers 可用；本机未安装 Python，因此 Kind Python 脚本仅保留已完成的静态检查记录，未在本机执行真实 Kind 验收。
+本批次串行收口验证：`control-plane` 全量测试通过；contracts、application-contracts、agent-gateway、runtime、agent-worker、manager、domain 合计 **559** 个测试通过，失败 0、错误 0、跳过 0。Kind Python 契约测试可在本机执行；本机 Docker socket 不可用，因此真实 Kind 集群仍由 GitHub Actions 验收。
 
 下一条推荐关键路径是：
 
@@ -800,4 +801,17 @@ Control Plane 定向测试（Usage 显式作用域、告警去重/重试、sched
 - 新增 `run-kind-dashboard-alerts.py`：向 `model_call_audits` 注入合成成功/失败调用，验证 V36 规则、V40 事件、COST 去重、Webhook 失败、退避重试为 SENT，以及事件查询 API。
 - 失败时仅上传接收器 Deployment 状态和告警事件摘要，不上传容器日志或请求正文。
 
-本地验证已完成 Python 契约测试（20/20）、Kind/Observability 静态校验、Helm lint/template 和 `mvn test`；本机无 Docker socket，真实 Kind 集群验收尚未在本机运行，需由 GitHub Actions `kind-recovery` 首次执行确认。
+本地验证已完成 Python 契约测试（20/20）、Kind/Observability 静态校验、Helm lint/template 和 `mvn test`；本机无 Docker socket，真实 Kind 集群需由 GitHub Actions `kind-recovery` 在修复后重新执行确认。
+
+### 2026-08-25 CI Dashboard 告警时间窗口修复
+
+GitHub Actions 的 `kind-recovery` 曾在 `COST` 告警验收中超时，日志为
+`timed out waiting for COST event status SENT; last=None`。根因不是接收器或重试逻辑，
+而是验收脚本以当前精确时间写入合成 `model_call_audits`；调度器按分钟起点对齐窗口，
+跨过分钟边界时该记录落在半开查询窗口 `[from, to)` 的上界之后，因而不会产生 COST
+事件。
+
+现已将验收审计记录的 `occurred_at` 固定为当前分钟起点前 1 秒，确保记录始终落在
+调度器评估窗口内；契约测试已锁定该时间边界。该修复不改变生产告警窗口或业务数据，
+只增强 Kind 合成数据的确定性。修复后的真实集群结果仍以 GitHub Actions 新鲜运行
+为最终验收依据。
