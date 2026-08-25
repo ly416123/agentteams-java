@@ -17,6 +17,7 @@ public final class FoundationTransaction {
     private final ModelProviderRepository modelProviders;
     private final ModelRepository models;
     private final ModelPriceRepository modelPrices;
+    private final TaskSandboxRepository taskSandboxes;
 
     FoundationTransaction(org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -34,6 +35,7 @@ public final class FoundationTransaction {
         modelProviders = new ModelProviderRepository(jdbc);
         models = new ModelRepository(jdbc);
         modelPrices = new ModelPriceRepository(jdbc);
+        taskSandboxes = new TaskSandboxRepository(jdbc);
     }
 
     public AgentRepository agents() {
@@ -90,6 +92,10 @@ public final class FoundationTransaction {
 
     public ModelPriceRepository modelPrices() {
         return modelPrices;
+    }
+
+    public TaskSandboxRepository taskSandboxes() {
+        return taskSandboxes;
     }
 
     public java.util.List<java.util.UUID> expiredActiveLeaseIds(java.time.Instant now) {

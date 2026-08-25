@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.agentteams.domain.agent.AgentPhase;
+import io.agentteams.application.api.SandboxProfile;
+import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.domain.task.TaskAttempt;
 import io.agentteams.domain.task.TaskPhase;
 import java.math.BigDecimal;
@@ -197,6 +199,45 @@ class FoundationRepositoryIT {
                     assertThat(price.inputPricePerMillionTokens()).isEqualByComparingTo("99");
                     assertThat(price.outputPricePerMillionTokens()).isEqualByComparingTo("99");
                 });
+    }
+
+    @Test
+    void persistsOneSandboxPerAttemptAndUpdatesProviderBindingOptimistically() {
+        Instant now = Instant.parse("2026-08-25T00:00:00Z");
+        UUID agentId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+        UUID leaseId = UUID.randomUUID();
+        AgentRecord agent = AgentRecord.create(agentId, "sandbox-agent", AgentPhase.READY,
+                "fake", "{}", now);
+        TaskRecord task = TaskRecord.draft(taskId, "Sandbox task", "description", "actor", "test", now);
+        TaskAttemptRecord attempt = TaskAttemptRecord.fromDomain(new TaskAttempt(
+                attemptId, taskId, leaseId, TaskPhase.ASSIGNED, now, now, now.plusSeconds(60), null,
+                "scheduler", "test", null, null, 0));
+        TaskAssignmentRecord assignment = new TaskAssignmentRecord(UUID.randomUUID(), taskId, attemptId, agentId,
+                TaskPhase.ASSIGNED, now, null, null, "{}", now, now, 0);
+        AgentLeaseRecord lease = new AgentLeaseRecord(leaseId, agentId, attemptId, now,
+                now.plusSeconds(60), null, "ACTIVE", now, now, 0);
+        persistence.createFoundation(agent, task, attempt, assignment, lease, now);
+
+        TaskSandboxRecord requested = new TaskSandboxRecord(UUID.randomUUID(), taskId, attemptId,
+                "task-attempt:" + attemptId, null, SandboxProfile.ISOLATED, SandboxStatus.REQUESTED,
+                "python", null, now, now.plusSeconds(300), null, null, null, null, null, now, now, 0);
+        persistence.inTransaction(tx -> {
+            tx.taskSandboxes().insert(requested);
+            return null;
+        });
+
+        Optional<TaskSandboxRecord> byKey = persistence.inTransaction(tx -> tx.taskSandboxes()
+                .findByIdempotencyKey(requested.idempotencyKey()));
+        assertThat(byKey).contains(requested);
+        TaskSandboxRecord bound = persistence.inTransaction(tx -> tx.taskSandboxes().updateProviderBinding(
+                requested.id(), "fake-sandbox-1", "fake://sandbox/1", SandboxStatus.READY,
+                now.plusSeconds(1), 0, now.plusSeconds(1)));
+        assertThat(bound.providerSandboxId()).isEqualTo("fake-sandbox-1");
+        Optional<TaskSandboxRecord> byAttempt = persistence.inTransaction(tx -> tx.taskSandboxes()
+                .findByAttemptId(attemptId));
+        assertThat(byAttempt).contains(bound);
     }
 
     @Test
