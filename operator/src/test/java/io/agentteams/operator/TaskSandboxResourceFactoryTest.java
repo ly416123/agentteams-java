@@ -26,7 +26,8 @@ class TaskSandboxResourceFactoryTest {
         assertThat(job.getMetadata().getLabels())
                 .containsEntry("agentteams.io/task-id", "task-1")
                 .containsEntry("agentteams.io/attempt-id", "attempt-1")
-                .containsEntry("agentteams.io/sandbox-profile", "ISOLATED");
+                .containsEntry("agentteams.io/sandbox-profile", "ISOLATED")
+                .containsEntry("agentteams.io/task-sandbox-generation", "3");
         assertThat(job.getSpec().getBackoffLimit()).isZero();
         assertThat(job.getSpec().getActiveDeadlineSeconds()).isEqualTo(300L);
         assertThat(job.getSpec().getTtlSecondsAfterFinished()).isEqualTo(300L);
