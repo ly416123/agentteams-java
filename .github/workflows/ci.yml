@@ -383,6 +383,21 @@ jobs:
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select tenant_id,project_id,reservation_id,idempotency_key,accepted,protocol_error,created_at from quota_reservation_releases order by created_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/quota-releases.txt 2>&1 || true
+          kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
+            "select task_id,phase,version,created_at,completed_at from task_attempts order by created_at desc limit 50" \
+            > /tmp/agentteams-kind-recovery-diagnostics/task-attempts.txt 2>&1 || true
+          # Pod logs can embed task prompts and secrets, so raw logs are never
+          # collected. These filtered greps keep only protocol decision lines
+          # that classify assignment rejection and version fencing outcomes.
+          kubectl -n agentteams logs deployment/qwenpaw-real --tail=500 2>&1 \
+            | grep -E "Task assignment|Unable to process Agent Gateway message|Agent Gateway error|Worker started|is READY" \
+            > /tmp/agentteams-kind-recovery-diagnostics/worker-decision-log.txt || true
+          kubectl -n agentteams logs deployment/agentteams-agentteams-java-gateway --tail=500 2>&1 \
+            | grep -iE "reject|invalid|stale|redeliver|unacked" \
+            > /tmp/agentteams-kind-recovery-diagnostics/gateway-decision-log.txt || true
+          kubectl -n agentteams logs deployment/agentteams-agentteams-java-control-plane --tail=500 2>&1 \
+            | grep -iE "stale Agent execution|impossible Agent task transition|invalid Agent execution event" \
+            > /tmp/agentteams-kind-recovery-diagnostics/control-plane-decision-log.txt || true
       - name: Upload Kind recovery diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
