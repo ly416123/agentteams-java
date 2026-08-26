@@ -56,19 +56,22 @@ class TaskSandboxHelmContractTest(unittest.TestCase):
             binding for binding in bindings if binding["metadata"]["name"].endswith("-operator")
         )
         rules = operator_role["rules"]
-        main_rule = next(rule for rule in rules if "workers" in rule["resources"])
+        main_rule = next(rule for rule in rules if rule["resources"] == ["workers", "teams"])
+        sandbox_rule = next(rule for rule in rules if rule["resources"] == ["tasksandboxes"])
         status_rule = next(rule for rule in rules if "workers/status" in rule["resources"])
+        sandbox_status_rule = next(rule for rule in rules if rule["resources"] == ["tasksandboxes/status"])
         jobs_rule = next(rule for rule in rules if "jobs" in rule["resources"])
 
-        self.assertEqual(
-            ["workers", "teams", "tasksandboxes"], main_rule["resources"]
-        )
+        self.assertEqual(["workers", "teams"], main_rule["resources"])
         self.assertEqual(["get", "list", "watch"], main_rule["verbs"])
+        self.assertEqual(["tasksandboxes"], sandbox_rule["resources"])
+        self.assertEqual(["get", "list", "watch"], sandbox_rule["verbs"])
         self.assertEqual(
-            ["workers/status", "teams/status", "tasksandboxes/status"],
+            ["workers/status", "teams/status"],
             status_rule["resources"],
         )
         self.assertEqual(["get", "patch", "update"], status_rule["verbs"])
+        self.assertEqual(["get", "patch", "update"], sandbox_status_rule["verbs"])
         self.assertEqual(["jobs", "jobs/status"], jobs_rule["resources"])
         self.assertEqual(
             ["get", "list", "watch", "create", "update", "patch", "delete"],

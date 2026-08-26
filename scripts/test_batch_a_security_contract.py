@@ -72,7 +72,8 @@ class BatchASecurityContractTest(unittest.TestCase):
         operator_role = rbac.split("{{- if .Values.controlPlane.teamSync.enabled }}", 1)[0]
 
         self.assertIn("namespace: {{ .Release.Namespace }}", operator_role)
-        self.assertIn('resources: ["workers", "teams", "tasksandboxes"]', operator_role)
+        self.assertIn('resources: ["workers", "teams"]', operator_role)
+        self.assertIn('resources: ["tasksandboxes"]', operator_role)
         self.assertIn('resources: ["jobs", "jobs/status"]', operator_role)
         self.assertNotIn('resources: ["secrets"]', operator_role)
         self.assertNotIn('resources: ["pods"]', operator_role)
@@ -81,17 +82,17 @@ class BatchASecurityContractTest(unittest.TestCase):
         rbac = read_chart("templates/rbac.yaml")
         operator_role = rbac.split("{{- if .Values.controlPlane.teamSync.enabled }}", 1)[0]
 
-        self.assertIn(
-            'resources: ["workers", "teams", "tasksandboxes"]', operator_role
-        )
+        self.assertIn('resources: ["workers", "teams"]', operator_role)
+        self.assertIn('resources: ["tasksandboxes"]', operator_role)
         self.assertIn('verbs: ["get", "list", "watch"]', operator_role)
         self.assertIn(
-            'resources: ["workers/status", "teams/status", "tasksandboxes/status"]',
+            'resources: ["workers/status", "teams/status"]',
             operator_role,
         )
+        self.assertIn('resources: ["tasksandboxes/status"]', operator_role)
         self.assertIn('verbs: ["get", "patch", "update"]', operator_role)
         main_resources = operator_role.split(
-            'resources: ["workers", "teams", "tasksandboxes"]', 1
+            'resources: ["workers", "teams"]', 1
         )[1].split("  - apiGroups:", 1)[0]
         self.assertNotRegex(main_resources, r'verbs: \[[^\]]*(patch|update)')
 
