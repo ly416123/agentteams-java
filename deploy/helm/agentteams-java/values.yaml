@@ -3,6 +3,23 @@ images:
   gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
   operator: ghcr.io/ly416123/agentteams-operator:latest
 imagePullPolicy: IfNotPresent
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: agentteams
 controlPlane:
   replicas: 2
   port: 8080

@@ -13,14 +13,24 @@ spec:
     matchLabels: { app.kubernetes.io/name: agentteams-gateway }
   template:
     metadata:
-      labels: { app.kubernetes.io/name: agentteams-gateway }
+      labels:
+        app.kubernetes.io/name: agentteams-gateway
+        app.kubernetes.io/part-of: agentteams
     spec:
       serviceAccountName: {{ include "agentteams-java.gatewayServiceAccountName" . }}
       automountServiceAccountToken: false
+      securityContext:
+{{- toYaml .Values.podSecurityContext | nindent 8 }}
+{{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{- toYaml . | nindent 8 }}
+{{- end }}
       containers:
         - name: gateway
           image: {{ .Values.images.gateway }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+{{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - { name: grpc, containerPort: {{ .Values.gateway.port }} }
             - { name: http, containerPort: {{ .Values.gateway.httpPort }} }
@@ -73,14 +83,18 @@ spec:
           livenessProbe:
             httpGet: { path: /actuator/health/liveness, port: http }
           resources: {{- toYaml .Values.resources | nindent 12 }}
-{{- if .Values.gateway.tls.enabled }}
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+{{- if .Values.gateway.tls.enabled }}
             - name: agentteams-gateway-tls
               mountPath: {{ .Values.gateway.tls.mountPath | quote }}
               readOnly: true
 {{- end }}
-{{- if .Values.gateway.tls.enabled }}
       volumes:
+        - name: tmp
+          emptyDir: {}
+{{- if .Values.gateway.tls.enabled }}
         - name: agentteams-gateway-tls
           secret:
             secretName: {{ .Values.gateway.tls.secretName }}

@@ -30,8 +30,8 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
-        - podSelector: {}
-        # 入口流量来自 ingress-nginx namespace
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agentteams-gateway }
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
           podSelector:
@@ -113,7 +113,13 @@ spec:
     matchLabels: { app.kubernetes.io/name: agentteams-gateway }
   policyTypes: [Ingress, Egress]
   ingress:
-    - {}
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports:
+        - { protocol: TCP, port: {{ .Values.gateway.port }} }
+        - { protocol: TCP, port: {{ .Values.gateway.httpPort }} }
   egress:
     - to:
         - podSelector: {}
@@ -133,4 +139,41 @@ spec:
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-operator
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: agentteams-operator }
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- if .Values.networkPolicy.kubernetesApiAllowAllEgress }}
+    - to:
+        - ipBlock:
+            cidr: "0.0.0.0/0"
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
+    {{- else }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.kubernetesApiCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: 443 }
+      {{- if .Values.networkPolicy.kubernetesApiEndpointCIDR }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.kubernetesApiEndpointCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.networkPolicy.kubernetesApiEndpointPort }} }
+      {{- end }}
+    {{- end }}
 {{- end }}
