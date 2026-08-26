@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import json
-import re
 import shutil
 import subprocess
 import unittest
@@ -96,13 +95,25 @@ class BatchAHelmContractTest(unittest.TestCase):
     def test_rendered_runtime_config_matches_operator_worker_injection(self):
         docs = render_chart()
         configmaps = [doc for doc in docs if doc.get("kind") == "ConfigMap"]
-        runtime_config = next(doc for doc in configmaps if doc["metadata"]["name"] == "agentteams-java-agent-runtime")
+        runtime_configs = [
+            doc for doc in configmaps
+            if doc["metadata"]["name"] == "agentteams-java-agent-runtime"
+        ]
+        self.assertEqual(len(runtime_configs), 1)
+        runtime_config = runtime_configs[0]
         factory = (ROOT / "operator/src/main/java/io/agentteams/operator/WorkerResourceFactory.java").read_text(
             encoding="utf-8"
         )
-        config_name = re.search(r'RUNTIME_CONFIG_MAP = "([^"]+)"', factory).group(1)
 
-        self.assertEqual(runtime_config["metadata"]["name"], config_name)
+        # WorkerResourceFactory intentionally resolves the ConfigMap from the
+        # Helm/release binding instead of copying a removed hard-coded constant.
+        self.assertEqual(runtime_config["metadata"]["name"], "agentteams-java-agent-runtime")
+        self.assertIn("String runtimeConfigMap = runtimeConfigMap(worker, spec);", factory)
+        self.assertIn(".withName(runtimeConfigMap)", factory)
+        self.assertIn('RUNTIME_CONFIG_MAP_ENV = "AGENTTEAMS_RUNTIME_CONFIG_MAP"', factory)
+        self.assertIn('RUNTIME_CONFIG_MAP_ANNOTATION = "agentteams.io/runtime-config-map"', factory)
+        self.assertIn('configured = release.trim() + "-agentteams-java-agent-runtime";', factory)
+        self.assertNotRegex(factory, r"RUNTIME_CONFIG_MAP\s*=")
         self.assertIn("withEnvFrom", factory)
         self.assertIn("withConfigMapRef", factory)
         self.assertIn("new LinkedHashMap<>(spec.env())", factory)
