@@ -262,8 +262,8 @@ jobs:
           test -n "$AGENTTEAMS_AGENT_ID"
           python scripts/run-kind-worker-quota-admission.py \
             --agent-id "$AGENTTEAMS_AGENT_ID"
-      # The Collector debug exporter is intentionally ephemeral. Validate the
-      # fresh end-to-end trace before later recovery tests rotate its logs.
+      # Validate the durable Collector snapshot immediately after the
+      # trace-producing real Worker task so failures stay easy to diagnose.
       - name: Verify OTLP trace continuity
         run: python scripts/validate-kind-otel.py
       - name: Run Kind quota recovery test

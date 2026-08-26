@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the Kind OTLP check against collector log-rotation races."""
+"""Keep the Kind OTLP check after a trace-producing real Worker task."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class KindOtelContractTest(unittest.TestCase):
         self.assertEqual(
             admission + 1,
             otel,
-            "OTLP continuity must be checked before detailed collector logs rotate out",
+            "OTLP continuity must be checked after the real Worker task emits its trace",
         )
 
 

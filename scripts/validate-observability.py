@@ -106,7 +106,8 @@ def main():
     if "http://prometheus:9090" not in datasource:
         fail("Grafana datasource must point to Prometheus")
     collector = by_name[("ConfigMap", "otel-collector-config")]["data"].get("config.yaml", "")
-    for required in ("health_check", "otlp", "4318", "debug"):
+    for required in ("health_check", "otlp", "4318", "debug", "file/ci",
+                     "/var/lib/otelcol/traces.jsonl"):
         if required not in collector:
             fail(f"OTLP collector configuration missing {required}")
     print("OBSERVABILITY_OK")
