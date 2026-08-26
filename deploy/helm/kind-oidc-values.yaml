@@ -12,5 +12,7 @@ controlPlane:
       permissionsClaim: permissions
 
 networkPolicy:
-  oidcEgressCIDR: 0.0.0.0/0
+  # Keycloak is reached through the in-cluster pod selector; keep the optional
+  # external fallback restricted to a documentation CIDR.
+  oidcEgressCIDR: 198.51.100.0/24
   oidcEgressPort: 443

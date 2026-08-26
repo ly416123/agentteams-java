@@ -34,9 +34,19 @@ import io.agentteams.controlplane.team.KubernetesTeamResourceSource;
 import io.agentteams.controlplane.team.TeamCrdParser;
 import io.agentteams.controlplane.team.TeamCrdSynchronizer;
 import io.agentteams.controlplane.team.TeamResourceSource;
+import io.agentteams.controlplane.team.TeamRevisionRepository;
+import io.agentteams.controlplane.team.TeamRevisionService;
+import io.agentteams.controlplane.team.TeamRevisionPublishValidator;
+import io.agentteams.controlplane.team.CatalogTeamRevisionPublishValidator;
+import io.agentteams.controlplane.agentspec.AgentSpecReferenceValidator;
+import io.agentteams.controlplane.team.TeamDeploymentRepository;
+import io.agentteams.controlplane.team.TeamDeploymentService;
 import io.agentteams.controlplane.service.ExecutionEventService;
 import io.agentteams.controlplane.sandbox.SandboxLifecycleService;
 import io.agentteams.controlplane.sandbox.FakeSandboxRuntime;
+import io.agentteams.controlplane.sandbox.KubernetesSandboxRuntime;
+import io.agentteams.controlplane.sandbox.SandboxLifecycleScheduler;
+import io.agentteams.controlplane.sandbox.SandboxRuntimeProperties;
 import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.controlplane.audit.JdbcModelCallAuditRecorder;
 import io.agentteams.controlplane.service.TaskService;
@@ -94,7 +104,7 @@ import io.opentelemetry.context.propagation.TextMapPropagator;
 
 @Configuration
 @EnableScheduling
-@EnableConfigurationProperties(OidcSecurityProperties.class)
+@EnableConfigurationProperties({OidcSecurityProperties.class, SandboxRuntimeProperties.class})
 public class ControlPlaneConfiguration {
 
     @Bean
@@ -166,8 +176,8 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
-    ConfigEventPort configEventPort(ConfigDeploymentService deployments) {
-        return new ControlPlaneConfigEventAdapter(deployments);
+    ConfigEventPort configEventPort(ConfigDeploymentService deployments, TeamDeploymentService teamDeployments) {
+        return new ControlPlaneConfigEventAdapter(deployments, teamDeployments);
     }
 
     @Bean
@@ -200,11 +210,34 @@ public class ControlPlaneConfiguration {
         return new FakeSandboxRuntime();
     }
 
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.sandbox.provider", havingValue = "kubernetes")
+    KubernetesClient sandboxKubernetesClient() {
+        return new KubernetesClientBuilder().build();
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.sandbox.provider", havingValue = "kubernetes")
+    SandboxRuntimePort kubernetesSandboxRuntime(KubernetesClient sandboxKubernetesClient,
+            SandboxRuntimeProperties properties, Clock clock) {
+        return new KubernetesSandboxRuntime(sandboxKubernetesClient, properties.getNamespace(), clock, properties);
+    }
+
     @Bean
     @ConditionalOnProperty(name = "agentteams.sandbox.enabled", havingValue = "true")
     SandboxLifecycleService sandboxLifecycleService(FoundationPersistenceService persistence,
             SandboxRuntimePort runtime) {
         return new SandboxLifecycleService(persistence, runtime);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.sandbox.enabled", havingValue = "true")
+    SandboxLifecycleScheduler sandboxLifecycleScheduler(SandboxLifecycleService lifecycle,
+            SchedulerLeaseService schedulerLease, Clock clock, SandboxRuntimeProperties properties,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration) {
+        String owner = TaskAssignmentScheduler.defaultOwner(podName);
+        return new SandboxLifecycleScheduler(lifecycle, schedulerLease, clock, owner, leaseDuration, properties);
     }
 
     @Bean
@@ -249,6 +282,37 @@ public class ControlPlaneConfiguration {
             io.agentteams.controlplane.service.IdempotencyService idempotency) {
         return new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
                 resourceScopes, idempotency);
+    }
+
+    @Bean
+    TeamRevisionRepository teamRevisionRepository(DataSource dataSource) {
+        return new TeamRevisionRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    TeamRevisionPublishValidator teamRevisionPublishValidator(TeamRevisionRepository repository,
+            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes,
+            AgentSpecReferenceValidator references) {
+        return new CatalogTeamRevisionPublishValidator(repository, resourceScopes, references);
+    }
+
+    @Bean
+    TeamRevisionService teamRevisionService(TeamRevisionRepository repository,
+            TeamRevisionPublishValidator publishValidator) {
+        return new TeamRevisionService(repository, publishValidator);
+    }
+
+    @Bean
+    TeamDeploymentRepository teamDeploymentRepository(DataSource dataSource) {
+        return new TeamDeploymentRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    TeamDeploymentService teamDeploymentService(TeamDeploymentRepository repository,
+            ConfigSnapshotService snapshots, ConfigDeploymentService deployments, Clock clock,
+            TeamRevisionRepository revisions) {
+        return new TeamDeploymentService(repository, snapshots, deployments, new io.agentteams.controlplane.config.EffectiveConfigComposer(),
+                clock, revisions);
     }
 
     @Bean

@@ -8,13 +8,23 @@ spec:
     matchLabels: { app.kubernetes.io/name: agentteams-operator }
   template:
     metadata:
-      labels: { app.kubernetes.io/name: agentteams-operator }
+      labels:
+        app.kubernetes.io/name: agentteams-operator
+        app.kubernetes.io/part-of: agentteams
     spec:
       serviceAccountName: {{ include "agentteams-java.operatorServiceAccountName" . }}
+      securityContext:
+{{- toYaml .Values.podSecurityContext | nindent 8 }}
+{{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{- toYaml . | nindent 8 }}
+{{- end }}
       containers:
         - name: operator
           image: {{ .Values.images.operator }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+{{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             - name: AGENTTEAMS_OPERATOR_LEADER_ELECTION
               value: {{ .Values.operator.leaderElection.enabled | quote }}
@@ -38,3 +48,9 @@ spec:
             - name: AGENTTEAMS_SANDBOX_ENABLED
               value: {{ .Values.sandbox.enabled | quote }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

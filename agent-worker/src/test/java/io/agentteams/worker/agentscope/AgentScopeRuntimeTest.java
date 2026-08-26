@@ -102,7 +102,7 @@ class AgentScopeRuntimeTest {
     }
 
     @Test
-    void factoryFailurePublishesOneFailedRuntimeResult() throws Exception {
+    void factoryFailureIsRejectedBeforeAcceptanceAndPublishesNoRuntimeResult() throws Exception {
         List<RuntimeResult> results = new CopyOnWriteArrayList<>();
         CountDownLatch failed = new CountDownLatch(1);
         runtime = new AgentScopeRuntime((task, context) -> {
@@ -114,12 +114,9 @@ class AgentScopeRuntimeTest {
         }));
 
         RuntimeTask task = task("attempt-factory", "lease-factory", "corr-factory");
-        assertThat(runtime.submit(task).accepted()).isTrue();
-        assertThat(failed.await(2, TimeUnit.SECONDS)).isTrue();
-        assertThat(results).singleElement().satisfies(result -> {
-            assertThat(result.success()).isFalse();
-            assertThat(result.output()).doesNotContain("factory secret");
-        });
+        assertThat(runtime.submit(task)).isEqualTo(RuntimeSubmission.rejected("RUNTIME_UNAVAILABLE"));
+        assertThat(failed.await(200, TimeUnit.MILLISECONDS)).isFalse();
+        assertThat(results).isEmpty();
     }
 
     @Test

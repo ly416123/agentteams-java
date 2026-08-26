@@ -1,0 +1,82 @@
+ALTER TABLE teams ADD COLUMN current_revision BIGINT;
+ALTER TABLE teams ADD CONSTRAINT teams_current_revision_positive
+    CHECK (current_revision IS NULL OR current_revision > 0);
+
+CREATE TABLE team_revisions (
+    team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    revision BIGINT NOT NULL,
+    leader_agent_id UUID NOT NULL REFERENCES agents(id),
+    overlay JSONB NOT NULL,
+    digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    rollback_of_revision BIGINT,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    PRIMARY KEY (team_id, revision),
+    UNIQUE (team_id, idempotency_key),
+    CONSTRAINT team_revisions_revision_positive CHECK (revision > 0),
+    CONSTRAINT team_revisions_overlay_object CHECK (jsonb_typeof(overlay) = 'object'),
+    CONSTRAINT team_revisions_digest_non_blank CHECK (length(trim(digest)) > 0),
+    CONSTRAINT team_revisions_status_valid CHECK (status IN
+        ('DRAFT', 'REVIEWING', 'PUBLISHED', 'DEPRECATED', 'REJECTED', 'ROLLED_BACK')),
+    CONSTRAINT team_revisions_version_non_negative CHECK (version >= 0),
+    CONSTRAINT team_revisions_request_hash_non_blank CHECK (length(trim(request_hash)) > 0),
+    CONSTRAINT team_revisions_rollback_positive CHECK
+        (rollback_of_revision IS NULL OR rollback_of_revision > 0)
+);
+
+CREATE UNIQUE INDEX team_revisions_one_published
+    ON team_revisions(team_id) WHERE status = 'PUBLISHED';
+
+ALTER TABLE teams ADD CONSTRAINT teams_current_revision_fk
+    FOREIGN KEY (id, current_revision) REFERENCES team_revisions(team_id, revision);
+
+CREATE TABLE team_revision_members (
+    team_id UUID NOT NULL,
+    team_revision BIGINT NOT NULL,
+    agent_id UUID NOT NULL REFERENCES agents(id),
+    member_index INTEGER NOT NULL,
+    PRIMARY KEY (team_id, team_revision, agent_id),
+    UNIQUE (team_id, team_revision, member_index),
+    FOREIGN KEY (team_id, team_revision) REFERENCES team_revisions(team_id, revision) ON DELETE CASCADE,
+    CONSTRAINT team_revision_members_index_non_negative CHECK (member_index >= 0)
+);
+
+CREATE INDEX team_revision_members_agent_idx ON team_revision_members(agent_id, team_id, team_revision);
+
+CREATE OR REPLACE FUNCTION ensure_team_revision_members()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM team_revision_members
+                   WHERE team_id = NEW.team_id AND team_revision = NEW.revision
+                     AND agent_id = NEW.leader_agent_id) THEN
+        RAISE EXCEPTION 'team revision must contain its leader';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM team_revision_members
+                   WHERE team_id = NEW.team_id AND team_revision = NEW.revision) THEN
+        RAISE EXCEPTION 'team revision must contain at least one member';
+    END IF;
+    RETURN NEW;
+END $$;
+
+CREATE CONSTRAINT TRIGGER team_revision_members_guard
+    AFTER INSERT OR UPDATE ON team_revisions
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION ensure_team_revision_members();
+
+CREATE TABLE team_revision_operations (
+    team_id UUID NOT NULL,
+    operation TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    result_revision BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (team_id, operation, idempotency_key),
+    FOREIGN KEY (team_id, result_revision) REFERENCES team_revisions(team_id, revision),
+    CONSTRAINT team_revision_operations_key_non_blank CHECK (length(trim(idempotency_key)) > 0),
+    CONSTRAINT team_revision_operations_hash_non_blank CHECK (length(trim(request_hash)) > 0),
+    CONSTRAINT team_revision_operations_name_valid CHECK (operation IN ('TRANSITION', 'PUBLISH', 'UPDATE', 'ROLLBACK'))
+);

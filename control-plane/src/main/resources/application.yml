@@ -58,6 +58,21 @@ agentteams:
     poll-interval-ms: 1000
     lease-duration: 30s
     batch-size: 16
+  sandbox:
+    enabled: false
+    provider: fake
+    namespace: agentteams
+    poll-interval-ms: 1000
+    batch-size: 16
+    renew-before: 5m
+    renew-extension: 30m
+    lost-after: 2m
+    termination-grace-period: 2m
+    operation-timeout: 2m
+    max-provision-attempts: 5
+    max-terminate-attempts: 10
+    base-retry-delay: 1s
+    max-retry-delay: 1m
   dashboard:
     alerts:
       scheduler:

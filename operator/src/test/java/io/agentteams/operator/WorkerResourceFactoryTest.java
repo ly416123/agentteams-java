@@ -16,7 +16,8 @@ class WorkerResourceFactoryTest {
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withNamespace("agentteams")
                 .withGeneration(4L).withUid("worker-uid").build());
         worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 2,
-                Map.of("MODEL", "deepseek")));
+                Map.of("MODEL", "deepseek", "AGENTTEAMS_RUNTIME_CONFIG_MAP",
+                        "release-agentteams-java-agent-runtime")));
 
         Deployment deployment = WorkerResourceFactory.deployment(worker);
         Service service = WorkerResourceFactory.service(worker);
@@ -55,10 +56,60 @@ class WorkerResourceFactoryTest {
     }
 
     @Test
+    void writesCanonicalRuntimeAndOverridesConflictingUserEnvironment() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-runtime").withNamespace("agentteams").build());
+        worker.setSpec(new WorkerSpec("agent-a", "AGENTSCOPE", "example/worker:v1", 1,
+                Map.of("AGENTTEAMS_RUNTIME", "QWENPAW",
+                        "AGENTTEAMS_RUNTIME_CONFIG_MAP", "release-agentteams-java-agent-runtime")));
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv())
+                .anySatisfy(env -> assertThat(env.getName()).isEqualTo("AGENTTEAMS_RUNTIME"))
+                .filteredOn(env -> "AGENTTEAMS_RUNTIME".equals(env.getName()))
+                .singleElement()
+                .extracting(env -> env.getValue())
+                .isEqualTo("AGENTSCOPE");
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnvFrom())
+                .isNotEmpty();
+    }
+
+    @Test
+    void envFromUsesRuntimeConfigMapNameProvidedByTheHelmReleaseBinding() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-runtime-config")
+                .withNamespace("agentteams").build());
+        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1,
+                Map.of("AGENTTEAMS_RUNTIME_CONFIG_MAP", "release-agentteams-java-agent-runtime")));
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0)
+                .getEnvFrom().get(0).getConfigMapRef().getName())
+                .isEqualTo("release-agentteams-java-agent-runtime");
+    }
+
+    @Test
+    void keepsLegacyWorkersOnTheStableHelmRuntimeConfigMapByDefault() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-legacy")
+                .withNamespace("agentteams").build());
+        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of()));
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0)
+                .getEnvFrom().get(0).getConfigMapRef().getName())
+                .isEqualTo("agentteams-java-agent-runtime");
+    }
+
+    @Test
     void mountsConfiguredTlsSecretIntoWorkerDeployment() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-tls").withNamespace("agentteams").build());
-        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of());
+        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1,
+                Map.of("AGENTTEAMS_RUNTIME_CONFIG_MAP", "release-agentteams-java-agent-runtime"));
         spec.setTlsSecret("agentteams-worker-mtls");
         worker.setSpec(spec);
 

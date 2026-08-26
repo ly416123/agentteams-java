@@ -10,13 +10,13 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
 
-final class ConfigManifestCanonicalizer {
+public final class ConfigManifestCanonicalizer {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private ConfigManifestCanonicalizer() {
     }
 
-    static String normalize(String manifest) {
+    public static String normalize(String manifest) {
         try {
             return MAPPER.writeValueAsString(canonicalize(MAPPER.readTree(manifest)));
         } catch (Exception error) {
@@ -28,7 +28,12 @@ final class ConfigManifestCanonicalizer {
         if (node == null || node.isValueNode()) return node;
         if (node.isArray()) {
             ArrayNode result = JsonNodeFactory.instance.arrayNode();
-            node.forEach(value -> result.add(canonicalize(value)));
+            var unique = new java.util.TreeMap<String, JsonNode>();
+            node.forEach(value -> {
+                JsonNode canonical = canonicalize(value);
+                unique.putIfAbsent(canonical.toString(), canonical);
+            });
+            unique.values().forEach(result::add);
             return result;
         }
         ObjectNode result = JsonNodeFactory.instance.objectNode();

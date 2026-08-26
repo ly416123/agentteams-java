@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record ConfigSnapshot(UUID id, String subject, long version, String manifestJson, String checksum,
-        String actor, Instant createdAt) {
+        String actor, Instant createdAt, ConfigProvenance provenance, String idempotencyKey, String requestHash) {
     public ConfigSnapshot {
         Objects.requireNonNull(id, "id");
         requireText(subject, "subject");
@@ -14,6 +14,11 @@ public record ConfigSnapshot(UUID id, String subject, long version, String manif
         requireText(checksum, "checksum");
         requireText(actor, "actor");
         Objects.requireNonNull(createdAt, "createdAt");
+    }
+
+    public ConfigSnapshot(UUID id, String subject, long version, String manifestJson, String checksum,
+            String actor, Instant createdAt) {
+        this(id, subject, version, manifestJson, checksum, actor, createdAt, null, null, null);
     }
 
     private static void requireText(String value, String field) {

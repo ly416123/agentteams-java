@@ -28,6 +28,9 @@ public final class ProjectScopedModelCallAdmission implements ModelCallAdmission
         } catch (QuotaRejectedException rejected) {
             throw new ModelCallAdmissionRejectedException(
                     "project quota rejected model call" + suffix(rejected.dimension()), rejected);
+        } catch (RuntimeException unavailable) {
+            throw new ModelCallAdmissionTemporaryFailureException(
+                    "project quota service is unavailable", unavailable);
         }
     }
 

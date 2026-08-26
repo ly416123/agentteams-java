@@ -24,7 +24,6 @@ import io.agentteams.runtime.GrpcAgentChannelPort;
 import io.agentteams.runtime.GatewayRuntimeAdapter;
 import io.agentteams.runtime.QwenPawHttpRuntimeConfiguration;
 import io.agentteams.runtime.QwenPawHttpRuntimePort;
-import io.agentteams.runtime.QwenPawRuntime;
 import io.agentteams.runtime.ProjectScopedRuntimeModelCallAdmission;
 import io.agentteams.runtime.GrpcRuntimeQuotaPort;
 import io.agentteams.runtime.RuntimeModelCallAdmission;
@@ -86,7 +85,8 @@ public final class QwenPawWorker implements AutoCloseable {
     private final AtomicBoolean reconnectScheduled = new AtomicBoolean();
     private final AgentChannelClient channelClient;
     private final GrpcAgentChannelPort channelPort;
-    private final QwenPawRuntime runtime;
+    private final io.agentteams.runtime.AgentRuntime runtime;
+    private final AssignmentSandboxStateProbePort sandboxStateProbe;
     private final ConfigManifestFetcher manifestFetcher;
     private final ConfigFileFetcher configFileFetcher;
     private final Path configDirectory;
@@ -106,8 +106,8 @@ public final class QwenPawWorker implements AutoCloseable {
 
     QwenPawWorker(WorkerConfiguration configuration, RuntimeQuotaPort quotaPort) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
-        rejectUnimplementedRuntime(configuration.runtime());
         this.clock = Clock.systemUTC();
+        this.sandboxStateProbe = new AssignmentSandboxStateProbePort(clock);
         this.tracing = WorkerTracing.create();
         this.scheduler = Executors.newScheduledThreadPool(2, runnable -> {
             Thread thread = new Thread(runnable, "qwenpaw-worker-scheduler");
@@ -119,14 +119,8 @@ public final class QwenPawWorker implements AutoCloseable {
                 this::onDisconnected);
         this.channelClient = new AgentChannelClient(configuration.agentId(), channelPort, clock,
                 configuration.reconnectDelay());
-        RuntimeQuotaPort effectiveQuotaPort = quotaPort == null
-                ? remoteQuotaPort(configuration, gatewayChannel, clock) : quotaPort;
-        QwenPawHttpRuntimeConfiguration qwenPawConfiguration = new QwenPawHttpRuntimeConfiguration(
-                URI.create(configuration.qwenPawEndpoint()), configuration.qwenPawAgentId(),
-                configuration.qwenPawAuthorizationToken(), configuration.qwenPawConnectTimeout(),
-                configuration.qwenPawUserId(), configuration.qwenPawChannel(), configuration.qwenPawConfigurationPath());
-        this.runtime = new QwenPawRuntime(new QwenPawHttpRuntimePort(qwenPawConfiguration),
-                modelCallAdmission(configuration, effectiveQuotaPort));
+        this.runtime = new WorkerRuntimeFactory(sandboxStateProbe)
+                .create(configuration, gatewayChannel, clock, quotaPort);
         this.manifestFetcher = new ConfigManifestFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
         this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
@@ -147,13 +141,6 @@ public final class QwenPawWorker implements AutoCloseable {
     /** Composition hook for an application-provided quota adapter. */
     public static QwenPawWorker fromEnvironment(RuntimeQuotaPort quotaPort) {
         return new QwenPawWorker(WorkerConfiguration.fromEnvironment(), quotaPort);
-    }
-
-    private static void rejectUnimplementedRuntime(ExecutionRuntime runtime) {
-        if (runtime == ExecutionRuntime.AGENTSCOPE) {
-            throw new IllegalStateException(
-                    "AgentScope runtime is not implemented yet; use QWENPAW until it is integrated");
-        }
     }
 
     static RuntimeModelCallAdmission modelCallAdmission(WorkerConfiguration configuration,
@@ -390,6 +377,7 @@ public final class QwenPawWorker implements AutoCloseable {
         Object resultGate = resultGates.computeIfAbsent(taskId, ignored -> new Object());
         RuntimeSubmission submission;
         try {
+            sandboxStateProbe.register(assignment);
             submission = channelClient.onTaskAssigned(assignment, runtimeAdapter);
             if (submission.accepted()) {
                 RuntimeResult pending;
@@ -405,6 +393,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     reportRuntimeResult(pending);
                 }
             } else {
+                sandboxStateProbe.forget(taskId);
                 resultGates.remove(taskId, resultGate);
             }
         } catch (RuntimeException error) {
@@ -412,6 +401,7 @@ public final class QwenPawWorker implements AutoCloseable {
             // Ack the durable delivery anyway so one poisoned command cannot
             // replay forever and block later assignments for this worker.
             acknowledge(assignment);
+            sandboxStateProbe.forget(taskId);
             resultGates.remove(taskId, resultGate);
             pendingResults.remove(taskId);
             System.err.printf("Task assignment task=%s rejected: %s%n",
@@ -459,6 +449,7 @@ public final class QwenPawWorker implements AutoCloseable {
             System.out.printf("Task result task=%s success=%s status=%s output=%s%n",
                     result.taskId(), result.success(), status, truncate(result.output()));
             if (status == CompletionStatus.COMPLETED) {
+                sandboxStateProbe.forget(result.taskId());
                 runningTasks.remove(result.taskId());
                 pendingResults.remove(result.taskId());
                 resultGates.remove(result.taskId());
@@ -518,9 +509,10 @@ public final class QwenPawWorker implements AutoCloseable {
         return AgentHello.newBuilder()
                 .setMetadata(metadata)
                 .setProtocolVersion(PROTOCOL_VERSION)
-                .setRuntimeName("qwenpaw")
+                .setRuntimeName(configuration.runtime().name().toLowerCase(java.util.Locale.ROOT))
                 .setRuntimeVersion(configuration.runtimeVersion())
-                .putAllCapabilities(Map.of("http-sse", "v1", "qwenpaw", "v1"))
+                .putAllCapabilities(Map.of("http-sse", "v1", "qwenpaw", "v1",
+                        "runtime-qwenpaw-v1", "v1", "runtime-agentscope-v1", "v1"))
                 .setMaxConcurrentTasks(configuration.maxConcurrentTasks())
                 .setMaxWorkspaceBytes(configuration.maxWorkspaceBytes())
                 .setMaxArtifactBytes(configuration.maxArtifactBytes())

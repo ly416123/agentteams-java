@@ -1,6 +1,8 @@
 package io.agentteams.operator;
 
 import io.fabric8.kubernetes.api.model.ContainerBuilder;
+import io.fabric8.kubernetes.api.model.ConfigMapEnvSourceBuilder;
+import io.fabric8.kubernetes.api.model.EnvFromSourceBuilder;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
 import io.fabric8.kubernetes.api.model.LabelSelectorBuilder;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
@@ -26,6 +28,8 @@ import java.util.Map;
 public final class WorkerResourceFactory {
     private static final int GRPC_PORT = 9090;
     private static final String SECRET_RELOADER_ANNOTATION = "secret.reloader.stakater.com/reload";
+    private static final String RUNTIME_CONFIG_MAP_ENV = "AGENTTEAMS_RUNTIME_CONFIG_MAP";
+    private static final String RUNTIME_CONFIG_MAP_ANNOTATION = "agentteams.io/runtime-config-map";
 
     private WorkerResourceFactory() { }
 
@@ -34,13 +38,19 @@ public final class WorkerResourceFactory {
         Map<String, String> labels = labels(worker);
         WorkerSpec spec = worker.getSpec();
         Map<String, String> environment = new LinkedHashMap<>(spec.env());
+        String runtimeConfigMap = runtimeConfigMap(worker, spec);
+        environment.remove(RUNTIME_CONFIG_MAP_ENV);
         // The CR identity is canonical. A stale or conflicting value supplied
         // through env must not make the worker register as another Agent.
         environment.put("AGENTTEAMS_AGENT_ID", spec.agentId());
+        environment.put("AGENTTEAMS_RUNTIME", spec.runtime());
         ContainerBuilder container = new ContainerBuilder()
                 .withName("worker")
                 .withImage(spec.image())
                 .withImagePullPolicy("IfNotPresent")
+                .withEnvFrom(new EnvFromSourceBuilder()
+                        .withConfigMapRef(new ConfigMapEnvSourceBuilder()
+                                .withName(runtimeConfigMap).build()).build())
                 .withPorts(new io.fabric8.kubernetes.api.model.ContainerPortBuilder()
                         .withName("grpc").withContainerPort(GRPC_PORT).build())
                 .withReadinessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()
@@ -142,5 +152,30 @@ public final class WorkerResourceFactory {
 
     private static String namespace(Worker worker) {
         return worker.getMetadata().getNamespace() == null ? "default" : worker.getMetadata().getNamespace();
+    }
+
+    private static String runtimeConfigMap(Worker worker, WorkerSpec spec) {
+        Map<String, String> annotations = worker.getMetadata().getAnnotations();
+        String configured = annotations == null ? null : annotations.get(RUNTIME_CONFIG_MAP_ANNOTATION);
+        if (configured == null || configured.isBlank()) {
+            configured = spec.env().get(RUNTIME_CONFIG_MAP_ENV);
+        }
+        if (configured == null || configured.isBlank()) {
+            Map<String, String> labels = worker.getMetadata().getLabels();
+            String release = labels == null ? null : labels.get("app.kubernetes.io/instance");
+            if (release != null && !release.isBlank()) {
+                configured = release.trim() + "-agentteams-java-agent-runtime";
+            }
+        }
+        if (configured == null || configured.isBlank()) {
+            // Existing Worker CRs predate explicit release binding. This is the
+            // stable name rendered by the current Helm runtime ConfigMap.
+            configured = "agentteams-java-agent-runtime";
+        }
+        String name = configured.trim();
+        if (!name.matches("[a-z0-9]([-a-z0-9]*[a-z0-9])?")) {
+            throw new IllegalArgumentException("Worker runtime ConfigMap name is invalid");
+        }
+        return name;
     }
 }

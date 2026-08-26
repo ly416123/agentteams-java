@@ -43,4 +43,19 @@ class ConfigSnapshotServiceTest {
         assertThatThrownBy(() -> service.create("worker", "[]", "manager"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("manifest");
     }
+
+    @Test
+    void persistsIdempotencyKeyAndRejectsSameKeyWithDifferentRequestHash() {
+        ConfigSnapshotRepository repository = mock(ConfigSnapshotRepository.class);
+        when(repository.findByIdempotencyKey("worker", "config-key")).thenReturn(Optional.empty());
+        when(repository.findByChecksum(eq("worker"), any())).thenReturn(Optional.empty());
+        when(repository.nextVersion("worker")).thenReturn(7L);
+        when(repository.insertIfAbsent(any(ConfigSnapshot.class), eq("config-key"), any())).thenReturn(true);
+        ConfigSnapshotService service = new ConfigSnapshotService(repository,
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+
+        service.create("worker", "{\"enabled\":true}", "manager", "config-key");
+
+        verify(repository).insertIfAbsent(any(ConfigSnapshot.class), eq("config-key"), any());
+    }
 }
