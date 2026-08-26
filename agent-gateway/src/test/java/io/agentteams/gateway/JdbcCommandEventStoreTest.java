@@ -119,6 +119,34 @@ class JdbcCommandEventStoreTest {
         assertThat(store.lastAcknowledgedSequence("new-agent")).isZero();
     }
 
+    @Test
+    void persistsAttemptIdSoControlPlaneCanInvalidateStaleAssignments() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        doReturn(9L).when(jdbc).queryForObject(anyString(), eq(Long.class), any(Object[].class));
+        JdbcCommandEventStore store = new JdbcCommandEventStore(jdbc, fixedClock());
+
+        store.append("agent-1", ServerMessage.newBuilder()
+                .setTaskAssigned(GatewayTestFixtures.assignment("agent-1", "command-9"))
+                .build());
+
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(contains("gateway_commands"), args.capture());
+        assertThat(args.getValue()).contains("attempt-1");
+    }
+
+    @Test
+    void replaySkipsCommandsCancelledByControlPlaneRecovery() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        doReturn(List.of()).when(jdbc).query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                eq("agent-1"));
+        JdbcCommandEventStore store = new JdbcCommandEventStore(jdbc, fixedClock());
+
+        store.replayUnacknowledged("agent-1");
+
+        verify(jdbc).query(argThat(sql -> sql.contains("cancelled_at IS NULL")),
+                any(org.springframework.jdbc.core.RowMapper.class), eq("agent-1"));
+    }
+
     private static Clock fixedClock() {
         return Clock.fixed(Instant.parse("2026-08-16T00:00:00Z"), ZoneOffset.UTC);
     }

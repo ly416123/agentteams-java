@@ -24,9 +24,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public final class TaskAssignmentService {
 
+    private static final Logger LOGGER = Logger.getLogger(TaskAssignmentService.class.getName());
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final FoundationPersistenceService persistence;
@@ -166,46 +169,39 @@ public final class TaskAssignmentService {
 
     public int recoverExpiredLeases(Instant now) {
         Objects.requireNonNull(now, "now");
-        int recovered = persistence.inTransaction(tx -> {
-            int recoveredCount = 0;
-            for (UUID leaseId : tx.expiredActiveLeaseIds(now)) {
-                AgentLeaseRecord lease = tx.agentLeases().findById(leaseId).orElseThrow();
-                tx.agentLeases().updateStatus(lease.id(), "EXPIRED", now, lease.version(), now);
-                TaskAssignmentRecord assignment = tx.findAssignmentByAttemptId(lease.taskAttemptId()).orElse(null);
-                if (assignment != null && assignment.releasedAt() == null) {
-                    tx.releaseAssignment(assignment.id(), now, assignment.version());
-                }
-                TaskAttemptRecord attempt = tx.taskAttempts().findById(lease.taskAttemptId()).orElseThrow();
-                TaskRecord task = tx.tasks().findById(attempt.taskId()).orElseThrow();
-                tx.taskSandboxes().findByAttemptId(attempt.id()).ifPresent(sandbox -> {
-                    if (sandbox.status() != SandboxStatus.DESTROYED && sandbox.status() != SandboxStatus.FAILED
-                            && sandbox.status() != SandboxStatus.EXPIRED) {
-                        tx.taskSandboxes().updateStatus(sandbox.id(), SandboxStatus.EXPIRED, now, null, null,
-                                "LEASE_EXPIRED", "sandbox lease expired with task attempt", sandbox.version(), now);
-                        FoundationPersistenceService.appendEvent(tx, "task_sandbox", sandbox.id(),
-                                "SandboxExpired", "{\"attemptId\":\"" + attempt.id() + "\"}", now,
-                                sandbox.version() + 1);
+        // 每轮用一次无锁快照选出过期租约,再对每个租约单独开事务执行回收:
+        // 单个租约的乐观锁冲突/集成失败整体回滚(租约保持 ACTIVE),不影响其他租约,
+        // 下一轮恢复循环再重试失败的那个。
+        java.util.List<UUID> leaseIds = persistence.inTransaction(tx -> tx.expiredActiveLeaseIds(now));
+        int recovered = 0;
+        for (UUID leaseId : leaseIds) {
+            try {
+                boolean reclaimed = persistence.inTransaction(tx -> {
+                    FoundationTransaction.ReclaimOutcome outcome = tx.reclaimAttempt(leaseId, now,
+                            "LEASE_EXPIRED", "TaskLeaseExpired", UUID.randomUUID());
+                    if (!outcome.reclaimed()) {
+                        return false;
                     }
+                    TaskRecord task = tx.tasks().findById(outcome.taskId()).orElseThrow();
+                    teamId(task).ifPresent(team -> tx.teams().releaseTaskAssignment(team, task.id(), now));
+                    return true;
                 });
-                tx.taskAttempts().updatePhase(attempt.id(), TaskPhase.CANCELLED, now, null, null,
-                        attempt.version(), now);
-                teamId(task).ifPresent(team -> tx.teams().releaseTaskAssignment(team, task.id(), now));
-                if (!task.phase().terminal()) {
-                    TaskRecord queued = new TaskRecord(task.id(), task.title(), task.description(), TaskPhase.QUEUED,
-                            task.priority(), task.specJson(), task.actor(), task.source(), null, null,
-                            task.createdAt(), now, task.version() + 1);
-                    tx.tasks().updateState(queued, task.version());
-                    FoundationPersistenceService.appendEvent(tx, "task", task.id(), "TaskLeaseExpired",
-                            leaseExpiredPayload(task, attempt, lease, assignment, now), now, queued.version());
+                if (reclaimed) {
+                    recovered++;
                 }
-                recoveredCount++;
+            } catch (Exception error) {
+                LOGGER.log(Level.WARNING, "Lease recovery skipped for lease {0}; it will be retried next round",
+                        keyMessage(leaseId, error));
             }
-            return recoveredCount;
-        });
+        }
         for (int i = 0; i < recovered; i++) {
             metrics.taskLeaseExpired();
         }
         return recovered;
+    }
+
+    private static Object[] keyMessage(UUID leaseId, Exception error) {
+        return new Object[] {leaseId + ": " + error.getClass().getSimpleName() + ": " + error.getMessage()};
     }
 
     public java.util.List<UUID> queuedTaskIds(int limit) {
@@ -257,14 +253,6 @@ public final class TaskAssignmentService {
         } catch (Exception error) {
             throw new IllegalArgumentException("task spec cannot be serialized for assignment", error);
         }
-    }
-
-    private static String leaseExpiredPayload(TaskRecord task, TaskAttemptRecord attempt, AgentLeaseRecord lease,
-            TaskAssignmentRecord assignment, Instant recoveredAt) {
-        return "{\"taskId\":\"" + task.id() + "\",\"attemptId\":\"" + attempt.id()
-                + "\",\"assignmentId\":\"" + (assignment == null ? "" : assignment.id())
-                + "\",\"leaseId\":\"" + lease.id() + "\",\"recoveredAt\":\"" + recoveredAt
-                + "\",\"reason\":\"LEASE_EXPIRED\"}";
     }
 
     private static String textOrDefault(JsonNode object, String field, String fallback) {

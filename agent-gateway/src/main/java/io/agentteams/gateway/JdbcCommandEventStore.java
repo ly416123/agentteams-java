@@ -29,8 +29,8 @@ public class JdbcCommandEventStore implements CommandEventStore {
             """;
     private static final String INSERT_COMMAND = """
             INSERT INTO gateway_commands
-                (agent_id, sequence, event_id, command_bytes, created_at)
-            VALUES (?, ?, ?, ?, ?)
+                (agent_id, sequence, event_id, attempt_id, command_bytes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """;
     private static final String REPLAY_COMMANDS = """
             SELECT c.sequence, c.command_bytes
@@ -38,6 +38,7 @@ public class JdbcCommandEventStore implements CommandEventStore {
             LEFT JOIN gateway_ack_cursors a ON a.agent_id = c.agent_id
             WHERE c.agent_id = ?
               AND c.sequence > COALESCE(a.last_ack_sequence, 0)
+              AND c.cancelled_at IS NULL
             ORDER BY c.sequence
             """;
 
@@ -92,8 +93,10 @@ public class JdbcCommandEventStore implements CommandEventStore {
         }
         metadata = metadata.toBuilder().setSequence(allocated).build();
         ServerMessage persisted = withMetadata(command, metadata);
+        String attemptId = metadata.getAttemptId();
         try {
-            jdbc.update(INSERT_COMMAND, agentId, allocated, metadata.getEventId(), persisted.toByteArray(),
+            jdbc.update(INSERT_COMMAND, agentId, allocated, metadata.getEventId(),
+                    attemptId == null || attemptId.isBlank() ? null : attemptId, persisted.toByteArray(),
                     Timestamp.from(clock.instant()));
             metrics.commandAppended();
             return new SequencedCommand(allocated, persisted);

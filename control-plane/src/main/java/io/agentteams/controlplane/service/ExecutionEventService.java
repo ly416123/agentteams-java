@@ -65,6 +65,38 @@ public final class ExecutionEventService {
         return result;
     }
 
+    /**
+     * A runtime rejected the delivered assignment (accepted=false). Reclaim the
+     * attempt immediately so the task can be requeued instead of hanging in
+     * ASSIGNED until its lease expires. Idempotent on three levels: the already
+     * recorded rejection event, a lease that is no longer ACTIVE, and an
+     * attempt that already reached a terminal phase.
+     */
+    public void rejectUnaccepted(UUID taskId, io.agentteams.domain.task.RejectionCommand command) {
+        Objects.requireNonNull(taskId, "taskId");
+        Objects.requireNonNull(command, "command");
+        persistence.inTransaction(tx -> {
+            if (tx.domainEvents().findByEventId(command.eventId()).isPresent()) {
+                return null;
+            }
+            var lease = tx.agentLeases().findById(command.leaseId()).orElse(null);
+            if (lease == null || !"ACTIVE".equals(lease.status())) {
+                return null;
+            }
+            if (!lease.taskAttemptId().equals(command.attemptId())) {
+                throw new IllegalArgumentException("lease does not belong to attempt: " + command.attemptId());
+            }
+            FoundationTransaction.ReclaimOutcome outcome = tx.reclaimAttempt(command.leaseId(),
+                    command.occurredAt(), "ACCEPTANCE_REJECTED", "TaskAssignmentRejected", command.eventId());
+            if (!outcome.reclaimed()) {
+                return null;
+            }
+            TaskRecord task = tx.tasks().findById(outcome.taskId()).orElseThrow();
+            teamId(task).ifPresent(team -> tx.teams().releaseTaskAssignment(team, task.id(), command.occurredAt()));
+            return null;
+        });
+    }
+
     public TaskTransitionResult renewLease(UUID taskId, LeaseRenewalCommand command) {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(command, "command");

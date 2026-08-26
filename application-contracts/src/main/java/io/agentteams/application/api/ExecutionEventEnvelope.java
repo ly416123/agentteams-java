@@ -8,6 +8,7 @@ import java.util.UUID;
 public record ExecutionEventEnvelope(int schemaVersion, String type, UUID taskId,
         ExecutionEventPort.TaskExecutionCommand taskExecution,
         ExecutionEventPort.LeaseRenewalCommand leaseRenewal,
+        ExecutionEventPort.RejectionCommand rejection,
         List<ExecutionEventPort.ArtifactReference> artifacts,
         String correlationId, String traceparent, String tracestate) {
 
@@ -15,7 +16,7 @@ public record ExecutionEventEnvelope(int schemaVersion, String type, UUID taskId
             ExecutionEventPort.TaskExecutionCommand taskExecution,
             ExecutionEventPort.LeaseRenewalCommand leaseRenewal,
             List<ExecutionEventPort.ArtifactReference> artifacts) {
-        this(schemaVersion, type, taskId, taskExecution, leaseRenewal, artifacts,
+        this(schemaVersion, type, taskId, taskExecution, leaseRenewal, null, artifacts,
                 taskExecution != null ? taskExecution.correlationId() : leaseRenewal.correlationId(),
                 taskExecution != null ? taskExecution.traceparent() : leaseRenewal.traceparent(),
                 taskExecution != null ? taskExecution.tracestate() : leaseRenewal.tracestate());
@@ -38,18 +39,28 @@ public record ExecutionEventEnvelope(int schemaVersion, String type, UUID taskId
         if ("LEASE_RENEWAL".equals(type) == (leaseRenewal == null)) {
             throw new IllegalArgumentException("LEASE_RENEWAL envelope must contain only leaseRenewal");
         }
+        if ("REJECTION".equals(type) == (rejection == null)) {
+            throw new IllegalArgumentException("REJECTION envelope must contain only rejection");
+        }
     }
 
     public static ExecutionEventEnvelope task(UUID taskId,
             ExecutionEventPort.TaskExecutionCommand command,
             List<ExecutionEventPort.ArtifactReference> artifacts) {
         return new ExecutionEventEnvelope(1, "TASK", taskId, Objects.requireNonNull(command, "command"),
-                null, artifacts, command.correlationId(), command.traceparent(), command.tracestate());
+                null, null, artifacts, command.correlationId(), command.traceparent(), command.tracestate());
     }
 
     public static ExecutionEventEnvelope leaseRenewal(UUID taskId,
             ExecutionEventPort.LeaseRenewalCommand command) {
         return new ExecutionEventEnvelope(1, "LEASE_RENEWAL", taskId, null,
+                Objects.requireNonNull(command, "command"), null, List.of(), command.correlationId(),
+                command.traceparent(), command.tracestate());
+    }
+
+    public static ExecutionEventEnvelope rejection(UUID taskId,
+            ExecutionEventPort.RejectionCommand command) {
+        return new ExecutionEventEnvelope(1, "REJECTION", taskId, null, null,
                 Objects.requireNonNull(command, "command"), List.of(), command.correlationId(),
                 command.traceparent(), command.tracestate());
     }

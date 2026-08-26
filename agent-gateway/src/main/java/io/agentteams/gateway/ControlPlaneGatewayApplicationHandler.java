@@ -6,6 +6,7 @@ import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
 import io.agentteams.application.api.ExecutionEventPort.ExecutionPhase;
 import io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand;
+import io.agentteams.application.api.ExecutionEventPort.RejectionCommand;
 import io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand;
 import io.agentteams.application.api.ExecutionEventPort.ModelCallUsage;
 import io.agentteams.contracts.v1.ArtifactRef;
@@ -64,10 +65,22 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
     @Override
     public void taskAccepted(ConnectionRegistry.ConnectionSnapshot connection, TaskAccepted event) {
         if (!event.getAccepted()) {
-            // A runtime may reject a redelivered assignment because it is
-            // already running another attempt. This is a valid delivery
-            // outcome, not a malformed execution event; acknowledge it and
-            // leave the Control Plane aggregate unchanged.
+            // A runtime rejected a delivered assignment (e.g. it is already
+            // running another attempt). Report it so the Control Plane reclaims
+            // the attempt immediately instead of waiting for the lease to expire.
+            EventMetadata metadata = event.getMetadata();
+            UUID taskId = uuid(metadata.getTaskId(), "task_id");
+            UUID attemptId = uuid(metadata.getAttemptId(), "attempt_id");
+            UUID leaseId = uuid(metadata.getLeaseId(), "lease_id");
+            UUID eventId = uuid(metadata.getEventId(), "event_id");
+            if (!connection.agentId().equals(metadata.getAgentId())) {
+                throw invalid("agent_id does not match connection");
+            }
+            executionEvents.rejectUnaccepted(taskId, new RejectionCommand(eventId,
+                    metadata.getExpectedVersion(), attemptId, leaseId, occurredAt(metadata),
+                    connection.agentId(), SOURCE, event.getRejectionReason().isBlank()
+                            ? "runtime rejected assignment" : event.getRejectionReason(),
+                    correlationId(metadata), "", ""));
             return;
         }
         apply(connection, event.getMetadata(), ExecutionPhase.ACCEPTED, "", "", List.of());

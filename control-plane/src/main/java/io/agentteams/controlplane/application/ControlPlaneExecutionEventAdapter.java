@@ -60,6 +60,14 @@ public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPo
                 command.agentId(), command.source()));
     }
 
+    @Override
+    public void rejectUnaccepted(UUID taskId, io.agentteams.application.api.ExecutionEventPort.RejectionCommand command) {
+        Objects.requireNonNull(command, "command");
+        executionEvents.rejectUnaccepted(taskId, new io.agentteams.domain.task.RejectionCommand(command.eventId(),
+                command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
+                command.agentId(), command.source(), command.rejectionReason()));
+    }
+
     private static ArtifactRecord toRecord(UUID taskId, UUID attemptId, UUID eventId, Instant at,
             ArtifactReference artifact) {
         UUID id = UUID.nameUUIDFromBytes((eventId + "\n" + artifact.name() + "\n" + artifact.sha256())

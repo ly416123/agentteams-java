@@ -3,6 +3,7 @@ package io.agentteams.gateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.application.api.ExecutionEventEnvelope;
 import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.ExecutionEventPort.RejectionCommand;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.nats.client.JetStream;
 import java.io.IOException;
@@ -28,6 +29,11 @@ public final class NatsExecutionEventPublisher implements ExecutionEventPort {
     @Override
     public void renewLease(UUID taskId, LeaseRenewalCommand command) {
         publish(taskId, command.agentId(), ExecutionEventEnvelope.leaseRenewal(taskId, command));
+    }
+
+    @Override
+    public void rejectUnaccepted(UUID taskId, RejectionCommand command) {
+        publish(taskId, command.agentId(), ExecutionEventEnvelope.rejection(taskId, command));
     }
 
     private void publish(UUID taskId, String agentId, ExecutionEventEnvelope envelope) {

@@ -145,6 +145,93 @@ public final class FoundationTransaction {
         return findAssignmentById(id).orElseThrow();
     }
 
+    /**
+     * Reclaims a single stuck assignment: expires the lease, releases the
+     * assignment and sandbox, cancels the attempt, invalidates any Gateway
+     * command still queued for it, and queues the task again (unless the task
+     * already reached a terminal phase). Must run inside its own transaction:
+     * any optimistic-lock failure rolls the whole attempt back so the lease
+     * stays ACTIVE and a later recovery round can retry it.
+     */
+    public ReclaimOutcome reclaimAttempt(java.util.UUID leaseId, java.time.Instant at,
+            String reason, String eventType, java.util.UUID eventId) {
+        AgentLeaseRecord lease = agentLeases().findById(leaseId).orElse(null);
+        if (lease == null || !"ACTIVE".equals(lease.status())) {
+            return ReclaimOutcome.noop();
+        }
+        TaskAttemptRecord attempt = taskAttempts().findById(lease.taskAttemptId()).orElse(null);
+        if (attempt == null || attempt.phase().terminal()) {
+            return ReclaimOutcome.noop();
+        }
+        TaskRecord task = tasks().findById(attempt.taskId()).orElse(null);
+        if (task == null) {
+            return ReclaimOutcome.noop();
+        }
+        agentLeases().updateStatus(lease.id(), "EXPIRED", at, lease.version(), at);
+        TaskAssignmentRecord assignment = findAssignmentByAttemptId(attempt.id()).orElse(null);
+        if (assignment != null && assignment.releasedAt() == null) {
+            releaseAssignment(assignment.id(), at, assignment.version());
+        }
+        taskSandboxes().findByAttemptId(attempt.id()).ifPresent(sandbox -> {
+            if (sandbox.status() != io.agentteams.application.api.SandboxStatus.DESTROYED
+                    && sandbox.status() != io.agentteams.application.api.SandboxStatus.FAILED
+                    && sandbox.status() != io.agentteams.application.api.SandboxStatus.EXPIRED) {
+                taskSandboxes().updateStatus(sandbox.id(), io.agentteams.application.api.SandboxStatus.EXPIRED,
+                        at, null, null, reason, "sandbox reclaimed with task attempt", sandbox.version(), at);
+                FoundationPersistenceService.appendEvent(this, "task_sandbox", sandbox.id(), "SandboxExpired",
+                        "{\"attemptId\":\"" + attempt.id() + "\"}", at, sandbox.version() + 1);
+            }
+        });
+        taskAttempts().updatePhase(attempt.id(), io.agentteams.domain.task.TaskPhase.CANCELLED, at, null, null,
+                attempt.version(), at);
+        cancelGatewayCommands(attempt.id(), at);
+        if (!task.phase().terminal()) {
+            TaskRecord queued = new TaskRecord(task.id(), task.title(), task.description(),
+                    io.agentteams.domain.task.TaskPhase.QUEUED, task.priority(), task.specJson(),
+                    task.actor(), task.source(), null, null, task.createdAt(), at, task.version() + 1);
+            tasks().updateState(queued, task.version());
+            FoundationPersistenceService.appendEvent(this, eventId, "task", task.id(), eventType,
+                    reclaimPayload(task, attempt, lease, assignment, at, reason), at, queued.version());
+        }
+        return new ReclaimOutcome(true, attempt.id(), task.id());
+    }
+
+    /** Marks Gateway commands for an attempt as cancelled so replay skips them. */
+    public int cancelGatewayCommands(java.util.UUID attemptId, java.time.Instant at) {
+        java.util.Objects.requireNonNull(attemptId, "attemptId");
+        java.util.Objects.requireNonNull(at, "at");
+        return jdbc.update("""
+                UPDATE gateway_commands
+                   SET cancelled_at = ?
+                 WHERE attempt_id = ? AND cancelled_at IS NULL
+                """, JdbcSupport.timestamp(at), attemptId.toString());
+    }
+
+    /** Pending (uncancelled) Gateway commands for an attempt; used by tests and diagnostics. */
+    public long pendingGatewayCommandCount(java.util.UUID attemptId) {
+        java.util.Objects.requireNonNull(attemptId, "attemptId");
+        Long pending = jdbc.queryForObject("""
+                SELECT count(*) FROM gateway_commands
+                 WHERE attempt_id = ? AND cancelled_at IS NULL
+                """, Long.class, attemptId.toString());
+        return pending == null ? 0 : pending;
+    }
+
+    /** Outcome of a {@link #reclaimAttempt}; carries identity for follow-up cleanup. */
+    public record ReclaimOutcome(boolean reclaimed, java.util.UUID attemptId, java.util.UUID taskId) {
+        public static ReclaimOutcome noop() {
+            return new ReclaimOutcome(false, null, null);
+        }
+    }
+
+    private static String reclaimPayload(TaskRecord task, TaskAttemptRecord attempt, AgentLeaseRecord lease,
+            TaskAssignmentRecord assignment, java.time.Instant at, String reason) {
+        return "{\"taskId\":\"" + task.id() + "\",\"attemptId\":\"" + attempt.id()
+                + "\",\"assignmentId\":\"" + (assignment == null ? "" : assignment.id())
+                + "\",\"leaseId\":\"" + lease.id() + "\",\"recoveredAt\":\"" + at
+                + "\",\"reason\":\"" + reason + "\"}";
+    }
+
     private java.util.Optional<TaskAssignmentRecord> findAssignmentById(java.util.UUID id) {
         return jdbc.query("""
                 SELECT id, task_id, attempt_id, agent_id, phase, assigned_at, accepted_at, released_at,

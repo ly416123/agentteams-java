@@ -144,7 +144,7 @@ class ControlPlaneGatewayApplicationHandlerTest {
     }
 
     @Test
-    void ignoresRuntimeAssignmentRejectionWithoutMutatingControlPlane() {
+    void reportsRuntimeAssignmentRejectionSoControlPlaneCanRequeue() {
         ExecutionEventPort service = mock(ExecutionEventPort.class);
         ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
 
@@ -152,7 +152,28 @@ class ControlPlaneGatewayApplicationHandlerTest {
                 .setMetadata(metadata("rejected", 1)).setAccepted(false)
                 .setRejectionReason("already running").build());
 
-        verifyNoInteractions(service);
+        ArgumentCaptor<ExecutionEventPort.RejectionCommand> command =
+                ArgumentCaptor.forClass(ExecutionEventPort.RejectionCommand.class);
+        verify(service).rejectUnaccepted(eq(TASK_ID), command.capture());
+        assertThat(command.getValue().attemptId()).isEqualTo(ATTEMPT_ID);
+        assertThat(command.getValue().leaseId()).isEqualTo(LEASE_ID);
+        assertThat(command.getValue().expectedVersion()).isEqualTo(1);
+        assertThat(command.getValue().rejectionReason()).isEqualTo("already running");
+        assertThat(command.getValue().source()).isEqualTo("gateway");
+        assertThat(command.getValue().occurredAt()).isEqualTo(AT);
+        verify(service, org.mockito.Mockito.never()).apply(any(), any(), any());
+    }
+
+    @Test
+    void rejectsInvalidMetadataForRejectionEventsToo() {
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
+        ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
+
+        assertThatThrownBy(() -> handler.taskAccepted(connection(), TaskAccepted.newBuilder()
+                .setMetadata(metadata("bad-reject", 1).toBuilder().setAttemptId("not-a-uuid").build())
+                .setAccepted(false).build()))
+                .isInstanceOf(GatewayExceptions.InvalidMessage.class)
+                .hasMessageContaining("attempt_id");
     }
 
     @Test

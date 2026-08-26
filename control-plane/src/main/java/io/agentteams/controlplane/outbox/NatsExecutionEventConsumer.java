@@ -186,6 +186,8 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 executionEvents.apply(envelope.taskId(), withContext(envelope.taskExecution(), envelope), envelope.artifacts());
             } else if ("LEASE_RENEWAL".equals(envelope.type())) {
                 executionEvents.renewLease(envelope.taskId(), withContext(envelope.leaseRenewal(), envelope));
+            } else if ("REJECTION".equals(envelope.type())) {
+                executionEvents.rejectUnaccepted(envelope.taskId(), withContext(envelope.rejection(), envelope));
             } else {
                 throw new IllegalArgumentException("unsupported execution event type: " + envelope.type());
             }
@@ -273,6 +275,16 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         return new io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand(command.eventId(),
                 command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
                 command.requestedExpiry(), command.agentId(), command.source(), context.correlationId(),
+                context.traceparent(), context.tracestate());
+    }
+
+    private static io.agentteams.application.api.ExecutionEventPort.RejectionCommand withContext(
+            io.agentteams.application.api.ExecutionEventPort.RejectionCommand command,
+            ExecutionEventEnvelope envelope) {
+        TraceContext context = new TraceContext(envelope.correlationId(), envelope.traceparent(), envelope.tracestate());
+        return new io.agentteams.application.api.ExecutionEventPort.RejectionCommand(command.eventId(),
+                command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
+                command.agentId(), command.source(), command.rejectionReason(), context.correlationId(),
                 context.traceparent(), context.tracestate());
     }
 

@@ -30,6 +30,7 @@ class TaskAssignmentServiceTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private FoundationPersistenceService persistence;
+    private org.postgresql.ds.PGSimpleDataSource dataSource;
 
     @BeforeEach
     void resetDatabase() {
@@ -43,7 +44,7 @@ class TaskAssignmentServiceTest {
                 .load()
                 .migrate();
 
-        org.postgresql.ds.PGSimpleDataSource dataSource = new org.postgresql.ds.PGSimpleDataSource();
+        dataSource = new org.postgresql.ds.PGSimpleDataSource();
         dataSource.setURL(POSTGRES.getJdbcUrl());
         dataSource.setUser(POSTGRES.getUsername());
         dataSource.setPassword(POSTGRES.getPassword());
@@ -143,6 +144,66 @@ class TaskAssignmentServiceTest {
                     "TaskLeaseExpired");
             return null;
         });
+    }
+
+    @Test
+    void continuesRecoveringRemainingLeasesWhenOneReclaimTransactionFails() throws Exception {
+        // 为任务 B 的回收注入确定性失败:在 tasks 表上挂一个触发器,任何把 B 写回
+        // QUEUED 的 UPDATE 都抛异常,模拟回收事务中途的竞态失败(如乐观锁冲突)。
+        // 修复后每个 lease 独立事务 + try/catch,B 的回滚不影响 A;修复前单事务
+        // 会导致 A 的回收被一起回滚。
+        UUID taskA = UUID.randomUUID();
+        UUID taskB = UUID.randomUUID();
+        AgentRecord agent = agent(UUID.randomUUID(), "fault-tolerant-agent", AgentPhase.READY,
+                "{\"python\":true}");
+        TaskRecord queuedA = queuedTask(taskA, "{\"requiredCapabilities\":[\"python\"]}");
+        TaskRecord queuedB = queuedTask(taskB, "{\"requiredCapabilities\":[\"python\"]}");
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            tx.tasks().insert(queuedA);
+            tx.tasks().insert(queuedB);
+            return null;
+        });
+
+        TaskAssignmentService service = new TaskAssignmentService(persistence, LEASE_DURATION);
+        TaskAssignmentService.AssignmentResult assignedA = service.queueReadyTask(taskA, START);
+        TaskAssignmentService.AssignmentResult assignedB = service.queueReadyTask(taskB, START);
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE OR REPLACE FUNCTION fail_recovery_task_b() RETURNS trigger AS $$
+                    BEGIN
+                        IF NEW.id = '%s' AND NEW.phase = 'QUEUED' THEN
+                            RAISE EXCEPTION 'injected recovery failure for task %%', NEW.id;
+                        END IF;
+                        RETURN NEW;
+                    END;
+                    $$ LANGUAGE plpgsql;
+                    """.formatted(taskB));
+            statement.execute("""
+                    CREATE TRIGGER fail_recovery_task_b BEFORE UPDATE ON tasks
+                        FOR EACH ROW EXECUTE FUNCTION fail_recovery_task_b()
+                    """);
+        }
+        Instant recoveryTime = assignedB.lease().expiresAt().plusSeconds(1);
+
+        int recovered = service.recoverExpiredLeases(recoveryTime);
+
+        assertThat(recovered).isGreaterThanOrEqualTo(1);
+        assertThat(persistence.findTask(taskA)).get().extracting(TaskRecord::phase)
+                .isEqualTo(TaskPhase.QUEUED);
+        // 任务 B 的回收事务整体回滚:仍保持 ASSIGNED,lease 仍 ACTIVE,下轮可重试
+        assertThat(persistence.findTask(taskB)).get().extracting(TaskRecord::phase)
+                .isEqualTo(TaskPhase.ASSIGNED);
+        var survivingLease = persistence.inTransaction(tx -> tx.agentLeases().findById(assignedB.lease().id()));
+        assertThat(survivingLease).get().satisfies(lease -> {
+            assertThat(lease.status()).isEqualTo("ACTIVE");
+            assertThat(lease.acquiredAt()).isEqualTo(START);
+            assertThat(lease.releasedAt()).isNull();
+        });
+        var survivingAttempt = persistence.inTransaction(tx -> tx.taskAttempts().findById(assignedB.attempt().id()));
+        assertThat(survivingAttempt).get().extracting(TaskAttemptRecord::phase)
+                .isEqualTo(TaskPhase.ASSIGNED);
     }
 
     private void insert(AgentRecord... agents) {

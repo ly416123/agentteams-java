@@ -12,6 +12,13 @@ public interface ExecutionEventPort {
 
     void renewLease(UUID taskId, LeaseRenewalCommand command);
 
+    /**
+     * Reports a runtime that rejected an assignment (accepted=false). The Control
+     * Plane must reclaim the attempt immediately so the task is requeued instead of
+     * waiting for the lease to expire naturally.
+     */
+    void rejectUnaccepted(UUID taskId, RejectionCommand command);
+
     enum ExecutionPhase {
         ACCEPTED,
         RUNNING,
@@ -124,6 +131,34 @@ public interface ExecutionEventPort {
             Objects.requireNonNull(requestedExpiry, "requestedExpiry");
             requireText(agentId, "agentId");
             requireText(source, "source");
+            TraceContext context = new TraceContext(correlationId, traceparent, tracestate);
+            correlationId = context.correlationId();
+            traceparent = context.traceparent();
+            tracestate = context.tracestate();
+            if (expectedVersion < 0) {
+                throw new IllegalArgumentException("expectedVersion must not be negative");
+            }
+        }
+    }
+
+    /** A runtime rejected a delivered assignment; the assigned attempt must be reclaimed. */
+    record RejectionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
+            Instant occurredAt, String agentId, String source, String rejectionReason, String correlationId,
+            String traceparent, String tracestate) {
+        public RejectionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
+                Instant occurredAt, String agentId, String source, String rejectionReason) {
+            this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, rejectionReason,
+                    "unknown", "", "");
+        }
+
+        public RejectionCommand {
+            Objects.requireNonNull(eventId, "eventId");
+            Objects.requireNonNull(attemptId, "attemptId");
+            Objects.requireNonNull(leaseId, "leaseId");
+            Objects.requireNonNull(occurredAt, "occurredAt");
+            requireText(agentId, "agentId");
+            requireText(source, "source");
+            requireText(rejectionReason, "rejectionReason");
             TraceContext context = new TraceContext(correlationId, traceparent, tracestate);
             correlationId = context.correlationId();
             traceparent = context.traceparent();

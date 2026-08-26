@@ -33,6 +33,7 @@ class ExecutionEventServiceTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private FoundationPersistenceService persistence;
+    private org.postgresql.ds.PGSimpleDataSource dataSource;
 
     @BeforeEach
     void resetDatabase() {
@@ -46,7 +47,7 @@ class ExecutionEventServiceTest {
                 .load()
                 .migrate();
 
-        org.postgresql.ds.PGSimpleDataSource dataSource = new org.postgresql.ds.PGSimpleDataSource();
+        dataSource = new org.postgresql.ds.PGSimpleDataSource();
         dataSource.setURL(POSTGRES.getJdbcUrl());
         dataSource.setUser(POSTGRES.getUsername());
         dataSource.setPassword(POSTGRES.getPassword());
@@ -118,5 +119,102 @@ class ExecutionEventServiceTest {
         });
         assertThat(persistedArtifact).contains(artifact);
         assertThat(artifactCount).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsUnacceptedAssignmentByReclaimingLeaseAndQueuingTask() throws Exception {
+        UUID taskId = UUID.randomUUID();
+        AgentRecord agent = AgentRecord.create(UUID.randomUUID(), "reject-agent", AgentPhase.READY,
+                "fake", "{\"python\":true}", START);
+        TaskRecord queued = new TaskRecord(taskId, "reject-once", "rejection test", TaskPhase.QUEUED, 0,
+                "{\"requiredCapabilities\":[\"python\"]}", "test", "test", null, null,
+                START, START, 0);
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            tx.tasks().insert(queued);
+            return null;
+        });
+
+        TaskAssignmentService.AssignmentResult assignment =
+                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, START);
+
+        // 模拟 Gateway 已持久化的分配命令(回收时应把该命令作废)
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement("""
+                        INSERT INTO gateway_commands
+                            (agent_id, sequence, event_id, attempt_id, command_bytes, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """)) {
+            statement.setString(1, agent.id().toString());
+            statement.setLong(2, 1);
+            statement.setString(3, assignment.eventId().toString());
+            statement.setString(4, assignment.attempt().id().toString());
+            statement.setBytes(5, new byte[]{1});
+            statement.setTimestamp(6, java.sql.Timestamp.from(START));
+            statement.executeUpdate();
+        }
+
+        ExecutionEventService service = new ExecutionEventService(persistence);
+        Instant rejectionAt = START.plusSeconds(1);
+        service.rejectUnaccepted(taskId, new io.agentteams.domain.task.RejectionCommand(
+                UUID.randomUUID(), assignment.task().version(), assignment.attempt().id(),
+                assignment.lease().id(), rejectionAt, agent.id().toString(), "gateway",
+                "already running"));
+
+        assertThat(persistence.findTask(taskId)).get().extracting(TaskRecord::phase)
+                .isEqualTo(TaskPhase.QUEUED);
+        var reclaimedLease = persistence.inTransaction(tx -> tx.agentLeases().findById(assignment.lease().id()));
+        assertThat(reclaimedLease).get().satisfies(lease -> {
+            assertThat(lease.status()).isEqualTo("EXPIRED");
+            assertThat(lease.releasedAt()).isEqualTo(rejectionAt);
+        });
+        var reclaimedAttempt = persistence.inTransaction(tx -> tx.taskAttempts()
+                .findById(assignment.attempt().id()));
+        assertThat(reclaimedAttempt).get().satisfies(attempt ->
+                assertThat(attempt.phase()).isEqualTo(TaskPhase.CANCELLED));
+        long pendingCommands = persistence.inTransaction(tx ->
+                tx.pendingGatewayCommandCount(assignment.attempt().id()));
+        assertThat(pendingCommands).isZero();
+
+        TaskAssignmentService.AssignmentResult redelivered =
+                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, rejectionAt);
+        assertThat(redelivered.attempt().id()).isNotEqualTo(assignment.attempt().id());
+        assertThat(redelivered.lease().id()).isNotEqualTo(assignment.lease().id());
+        assertThat(redelivered.task().phase()).isEqualTo(TaskPhase.ASSIGNED);
+    }
+
+    @Test
+    void rejectsUnacceptedAssignmentIdempotentlyWhenLeaseIsAlreadyReclaimed() {
+        UUID taskId = UUID.randomUUID();
+        AgentRecord agent = AgentRecord.create(UUID.randomUUID(), "reject-idempotent", AgentPhase.READY,
+                "fake", "{\"python\":true}", START);
+        TaskRecord queued = new TaskRecord(taskId, "reject-twice", "idempotency test", TaskPhase.QUEUED, 0,
+                "{\"requiredCapabilities\":[\"python\"]}", "test", "test", null, null,
+                START, START, 0);
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            tx.tasks().insert(queued);
+            return null;
+        });
+
+        TaskAssignmentService.AssignmentResult assignment =
+                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, START);
+        ExecutionEventService service = new ExecutionEventService(persistence);
+        io.agentteams.domain.task.RejectionCommand command =
+                new io.agentteams.domain.task.RejectionCommand(
+                        UUID.randomUUID(), assignment.task().version(), assignment.attempt().id(),
+                        assignment.lease().id(), START.plusSeconds(1), agent.id().toString(), "gateway",
+                        "busy");
+
+        service.rejectUnaccepted(taskId, command);
+        service.rejectUnaccepted(taskId, command);
+
+        assertThat(persistence.findTask(taskId)).get().extracting(TaskRecord::phase)
+                .isEqualTo(TaskPhase.QUEUED);
+        long attempts = persistence.inTransaction(tx -> tx.taskAttempts().count());
+        assertThat(attempts).isEqualTo(1);
+        // 事件只记录一次(幂等)
+        long eventCount = persistence.inTransaction(tx -> tx.domainEvents().count());
+        assertThat(eventCount).isEqualTo(2);
     }
 }
