@@ -1,0 +1,13 @@
+{{- $manager := .Values.manager | default dict -}}
+{{- if $manager.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-manager
+  labels:
+    app.kubernetes.io/part-of: agentteams
+    app.kubernetes.io/name: agentteams-manager
+spec:
+  selector: { app.kubernetes.io/name: agentteams-manager }
+  ports: [{ name: http, port: {{ default 8080 $manager.port }}, targetPort: http }]
+{{- end }}

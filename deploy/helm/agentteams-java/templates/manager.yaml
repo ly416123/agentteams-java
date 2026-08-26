@@ -1,0 +1,65 @@
+{{- $manager := .Values.manager | default dict -}}
+{{- if $manager.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-manager
+  labels:
+    app.kubernetes.io/part-of: agentteams
+    app.kubernetes.io/name: agentteams-manager
+spec:
+  replicas: {{ default 1 $manager.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentteams-manager }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: agentteams-manager }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: manager
+          image: {{ default "ghcr.io/ly416123/agentteams-manager:latest" $manager.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports: [{ name: http, containerPort: {{ default 8080 $manager.port }} }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.database.jdbcUrl | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.database.username | quote }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "manager.existingSecret is required when manager is enabled" $manager.existingSecret }}
+                  key: password
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $manager.existingSecret }}
+                  key: deepseek-api-key
+            - name: DEEPSEEK_MODEL
+              value: {{ default "deepseek-v4-flash" $manager.model | quote }}
+            - name: AGENTTEAMS_CONTROL_PLANE_URL
+              value: {{ default (printf "http://%s-control-plane:%d" (include "agentteams-java.fullname" .) (int .Values.controlPlane.port)) $manager.controlPlaneUrl | quote }}
+            - name: AGENTTEAMS_MANAGER_ID
+              value: {{ default (include "agentteams-java.fullname" .) $manager.managerId | quote }}
+            - name: SPRING_FLYWAY_ENABLED
+              value: "true"
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 36
+            periodSeconds: 5
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+          resources: {{- toYaml (.Values.resources | default dict) | nindent 12 }}
+{{- end }}

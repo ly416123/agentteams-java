@@ -1,0 +1,13 @@
+{{- $manager := .Values.manager | default dict -}}
+{{- if and $manager.enabled .Values.availability.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-manager
+  labels:
+    app.kubernetes.io/part-of: agentteams
+spec:
+  minAvailable: {{ .Values.availability.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentteams-manager }
+{{- end }}
