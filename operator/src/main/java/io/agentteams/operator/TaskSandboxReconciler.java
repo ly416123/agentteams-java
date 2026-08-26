@@ -66,6 +66,11 @@ public final class TaskSandboxReconciler implements Reconciler<TaskSandbox> {
             return updateStatus(resource, status, finalizerChanged);
         }
 
+        if (observedJob == null && resource.getStatus() != null
+                && "FAILED".equals(resource.getStatus().getPhase())) {
+            return updateStatus(resource, resource.getStatus(), finalizerChanged);
+        }
+
         boolean currentJob = isCurrentGeneration(observedJob, resource);
         if (observedService != null && !isCurrentGeneration(observedService, resource)) {
             if (isControlled(observedService, resource)) {
@@ -201,7 +206,10 @@ public final class TaskSandboxReconciler implements Reconciler<TaskSandbox> {
                 || child.getMetadata().getOwnerReferences().isEmpty()) return false;
         return child.getMetadata().getOwnerReferences().stream()
                 .anyMatch(owner -> resource.getMetadata().getUid().equals(owner.getUid())
-                        && "TaskSandbox".equals(owner.getKind()));
+                        && "TaskSandbox".equals(owner.getKind())
+                        && "agentteams.io/v1alpha1".equals(owner.getApiVersion())
+                        && resource.getMetadata().getName().equals(owner.getName())
+                        && Boolean.TRUE.equals(owner.getController()));
     }
 
     private static boolean addFinalizer(TaskSandbox resource) {

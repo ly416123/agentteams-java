@@ -7,6 +7,8 @@ public final class TaskSandboxStatus {
     private Long observedGeneration;
     private String workloadUid;
     private String failureCategory;
+    private Boolean runnerReady;
+    private Boolean healthy;
     private String message;
 
     public String getPhase() { return phase; }
@@ -21,6 +23,10 @@ public final class TaskSandboxStatus {
     public void setWorkloadUid(String value) { workloadUid = value; }
     public String getFailureCategory() { return failureCategory; }
     public void setFailureCategory(String value) { failureCategory = value; }
+    public Boolean getRunnerReady() { return runnerReady; }
+    public void setRunnerReady(Boolean value) { runnerReady = value; }
+    public Boolean getHealthy() { return healthy; }
+    public void setHealthy(Boolean value) { healthy = value; }
     public String getMessage() { return message; }
     public void setMessage(String value) { message = value; }
 }

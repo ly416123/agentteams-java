@@ -262,7 +262,8 @@ public final class SandboxLifecycleService {
                 tx -> tx.taskSandboxes().findStopping(limit))) {
             try {
                 SandboxObservation observation = runtime.inspect(providerRef(candidate));
-                if (observation.phase() == SandboxProviderPhase.DESTROYED) {
+                if (observation.phase() == SandboxProviderPhase.DESTROYED
+                        || observation.phase() == SandboxProviderPhase.LOST) {
                     persistence.inTransaction(tx -> tx.taskSandboxes().markDestroyed(candidate.id(), candidate.version(), now));
                     destroyed++;
                 }

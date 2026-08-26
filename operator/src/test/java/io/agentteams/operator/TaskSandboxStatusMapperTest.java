@@ -126,7 +126,9 @@ class TaskSandboxStatusMapperTest {
     }
 
     private static Service service() {
-        return new ServiceBuilder().withSpec(new io.fabric8.kubernetes.api.model.ServiceSpecBuilder()
+        return new ServiceBuilder().withMetadata(new ObjectMetaBuilder().withLabels(
+                Map.of(TaskSandboxResourceFactory.GENERATION_LABEL, "3")).build())
+                .withSpec(new io.fabric8.kubernetes.api.model.ServiceSpecBuilder()
                 .withType("ClusterIP").withClusterIP("10.0.0.1").build()).build();
     }
 

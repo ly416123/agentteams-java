@@ -24,6 +24,7 @@ spec:
               properties:
                 taskId: { type: string, minLength: 1 }
                 attemptId: { type: string, minLength: 1 }
+                idempotencyKey: { type: string, minLength: 1, maxLength: 256 }
                 profile:
                   type: string
                   enum: [ISOLATED, HARDENED]
@@ -33,6 +34,7 @@ spec:
                 template: { type: string, maxLength: 128 }
                 expiresAt: { type: string, format: date-time }
                 terminationRequested: { type: boolean }
+                terminationReason: { type: string }
                 resources:
                   type: object
                   additionalProperties: { type: string }
@@ -45,6 +47,8 @@ spec:
                 observedGeneration: { type: integer, format: int64 }
                 workloadUid: { type: string }
                 failureCategory: { type: string }
+                runnerReady: { type: boolean }
+                healthy: { type: boolean }
                 message: { type: string }
       subresources:
         status: {}

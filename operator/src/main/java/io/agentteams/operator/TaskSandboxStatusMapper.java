@@ -1,6 +1,7 @@
 package io.agentteams.operator;
 
 import io.fabric8.kubernetes.api.model.Endpoints;
+import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.batch.v1.JobCondition;
 import io.fabric8.kubernetes.api.model.batch.v1.Job;
@@ -18,12 +19,18 @@ public final class TaskSandboxStatusMapper {
         Long currentGeneration = sandbox.getMetadata() == null ? null : sandbox.getMetadata().getGeneration();
         long generation = currentGeneration == null ? 0L : currentGeneration;
         boolean currentJob = job == null || isCurrentGeneration(job, generation, previous);
+        boolean currentService = service == null || isCurrentGeneration(service, generation, previous);
 
         TaskSandboxStatus status = new TaskSandboxStatus();
         status.setProviderSandboxId(providerId(sandbox, previous));
-        status.setWorkloadUid(job == null || job.getMetadata() == null ? null : job.getMetadata().getUid());
-        status.setEndpointRef(service == null || service.getMetadata() == null
+        status.setWorkloadUid(!currentJob || job == null || job.getMetadata() == null
+                ? null : job.getMetadata().getUid());
+        status.setEndpointRef(!currentService || service == null || service.getMetadata() == null
                 ? null : service.getMetadata().getName());
+        boolean ready = currentJob && job != null && currentService && active(job)
+                && hasEndpoint(service, endpoints) && runnerHealthy;
+        status.setRunnerReady(ready);
+        status.setHealthy(ready);
         if (previous != null && previous.getObservedGeneration() != null && !currentJob) {
             status.setObservedGeneration(previous.getObservedGeneration());
         } else if (job != null && currentJob) {
@@ -62,7 +69,7 @@ public final class TaskSandboxStatusMapper {
             status.setMessage("Sandbox Job failed: " + failureReason);
             return status;
         }
-        if (active(job) && hasEndpoint(service, endpoints) && runnerHealthy) {
+        if (ready) {
             status.setPhase("READY");
             status.setMessage("Sandbox runner is ready");
         } else {
@@ -72,8 +79,8 @@ public final class TaskSandboxStatusMapper {
         return status;
     }
 
-    private static boolean isCurrentGeneration(Job job, long generation, TaskSandboxStatus previous) {
-        Map<String, String> labels = job.getMetadata() == null ? null : job.getMetadata().getLabels();
+    private static boolean isCurrentGeneration(HasMetadata child, long generation, TaskSandboxStatus previous) {
+        Map<String, String> labels = child.getMetadata() == null ? null : child.getMetadata().getLabels();
         String value = labels == null ? null : labels.get(TaskSandboxResourceFactory.GENERATION_LABEL);
         return value != null && String.valueOf(generation).equals(value);
     }
