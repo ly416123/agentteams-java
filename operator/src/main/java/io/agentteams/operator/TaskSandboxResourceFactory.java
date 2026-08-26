@@ -103,6 +103,9 @@ public final class TaskSandboxResourceFactory {
         labels.put("agentteams.io/task-id", sandbox.getSpec().taskId());
         labels.put("agentteams.io/attempt-id", sandbox.getSpec().attemptId());
         labels.put("agentteams.io/sandbox-profile", sandbox.getSpec().profile().name());
+        labels.put("agentteams.io/task-sandbox-generation",
+                Long.toString(sandbox.getMetadata().getGeneration() == null
+                        ? 0L : sandbox.getMetadata().getGeneration()));
         return labels;
     }
 

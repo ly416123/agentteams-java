@@ -30,6 +30,7 @@ spec:
                 runtimeClassName: { type: string, maxLength: 63 }
                 image: { type: string, minLength: 1 }
                 ttlSeconds: { type: integer, minimum: 60, maximum: 86400 }
+                terminationRequested: { type: boolean }
                 resources:
                   type: object
                   additionalProperties: { type: string }

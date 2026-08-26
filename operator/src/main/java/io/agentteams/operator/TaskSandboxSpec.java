@@ -12,6 +12,7 @@ public final class TaskSandboxSpec {
     private String image;
     private int ttlSeconds;
     private Map<String, String> resources;
+    private boolean terminationRequested;
 
     public TaskSandboxSpec() {
         taskId = "";
@@ -21,6 +22,7 @@ public final class TaskSandboxSpec {
         image = "";
         ttlSeconds = 1800;
         resources = Map.of();
+        terminationRequested = false;
     }
 
     public TaskSandboxSpec(String taskId, String attemptId, SandboxProfile profile, String runtimeClassName,
@@ -41,6 +43,7 @@ public final class TaskSandboxSpec {
     public String image() { return image; }
     public int ttlSeconds() { return ttlSeconds; }
     public Map<String, String> resources() { return resources; }
+    public boolean terminationRequested() { return terminationRequested; }
 
     public String getTaskId() { return taskId; }
     public void setTaskId(String value) { taskId = required(value, "taskId"); }
@@ -63,6 +66,8 @@ public final class TaskSandboxSpec {
     public void setResources(Map<String, String> value) {
         resources = Map.copyOf(Objects.requireNonNull(value, "resources"));
     }
+    public boolean getTerminationRequested() { return terminationRequested; }
+    public void setTerminationRequested(boolean value) { terminationRequested = value; }
 
     private static String required(String value, String field) {
         if (value == null || value.isBlank()) {
