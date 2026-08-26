@@ -10,13 +10,13 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
 
-final class ConfigManifestCanonicalizer {
+public final class ConfigManifestCanonicalizer {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private ConfigManifestCanonicalizer() {
     }
 
-    static String normalize(String manifest) {
+    public static String normalize(String manifest) {
         try {
             return MAPPER.writeValueAsString(canonicalize(MAPPER.readTree(manifest)));
         } catch (Exception error) {

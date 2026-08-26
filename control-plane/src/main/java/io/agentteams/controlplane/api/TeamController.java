@@ -4,6 +4,10 @@ import io.agentteams.controlplane.persistence.TeamMemberRecord;
 import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
 import io.agentteams.controlplane.service.TeamService;
+import io.agentteams.controlplane.team.TeamDeployment;
+import io.agentteams.controlplane.team.TeamDeploymentService;
+import io.agentteams.controlplane.team.TeamRevision;
+import io.agentteams.controlplane.team.TeamRevisionService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -17,15 +21,27 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @RestController
 @RequestMapping("/api/v1/teams")
 public final class TeamController {
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final TeamService service;
+    private final TeamRevisionService revisions;
+    private final TeamDeploymentService deployments;
 
     public TeamController(TeamService service) {
         this.service = service;
+        this.revisions = null;
+        this.deployments = null;
+    }
+
+    @Autowired
+    public TeamController(TeamService service, TeamRevisionService revisions, TeamDeploymentService deployments) {
+        this.service = service;
+        this.revisions = revisions;
+        this.deployments = deployments;
     }
 
     @GetMapping
@@ -87,6 +103,78 @@ public final class TeamController {
         service.delete(teamId, Instant.now());
     }
 
+    @PostMapping("/{teamId}/revisions")
+    public RevisionResponse createRevision(@PathVariable UUID teamId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody RevisionRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        TeamRevision revision = revisions.createDraft(teamId, request.leaderAgentId(), request.overlayJson(),
+                request.memberAgentIds(), actor(request.actor()), idempotencyKey, Instant.now());
+        return RevisionResponse.from(revision);
+    }
+
+    @GetMapping("/{teamId}/revisions")
+    public List<RevisionResponse> revisions(@PathVariable UUID teamId) {
+        return revisions.list(teamId).stream().map(RevisionResponse::from).toList();
+    }
+
+    @GetMapping("/{teamId}/revisions/{revision}")
+    public RevisionResponse revision(@PathVariable UUID teamId, @PathVariable long revision) {
+        return RevisionResponse.from(revisions.get(teamId, revision));
+    }
+
+    @PostMapping("/{teamId}/revisions/{revision}/review")
+    public RevisionResponse review(@PathVariable UUID teamId, @PathVariable long revision,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody VersionRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        return RevisionResponse.from(revisions.review(teamId, revision, expectedVersion(request)));
+    }
+
+    @PostMapping("/{teamId}/revisions/{revision}/publish")
+    public RevisionResponse publish(@PathVariable UUID teamId, @PathVariable long revision,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody VersionRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        return RevisionResponse.from(revisions.publish(teamId, revision, expectedVersion(request)));
+    }
+
+    @PostMapping("/{teamId}/revisions/{revision}/deployments")
+    public DeploymentResponse deploy(@PathVariable UUID teamId, @PathVariable long revision,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody DeploymentRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        TeamRevision teamRevision = revisions.get(teamId, revision);
+        List<TeamDeployment.Member> members = request == null || request.members() == null ? List.of()
+                : request.members().stream().map(member -> new TeamDeployment.Member(member.agentId(),
+                        member.baseManifest(), member.taskOverlay())).toList();
+        return DeploymentResponse.from(deployments.deploy(teamRevision, members,
+                request == null ? "api" : actor(request.actor()), idempotencyKey));
+    }
+
+    @GetMapping("/{teamId}/deployments/{deploymentId}")
+    public DeploymentResponse deployment(@PathVariable UUID teamId, @PathVariable UUID deploymentId) {
+        return DeploymentResponse.from(deployments.find(deploymentId, teamId));
+    }
+
+    @PostMapping("/{teamId}/deployments/{deploymentId}/retry")
+    public void retry(@PathVariable UUID teamId, @PathVariable UUID deploymentId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey) {
+        requireIdempotencyKey(idempotencyKey);
+        deployments.retry(deploymentId, teamId);
+    }
+
+    @PostMapping("/{teamId}/rollback")
+    public RevisionResponse rollback(@PathVariable UUID teamId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody RollbackRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        return RevisionResponse.from(revisions.rollback(teamId, request.targetRevision(), actor(request.actor()),
+                idempotencyKey, Instant.now()));
+    }
+
     public record CreateTeamRequest(String name, String displayName, Integer maxConcurrentTasks,
             boolean requireHumanApproval, List<String> allowedRuntimes, List<String> requiredCapabilities) {
     }
@@ -96,6 +184,21 @@ public final class TeamController {
 
     public record PolicyRequest(Integer maxConcurrentTasks, boolean requireHumanApproval,
             List<String> allowedRuntimes, List<String> requiredCapabilities, long expectedVersion) {
+    }
+
+    public record RevisionRequest(UUID leaderAgentId, String overlayJson, List<UUID> memberAgentIds, String actor) {
+    }
+
+    public record VersionRequest(long expectedVersion) {
+    }
+
+    public record DeploymentRequest(List<MemberDeploymentRequest> members, String actor) {
+    }
+
+    public record MemberDeploymentRequest(UUID agentId, String baseManifest, String taskOverlay) {
+    }
+
+    public record RollbackRequest(long targetRevision, String actor) {
     }
 
     public record TeamResponse(UUID id, String name, String displayName, String status,
@@ -122,6 +225,24 @@ public final class TeamController {
         }
     }
 
+    public record RevisionResponse(UUID teamId, long revision, UUID leaderAgentId, String overlayJson,
+            String digest, String status, Long rollbackOfRevision, String createdBy, Instant createdAt,
+            long version, List<UUID> memberAgentIds) {
+        static RevisionResponse from(TeamRevision revision) {
+            return new RevisionResponse(revision.teamId(), revision.revision(), revision.leaderAgentId(),
+                    revision.overlayJson(), revision.digest(), revision.status().name(), revision.rollbackOfRevision(),
+                    revision.createdBy(), revision.createdAt(), revision.version(), revision.memberAgentIds());
+        }
+    }
+
+    public record DeploymentResponse(UUID id, UUID teamId, long teamRevision, String status,
+            List<TeamDeployment.Member> members, Instant createdAt) {
+        static DeploymentResponse from(TeamDeployment deployment) {
+            return new DeploymentResponse(deployment.id(), deployment.teamId(), deployment.teamRevision(),
+                    deployment.status(), deployment.members(), deployment.createdAt());
+        }
+    }
+
     private static int positive(Integer value) {
         if (value == null) return 1;
         if (value < 1) throw new IllegalArgumentException("maxConcurrentTasks must be positive");
@@ -140,5 +261,15 @@ public final class TeamController {
     private static void requireIdempotencyKey(String key) {
         if (key == null || key.isBlank()) throw new IllegalArgumentException("Idempotency-Key is required");
         if (key.length() > 255) throw new IllegalArgumentException("Idempotency-Key must be at most 255 characters");
+    }
+
+    private static long expectedVersion(VersionRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        if (request.expectedVersion() < 0) throw new IllegalArgumentException("expectedVersion must not be negative");
+        return request.expectedVersion();
+    }
+
+    private static String actor(String actor) {
+        return actor == null || actor.isBlank() ? "api" : actor.trim();
     }
 }

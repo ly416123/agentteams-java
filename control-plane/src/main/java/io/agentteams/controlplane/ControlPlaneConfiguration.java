@@ -34,6 +34,10 @@ import io.agentteams.controlplane.team.KubernetesTeamResourceSource;
 import io.agentteams.controlplane.team.TeamCrdParser;
 import io.agentteams.controlplane.team.TeamCrdSynchronizer;
 import io.agentteams.controlplane.team.TeamResourceSource;
+import io.agentteams.controlplane.team.TeamRevisionRepository;
+import io.agentteams.controlplane.team.TeamRevisionService;
+import io.agentteams.controlplane.team.TeamDeploymentRepository;
+import io.agentteams.controlplane.team.TeamDeploymentService;
 import io.agentteams.controlplane.service.ExecutionEventService;
 import io.agentteams.controlplane.sandbox.SandboxLifecycleService;
 import io.agentteams.controlplane.sandbox.FakeSandboxRuntime;
@@ -249,6 +253,29 @@ public class ControlPlaneConfiguration {
             io.agentteams.controlplane.service.IdempotencyService idempotency) {
         return new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
                 resourceScopes, idempotency);
+    }
+
+    @Bean
+    TeamRevisionRepository teamRevisionRepository(DataSource dataSource) {
+        return new TeamRevisionRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    TeamRevisionService teamRevisionService(TeamRevisionRepository repository) {
+        return new TeamRevisionService(repository);
+    }
+
+    @Bean
+    TeamDeploymentRepository teamDeploymentRepository(DataSource dataSource) {
+        return new TeamDeploymentRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    TeamDeploymentService teamDeploymentService(TeamDeploymentRepository repository,
+            ConfigSnapshotService snapshots, ConfigDeploymentService deployments, Clock clock,
+            TeamRevisionRepository revisions) {
+        return new TeamDeploymentService(repository, snapshots, deployments, new io.agentteams.controlplane.config.EffectiveConfigComposer(),
+                clock, revisions);
     }
 
     @Bean
