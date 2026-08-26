@@ -164,6 +164,9 @@ class TeamServiceScopeTest {
                 .isEqualTo(policy);
         assertThat(keyed.updatePolicy(teamId, 3, true, List.of("java"), List.of("gpu"), 2, NOW, "policy-key"))
                 .isEqualTo(policy);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> keyed.updatePolicy(teamId, 4, true,
+                List.of("java"), List.of("gpu"), 2, NOW, "policy-key"))
+                .isInstanceOf(io.agentteams.controlplane.persistence.IdempotencyConflictException.class);
         verify(idempotencyKeys).insertIfAbsent(any());
     }
 
