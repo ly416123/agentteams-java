@@ -86,6 +86,7 @@ public final class QwenPawWorker implements AutoCloseable {
     private final AgentChannelClient channelClient;
     private final GrpcAgentChannelPort channelPort;
     private final io.agentteams.runtime.AgentRuntime runtime;
+    private final AssignmentSandboxStateProbePort sandboxStateProbe;
     private final ConfigManifestFetcher manifestFetcher;
     private final ConfigFileFetcher configFileFetcher;
     private final Path configDirectory;
@@ -106,6 +107,7 @@ public final class QwenPawWorker implements AutoCloseable {
     QwenPawWorker(WorkerConfiguration configuration, RuntimeQuotaPort quotaPort) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.clock = Clock.systemUTC();
+        this.sandboxStateProbe = new AssignmentSandboxStateProbePort(clock);
         this.tracing = WorkerTracing.create();
         this.scheduler = Executors.newScheduledThreadPool(2, runnable -> {
             Thread thread = new Thread(runnable, "qwenpaw-worker-scheduler");
@@ -117,7 +119,8 @@ public final class QwenPawWorker implements AutoCloseable {
                 this::onDisconnected);
         this.channelClient = new AgentChannelClient(configuration.agentId(), channelPort, clock,
                 configuration.reconnectDelay());
-        this.runtime = new WorkerRuntimeFactory().create(configuration, gatewayChannel, clock, quotaPort);
+        this.runtime = new WorkerRuntimeFactory(sandboxStateProbe)
+                .create(configuration, gatewayChannel, clock, quotaPort);
         this.manifestFetcher = new ConfigManifestFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
         this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
@@ -374,6 +377,7 @@ public final class QwenPawWorker implements AutoCloseable {
         Object resultGate = resultGates.computeIfAbsent(taskId, ignored -> new Object());
         RuntimeSubmission submission;
         try {
+            sandboxStateProbe.register(assignment);
             submission = channelClient.onTaskAssigned(assignment, runtimeAdapter);
             if (submission.accepted()) {
                 RuntimeResult pending;
@@ -396,6 +400,7 @@ public final class QwenPawWorker implements AutoCloseable {
             // Ack the durable delivery anyway so one poisoned command cannot
             // replay forever and block later assignments for this worker.
             acknowledge(assignment);
+            sandboxStateProbe.forget(taskId);
             resultGates.remove(taskId, resultGate);
             pendingResults.remove(taskId);
             System.err.printf("Task assignment task=%s rejected: %s%n",
@@ -443,6 +448,7 @@ public final class QwenPawWorker implements AutoCloseable {
             System.out.printf("Task result task=%s success=%s status=%s output=%s%n",
                     result.taskId(), result.success(), status, truncate(result.output()));
             if (status == CompletionStatus.COMPLETED) {
+                sandboxStateProbe.forget(result.taskId());
                 runningTasks.remove(result.taskId());
                 pendingResults.remove(result.taskId());
                 resultGates.remove(result.taskId());

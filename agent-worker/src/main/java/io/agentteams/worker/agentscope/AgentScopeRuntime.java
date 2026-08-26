@@ -88,7 +88,8 @@ public final class AgentScopeRuntime implements AgentRuntime {
             try {
                 startExecutionLocked(task, currentContext, generation);
             } catch (RuntimeException error) {
-                completeFailureLocked(task.id());
+                state.cancel(task.id());
+                return RuntimeSubmission.rejected("RUNTIME_UNAVAILABLE");
             }
             return submission;
         }

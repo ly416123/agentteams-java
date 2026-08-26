@@ -10,6 +10,8 @@ import io.agentteams.runtime.RuntimeSnapshot;
 import io.agentteams.runtime.RuntimeStatus;
 import io.agentteams.runtime.RuntimeSubmission;
 import io.agentteams.runtime.RuntimeTask;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -20,7 +22,7 @@ import java.util.concurrent.ConcurrentMap;
 /** Selects a worker runtime once per task and preserves that owner until termination. */
 public final class WorkerRuntimeRouter implements AgentRuntime {
     private static final String RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE";
-    private static final String[] REQUIRED_SCOPE = {"tenantId", "teamId", "agentId"};
+    private static final String[] REQUIRED_SCOPE = {"tenantId", "projectId", "teamId", "agentId"};
 
     private final AgentRuntime qwenPaw;
     private final AgentRuntime agentScope;
@@ -63,7 +65,15 @@ public final class WorkerRuntimeRouter implements AgentRuntime {
         if (selected == null) {
             return RuntimeSubmission.rejected(RUNTIME_UNAVAILABLE);
         }
-        RuntimeSubmission submission = selected.submit(task);
+        RuntimeSubmission submission;
+        try {
+            submission = selected.submit(task);
+        } catch (RuntimeException error) {
+            if (selected == agentScope) {
+                return RuntimeSubmission.rejected(RUNTIME_UNAVAILABLE);
+            }
+            throw error;
+        }
         if (submission.accepted()) {
             AgentRuntime previous = owners.putIfAbsent(task.id(), selected);
             if (previous != null && previous != selected) {
@@ -143,6 +153,9 @@ public final class WorkerRuntimeRouter implements AgentRuntime {
             return qwenPaw;
         }
         String selected = rollout.select(task.metadata());
+        if (rollout.enabled() && stableBucket(task) < rollout.rolloutPercentage()) {
+            return agentScope;
+        }
         if (AgentScopeRolloutPolicy.AGENTSCOPE.equals(selected)) {
             return agentScope;
         }
@@ -150,6 +163,23 @@ public final class WorkerRuntimeRouter implements AgentRuntime {
             return qwenPaw;
         }
         return null;
+    }
+
+    private static int stableBucket(RuntimeTask task) {
+        StringBuilder value = new StringBuilder("agentteams-routing-v1|");
+        for (String field : new String[] {"tenantId", "projectId", "teamId", "agentId"}) {
+            String part = task.metadata().get(field).trim();
+            value.append(part.length()).append(':').append(part).append('|');
+        }
+        String taskId = task.id().toString();
+        value.append(taskId.length()).append(':').append(taskId);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.toString().getBytes(StandardCharsets.UTF_8));
+            return ((((digest[0] & 0xff) << 8) | (digest[1] & 0xff)) % 100);
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 
     private static boolean hasStableScope(Map<String, String> metadata) {

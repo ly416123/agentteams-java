@@ -6,6 +6,7 @@ import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeTask;
+import io.agentteams.worker.SandboxStateProbePort;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -33,6 +34,7 @@ public final class AgentScopeWorkspaceFactory {
     private static final Set<SandboxStatus> USABLE_STATUSES = Set.of(
             SandboxStatus.READY, SandboxStatus.RUNNING);
     private final SandboxRuntimePort sandboxRuntime;
+    private final SandboxStateProbePort sandboxStateProbe;
     private final Clock clock;
     private final Path sandboxRoot;
     private final Path realSandboxRoot;
@@ -41,7 +43,14 @@ public final class AgentScopeWorkspaceFactory {
 
     public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock,
             Path sandboxRoot, SandboxWorkspaceOwnershipPort ownership) {
-        this(sandboxRuntime, clock, sandboxRoot, ownership, false);
+        this(sandboxRuntime, null, clock, sandboxRoot, ownership, false);
+    }
+
+    /** Production constructor using the worker's read-only sandbox state boundary. */
+    public AgentScopeWorkspaceFactory(SandboxStateProbePort sandboxStateProbe, Clock clock,
+            Path sandboxRoot, SandboxWorkspaceOwnershipPort ownership) {
+        this(null, Objects.requireNonNull(sandboxStateProbe, "sandboxStateProbe"), clock,
+                sandboxRoot, ownership, false);
     }
 
     /** Explicit test-only construction; it cannot be selected by production wiring. */
@@ -53,7 +62,17 @@ public final class AgentScopeWorkspaceFactory {
 
     public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock,
             Path sandboxRoot, SandboxWorkspaceOwnershipPort ownership, boolean testMode) {
-        this.sandboxRuntime = Objects.requireNonNull(sandboxRuntime, "sandboxRuntime");
+        this(sandboxRuntime, null, clock, sandboxRoot, ownership, testMode);
+    }
+
+    private AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime,
+            SandboxStateProbePort sandboxStateProbe, Clock clock, Path sandboxRoot,
+            SandboxWorkspaceOwnershipPort ownership, boolean testMode) {
+        if (sandboxRuntime == null && sandboxStateProbe == null) {
+            throw new IllegalArgumentException("sandbox runtime or state probe must be configured");
+        }
+        this.sandboxRuntime = sandboxRuntime;
+        this.sandboxStateProbe = sandboxStateProbe;
         this.clock = Objects.requireNonNull(clock, "clock");
         this.ownership = Objects.requireNonNull(ownership, "ownership");
         this.testMode = testMode;
@@ -109,9 +128,10 @@ public final class AgentScopeWorkspaceFactory {
             throw new IllegalArgumentException("sandbox handle is expired");
         }
 
+        UUID ownerAttemptId = attemptOwnerId(scope.attemptId());
         SandboxStatus observedStatus;
         try {
-            observedStatus = sandboxRuntime.inspect(handle.providerSandboxId());
+            observedStatus = inspectSandbox(task, handle.providerSandboxId(), ownerAttemptId);
         } catch (RuntimeException error) {
             throw new IllegalArgumentException("sandbox state is unavailable", error);
         }
@@ -119,7 +139,6 @@ public final class AgentScopeWorkspaceFactory {
             throw new IllegalArgumentException("sandbox is not usable: " + observedStatus);
         }
 
-        UUID ownerAttemptId = attemptOwnerId(scope.attemptId());
         if (handle.taskId() == null || handle.attemptId() == null
                 || !handle.taskId().equals(task.id()) || !handle.attemptId().equals(ownerAttemptId)) {
             throw new IllegalArgumentException("sandbox handle owner does not match task attempt");
@@ -163,7 +182,7 @@ public final class AgentScopeWorkspaceFactory {
         }
         SandboxStatus observed;
         try {
-            observed = sandboxRuntime.inspect(binding.sandboxId().get());
+            observed = inspectSandbox(task, binding.sandboxId().get(), ownerAttemptId);
         } catch (RuntimeException error) {
             throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.UNAVAILABLE);
         }
@@ -180,6 +199,20 @@ public final class AgentScopeWorkspaceFactory {
                 && ownership.findWorkspaceOwner(binding.workspacePath().get()).filter(expected::equals).isEmpty()) {
             throw new SandboxWorkspaceException(SandboxWorkspaceException.Reason.OWNER_MISMATCH);
         }
+    }
+
+    private SandboxStatus inspectSandbox(RuntimeTask task, String providerSandboxId,
+            UUID ownerAttemptId) {
+        if (sandboxStateProbe == null) {
+            return sandboxRuntime.inspect(providerSandboxId);
+        }
+        UUID sandboxId = parseUuid(required(task, "sandboxId"), "sandboxId");
+        SandboxStateProbePort.SandboxExecutionState state = sandboxStateProbe.inspect(
+                sandboxId, task.id(), ownerAttemptId);
+        if (state == null || !clock.instant().isBefore(state.expiresAt())) {
+            throw new IllegalArgumentException("sandbox state is expired or unavailable");
+        }
+        return state.status();
     }
 
     /** Creates the runtime gate bound to one resolved attempt workspace. */
@@ -386,6 +419,14 @@ public final class AgentScopeWorkspaceFactory {
             return UUID.fromString(attemptId);
         } catch (IllegalArgumentException error) {
             return UUID.nameUUIDFromBytes(attemptId.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private static UUID parseUuid(String value, String field) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException(field + " must be a UUID", error);
         }
     }
 

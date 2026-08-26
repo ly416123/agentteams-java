@@ -15,6 +15,8 @@ import io.agentteams.runtime.RuntimeTaskState;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -105,13 +107,67 @@ class WorkerRuntimeRouterTest {
         assertThat(agentScope.submitted()).isEmpty();
     }
 
+    @Test
+    void stableBucketCombinesTenantProjectTeamAgentAndTask() throws Exception {
+        RecordingRuntime qwen = new RecordingRuntime();
+        RecordingRuntime agentScope = new RecordingRuntime();
+        WorkerRuntimeRouter router = new WorkerRuntimeRouter(qwen, agentScope,
+                new AgentScopeRolloutPolicy("QWENPAW", true, 50,
+                        Set.of(), Set.of(), Set.of()));
+        router.start(context());
+
+        RuntimeTask first = null;
+        RuntimeTask second = null;
+        boolean firstAgentScope = false;
+        for (int index = 0; index < 100 && second == null; index++) {
+            RuntimeTask candidate = new RuntimeTask(
+                    UUID.nameUUIDFromBytes(("task-" + index).getBytes(StandardCharsets.UTF_8)),
+                    "chat", "{}", Map.of("tenantId", "tenant-" + index,
+                            "projectId", "project-" + index, "teamId", "team-" + index,
+                            "agentId", "agent-a"));
+            boolean candidateAgentScope = bucket(candidate) < 50;
+            if (first == null) {
+                first = candidate;
+                firstAgentScope = candidateAgentScope;
+            } else if (candidateAgentScope != firstAgentScope) {
+                second = candidate;
+            }
+        }
+        assertThat(second).as("test data must contain both bucket outcomes").isNotNull();
+
+        router.submit(first);
+        router.submit(second);
+
+        if (firstAgentScope) {
+            assertThat(agentScope.submitted()).contains(first.id());
+            assertThat(qwen.submitted()).contains(second.id());
+        } else {
+            assertThat(qwen.submitted()).contains(first.id());
+            assertThat(agentScope.submitted()).contains(second.id());
+        }
+    }
+
+    private static int bucket(RuntimeTask task) throws Exception {
+        StringBuilder value = new StringBuilder("agentteams-routing-v1|");
+        for (String field : new String[] {"tenantId", "projectId", "teamId", "agentId"}) {
+            String part = task.metadata().get(field);
+            value.append(part.length()).append(':').append(part).append('|');
+        }
+        String taskId = task.id().toString();
+        value.append(taskId.length()).append(':').append(taskId);
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(value.toString().getBytes(StandardCharsets.UTF_8));
+        return ((((digest[0] & 0xff) << 8) | (digest[1] & 0xff)) % 100);
+    }
+
     private static AgentRuntimeContext context() {
         return new AgentRuntimeContext("worker", 2, CLOCK, ignored -> { }, Map.of());
     }
 
     private static RuntimeTask task() {
         return new RuntimeTask(TASK_ID, "chat", "{}", Map.of(
-                "agentId", "agent-a", "teamId", "team-a", "tenantId", "tenant-a"));
+                "agentId", "agent-a", "teamId", "team-a", "projectId", "project-a",
+                "tenantId", "tenant-a"));
     }
 
     private static final class RecordingRuntime implements AgentRuntime {

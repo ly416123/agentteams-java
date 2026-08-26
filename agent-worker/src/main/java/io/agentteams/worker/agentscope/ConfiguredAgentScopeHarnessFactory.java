@@ -3,44 +3,62 @@ package io.agentteams.worker.agentscope;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ModelRegistry;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentteams.application.api.SandboxHandle;
+import io.agentteams.application.api.SandboxProfile;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeTask;
-import io.agentteams.worker.SandboxStateProbePort;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Production AgentScope Harness factory with bounded workspace and sandbox observation. */
 public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarnessFactory {
     private final Model model;
     private final Path workspaceRoot;
-    private final SandboxStateProbePort sandboxStateProbe;
+    private final AgentScopeWorkspaceFactory workspaceFactory;
+    private final Map<UUID, AgentScopeWorkspaceFactory.WorkspaceBinding> bindings =
+            new ConcurrentHashMap<>();
 
-    public ConfiguredAgentScopeHarnessFactory(String modelId, Path workspaceRoot) {
-        this(resolveModel(modelId), workspaceRoot, null);
+    public ConfiguredAgentScopeHarnessFactory(String modelId,
+            AgentScopeWorkspaceFactory workspaceFactory, Path workspaceRoot) {
+        this(resolveModel(modelId), workspaceFactory, workspaceRoot);
     }
 
-    public ConfiguredAgentScopeHarnessFactory(Model model, Path workspaceRoot) {
-        this(model, workspaceRoot, null);
-    }
-
-    public ConfiguredAgentScopeHarnessFactory(Model model, Path workspaceRoot,
-            SandboxStateProbePort sandboxStateProbe) {
+    public ConfiguredAgentScopeHarnessFactory(Model model, AgentScopeWorkspaceFactory workspaceFactory,
+            Path workspaceRoot) {
         this.model = Objects.requireNonNull(model, "model");
+        this.workspaceFactory = Objects.requireNonNull(workspaceFactory, "workspaceFactory");
         this.workspaceRoot = normalizeRoot(workspaceRoot);
-        this.sandboxStateProbe = sandboxStateProbe;
+    }
+
+    public WorkspaceActiveGuard activeGuard() {
+        return (task, context) -> {
+            AgentScopeWorkspaceFactory.WorkspaceBinding binding = bindings.get(task.id());
+            if (binding != null) {
+                workspaceFactory.assertUsable(binding, task, context);
+            }
+        };
     }
 
     @Override
     public HarnessAgent create(RuntimeTask task, AgentRuntimeContext context) {
         Objects.requireNonNull(task, "task");
         Objects.requireNonNull(context, "context");
-        validateSandbox(task, context);
-        Path workspace = workspace(task);
+        AgentScopeWorkspaceFactory.WorkspaceBinding binding = resolveBinding(task, context);
+        bindings.put(task.id(), binding);
+        Path workspace = binding.workspacePath().orElseGet(() -> workspaceRoot.resolve(task.id().toString()));
+        workspace = workspace.toAbsolutePath().normalize();
+        if (!workspace.startsWith(workspaceRoot)) {
+            throw new IllegalArgumentException("resolved workspace is outside the configured root");
+        }
         try {
             Files.createDirectories(workspace);
         } catch (IOException error) {
@@ -61,35 +79,30 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
                 .build();
     }
 
-    private void validateSandbox(RuntimeTask task, AgentRuntimeContext context) {
+    private AgentScopeWorkspaceFactory.WorkspaceBinding resolveBinding(RuntimeTask task,
+            AgentRuntimeContext context) {
+        if (!hasWorkspaceScope(task)) {
+            return new AgentScopeWorkspaceFactory.WorkspaceBinding(
+                    "agentscope-local-" + task.id(), SandboxProfile.NONE,
+                    Optional.empty(), Optional.empty(), Optional.empty());
+        }
         String sandboxId = task.metadata().get("sandboxId");
         if (sandboxId == null || sandboxId.isBlank()) {
-            return;
+            return workspaceFactory.resolve(task, context, Optional.empty());
         }
-        if (sandboxStateProbe == null) {
-            throw new IllegalArgumentException("sandbox state probe is not configured");
-        }
-        UUID id = parseUuid(sandboxId, "sandboxId");
-        UUID attemptId = parseUuid(required(task, "attemptId"), "attemptId");
-        SandboxStateProbePort.SandboxExecutionState state = sandboxStateProbe.inspect(id, task.id(), attemptId);
-        if (state == null || (state.status() != SandboxStatus.READY && state.status() != SandboxStatus.RUNNING)) {
-            throw new IllegalArgumentException("sandbox is not usable");
-        }
-        if (!context.clock().instant().isBefore(state.expiresAt())) {
-            throw new IllegalArgumentException("sandbox state is expired");
-        }
+        SandboxHandle handle = new SandboxHandle(
+                task.metadata().getOrDefault("providerSandboxId", sandboxId),
+                SandboxProfile.valueOf(required(task, "profile")),
+                SandboxStatus.valueOf(required(task, "status")),
+                required(task, "endpointRef"),
+                Instant.parse(required(task, "expiresAt")),
+                task.id(), parseAttemptId(required(task, "attemptId")));
+        return workspaceFactory.resolve(task, context, handle.profile(), Optional.of(handle));
     }
 
-    private Path workspace(RuntimeTask task) {
-        String requested = task.metadata().get("workspacePath");
-        Path candidate = requested == null || requested.isBlank()
-                ? workspaceRoot.resolve(task.id().toString())
-                : Path.of(requested.trim());
-        Path normalized = candidate.toAbsolutePath().normalize();
-        if (!normalized.startsWith(workspaceRoot)) {
-            throw new IllegalArgumentException("workspace path is outside the configured root");
-        }
-        return normalized;
+    private static boolean hasWorkspaceScope(RuntimeTask task) {
+        return task.metadata().keySet().containsAll(Set.of("tenantId", "projectId", "teamId", "agentId",
+                "attemptId"));
     }
 
     private static Model resolveModel(String modelId) {
@@ -112,11 +125,11 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
         return value.trim();
     }
 
-    private static UUID parseUuid(String value, String field) {
+    private static UUID parseAttemptId(String value) {
         try {
             return UUID.fromString(value);
         } catch (IllegalArgumentException error) {
-            throw new IllegalArgumentException(field + " must be a UUID", error);
+            return UUID.nameUUIDFromBytes(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
     }
 }
