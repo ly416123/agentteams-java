@@ -43,6 +43,7 @@
         <postgresql.version>42.7.5</postgresql.version>
         <nats.version>2.20.5</nats.version>
         <agentscope.version>2.0.1</agentscope.version>
+        <minio.version>8.5.17</minio.version>
 
         <junit.version>5.12.2</junit.version>
         <assertj.version>3.27.3</assertj.version>
@@ -59,6 +60,28 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- The MCP SDK pulls okhttp-jvm 5.3.2, which requires Okio.socket()
+                 (added in Okio 3.7); spring-boot-dependencies pins Okio 3.6.0 and
+                 the OTLP OkHttp exporter fails with NoSuchMethodError at runtime.
+                 Declared after the BOM import so it wins version mediation for
+                 every module. -->
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio</artifactId>
+                <version>3.16.4</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-jvm</artifactId>
+                <version>3.16.4</version>
+            </dependency>
             <dependency>
                 <groupId>org.junit</groupId>
                 <artifactId>junit-bom</artifactId>
