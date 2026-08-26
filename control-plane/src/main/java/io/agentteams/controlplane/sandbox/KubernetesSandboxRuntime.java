@@ -173,6 +173,8 @@ public final class KubernetesSandboxRuntime implements SandboxRuntimePort {
         spec.put("idempotencyKey", command.idempotencyKey());
         spec.put("profile", command.profile().name());
         spec.put("runtimeClassName", properties.runtimeClassName(command.profile()));
+        spec.put("image", "ghcr.io/ly416123/agentteams-task-sandbox:latest");
+        spec.put("ttlSeconds", (int) command.ttl().toSeconds());
         spec.put("template", command.template());
         spec.put("expiresAt", command.expiresAt().toString());
         spec.put("terminationRequested", false);

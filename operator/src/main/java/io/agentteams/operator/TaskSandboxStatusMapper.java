@@ -21,6 +21,7 @@ public final class TaskSandboxStatusMapper {
 
         TaskSandboxStatus status = new TaskSandboxStatus();
         status.setProviderSandboxId(providerId(sandbox, previous));
+        status.setWorkloadUid(job == null || job.getMetadata() == null ? null : job.getMetadata().getUid());
         status.setEndpointRef(service == null || service.getMetadata() == null
                 ? null : service.getMetadata().getName());
         if (previous != null && previous.getObservedGeneration() != null && !currentJob) {
@@ -32,6 +33,12 @@ public final class TaskSandboxStatusMapper {
         }
 
         if (job == null) {
+            if (previous != null && "FAILED".equals(previous.getPhase())) {
+                status.setPhase("FAILED");
+                status.setFailureCategory(previous.getFailureCategory());
+                status.setMessage(previous.getMessage());
+                return status;
+            }
             if (previous != null && "READY".equals(previous.getPhase())
                     && generationMatches(previous, generation)) {
                 status.setPhase("LOST");
@@ -51,6 +58,7 @@ public final class TaskSandboxStatusMapper {
         String failureReason = failureReason(job);
         if (failureReason != null) {
             status.setPhase("FAILED");
+            status.setFailureCategory("PROVIDER_RESPONSE_INVALID");
             status.setMessage("Sandbox Job failed: " + failureReason);
             return status;
         }
@@ -67,8 +75,7 @@ public final class TaskSandboxStatusMapper {
     private static boolean isCurrentGeneration(Job job, long generation, TaskSandboxStatus previous) {
         Map<String, String> labels = job.getMetadata() == null ? null : job.getMetadata().getLabels();
         String value = labels == null ? null : labels.get(TaskSandboxResourceFactory.GENERATION_LABEL);
-        return value == null ? previous == null || previous.getObservedGeneration() == null
-                || previous.getObservedGeneration() == generation : String.valueOf(generation).equals(value);
+        return value != null && String.valueOf(generation).equals(value);
     }
 
     private static boolean generationMatches(TaskSandboxStatus status, long generation) {

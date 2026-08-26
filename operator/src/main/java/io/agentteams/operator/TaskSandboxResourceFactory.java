@@ -10,6 +10,7 @@ import io.fabric8.kubernetes.api.model.IntOrString;
 import io.fabric8.kubernetes.api.model.PodSpecBuilder;
 import io.fabric8.kubernetes.api.model.PodSecurityContextBuilder;
 import io.fabric8.kubernetes.api.model.PodTemplateSpecBuilder;
+import io.fabric8.kubernetes.api.model.ProbeBuilder;
 import io.fabric8.kubernetes.api.model.ResourceRequirementsBuilder;
 import io.fabric8.kubernetes.api.model.SeccompProfileBuilder;
 import io.fabric8.kubernetes.api.model.Service;
@@ -17,6 +18,7 @@ import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.ServicePortBuilder;
 import io.fabric8.kubernetes.api.model.ServiceSpecBuilder;
 import io.fabric8.kubernetes.api.model.SecurityContextBuilder;
+import io.fabric8.kubernetes.api.model.TCPSocketActionBuilder;
 import io.fabric8.kubernetes.api.model.Quantity;
 import io.fabric8.kubernetes.api.model.batch.v1.Job;
 import io.fabric8.kubernetes.api.model.batch.v1.JobBuilder;
@@ -61,6 +63,12 @@ public final class TaskSandboxResourceFactory {
                         .withCapabilities(new CapabilitiesBuilder().withDrop("ALL").build())
                         .build())
                 .withResources(new ResourceRequirementsBuilder().withRequests(requests).withLimits(requests).build());
+        container.withReadinessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()
+                .withPort(new IntOrString(RUNNER_PORT)).build()).withInitialDelaySeconds(5)
+                .withPeriodSeconds(5).withFailureThreshold(3).build())
+                .withLivenessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()
+                        .withPort(new IntOrString(RUNNER_PORT)).build()).withInitialDelaySeconds(15)
+                        .withPeriodSeconds(10).withFailureThreshold(3).build());
         PodSpecBuilder podSpec = new PodSpecBuilder()
                 .withAutomountServiceAccountToken(false)
                 .withHostNetwork(false)

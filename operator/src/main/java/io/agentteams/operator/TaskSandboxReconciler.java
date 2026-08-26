@@ -56,6 +56,16 @@ public final class TaskSandboxReconciler implements Reconciler<TaskSandbox> {
             return reconcileTermination(resource, namespace, observedJob, observedService, finalizerChanged);
         }
 
+        if ((observedJob != null && !isControlled(observedJob, resource))
+                || (observedService != null && !isControlled(observedService, resource))) {
+            TaskSandboxStatus status = new TaskSandboxStatus();
+            status.setPhase("FAILED");
+            status.setFailureCategory("POLICY_REJECTED");
+            status.setObservedGeneration(resource.getMetadata().getGeneration());
+            status.setMessage("Sandbox child is not controlled by this TaskSandbox");
+            return updateStatus(resource, status, finalizerChanged);
+        }
+
         boolean currentJob = isCurrentGeneration(observedJob, resource);
         if (observedService != null && !isCurrentGeneration(observedService, resource)) {
             if (isControlled(observedService, resource)) {
@@ -176,7 +186,7 @@ public final class TaskSandboxReconciler implements Reconciler<TaskSandbox> {
         Map<String, String> labels = child.getMetadata() == null ? null : child.getMetadata().getLabels();
         String generation = labels == null ? null : labels.get(TaskSandboxResourceFactory.GENERATION_LABEL);
         Long current = resource.getMetadata().getGeneration();
-        return generation == null || current == null || String.valueOf(current).equals(generation);
+        return generation != null && current != null && String.valueOf(current).equals(generation);
     }
 
     private static boolean isControlled(HasMetadata child, TaskSandbox resource) {
@@ -188,7 +198,7 @@ public final class TaskSandboxReconciler implements Reconciler<TaskSandbox> {
             return false;
         }
         if (resource.getMetadata().getUid() == null || child.getMetadata().getOwnerReferences() == null
-                || child.getMetadata().getOwnerReferences().isEmpty()) return true;
+                || child.getMetadata().getOwnerReferences().isEmpty()) return false;
         return child.getMetadata().getOwnerReferences().stream()
                 .anyMatch(owner -> resource.getMetadata().getUid().equals(owner.getUid())
                         && "TaskSandbox".equals(owner.getKind()));

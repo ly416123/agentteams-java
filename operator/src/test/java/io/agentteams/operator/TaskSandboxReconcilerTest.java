@@ -6,6 +6,7 @@ import io.agentteams.application.api.SandboxProfile;
 import io.fabric8.kubernetes.api.model.Endpoints;
 import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
+import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.batch.v1.Job;
 import io.fabric8.kubernetes.api.model.batch.v1.JobBuilder;
@@ -130,7 +131,10 @@ class TaskSandboxReconcilerTest {
                         "agentteams.io/task-id", "task-1",
                         "agentteams.io/attempt-id", "attempt-1",
                         "agentteams.io/sandbox-profile", "ISOLATED",
-                        TaskSandboxResourceFactory.GENERATION_LABEL, "3")).build())
+                        TaskSandboxResourceFactory.GENERATION_LABEL, "3")).withOwnerReferences(
+                                new OwnerReferenceBuilder().withApiVersion("agentteams.io/v1alpha1")
+                                        .withKind("TaskSandbox").withName("task-sandbox-isolated")
+                                        .withUid("sandbox-uid").withController(true).build()).build())
                 .withStatus(new JobStatusBuilder().withActive(1).build()).build();
     }
 
