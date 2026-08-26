@@ -55,6 +55,25 @@ class WorkerResourceFactoryTest {
     }
 
     @Test
+    void writesCanonicalRuntimeAndOverridesConflictingUserEnvironment() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-runtime").withNamespace("agentteams").build());
+        worker.setSpec(new WorkerSpec("agent-a", "AGENTSCOPE", "example/worker:v1", 1,
+                Map.of("AGENTTEAMS_RUNTIME", "QWENPAW")));
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv())
+                .anySatisfy(env -> assertThat(env.getName()).isEqualTo("AGENTTEAMS_RUNTIME"))
+                .filteredOn(env -> "AGENTTEAMS_RUNTIME".equals(env.getName()))
+                .singleElement()
+                .extracting(env -> env.getValue())
+                .isEqualTo("AGENTSCOPE");
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnvFrom())
+                .isNotEmpty();
+    }
+
+    @Test
     void mountsConfiguredTlsSecretIntoWorkerDeployment() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-tls").withNamespace("agentteams").build());

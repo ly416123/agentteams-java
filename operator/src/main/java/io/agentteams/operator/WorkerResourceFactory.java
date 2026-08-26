@@ -1,6 +1,8 @@
 package io.agentteams.operator;
 
 import io.fabric8.kubernetes.api.model.ContainerBuilder;
+import io.fabric8.kubernetes.api.model.ConfigMapEnvSourceBuilder;
+import io.fabric8.kubernetes.api.model.EnvFromSourceBuilder;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
 import io.fabric8.kubernetes.api.model.LabelSelectorBuilder;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
@@ -26,6 +28,7 @@ import java.util.Map;
 public final class WorkerResourceFactory {
     private static final int GRPC_PORT = 9090;
     private static final String SECRET_RELOADER_ANNOTATION = "secret.reloader.stakater.com/reload";
+    private static final String RUNTIME_CONFIG_MAP = "agentteams-java-agent-runtime";
 
     private WorkerResourceFactory() { }
 
@@ -37,10 +40,14 @@ public final class WorkerResourceFactory {
         // The CR identity is canonical. A stale or conflicting value supplied
         // through env must not make the worker register as another Agent.
         environment.put("AGENTTEAMS_AGENT_ID", spec.agentId());
+        environment.put("AGENTTEAMS_RUNTIME", spec.runtime());
         ContainerBuilder container = new ContainerBuilder()
                 .withName("worker")
                 .withImage(spec.image())
                 .withImagePullPolicy("IfNotPresent")
+                .withEnvFrom(new EnvFromSourceBuilder()
+                        .withConfigMapRef(new ConfigMapEnvSourceBuilder()
+                                .withName(RUNTIME_CONFIG_MAP).build()).build())
                 .withPorts(new io.fabric8.kubernetes.api.model.ContainerPortBuilder()
                         .withName("grpc").withContainerPort(GRPC_PORT).build())
                 .withReadinessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()

@@ -45,6 +45,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     private final Consumer<AgentScopeExecutionEvent> eventSink;
     private final WorkspaceActiveGuard workspaceActiveGuard;
     private final Map<UUID, Execution> executions = new ConcurrentHashMap<>();
+    private final Map<UUID, RuntimeResult> pendingTerminalResults = new ConcurrentHashMap<>();
     private AgentRuntimeContext context;
     private long generation;
 
@@ -230,6 +231,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
             return completeFencedLocked(execution);
         }
         try {
+            pendingTerminalResults.put(execution.task.id(), result);
             status = state.complete(result);
             // FakeRuntime records the terminal state before resultSink runs.
             // Keep the CAS closed and clean every resource even when the sink
@@ -238,13 +240,16 @@ public final class AgentScopeRuntime implements AgentRuntime {
             if (status == CompletionStatus.COMPLETED) {
                 executions.remove(execution.task.id(), execution);
                 execution.close();
+                pendingTerminalResults.remove(execution.task.id(), result);
             } else {
                 execution.terminalSubmitted.set(false);
+                pendingTerminalResults.remove(execution.task.id(), result);
             }
             return status;
         } catch (RuntimeException error) {
             executions.remove(execution.task.id(), execution);
             execution.close();
+            pendingTerminalResults.remove(execution.task.id(), result);
             throw error;
         }
     }
@@ -282,6 +287,11 @@ public final class AgentScopeRuntime implements AgentRuntime {
         Objects.requireNonNull(result, "result");
         synchronized (lifecycleLock) {
             expireLeasesLocked();
+            RuntimeResult pending = pendingTerminalResults.get(result.taskId());
+            if (pending != null && pending.equals(result)) {
+                pendingTerminalResults.remove(result.taskId(), pending);
+                return CompletionStatus.COMPLETED;
+            }
             Execution execution = executions.get(result.taskId());
             if (execution == null) {
                 return state.complete(result);
@@ -295,6 +305,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         Objects.requireNonNull(taskId, "taskId");
         synchronized (lifecycleLock) {
             Execution execution = executions.remove(taskId);
+            pendingTerminalResults.remove(taskId);
             if (execution != null) {
                 execution.close();
             }
@@ -344,6 +355,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 execution.close();
             }
             executions.clear();
+            pendingTerminalResults.clear();
             if (context != null) {
                 state.stop();
                 state = new FakeRuntime();

@@ -76,14 +76,14 @@ class QwenPawWorkerTest {
     }
 
     @Test
-    void rejectsAgentScopeBeforeWorkerStartsAnUnimplementedRuntime() {
+    void rejectsExplicitAgentScopeWhenItsRuntimeConfigurationIsMissing() {
         QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
                 "AGENTTEAMS_AGENT_ID", "agent-a",
                 "AGENTTEAMS_RUNTIME", "AGENTSCOPE"));
 
         assertThatThrownBy(() -> new QwenPawWorker(configuration, null))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("AgentScope runtime is not implemented yet; use QWENPAW until it is integrated");
+                .hasMessage("AGENTSCOPE runtime requires configured Harness and model");
     }
 
     @Test
