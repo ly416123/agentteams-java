@@ -189,7 +189,7 @@ public final class TaskSandboxRepository {
                 SELECT id, task_id, attempt_id, idempotency_key, provider_sandbox_id, profile, status,
                        template, endpoint_ref, requested_at, expires_at, last_observed_at, terminated_at,
                        termination_reason, failure_code, redacted_failure_message, created_at, updated_at, version
-                  FROM task_sandboxes """ + predicate, this::map, argument);
+                  FROM task_sandboxes """ + " " + predicate, this::map, argument);
     }
 
     private java.util.List<TaskSandboxRecord> findByStatuses(java.util.List<SandboxStatus> statuses, int limit) {
