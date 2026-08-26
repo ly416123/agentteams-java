@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 
 import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigBindingRecord;
@@ -67,10 +68,10 @@ class TeamDeploymentServiceTest {
         when(repository.findByIdempotencyKey(teamId, "deploy-key")).thenReturn(java.util.Optional.empty());
         when(repository.create(any())).thenReturn(aggregate);
         when(repository.find(aggregate.id())).thenReturn(java.util.Optional.of(aggregate));
-        when(snapshots.create(any(), any(), any())).thenReturn(snapshot);
-        when(deployments.deploy(stableAgent, "team-revision:" + teamId + ":8:" + stableAgent, snapshot))
+        when(snapshots.create(any(), any(), any(), any(), any())).thenReturn(snapshot);
+        when(deployments.deploy(eq(stableAgent), eq("team-revision:" + teamId + ":8:" + stableAgent), eq(snapshot), any()))
                 .thenReturn(new ConfigDeploymentService.ConfigDeployment(binding, snapshot, UUID.randomUUID()));
-        when(deployments.deploy(failedAgent, "team-revision:" + teamId + ":8:" + failedAgent, snapshot))
+        when(deployments.deploy(eq(failedAgent), eq("team-revision:" + teamId + ":8:" + failedAgent), eq(snapshot), any()))
                 .thenThrow(new IllegalStateException("temporary"));
         TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments, NOW);
 
@@ -138,11 +139,29 @@ class TeamDeploymentServiceTest {
         when(repository.find(deploymentId)).thenReturn(java.util.Optional.of(deployment));
         when(repository.failedMembers(deploymentId)).thenReturn(List.of(new TeamDeployment.Member(agentId, "{}", "{}",
                 bindingId, "FAILED", "TEMPORARY_FAILURE")));
+        when(repository.claimRetry(eq(deploymentId), any(), eq(0L), eq("retry-key"), any())).thenReturn(true);
 
         new TeamDeploymentService(repository, snapshots, deployments, NOW).retry(deploymentId, "retry-key");
 
-        verify(repository).markRetrying(deploymentId, List.of(agentId), NOW, "retry-key");
+        verify(repository).claimRetry(eq(deploymentId), eq(List.of(agentId)), eq(0L), eq("retry-key"), any());
         verify(deployments).retry(bindingId);
+    }
+
+    @Test
+    void retryClaimsFailedMembersWithDeploymentVersionCas() {
+        TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
+        ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
+        ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
+        UUID deploymentId = UUID.randomUUID();
+        TeamDeployment deployment = TeamDeployment.create(deploymentId, UUID.randomUUID(), 2,
+                List.of(new TeamDeployment.Member(UUID.randomUUID(), "{}", "{}")), NOW, "deploy-key");
+        when(repository.find(deploymentId)).thenReturn(java.util.Optional.of(deployment));
+        when(repository.failedMembers(deploymentId)).thenReturn(List.of(deployment.members().get(0)));
+        when(repository.claimRetry(eq(deploymentId), any(), eq(0L), eq("retry-key"), any())).thenReturn(true);
+
+        new TeamDeploymentService(repository, snapshots, deployments, NOW).retry(deploymentId, "retry-key");
+
+        verify(repository).claimRetry(eq(deploymentId), any(), eq(0L), eq("retry-key"), any());
     }
 
     @Test
@@ -156,6 +175,19 @@ class TeamDeploymentServiceTest {
 
         service.recordAck(command);
 
-        verify(repository).recordConfigAppliedAck(command);
+        verify(repository).recordConfigAppliedAck(command, 1L);
+    }
+
+    @Test
+    void configAppliedAckRequiresMatchingEventAndGeneration() {
+        TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
+        ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
+        ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
+        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments, NOW);
+        ConfigAppliedCommand command = new ConfigAppliedCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), 1, true, "", NOW, "worker", "correlation");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.recordAck(command, 4))
+                .isInstanceOf(TeamRevisionConflictException.class).hasMessageContaining("stale");
     }
 }

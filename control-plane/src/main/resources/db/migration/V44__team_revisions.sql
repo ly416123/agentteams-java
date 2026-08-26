@@ -14,6 +14,7 @@ CREATE TABLE team_revisions (
     created_at TIMESTAMPTZ NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
     idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
     PRIMARY KEY (team_id, revision),
     UNIQUE (team_id, idempotency_key),
     CONSTRAINT team_revisions_revision_positive CHECK (revision > 0),
@@ -22,12 +23,16 @@ CREATE TABLE team_revisions (
     CONSTRAINT team_revisions_status_valid CHECK (status IN
         ('DRAFT', 'REVIEWING', 'PUBLISHED', 'DEPRECATED', 'REJECTED', 'ROLLED_BACK')),
     CONSTRAINT team_revisions_version_non_negative CHECK (version >= 0),
+    CONSTRAINT team_revisions_request_hash_non_blank CHECK (length(trim(request_hash)) > 0),
     CONSTRAINT team_revisions_rollback_positive CHECK
         (rollback_of_revision IS NULL OR rollback_of_revision > 0)
 );
 
 CREATE UNIQUE INDEX team_revisions_one_published
     ON team_revisions(team_id) WHERE status = 'PUBLISHED';
+
+ALTER TABLE teams ADD CONSTRAINT teams_current_revision_fk
+    FOREIGN KEY (id, current_revision) REFERENCES team_revisions(team_id, revision);
 
 CREATE TABLE team_revision_members (
     team_id UUID NOT NULL,
@@ -42,14 +47,36 @@ CREATE TABLE team_revision_members (
 
 CREATE INDEX team_revision_members_agent_idx ON team_revision_members(agent_id, team_id, team_revision);
 
+CREATE OR REPLACE FUNCTION ensure_team_revision_members()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM team_revision_members
+                   WHERE team_id = NEW.team_id AND team_revision = NEW.revision
+                     AND agent_id = NEW.leader_agent_id) THEN
+        RAISE EXCEPTION 'team revision must contain its leader';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM team_revision_members
+                   WHERE team_id = NEW.team_id AND team_revision = NEW.revision) THEN
+        RAISE EXCEPTION 'team revision must contain at least one member';
+    END IF;
+    RETURN NEW;
+END $$;
+
+CREATE CONSTRAINT TRIGGER team_revision_members_guard
+    AFTER INSERT OR UPDATE ON team_revisions
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION ensure_team_revision_members();
+
 CREATE TABLE team_revision_operations (
     team_id UUID NOT NULL,
     operation TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
     result_revision BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (team_id, operation, idempotency_key),
     FOREIGN KEY (team_id, result_revision) REFERENCES team_revisions(team_id, revision),
     CONSTRAINT team_revision_operations_key_non_blank CHECK (length(trim(idempotency_key)) > 0),
-    CONSTRAINT team_revision_operations_name_valid CHECK (operation IN ('TRANSITION', 'PUBLISH'))
+    CONSTRAINT team_revision_operations_hash_non_blank CHECK (length(trim(request_hash)) > 0),
+    CONSTRAINT team_revision_operations_name_valid CHECK (operation IN ('TRANSITION', 'PUBLISH', 'UPDATE', 'ROLLBACK'))
 );

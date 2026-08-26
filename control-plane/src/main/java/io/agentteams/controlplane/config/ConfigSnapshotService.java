@@ -36,6 +36,36 @@ public final class ConfigSnapshotService {
                 .orElseThrow(() -> new IllegalStateException("config snapshot insert lost without winner"));
     }
 
+    public ConfigSnapshot create(String subject, String manifestJson, String actor, String idempotencyKey) {
+        return create(subject, manifestJson, actor, idempotencyKey, null);
+    }
+
+    public ConfigSnapshot create(String subject, String manifestJson, String actor, String idempotencyKey,
+            ConfigProvenance provenance) {
+        requireText(subject, "subject");
+        requireText(actor, "actor");
+        requireText(idempotencyKey, "Idempotency-Key");
+        String normalized = validateManifest(manifestJson);
+        String checksum = sha256(normalized);
+        String requestHash = sha256(subject + "\u0000" + normalized + "\u0000" + actor + "\u0000" + provenance);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            var keyed = repository.findByIdempotencyKey(subject, idempotencyKey);
+            if (keyed.isPresent()) {
+                if (!requestHash.equals(keyed.get().requestHash())) {
+                    throw new IllegalArgumentException("Idempotency-Key request hash mismatch");
+                }
+                return keyed.get();
+            }
+            var existing = repository.findByChecksum(subject, checksum);
+            if (existing.isPresent()) return existing.get();
+            ConfigSnapshot snapshot = new ConfigSnapshot(UUID.randomUUID(), subject, repository.nextVersion(subject),
+                    normalized, checksum, actor, Instant.now(clock), provenance, idempotencyKey, requestHash);
+            if (repository.insertIfAbsent(snapshot, idempotencyKey, requestHash)) return snapshot;
+        }
+        return repository.findByChecksum(subject, checksum)
+                .orElseThrow(() -> new IllegalStateException("config snapshot insert lost without winner"));
+    }
+
     private static String validateManifest(String value) {
         requireText(value, "manifestJson");
         try {

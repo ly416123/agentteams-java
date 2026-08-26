@@ -64,6 +64,7 @@ class TeamControllerTest {
                 .andExpect(jsonPath("$[0].agentId").value(agentId.toString()))
                 .andExpect(jsonPath("$[0].role").value("LEADER"));
         mockMvc.perform(post("/api/v1/teams/{teamId}/members", teamId)
+                        .header("Idempotency-Key", "member-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"agentId\":\"" + agentId + "\",\"role\":\"LEADER\"}"))
                 .andExpect(status().isOk())
@@ -74,6 +75,7 @@ class TeamControllerTest {
                 .andExpect(jsonPath("$.maxConcurrentTasks").value(3))
                 .andExpect(jsonPath("$.version").value(2));
         mockMvc.perform(put("/api/v1/teams/{teamId}/policy", teamId)
+                        .header("Idempotency-Key", "policy-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"maxConcurrentTasks\":3,\"requireHumanApproval\":true,"
                                 + "\"allowedRuntimes\":[\"java\"],\"requiredCapabilities\":[\"gpu\"],"
@@ -81,7 +83,8 @@ class TeamControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requireHumanApproval").value(true));
 
-        mockMvc.perform(delete("/api/v1/teams/{teamId}/members/{agentId}", teamId, agentId))
+        mockMvc.perform(delete("/api/v1/teams/{teamId}/members/{agentId}", teamId, agentId)
+                        .header("Idempotency-Key", "remove-key"))
                 .andExpect(status().isOk());
         verify(service).removeMember(eq(teamId), eq(agentId), any());
     }
@@ -99,5 +102,19 @@ class TeamControllerTest {
                         .content("{\"name\":\"research\",\"displayName\":\"Research\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(teamId.toString()));
+    }
+
+    @Test
+    void rejectsTeamMutationsWithoutIdempotencyKey() throws Exception {
+        UUID teamId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        mockMvc.perform(post("/api/v1/teams/{teamId}/members", teamId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"agentId\":\"" + agentId + "\",\"role\":\"MEMBER\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(put("/api/v1/teams/{teamId}/policy", teamId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"maxConcurrentTasks\":1,\"expectedVersion\":0}"))
+                .andExpect(status().isBadRequest());
     }
 }

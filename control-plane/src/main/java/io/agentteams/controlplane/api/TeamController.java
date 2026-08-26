@@ -79,7 +79,10 @@ public final class TeamController {
     }
 
     @PutMapping("/{teamId}/policy")
-    public PolicyResponse updatePolicy(@PathVariable UUID teamId, @RequestBody PolicyRequest request) {
+    public PolicyResponse updatePolicy(@PathVariable UUID teamId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody PolicyRequest request) {
+        requireIdempotencyKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
         return PolicyResponse.from(service.updatePolicy(teamId, positive(request.maxConcurrentTasks()),
                 request.requireHumanApproval(), values(request.allowedRuntimes()),
@@ -87,19 +90,26 @@ public final class TeamController {
     }
 
     @PostMapping("/{teamId}/members")
-    public MemberResponse addMember(@PathVariable UUID teamId, @RequestBody MemberRequest request) {
+    public MemberResponse addMember(@PathVariable UUID teamId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody MemberRequest request) {
+        requireIdempotencyKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
         return MemberResponse.from(service.addMember(teamId, request.agentId(), required(request.role(), "role"),
                 Instant.now()));
     }
 
     @DeleteMapping("/{teamId}/members/{agentId}")
-    public void removeMember(@PathVariable UUID teamId, @PathVariable UUID agentId) {
+    public void removeMember(@PathVariable UUID teamId, @PathVariable UUID agentId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey) {
+        requireIdempotencyKey(idempotencyKey);
         service.removeMember(teamId, agentId, Instant.now());
     }
 
     @DeleteMapping("/{teamId}")
-    public void delete(@PathVariable UUID teamId) {
+    public void delete(@PathVariable UUID teamId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey) {
+        requireIdempotencyKey(idempotencyKey);
         service.delete(teamId, Instant.now());
     }
 

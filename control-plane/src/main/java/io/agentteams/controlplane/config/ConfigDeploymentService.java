@@ -71,13 +71,18 @@ public final class ConfigDeploymentService {
                 throw new IllegalArgumentException("config deployment revision is stale");
             }
             ConfigApplyRecord pending = new ConfigApplyRecord(eventId, currentBinding.id(), agentId, snapshot.id(),
-                    "PENDING", null, null, now);
+                    "PENDING", null, null, now, snapshot.version(), null, false);
             tx.configLifecycle().recordApply(pending);
             String payload = payload(eventId, currentBinding, snapshot, tx.configLifecycle().findFiles(snapshot.id()), false);
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", agentId, CONFIG_CHANGED, payload,
                     now, snapshot.version());
             return new ConfigDeployment(binding, snapshot, eventId);
         });
+    }
+
+    public ConfigDeployment deploy(UUID agentId, String subject, ConfigSnapshot snapshot, String idempotencyKey) {
+        requireKey(idempotencyKey);
+        return deploy(agentId, subject, snapshot);
     }
 
     public void recordApplied(ConfigAppliedCommand command) {
@@ -96,6 +101,13 @@ public final class ConfigDeploymentService {
             }
             String phase = command.applied() ? "APPLIED" : "FAILED";
             ConfigApplyRecord existing = tx.configLifecycle().findApply(binding.id(), command.snapshotId()).orElse(null);
+            if (existing != null && !existing.id().equals(command.eventId())) {
+                throw new IllegalArgumentException("config acknowledgement eventId does not match pending apply");
+            }
+            if (existing != null && existing.observedVersion() != null
+                    && existing.observedVersion() != command.configVersion()) {
+                throw new IllegalArgumentException("config acknowledgement generation is stale");
+            }
             if (existing != null && ("APPLIED".equals(existing.phase())
                     || (existing.phase().equals(phase)
                     && Objects.equals(existing.errorMessage(), command.errorMessage())))) {
@@ -140,11 +152,18 @@ public final class ConfigDeploymentService {
             if (tx.outboxEvents().findByEventId(eventId).isPresent()) {
                 return new ConfigDeployment(binding, snapshot, eventId);
             }
+            tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), snapshot.id(), eventId,
+                    clock.instant(), snapshot.version());
             String payload = payload(eventId, binding, snapshot, tx.configLifecycle().findFiles(snapshot.id()), false);
             FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
                     clock.instant(), snapshot.version());
             return new ConfigDeployment(binding, snapshot, eventId);
         });
+    }
+
+    public ConfigDeployment retry(UUID bindingId, String idempotencyKey) {
+        requireKey(idempotencyKey);
+        return retry(bindingId);
     }
 
     /** Selects the newest previously applied snapshot and emits a durable rollback command. */
@@ -165,7 +184,8 @@ public final class ConfigDeploymentService {
                 return new ConfigDeployment(target, stable, eventId);
             }
             tx.configLifecycle().upsertBinding(target);
-            tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), stable.id(), eventId, clock.instant());
+            tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), stable.id(), eventId,
+                    clock.instant(), stable.version());
             tx.configLifecycle().markRollbackRequested(binding.id(), stable.id());
             if (metrics != null) metrics.configRollbackRequested();
             String payload = payload(eventId, target, stable, tx.configLifecycle().findFiles(stable.id()), true);
@@ -173,6 +193,11 @@ public final class ConfigDeploymentService {
                     clock.instant(), stable.version());
             return new ConfigDeployment(target, stable, eventId);
         });
+    }
+
+    public ConfigDeployment rollback(UUID bindingId, String idempotencyKey) {
+        requireKey(idempotencyKey);
+        return rollback(bindingId);
     }
 
     private String payload(UUID eventId, ConfigBindingRecord binding, ConfigSnapshot snapshot,
@@ -224,6 +249,10 @@ public final class ConfigDeploymentService {
 
     private static void requireText(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " must not be blank");
+    }
+
+    private static void requireKey(String value) {
+        requireText(value, "Idempotency-Key");
     }
 
     public record ConfigDeployment(ConfigBindingRecord binding, ConfigSnapshot snapshot, UUID eventId) {

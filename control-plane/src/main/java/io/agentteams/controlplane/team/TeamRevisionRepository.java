@@ -31,25 +31,33 @@ public class TeamRevisionRepository {
     public TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlay, String digest,
             Long rollbackOfRevision, String actor, Instant now, List<UUID> memberAgentIds, String idempotencyKey) {
         requireKey(idempotencyKey);
+        String requestHash = draftRequestHash(teamId, leaderAgentId, overlay, digest, rollbackOfRevision, actor,
+                memberAgentIds);
         for (int attempt = 0; attempt < 3; attempt++) {
             try {
                 return transaction.execute(status -> {
                     Optional<TeamRevision> existing = findByIdempotencyKey(teamId, idempotencyKey);
-                    if (existing.isPresent()) return existing.get();
+                    if (existing.isPresent()) {
+                        assertRequestHash(teamId, idempotencyKey, requestHash);
+                        return existing.get();
+                    }
                     jdbc.update("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", teamId.toString());
                     long revision = lockedNextRevision(teamId);
                     jdbc.update("""
                             INSERT INTO team_revisions(team_id, revision, leader_agent_id, overlay, digest, status,
-                                rollback_of_revision, created_by, created_at, version, idempotency_key)
-                            VALUES (?, ?, ?, CAST(? AS jsonb), ?, 'DRAFT', ?, ?, ?, 0, ?)
+                                rollback_of_revision, created_by, created_at, version, idempotency_key, request_hash)
+                            VALUES (?, ?, ?, CAST(? AS jsonb), ?, 'DRAFT', ?, ?, ?, 0, ?, ?)
                             """, teamId, revision, leaderAgentId, overlay, digest, rollbackOfRevision, actor,
-                            java.sql.Timestamp.from(now), idempotencyKey);
+                            java.sql.Timestamp.from(now), idempotencyKey, requestHash);
                     insertMembers(teamId, revision, memberAgentIds);
                     return find(teamId, revision).orElseThrow();
                 });
             } catch (DuplicateKeyException conflict) {
                 Optional<TeamRevision> existing = findByIdempotencyKey(teamId, idempotencyKey);
-                if (existing.isPresent()) return existing.get();
+                if (existing.isPresent()) {
+                    assertRequestHash(teamId, idempotencyKey, requestHash);
+                    return existing.get();
+                }
                 if (attempt == 2) throw conflict;
             }
         }
@@ -58,8 +66,36 @@ public class TeamRevisionRepository {
 
     public TeamRevision createRollback(UUID teamId, TeamRevision target, String actor, Instant now,
             String idempotencyKey) {
-        return createDraft(teamId, target.leaderAgentId(), target.overlayJson(), target.digest(), target.revision(),
-                actor, now, target.memberAgentIds(), idempotencyKey);
+        return createRollback(teamId, target, target.version(), actor, now, idempotencyKey,
+                ignored -> { }, "legacy-" + idempotencyKey);
+    }
+
+    public TeamRevision createRollback(UUID teamId, TeamRevision target, long expectedVersion, String actor,
+            Instant now, String idempotencyKey, TeamRevisionPublishValidator validator, String requestHash) {
+        requireKey(idempotencyKey);
+        return transaction.execute(status -> {
+            Optional<TeamRevision> replay = operationResult(teamId, target.revision(), "ROLLBACK", idempotencyKey,
+                    requestHash);
+            if (replay.isPresent()) return replay.get();
+            jdbc.queryForObject("SELECT current_revision FROM teams WHERE id = ? FOR UPDATE", Long.class, teamId);
+            TeamRevision lockedTarget = locked(teamId, target.revision());
+            if (lockedTarget.status() != TeamRevisionStatus.PUBLISHED || lockedTarget.version() != expectedVersion) {
+                throw new TeamRevisionConflictException("rollback target version or status is stale");
+            }
+            validator.validate(lockedTarget);
+            jdbc.update("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", teamId.toString());
+            long revision = lockedNextRevision(teamId);
+            jdbc.update("""
+                    INSERT INTO team_revisions(team_id, revision, leader_agent_id, overlay, digest, status,
+                        rollback_of_revision, created_by, created_at, version, idempotency_key, request_hash)
+                    VALUES (?, ?, ?, CAST(? AS jsonb), ?, 'DRAFT', ?, ?, ?, 0, ?, ?)
+                    """, teamId, revision, lockedTarget.leaderAgentId(), lockedTarget.overlayJson(),
+                    lockedTarget.digest(), lockedTarget.revision(), actor, java.sql.Timestamp.from(now), idempotencyKey,
+                    requestHash);
+            insertMembers(teamId, revision, lockedTarget.memberAgentIds());
+            recordOperation(teamId, revision, "ROLLBACK", idempotencyKey, requestHash);
+            return find(teamId, revision).orElseThrow();
+        });
     }
 
     public Optional<TeamRevision> find(UUID teamId, long revision) {
@@ -90,9 +126,16 @@ public class TeamRevisionRepository {
     /** Atomic review/publish transition with a durable operation key. */
     public TeamRevision transition(UUID teamId, long revision, long expectedVersion,
             TeamRevisionStatus expectedStatus, TeamRevisionStatus nextStatus, String idempotencyKey) {
+        return transition(teamId, revision, expectedVersion, expectedStatus, nextStatus, idempotencyKey,
+                "legacy-" + idempotencyKey);
+    }
+
+    public TeamRevision transition(UUID teamId, long revision, long expectedVersion,
+            TeamRevisionStatus expectedStatus, TeamRevisionStatus nextStatus, String idempotencyKey,
+            String requestHash) {
         requireKey(idempotencyKey);
         return transaction.execute(status -> {
-            Optional<TeamRevision> replay = operationResult(teamId, revision, "TRANSITION", idempotencyKey);
+            Optional<TeamRevision> replay = operationResult(teamId, revision, "TRANSITION", idempotencyKey, requestHash);
             if (replay.isPresent()) return replay.get();
             TeamRevision current = locked(teamId, revision);
             if (current.status() != expectedStatus || current.version() != expectedVersion) {
@@ -103,16 +146,22 @@ public class TeamRevisionRepository {
                      WHERE team_id = ? AND revision = ? AND status = ? AND version = ?
                     """, nextStatus.name(), teamId, revision, expectedStatus.name(), expectedVersion);
             if (updated != 1) throw new TeamRevisionConflictException("team revision version is stale");
-            recordOperation(teamId, revision, "TRANSITION", idempotencyKey);
+            recordOperation(teamId, revision, "TRANSITION", idempotencyKey, requestHash);
             return find(teamId, revision).orElseThrow();
         });
     }
 
     /** Publishes using one transaction and one CAS boundary; failed target CAS cannot deprecate the old revision. */
     public TeamRevision publish(UUID teamId, long revision, long expectedVersion, String idempotencyKey) {
+        return publish(teamId, revision, expectedVersion, idempotencyKey, ignored -> { },
+                "legacy-" + idempotencyKey);
+    }
+
+    public TeamRevision publish(UUID teamId, long revision, long expectedVersion, String idempotencyKey,
+            TeamRevisionPublishValidator validator, String requestHash) {
         requireKey(idempotencyKey);
         return transaction.execute(status -> {
-            Optional<TeamRevision> replay = operationResult(teamId, revision, "PUBLISH", idempotencyKey);
+            Optional<TeamRevision> replay = operationResult(teamId, revision, "PUBLISH", idempotencyKey, requestHash);
             if (replay.isPresent()) return replay.get();
             jdbc.queryForObject("SELECT current_revision FROM teams WHERE id = ? FOR UPDATE", Long.class, teamId);
             TeamRevision current = locked(teamId, revision);
@@ -120,6 +169,7 @@ public class TeamRevisionRepository {
                     || current.version() != expectedVersion) {
                 throw new TeamRevisionConflictException("team revision version or status is stale");
             }
+            validator.validate(current);
             // The partial unique index requires the old row to be retired first. Both writes are in this
             // transaction, so a failed target CAS rolls the retirement back and never exposes a gap.
             jdbc.update("""
@@ -133,7 +183,7 @@ public class TeamRevisionRepository {
                     """, teamId, revision, expectedVersion);
             if (updated != 1) throw new TeamRevisionConflictException("team revision publish CAS failed");
             jdbc.update("UPDATE teams SET current_revision = ? WHERE id = ?", revision, teamId);
-            recordOperation(teamId, revision, "PUBLISH", idempotencyKey);
+            recordOperation(teamId, revision, "PUBLISH", idempotencyKey, requestHash);
             return find(teamId, revision).orElseThrow();
         });
     }
@@ -187,6 +237,28 @@ public class TeamRevisionRepository {
         return find(revision.teamId(), revision.revision()).orElseThrow();
     }
 
+    public TeamRevision update(TeamRevision revision, String idempotencyKey, String requestHash) {
+        requireKey(idempotencyKey);
+        return transaction.execute(status -> {
+            Optional<TeamRevision> replay = operationResult(revision.teamId(), revision.revision(), "UPDATE",
+                    idempotencyKey, requestHash);
+            if (replay.isPresent()) return replay.get();
+            TeamRevision current = locked(revision.teamId(), revision.revision());
+            if (current.status() == TeamRevisionStatus.PUBLISHED
+                    || current.version() != revision.version()) {
+                throw new TeamRevisionConflictException("published team revision is immutable or version is stale");
+            }
+            int updated = jdbc.update("""
+                    UPDATE team_revisions SET overlay = CAST(? AS jsonb), digest = ?, version = version + 1
+                     WHERE team_id = ? AND revision = ? AND version = ? AND status IN ('DRAFT', 'REVIEWING')
+                    """, revision.overlayJson(), revision.digest(), revision.teamId(), revision.revision(),
+                    revision.version());
+            if (updated != 1) throw new TeamRevisionConflictException("team revision version is stale");
+            recordOperation(revision.teamId(), revision.revision(), "UPDATE", idempotencyKey, requestHash);
+            return find(revision.teamId(), revision.revision()).orElseThrow();
+        });
+    }
+
     @Deprecated
     public void deprecatePublished(UUID teamId, long exceptRevision) {
         throw new UnsupportedOperationException("publish must use atomic publish CAS");
@@ -216,22 +288,50 @@ public class TeamRevisionRepository {
         }
     }
 
-    private Optional<TeamRevision> operationResult(UUID teamId, long revision, String operation, String key) {
+    private Optional<TeamRevision> operationResult(UUID teamId, long revision, String operation, String key,
+            String requestHash) {
         return jdbc.query("""
-                SELECT result_revision FROM team_revision_operations
+                SELECT result_revision, request_hash FROM team_revision_operations
                  WHERE team_id = ? AND operation = ? AND idempotency_key = ?
-                """, (rs, row) -> rs.getLong(1), teamId, operation, key).stream()
+                """, (rs, row) -> new Object[] { rs.getLong(1), rs.getString(2) }, teamId, operation, key).stream()
                 .findFirst().map(result -> {
-                    if (result != revision) throw new TeamRevisionConflictException("Idempotency-Key belongs to another revision");
-                    return find(teamId, result).orElseThrow();
+                    long resultRevision = (long) result[0];
+                    if (resultRevision != revision) {
+                        throw new TeamRevisionConflictException("Idempotency-Key belongs to another revision");
+                    }
+                    if (requestHash != null && !requestHash.equals(result[1])) {
+                        throw new TeamRevisionConflictException("Idempotency-Key request hash mismatch");
+                    }
+                    return find(teamId, resultRevision).orElseThrow();
                 });
     }
 
-    private void recordOperation(UUID teamId, long revision, String operation, String key) {
+    private void recordOperation(UUID teamId, long revision, String operation, String key, String requestHash) {
         jdbc.update("""
-                INSERT INTO team_revision_operations(team_id, operation, idempotency_key, result_revision, created_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, teamId, operation, key, revision);
+                INSERT INTO team_revision_operations(team_id, operation, idempotency_key, request_hash,
+                    result_revision, created_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, teamId, operation, key, requestHash, revision);
+    }
+
+    private void assertRequestHash(UUID teamId, String key, String expected) {
+        String actual = jdbc.queryForObject("SELECT request_hash FROM team_revisions WHERE team_id = ? AND idempotency_key = ?",
+                String.class, teamId, key);
+        if (actual != null && !actual.equals(expected)) {
+            throw new TeamRevisionConflictException("Idempotency-Key request hash mismatch");
+        }
+    }
+
+    private static String draftRequestHash(UUID teamId, UUID leaderAgentId, String overlay, String digest,
+            Long rollbackOfRevision, String actor, List<UUID> members) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((teamId + "\u0000" + leaderAgentId + "\u0000" + overlay + "\u0000" + digest + "\u0000"
+                            + rollbackOfRevision + "\u0000" + actor + "\u0000" + members)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 
     private TeamRevision map(ResultSet rs, int row) throws SQLException {

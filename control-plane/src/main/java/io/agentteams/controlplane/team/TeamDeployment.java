@@ -7,7 +7,7 @@ import java.util.UUID;
 
 /** Durable aggregate for one explicit Team revision deployment. */
 public record TeamDeployment(UUID id, UUID teamId, long teamRevision, String status,
-        List<Member> members, Instant createdAt, String idempotencyKey) {
+        List<Member> members, Instant createdAt, String idempotencyKey, long version) {
     public TeamDeployment {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(teamId, "teamId");
@@ -18,11 +18,12 @@ public record TeamDeployment(UUID id, UUID teamId, long teamRevision, String sta
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new IllegalArgumentException("idempotencyKey must not be blank");
         }
+        if (version < 0) throw new IllegalArgumentException("version must not be negative");
     }
 
     public static TeamDeployment create(UUID id, UUID teamId, long teamRevision,
             List<Member> members, Instant createdAt) {
-        return new TeamDeployment(id, teamId, teamRevision, "PENDING", members, createdAt);
+        return new TeamDeployment(id, teamId, teamRevision, "PENDING", members, createdAt, "legacy-" + id, 0);
     }
 
     public TeamDeployment(UUID id, UUID teamId, long teamRevision, String status,
@@ -32,7 +33,12 @@ public record TeamDeployment(UUID id, UUID teamId, long teamRevision, String sta
 
     public static TeamDeployment create(UUID id, UUID teamId, long teamRevision,
             List<Member> members, Instant createdAt, String idempotencyKey) {
-        return new TeamDeployment(id, teamId, teamRevision, "PENDING", members, createdAt, idempotencyKey);
+        return new TeamDeployment(id, teamId, teamRevision, "PENDING", members, createdAt, idempotencyKey, 0);
+    }
+
+    public TeamDeployment(UUID id, UUID teamId, long teamRevision, String status,
+            List<Member> members, Instant createdAt, String idempotencyKey) {
+        this(id, teamId, teamRevision, status, members, createdAt, idempotencyKey, 0);
     }
 
     public record Member(UUID agentId, String baseManifest, String taskOverlay,

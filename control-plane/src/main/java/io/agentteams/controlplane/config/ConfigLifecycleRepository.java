@@ -171,16 +171,21 @@ public final class ConfigLifecycleRepository {
 
     /** Starts a new application attempt while retaining the same binding/snapshot history row. */
     public void markApplyPending(UUID bindingId, UUID agentId, UUID snapshotId, UUID eventId, Instant updatedAt) {
+        markApplyPending(bindingId, agentId, snapshotId, eventId, updatedAt, null);
+    }
+
+    public void markApplyPending(UUID bindingId, UUID agentId, UUID snapshotId, UUID eventId, Instant updatedAt,
+            Long observedVersion) {
         jdbc.update("""
                 INSERT INTO config_apply_records
                     (id, binding_id, agent_id, snapshot_id, phase, error_message, applied_at, updated_at,
                      observed_version, failure_code, rollback)
-                VALUES (?, ?, ?, ?, 'PENDING', NULL, NULL, ?, NULL, NULL, false)
+                VALUES (?, ?, ?, ?, 'PENDING', NULL, NULL, ?, ?, NULL, false)
                 ON CONFLICT (binding_id, snapshot_id) DO UPDATE SET id = EXCLUDED.id,
                     agent_id = EXCLUDED.agent_id, phase = 'PENDING', error_message = NULL,
                     applied_at = NULL, updated_at = EXCLUDED.updated_at,
-                    observed_version = NULL, failure_code = NULL, rollback = false
-                """, eventId, bindingId, agentId, snapshotId, java.sql.Timestamp.from(updatedAt));
+                    observed_version = EXCLUDED.observed_version, failure_code = NULL, rollback = false
+                """, eventId, bindingId, agentId, snapshotId, java.sql.Timestamp.from(updatedAt), observedVersion);
     }
 
     public void markRollbackRequested(UUID bindingId, UUID snapshotId) {

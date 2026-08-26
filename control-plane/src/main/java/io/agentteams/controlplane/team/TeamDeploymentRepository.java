@@ -45,22 +45,24 @@ public class TeamDeploymentRepository {
 
     public Optional<TeamDeployment> find(UUID deploymentId) {
         List<TeamDeployment> deployments = jdbc.query("""
-                SELECT id, team_id, team_revision, status, created_at, idempotency_key
+                SELECT id, team_id, team_revision, status, version, created_at, idempotency_key
                   FROM team_deployments WHERE id = ?
                 """, (rs, row) -> mapDeployment(rs), deploymentId);
         if (deployments.isEmpty()) return Optional.empty();
         TeamDeployment deployment = deployments.get(0);
         return Optional.of(new TeamDeployment(deployment.id(), deployment.teamId(), deployment.teamRevision(),
-                deployment.status(), members(deployment.id()), deployment.createdAt(), deployment.idempotencyKey()));
+                deployment.status(), members(deployment.id()), deployment.createdAt(), deployment.idempotencyKey(),
+                deployment.version()));
     }
 
     public Optional<TeamDeployment> findByIdempotencyKey(UUID teamId, String idempotencyKey) {
         return jdbc.query("""
-                SELECT id, team_id, team_revision, status, created_at, idempotency_key
+                SELECT id, team_id, team_revision, status, version, created_at, idempotency_key
                   FROM team_deployments WHERE team_id = ? AND idempotency_key = ?
                 """, (rs, row) -> mapDeployment(rs), teamId, idempotencyKey).stream().findFirst()
                 .map(deployment -> new TeamDeployment(deployment.id(), deployment.teamId(), deployment.teamRevision(),
-                        deployment.status(), members(deployment.id()), deployment.createdAt(), deployment.idempotencyKey()));
+                        deployment.status(), members(deployment.id()), deployment.createdAt(), deployment.idempotencyKey(),
+                        deployment.version()));
     }
 
     public List<TeamDeployment.Member> failedMembers(UUID deploymentId) {
@@ -87,11 +89,50 @@ public class TeamDeploymentRepository {
             throw new IllegalArgumentException("Idempotency-Key is required");
         }
         boolean recorded = jdbc.update("""
-                INSERT INTO team_deployment_operations(deployment_id, operation, idempotency_key, created_at)
-                VALUES (?, 'RETRY', ?, ?)
+                INSERT INTO team_deployment_operations(deployment_id, operation, idempotency_key, request_hash, created_at)
+                VALUES (?, 'RETRY', ?, ?, ?)
                 ON CONFLICT DO NOTHING
-                """, deploymentId, idempotencyKey, java.sql.Timestamp.from(at)) == 1;
+                """, deploymentId, idempotencyKey, "legacy-" + deploymentId, java.sql.Timestamp.from(at)) == 1;
         if (recorded) markRetrying(deploymentId, agentIds, at);
+    }
+
+    public boolean claimRetry(UUID deploymentId, List<UUID> agentIds, long expectedVersion,
+            String idempotencyKey, String requestHash) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key is required");
+        }
+        if (agentIds == null || agentIds.isEmpty()) return false;
+        return transaction.execute(status -> {
+            List<String> previousHashes = jdbc.query("""
+                    SELECT request_hash FROM team_deployment_operations
+                     WHERE deployment_id = ? AND operation = 'RETRY' AND idempotency_key = ?
+                    """, (rs, row) -> rs.getString(1), deploymentId, idempotencyKey);
+            if (!previousHashes.isEmpty()) {
+                if (!java.util.Objects.equals(previousHashes.get(0), requestHash)) {
+                    throw new TeamRevisionConflictException("Idempotency-Key request hash mismatch");
+                }
+                return false;
+            }
+            long actual = jdbc.queryForObject("SELECT version FROM team_deployments WHERE id = ? FOR UPDATE",
+                    Long.class, deploymentId);
+            if (actual != expectedVersion) throw new TeamRevisionConflictException("deployment version is stale");
+            String placeholders = String.join(", ", java.util.Collections.nCopies(agentIds.size(), "?"));
+            Object[] args = new Object[agentIds.size() + 1];
+            args[0] = deploymentId;
+            for (int index = 0; index < agentIds.size(); index++) args[index + 1] = agentIds.get(index);
+            jdbc.update("UPDATE team_deployment_members SET status = 'PENDING', failure_code = NULL"
+                    + " WHERE deployment_id = ? AND agent_id IN (" + placeholders + ") AND status = 'FAILED'", args);
+            int updated = jdbc.update("""
+                    UPDATE team_deployments SET status = 'PENDING', version = version + 1
+                     WHERE id = ? AND version = ?
+                    """, deploymentId, expectedVersion);
+            if (updated != 1) throw new TeamRevisionConflictException("deployment retry CAS failed");
+            jdbc.update("""
+                    INSERT INTO team_deployment_operations(deployment_id, operation, idempotency_key,
+                        request_hash, created_at) VALUES (?, 'RETRY', ?, ?, CURRENT_TIMESTAMP)
+                    """, deploymentId, idempotencyKey, requestHash);
+            return true;
+        });
     }
 
     public void markMember(UUID deploymentId, UUID agentId, UUID bindingId, String status, String failureCode) {
@@ -110,6 +151,14 @@ public class TeamDeploymentRepository {
 
     /** A ConfigApplied ACK can advance only the still-pending member of its frozen deployment binding. */
     public void recordConfigAppliedAck(io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand command) {
+        recordConfigAppliedAck(command, command.configVersion());
+    }
+
+    public void recordConfigAppliedAck(io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand command,
+            long applyGeneration) {
+        if (command.configVersion() != applyGeneration) {
+            throw new TeamRevisionConflictException("ConfigApplied generation is stale");
+        }
         String status = command.applied() ? "SUCCEEDED" : "FAILED";
         int updated = jdbc.update("""
                 UPDATE team_deployment_members member
@@ -121,10 +170,13 @@ public class TeamDeploymentRepository {
                                 JOIN config_snapshots snapshot ON snapshot.id = binding.snapshot_id
                                WHERE binding.id = member.binding_id
                                  AND binding.snapshot_id = ? AND snapshot.version = ?)
+                   AND EXISTS (SELECT 1 FROM config_apply_records apply
+                                WHERE apply.id = ? AND apply.binding_id = member.binding_id
+                                  AND apply.snapshot_id = ? AND apply.observed_version = ?)
                    AND member.status = 'PENDING'
                    AND deployment.status IN ('PENDING', 'PARTIAL_FAILURE')
                 """, status, command.applied() ? null : command.errorMessage(), command.bindingId(), command.agentId(),
-                command.snapshotId(), command.configVersion());
+                command.snapshotId(), command.configVersion(), command.eventId(), command.snapshotId(), applyGeneration);
         if (updated == 1) {
             refreshStatusByBinding(command.bindingId());
         }
@@ -152,7 +204,7 @@ public class TeamDeploymentRepository {
     private TeamDeployment mapDeployment(ResultSet rs) throws SQLException {
         return new TeamDeployment(rs.getObject("id", UUID.class), rs.getObject("team_id", UUID.class),
                 rs.getLong("team_revision"), rs.getString("status"), List.of(),
-                rs.getTimestamp("created_at").toInstant(), rs.getString("idempotency_key"));
+                rs.getTimestamp("created_at").toInstant(), rs.getString("idempotency_key"), rs.getLong("version"));
     }
 
     private TeamDeployment.Member mapMember(ResultSet rs, int row) throws SQLException {

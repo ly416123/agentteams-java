@@ -99,8 +99,10 @@ public final class TeamDeploymentService {
         List<TeamDeployment.Member> failed = repository.failedMembers(deployment.id());
         if (failed.isEmpty()) throw new IllegalArgumentException("team deployment has no failed members");
         if (persistKey) {
-            repository.markRetrying(deployment.id(), failed.stream().map(TeamDeployment.Member::agentId).toList(),
-                    clock.instant(), idempotencyKey);
+            String hash = sha256(deployment.id() + "\u0000" + deployment.version() + "\u0000"
+                    + failed.stream().map(TeamDeployment.Member::agentId).sorted().toList());
+            if (!repository.claimRetry(deployment.id(), failed.stream().map(TeamDeployment.Member::agentId).toList(),
+                    deployment.version(), idempotencyKey, hash)) return;
         } else {
             repository.markRetrying(deployment.id(), failed.stream().map(TeamDeployment.Member::agentId).toList(),
                     clock.instant());
@@ -154,7 +156,15 @@ public final class TeamDeploymentService {
 
     /** Consumes the durable ConfigApplied event and fences stale binding acknowledgements. */
     public void recordAck(ConfigAppliedCommand command) {
-        repository.recordConfigAppliedAck(Objects.requireNonNull(command, "command"));
+        recordAck(command, command.configVersion());
+    }
+
+    public void recordAck(ConfigAppliedCommand command, long applyGeneration) {
+        Objects.requireNonNull(command, "command");
+        if (command.configVersion() != applyGeneration) {
+            throw new TeamRevisionConflictException("ConfigApplied generation is stale");
+        }
+        repository.recordConfigAppliedAck(command, applyGeneration);
     }
 
     private void applyMember(TeamDeployment deployment, TeamRevision revision, TeamDeployment.Member member,
@@ -167,15 +177,19 @@ public final class TeamDeploymentService {
                 UUID.nameUUIDFromBytes(member.baseManifest().getBytes(StandardCharsets.UTF_8)), member.agentId(),
                 revision.teamId(), revision.revision(), deployment.id(), List.of(sha256(subject)),
                 member.baseManifest(), revision.overlayJson(), member.taskOverlay() == null ? "{}" : member.taskOverlay()));
-        ConfigSnapshot snapshot = snapshots.create(subject, effective.canonicalManifest(), actor);
-        ConfigDeploymentService.ConfigDeployment deploymentResult = deployments.deploy(member.agentId(), subject, snapshot);
+        ConfigSnapshot snapshot = snapshots.create(subject, effective.canonicalManifest(), actor,
+                deployment.id().toString(), effective.provenance());
+        ConfigDeploymentService.ConfigDeployment deploymentResult = deployments.deploy(member.agentId(), subject, snapshot,
+                deployment.id().toString());
         repository.markMember(deployment.id(), member.agentId(), deploymentResult.binding().id(), "PENDING", null);
     }
 
     private void applyMemberWithoutRevision(TeamDeployment deployment, TeamDeployment.Member member, String actor) {
         String subject = "team-deployment:" + deployment.id() + ":" + member.agentId();
-        ConfigSnapshot snapshot = snapshots.create(subject, member.baseManifest(), actor);
-        ConfigDeploymentService.ConfigDeployment result = deployments.deploy(member.agentId(), subject, snapshot);
+        ConfigSnapshot snapshot = snapshots.create(subject, member.baseManifest(), actor,
+                deployment.id().toString(), null);
+        ConfigDeploymentService.ConfigDeployment result = deployments.deploy(member.agentId(), subject, snapshot,
+                deployment.id().toString());
         repository.markMember(deployment.id(), member.agentId(), result.binding().id(), "PENDING", null);
     }
 

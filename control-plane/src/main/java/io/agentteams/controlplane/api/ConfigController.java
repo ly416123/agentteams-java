@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 @RestController
 @RequestMapping("/api/v1/config")
@@ -36,19 +37,24 @@ public final class ConfigController {
     }
 
     @PostMapping("/snapshots")
-    public ResponseEntity<SnapshotResponse> create(@RequestBody CreateSnapshotRequest request) {
+    public ResponseEntity<SnapshotResponse> create(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody CreateSnapshotRequest request) {
         if (request == null || request.subject() == null || request.subject().isBlank()
                 || request.manifest() == null || !request.manifest().isObject()) {
             throw new IllegalArgumentException("subject and object manifest are required");
         }
         PrincipalContext.requireScope(request.manifest().toString());
         String actor = PrincipalContext.actorOr(request.actor());
-        ConfigSnapshot snapshot = snapshots.create(request.subject(), request.manifest().toString(), actor);
+        requireKey(idempotencyKey);
+        ConfigSnapshot snapshot = snapshots.create(request.subject(), request.manifest().toString(), actor, idempotencyKey);
         return ResponseEntity.status(201).body(SnapshotResponse.from(snapshot));
     }
 
     @PostMapping("/snapshots/{snapshotId}/agents/{agentId}")
-    public DeploymentResponse deploy(@PathVariable UUID snapshotId, @PathVariable UUID agentId) {
+    public DeploymentResponse deploy(@PathVariable UUID snapshotId, @PathVariable UUID agentId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        requireKey(idempotencyKey);
         ConfigSnapshot snapshot = snapshotRepository.findById(snapshotId)
                 .orElseThrow(() -> new IllegalArgumentException("config snapshot does not exist"));
         PrincipalContext.requireScope(snapshot.manifestJson());
@@ -65,13 +71,17 @@ public final class ConfigController {
     }
 
     @PostMapping("/bindings/{bindingId}/retry")
-    public DeploymentResponse retry(@PathVariable UUID bindingId) {
-        return DeploymentResponse.from(deployments.retry(bindingId));
+    public DeploymentResponse retry(@PathVariable UUID bindingId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        requireKey(idempotencyKey);
+        return DeploymentResponse.from(deployments.retry(bindingId, idempotencyKey));
     }
 
     @PostMapping("/bindings/{bindingId}/rollback")
-    public DeploymentResponse rollback(@PathVariable UUID bindingId) {
-        return DeploymentResponse.from(deployments.rollback(bindingId));
+    public DeploymentResponse rollback(@PathVariable UUID bindingId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        requireKey(idempotencyKey);
+        return DeploymentResponse.from(deployments.rollback(bindingId, idempotencyKey));
     }
 
     @GetMapping(value = "/snapshots/{snapshotId}/manifest", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -122,5 +132,9 @@ public final class ConfigController {
             return apply == null ? null : new ApplyResponse(apply.phase(), apply.errorMessage(), apply.appliedAt(),
                     apply.observedVersion(), apply.failureCode(), apply.rollback());
         }
+    }
+
+    private static void requireKey(String key) {
+        if (key == null || key.isBlank()) throw new IllegalArgumentException("Idempotency-Key is required");
     }
 }

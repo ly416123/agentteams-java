@@ -39,18 +39,20 @@ class TeamRevisionServiceTest {
         UUID teamId = UUID.randomUUID();
         TeamRevision target = revision(teamId, 2, TeamRevisionStatus.PUBLISHED, null);
         when(repository.find(teamId, 2)).thenReturn(Optional.of(target));
-        when(repository.createRollback(eq(teamId), eq(target), eq("alice"), eq(NOW), eq("rollback-key")))
+        when(repository.createRollback(eq(teamId), eq(target), eq(0L), eq("alice"), eq(NOW), eq("rollback-key"),
+                any(), any()))
                 .thenReturn(new TeamRevision(teamId, 4, target.leaderAgentId(), target.overlayJson(), target.digest(),
                         TeamRevisionStatus.DRAFT, 2L, "alice", NOW, 0, target.memberAgentIds()));
         TeamRevisionService service = new TeamRevisionService(repository);
 
-        TeamRevision rollback = service.rollback(teamId, 2, "alice", "rollback-key", NOW);
+        TeamRevision rollback = service.rollback(teamId, 2, 0, "alice", "rollback-key", NOW);
 
         assertThat(rollback.revision()).isEqualTo(4);
         assertThat(rollback.rollbackOfRevision()).isEqualTo(2L);
         assertThat(rollback.status()).isEqualTo(TeamRevisionStatus.DRAFT);
         assertThat(rollback.overlayJson()).isEqualTo(target.overlayJson());
-        verify(repository).createRollback(teamId, target, "alice", NOW, "rollback-key");
+        verify(repository).createRollback(eq(teamId), eq(target), eq(0L), eq("alice"), eq(NOW), eq("rollback-key"),
+                any(), any());
     }
 
     @Test
@@ -82,14 +84,14 @@ class TeamRevisionServiceTest {
         TeamRevision published = new TeamRevision(teamId, 3, draft.leaderAgentId(), draft.overlayJson(), draft.digest(),
                 TeamRevisionStatus.PUBLISHED, null, "alice", NOW, 1, draft.memberAgentIds());
         when(repository.find(teamId, 3)).thenReturn(Optional.of(draft));
-        when(repository.publish(teamId, 3, 0, "publish-key")).thenReturn(published);
+        when(repository.publish(eq(teamId), eq(3L), eq(0L), eq("publish-key"), eq(validator), any()))
+                .thenReturn(published);
         TeamRevisionService service = new TeamRevisionService(repository, validator);
 
         assertThat(service.publish(teamId, 3, 0, "publish-key")).isSameAs(published);
 
-        var order = inOrder(validator, repository);
-        order.verify(validator).validate(draft);
-        order.verify(repository).publish(teamId, 3, 0, "publish-key");
+        verify(repository).publish(eq(teamId), eq(3L), eq(0L), eq("publish-key"), eq(validator), any());
+        verify(validator, never()).validate(any());
         verify(repository, never()).deprecatePublished(any(), any(Long.class));
     }
 
@@ -98,11 +100,65 @@ class TeamRevisionServiceTest {
         TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
         TeamRevision draft = revision(UUID.randomUUID(), 1, TeamRevisionStatus.DRAFT, null);
         when(repository.find(draft.teamId(), 1)).thenReturn(Optional.of(draft));
-        when(repository.transition(draft.teamId(), 1, 0, TeamRevisionStatus.DRAFT,
-                TeamRevisionStatus.REVIEWING, "review-key")).thenReturn(draft);
+        when(repository.transition(eq(draft.teamId()), eq(1L), eq(0L), eq(TeamRevisionStatus.DRAFT),
+                eq(TeamRevisionStatus.REVIEWING), eq("review-key"), any())).thenReturn(draft);
         new TeamRevisionService(repository).review(draft.teamId(), 1, 0, "review-key");
-        verify(repository).transition(draft.teamId(), 1, 0, TeamRevisionStatus.DRAFT,
-                TeamRevisionStatus.REVIEWING, "review-key");
+        verify(repository).transition(eq(draft.teamId()), eq(1L), eq(0L), eq(TeamRevisionStatus.DRAFT),
+                eq(TeamRevisionStatus.REVIEWING), eq("review-key"), any());
+    }
+
+    @Test
+    void updateOverlayRequiresIdempotencyKeyAndRequestHash() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        TeamRevision draft = revision(UUID.randomUUID(), 1, TeamRevisionStatus.DRAFT, null);
+        when(repository.find(draft.teamId(), 1)).thenReturn(Optional.of(draft));
+        when(repository.update(any(), eq("overlay-key"), any())).thenReturn(draft);
+
+        new TeamRevisionService(repository).updateOverlay(draft.teamId(), 1, "{\"changed\":true}", 0,
+                "alice", NOW, "overlay-key");
+
+        verify(repository).update(any(), eq("overlay-key"), any());
+    }
+
+    @Test
+    void publishPassesValidationIntoAtomicRepositoryOperation() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        TeamRevisionPublishValidator validator = mock(TeamRevisionPublishValidator.class);
+        TeamRevision draft = revision(UUID.randomUUID(), 3, TeamRevisionStatus.DRAFT, null);
+        when(repository.find(draft.teamId(), 3)).thenReturn(Optional.of(draft));
+        when(repository.publish(eq(draft.teamId()), eq(3L), eq(0L), eq("publish-key"), eq(validator), any()))
+                .thenReturn(draft);
+
+        new TeamRevisionService(repository, validator).publish(draft.teamId(), 3, 0, "publish-key");
+
+        verify(repository).publish(eq(draft.teamId()), eq(3L), eq(0L), eq("publish-key"), eq(validator), any());
+        verify(validator, never()).validate(any());
+    }
+
+    @Test
+    void rollbackUsesTargetVersionCasAndAtomicValidation() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        TeamRevisionPublishValidator validator = mock(TeamRevisionPublishValidator.class);
+        TeamRevision target = revision(UUID.randomUUID(), 2, TeamRevisionStatus.PUBLISHED, null);
+        when(repository.find(target.teamId(), 2)).thenReturn(Optional.of(target));
+        when(repository.createRollback(eq(target.teamId()), eq(target), eq(0L), eq("alice"), eq(NOW),
+                eq("rollback-key"), eq(validator), any())).thenReturn(target);
+
+        new TeamRevisionService(repository, validator).rollback(target.teamId(), 2, 0, "alice",
+                "rollback-key", NOW);
+
+        verify(repository).createRollback(eq(target.teamId()), eq(target), eq(0L), eq("alice"), eq(NOW),
+                eq("rollback-key"), eq(validator), any());
+        verify(validator, never()).validate(any());
+    }
+
+    @Test
+    void draftRejectsEmptyMembersBeforePersistence() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        assertThatThrownBy(() -> new TeamRevisionService(repository).createDraft(UUID.randomUUID(), UUID.randomUUID(),
+                "{}", List.of(), "alice", "key", NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("members");
+        verify(repository, never()).createDraft(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     private static TeamRevision revision(UUID teamId, long revision, TeamRevisionStatus status,
