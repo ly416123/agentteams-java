@@ -10,7 +10,10 @@ import io.agentteams.application.api.SandboxProvisionCommand;
 import io.agentteams.application.api.SandboxProvisionReceipt;
 import io.agentteams.application.api.SandboxProviderPhase;
 import io.agentteams.application.api.SandboxProviderException;
+import io.agentteams.application.api.SandboxProviderRef;
 import io.agentteams.application.api.SandboxRenewCommand;
+import io.agentteams.application.api.SandboxTerminationCommand;
+import io.agentteams.application.api.SandboxTerminationReason;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -74,8 +77,79 @@ class SandboxProviderContractTest {
                 .isEqualTo(SandboxFailureCategory.IDEMPOTENCY_CONFLICT);
     }
 
+    @Test
+    void repeatedExpiryEnsureReturnsTheSameReceiptWithoutASecondProviderCall() {
+        FakeSandboxRuntime runtime = new FakeSandboxRuntime();
+        SandboxProvisionReceipt provisioned = runtime.ensureProvisioned(commandFor(ATTEMPT_ID));
+        Instant extendedExpiry = NOW.plusSeconds(600);
+
+        var first = runtime.ensureExpiry(new SandboxRenewCommand(provisioned.providerRef(), extendedExpiry));
+        var second = runtime.ensureExpiry(new SandboxRenewCommand(provisioned.providerRef(), extendedExpiry));
+
+        assertThat(second).isEqualTo(first);
+        assertThat(runtime.renewCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void repeatedTerminationIsIdempotent() {
+        FakeSandboxRuntime runtime = new FakeSandboxRuntime();
+        SandboxProvisionReceipt provisioned = runtime.ensureProvisioned(commandFor(ATTEMPT_ID));
+        SandboxTerminationCommand command = new SandboxTerminationCommand(provisioned.providerRef(),
+                SandboxTerminationReason.TASK_COMPLETED);
+
+        var first = runtime.ensureTerminated(command);
+        var second = runtime.ensureTerminated(command);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(first.phase()).isEqualTo(SandboxProviderPhase.DESTROYED);
+        assertThat(runtime.terminateCalls()).isEqualTo(1);
+        assertThat(runtime.inspect(provisioned.providerRef()).phase()).isEqualTo(SandboxProviderPhase.DESTROYED);
+    }
+
+    @Test
+    void rejectsSameAttemptWithDifferentIdempotencyKey() {
+        FakeSandboxRuntime runtime = new FakeSandboxRuntime();
+        runtime.ensureProvisioned(commandFor(ATTEMPT_ID));
+
+        assertThatThrownBy(() -> runtime.ensureProvisioned(commandFor(ATTEMPT_ID, "sandbox:other-key", "python")))
+                .isInstanceOf(SandboxProviderException.class)
+                .extracting(error -> ((SandboxProviderException) error).category())
+                .isEqualTo(SandboxFailureCategory.IDEMPOTENCY_CONFLICT);
+        assertThat(runtime.provisionCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsSameIdempotencyKeyWithDifferentSpec() {
+        FakeSandboxRuntime runtime = new FakeSandboxRuntime();
+        runtime.ensureProvisioned(commandFor(ATTEMPT_ID));
+
+        assertThatThrownBy(() -> runtime.ensureProvisioned(commandFor(ATTEMPT_ID,
+                "sandbox:" + ATTEMPT_ID, "node")))
+                .isInstanceOf(SandboxProviderException.class)
+                .extracting(error -> ((SandboxProviderException) error).category())
+                .isEqualTo(SandboxFailureCategory.IDEMPOTENCY_CONFLICT);
+        assertThat(runtime.provisionCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsProviderUidMismatchAsAStableProviderFailure() {
+        FakeSandboxRuntime runtime = new FakeSandboxRuntime();
+        SandboxProviderRef providerRef = runtime.ensureProvisioned(commandFor(ATTEMPT_ID)).providerRef();
+        SandboxProviderRef mismatched = new SandboxProviderRef(providerRef.provider(), providerRef.resourceId(),
+                "different-uid");
+
+        assertThatThrownBy(() -> runtime.inspect(mismatched))
+                .isInstanceOf(SandboxProviderException.class)
+                .extracting(error -> ((SandboxProviderException) error).category())
+                .isEqualTo(SandboxFailureCategory.PROVIDER_RESOURCE_LOST);
+    }
+
     private static SandboxProvisionCommand commandFor(UUID attemptId) {
+        return commandFor(attemptId, "sandbox:" + attemptId, "python");
+    }
+
+    private static SandboxProvisionCommand commandFor(UUID attemptId, String idempotencyKey, String template) {
         return new SandboxProvisionCommand(TASK_ID, attemptId, SandboxProfile.ISOLATED,
-                Duration.ofMinutes(5), "python", NOW, "sandbox:" + attemptId);
+                Duration.ofMinutes(5), template, NOW, idempotencyKey);
     }
 }

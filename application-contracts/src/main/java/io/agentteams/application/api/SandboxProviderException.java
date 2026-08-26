@@ -4,6 +4,7 @@ import java.util.Objects;
 
 /** Sanitized exception boundary for provider failures. */
 public class SandboxProviderException extends RuntimeException {
+    private static final int MAX_MESSAGE_LENGTH = 512;
     private final SandboxFailureCategory category;
 
     public SandboxProviderException(SandboxFailureCategory category, String message) {
@@ -11,7 +12,7 @@ public class SandboxProviderException extends RuntimeException {
     }
 
     public SandboxProviderException(SandboxFailureCategory category, String message, Throwable cause) {
-        super(FailureMessageSanitizer.redact(Objects.requireNonNull(message, "message must not be null")), cause);
+        super(redactAndLimit(message), cause);
         this.category = Objects.requireNonNull(category, "category must not be null");
     }
 
@@ -21,5 +22,11 @@ public class SandboxProviderException extends RuntimeException {
 
     public SandboxFailure failure() {
         return new SandboxFailure(category, getMessage());
+    }
+
+    private static String redactAndLimit(String message) {
+        String sanitized = FailureMessageSanitizer.redact(
+                Objects.requireNonNull(message, "message must not be null"));
+        return sanitized.length() > MAX_MESSAGE_LENGTH ? sanitized.substring(0, MAX_MESSAGE_LENGTH) : sanitized;
     }
 }
