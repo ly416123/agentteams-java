@@ -8,13 +8,13 @@ spec:
   podSelector:
     matchLabels: { app.kubernetes.io/name: agentteams-task-sandbox }
   policyTypes: [Ingress, Egress]
-  # Sandboxes do not accept inbound connections. Egress is limited to DNS;
-  # a provider-specific allow-list must be added explicitly for workloads that
-  # need model or artifact access.
   ingress: []
   egress:
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
@@ -40,13 +40,43 @@ spec:
         - { protocol: TCP, port: {{ .Values.controlPlane.port }} }
   egress:
     - to:
-        - podSelector: {}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: postgresql }
       ports:
         - { protocol: TCP, port: 5432 }
+    {{- if .Values.networkPolicy.databaseEgressCIDR }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.databaseEgressCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: 5432 }
+    {{- end }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: nats }
+      ports:
         - { protocol: TCP, port: 4222 }
-        {{- if .Values.storage.enabled }}
+    {{- if .Values.networkPolicy.natsEgressCIDR }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.natsEgressCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: 4222 }
+    {{- end }}
+    {{- if .Values.storage.enabled }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: minio }
+      ports:
         - { protocol: TCP, port: 9000 }
-        {{- end }}
+      {{- if .Values.networkPolicy.storageEgressCIDR }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.storageEgressCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: 9000 }
+      {{- end }}
+    {{- end }}
     {{- if .Values.observability.tracing.enabled }}
     - to:
         - podSelector:
@@ -62,27 +92,28 @@ spec:
         - { protocol: TCP, port: {{ .Values.networkPolicy.dashboardAlertReceiver.port }} }
     {{- end }}
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
     {{- if .Values.controlPlane.security.oidc.enabled }}
-    # Local Kind Keycloak uses HTTP inside the namespace; external providers
-    # use the configured HTTPS egress CIDR and port below.
     - to:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: keycloak }
       ports:
         - { protocol: TCP, port: 8080 }
+      {{- if .Values.networkPolicy.oidcEgressCIDR }}
     - to:
         - ipBlock:
             cidr: {{ .Values.networkPolicy.oidcEgressCIDR | quote }}
       ports:
         - { protocol: TCP, port: {{ .Values.networkPolicy.oidcEgressPort }} }
+      {{- end }}
     {{- end }}
     {{- if .Values.networkPolicy.kubernetesApiAllowAllEgress }}
-    # Kind's node-level DNAT makes the API destination implementation-specific;
-    # keep this development exception limited to Kubernetes API ports.
     - to:
         - ipBlock:
             cidr: "0.0.0.0/0"
@@ -114,7 +145,8 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
-        - podSelector: {}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agentteams-worker }
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
       ports:
@@ -122,11 +154,34 @@ spec:
         - { protocol: TCP, port: {{ .Values.gateway.httpPort }} }
   egress:
     - to:
-        - podSelector: {}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agentteams-control-plane }
       ports:
         - { protocol: TCP, port: {{ .Values.controlPlane.port }} }
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: postgresql }
+      ports:
         - { protocol: TCP, port: 5432 }
+    {{- if .Values.networkPolicy.databaseEgressCIDR }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.databaseEgressCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: 5432 }
+    {{- end }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: nats }
+      ports:
         - { protocol: TCP, port: 4222 }
+    {{- if .Values.networkPolicy.natsEgressCIDR }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.natsEgressCIDR | quote }}
+      ports:
+        - { protocol: TCP, port: 4222 }
+    {{- end }}
     {{- if .Values.observability.tracing.enabled }}
     - to:
         - podSelector:
@@ -135,7 +190,10 @@ spec:
         - { protocol: TCP, port: 4318 }
     {{- end }}
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
@@ -151,7 +209,10 @@ spec:
   ingress: []
   egress:
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }

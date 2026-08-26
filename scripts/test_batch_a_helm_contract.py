@@ -1,16 +1,33 @@
 #!/usr/bin/env python3
 import json
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CHART = ROOT / "deploy/helm/agentteams-java"
+HELM = shutil.which("helm")
 
 
 def read_chart(path):
     return (CHART / path).read_text(encoding="utf-8")
+
+
+def render_chart(*args):
+    if HELM is None:
+        raise unittest.SkipTest("helm is unavailable")
+    result = subprocess.run(
+        [HELM, "template", "agentteams", str(CHART), "--namespace", "agentteams", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
 
 
 class BatchAHelmContractTest(unittest.TestCase):
@@ -74,6 +91,54 @@ class BatchAHelmContractTest(unittest.TestCase):
         ):
             self.assertIn(required, config)
         self.assertNotRegex(config, r"(?i)(password|token|secret|private[_-]?key)")
+
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_rendered_runtime_config_matches_operator_worker_injection(self):
+        docs = render_chart()
+        configmaps = [doc for doc in docs if doc.get("kind") == "ConfigMap"]
+        runtime_config = next(doc for doc in configmaps if doc["metadata"]["name"] == "agentteams-java-agent-runtime")
+        factory = (ROOT / "operator/src/main/java/io/agentteams/operator/WorkerResourceFactory.java").read_text(
+            encoding="utf-8"
+        )
+        config_name = re.search(r'RUNTIME_CONFIG_MAP = "([^"]+)"', factory).group(1)
+
+        self.assertEqual(runtime_config["metadata"]["name"], config_name)
+        self.assertIn("withEnvFrom", factory)
+        self.assertIn("withConfigMapRef", factory)
+        self.assertIn("new LinkedHashMap<>(spec.env())", factory)
+        self.assertIn("environment.put(\"AGENTTEAMS_AGENT_ID\", spec.agentId())", factory)
+        self.assertIn("environment.put(\"AGENTTEAMS_RUNTIME\", spec.runtime())", factory)
+
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_rendered_pdbs_match_workload_selectors_and_replica_budget(self):
+        docs = render_chart()
+        deployments = {
+            doc["metadata"]["name"]: doc
+            for doc in docs
+            if doc.get("kind") == "Deployment"
+            and doc["metadata"]["name"].endswith(("-control-plane", "-gateway", "-operator"))
+        }
+        pdbs = [
+            doc for doc in docs
+            if doc.get("kind") == "PodDisruptionBudget"
+            and doc["metadata"]["name"].endswith(("-control-plane", "-gateway", "-operator"))
+        ]
+
+        self.assertEqual(len(pdbs), 3)
+        for pdb in pdbs:
+            component = pdb["metadata"]["name"].rsplit("-", 1)[-1]
+            deployment = next(
+                deployment
+                for name, deployment in deployments.items()
+                if name.endswith(f"-{component}")
+            )
+            self.assertEqual(
+                pdb["spec"]["selector"],
+                {"matchLabels": deployment["spec"]["selector"]["matchLabels"]},
+            )
+            min_available = pdb["spec"]["minAvailable"]
+            if isinstance(min_available, int):
+                self.assertLessEqual(min_available, deployment["spec"]["replicas"])
 
     def test_each_workload_uses_common_security_and_spread_contract(self):
         for workload in ("control-plane.yaml", "gateway.yaml", "operator.yaml"):

@@ -140,9 +140,14 @@ networkPolicy:
     # External webhook egress requires a separate, deployment-specific rule.
     enabled: false
     port: 8080
+  # Empty external CIDRs intentionally fail closed. Configure these only when
+  # the dependency is outside the release namespace.
+  databaseEgressCIDR: ""
+  natsEgressCIDR: ""
+  storageEgressCIDR: ""
   # Allow the Control Plane to reach the configured OIDC issuer. This is only
-  # rendered when OIDC is enabled; set a narrower CIDR for a production IdP.
-  oidcEgressCIDR: 0.0.0.0/0
+  # rendered when OIDC is enabled and a specific external CIDR is configured.
+  oidcEgressCIDR: ""
   oidcEgressPort: 443
   # Some CNIs evaluate Kind Service traffic after node-level DNAT. Keep the
   # default least-privilege rules unless a development cluster needs this

@@ -315,7 +315,13 @@
             "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
           }
         },
-        "oidcEgressCIDR": { "type": "string", "minLength": 1 },
+        "databaseEgressCIDR": { "type": "string" },
+        "natsEgressCIDR": { "type": "string" },
+        "storageEgressCIDR": { "type": "string" },
+        "oidcEgressCIDR": {
+          "type": "string",
+          "not": { "const": "0.0.0.0/0" }
+        },
         "oidcEgressPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "kubernetesApiAllowAllEgress": { "type": "boolean" },
         "kubernetesApiCIDR": { "type": "string", "minLength": 1 },
@@ -355,5 +361,38 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["controlPlane"],
+        "properties": {
+          "controlPlane": {
+            "required": ["security"],
+            "properties": {
+              "security": {
+                "required": ["oidc"],
+                "properties": {
+                  "oidc": {
+                    "required": ["enabled"],
+                    "properties": { "enabled": { "const": true } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "networkPolicy": {
+            "required": ["oidcEgressCIDR"],
+            "properties": {
+              "oidcEgressCIDR": { "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
