@@ -14,6 +14,7 @@ import io.agentteams.contracts.v1.ConfigFile;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.ServerMessage;
+import io.agentteams.contracts.v1.TaskAccepted;
 import io.agentteams.contracts.v1.TaskAssigned;
 import io.agentteams.runtime.AgentChannelClient;
 import io.agentteams.runtime.GrpcClientTracingInterceptor;
@@ -391,6 +392,20 @@ public final class QwenPawWorker implements AutoCloseable {
         RuntimeSubmission submission;
         try {
             submission = channelClient.onTaskAssigned(assignment, runtimeAdapter);
+        } catch (RuntimeException error) {
+            // The assignment may already be expired or otherwise unprocessable.
+            // Report the rejection before acknowledging the durable command so
+            // the Control Plane can reclaim the lease immediately instead of
+            // waiting for lease recovery.
+            rejectAssignment(assignment, error);
+            acknowledge(assignment);
+            resultGates.remove(taskId, resultGate);
+            pendingResults.remove(taskId);
+            System.err.printf("Task assignment task=%s rejected: %s%n",
+                    assignment.getMetadata().getTaskId(), rootMessage(error));
+            return;
+        }
+        try {
             if (submission.accepted()) {
                 RuntimeResult pending;
                 synchronized (resultGate) {
@@ -408,13 +423,12 @@ public final class QwenPawWorker implements AutoCloseable {
                 resultGates.remove(taskId, resultGate);
             }
         } catch (RuntimeException error) {
-            // The assignment may already be expired or otherwise unprocessable.
-            // Ack the durable delivery anyway so one poisoned command cannot
-            // replay forever and block later assignments for this worker.
-            acknowledge(assignment);
+            // The runtime has already accepted this assignment. Do not emit a
+            // rejection for a later local bookkeeping/progress failure: that
+            // would make the Control Plane reclaim a task that may be running.
             resultGates.remove(taskId, resultGate);
             pendingResults.remove(taskId);
-            System.err.printf("Task assignment task=%s rejected: %s%n",
+            System.err.printf("Unable to initialize task task=%s: %s%n",
                     assignment.getMetadata().getTaskId(), rootMessage(error));
             return;
         }
@@ -427,6 +441,28 @@ public final class QwenPawWorker implements AutoCloseable {
 
     private void acknowledge(TaskAssigned assignment) {
         acknowledge(assignment.getMetadata());
+    }
+
+    private void rejectAssignment(TaskAssigned assignment, Throwable error) {
+        EventMetadata input = assignment.getMetadata();
+        EventMetadata metadata = input.toBuilder()
+                .setEventId(UUID.randomUUID().toString())
+                .setOccurredAt(timestamp(clock.instant()))
+                .build();
+        String reason = truncate(rootMessage(error));
+        if (reason.isBlank()) {
+            reason = "unable to process task assignment";
+        }
+        try {
+            channelPort.send(AgentMessage.newBuilder().setTaskAccepted(TaskAccepted.newBuilder()
+                    .setMetadata(metadata)
+                    .setAccepted(false)
+                    .setRejectionReason(reason)
+                    .build()).build());
+        } catch (RuntimeException sendError) {
+            System.err.printf("Unable to report task assignment rejection task=%s: %s%n",
+                    input.getTaskId(), rootMessage(sendError));
+        }
     }
 
     private void acknowledge(EventMetadata input) {
