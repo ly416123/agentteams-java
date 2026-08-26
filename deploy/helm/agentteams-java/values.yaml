@@ -135,6 +135,22 @@ availability:
     minAvailable: 1
 networkPolicy:
   enabled: true
+  # External dependency egress uses explicit CIDRs. PROXY and PLATFORM are
+  # reserved for environment overlays; this chart does not infer FQDN rules.
+  egressMode: CIDR
+  allowPublicInternet: false
+  external:
+    postgresql: []
+    nats: []
+    objectStorage: []
+    otlp: []
+    oidc: []
+    matrix: []
+    modelProviders: []
+  proxy:
+    host: ""
+    port: 0
+  platformPolicyArtifact: ""
   dashboardAlertReceiver:
     # Allow an in-cluster dashboard alert receiver when explicitly enabled.
     # External webhook egress requires a separate, deployment-specific rule.

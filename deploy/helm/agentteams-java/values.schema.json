@@ -347,6 +347,30 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
+        "egressMode": { "type": "string", "enum": ["CIDR", "PROXY", "PLATFORM"] },
+        "allowPublicInternet": { "type": "boolean" },
+        "external": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "postgresql": { "$ref": "#/definitions/egressTargets" },
+            "nats": { "$ref": "#/definitions/egressTargets" },
+            "objectStorage": { "$ref": "#/definitions/egressTargets" },
+            "otlp": { "$ref": "#/definitions/egressTargets" },
+            "oidc": { "$ref": "#/definitions/egressTargets" },
+            "matrix": { "$ref": "#/definitions/egressTargets" },
+            "modelProviders": { "$ref": "#/definitions/egressTargets" }
+          }
+        },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string", "minLength": 1 },
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
+          }
+        },
+        "platformPolicyArtifact": { "type": "string" },
         "dashboardAlertReceiver": {
           "type": "object",
           "additionalProperties": false,
@@ -459,6 +483,36 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "networkPolicy": {
+            "properties": { "enabled": { "const": true } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "networkPolicy": {
+            "required": ["egressMode", "external"]
+          }
+        }
+      }
     }
-  ]
+  ],
+  "definitions": {
+    "egressTargets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cidr", "port"],
+        "additionalProperties": false,
+        "properties": {
+          "cidr": { "type": "string", "minLength": 1 },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        }
+      }
+    }
+  }
 }

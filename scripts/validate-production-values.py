@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 
 import yaml
@@ -26,6 +27,15 @@ def required(mapping: dict, path: str):
             fail(f"missing {path}")
         value = value[part]
     return value
+
+
+def validate_endpoint(value: str, path: str, schemes: set[str]) -> None:
+    parsed_value = value[5:] if value.startswith("jdbc:") else value
+    parsed = urllib.parse.urlsplit(parsed_value)
+    if (parsed.scheme.lower() not in schemes or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.fragment or parsed.query):
+        fail(f"{path} must be a credential-free endpoint using {sorted(schemes)}")
 
 
 def main() -> None:
@@ -77,6 +87,24 @@ def main() -> None:
                  "controlPlane.matrix.appservice.hsTokenSecret"):
         if "example" in str(required(data, path)).lower():
             fail(f"{path} must reference an externally managed Secret")
+
+    validate_endpoint(required(data, "database.jdbcUrl"), "database.jdbcUrl", {"postgresql"})
+    validate_endpoint(required(data, "nats.url"), "nats.url", {"nats", "tls"})
+    validate_endpoint(required(data, "gateway.env.AGENTTEAMS_GATEWAY_NATS_URL"),
+                      "gateway.env.AGENTTEAMS_GATEWAY_NATS_URL", {"nats", "tls"})
+    validate_endpoint(required(data, "storage.endpoint"), "storage.endpoint", {"http", "https"})
+    validate_endpoint(required(data, "controlPlane.security.oidc.issuerUri"),
+                      "controlPlane.security.oidc.issuerUri", {"http", "https"})
+    validate_endpoint(required(data, "controlPlane.security.oidc.jwkSetUri"),
+                      "controlPlane.security.oidc.jwkSetUri", {"http", "https"})
+    validate_endpoint(required(data, "observability.tracing.otlpEndpoint"),
+                      "observability.tracing.otlpEndpoint", {"http", "https"})
+
+    images = required(data, "images")
+    for component in ("controlPlane", "gateway", "operator"):
+        image = required(images, component)
+        if not isinstance(image, str) or not image.strip() or image.rstrip().lower().endswith(":latest"):
+            fail(f"images.{component} must not use latest")
 
     if "RELEASE_TAG" not in text:
         fail("image pins must make the release tag replacement explicit")

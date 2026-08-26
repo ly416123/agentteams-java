@@ -77,6 +77,43 @@ spec:
         - { protocol: TCP, port: 9000 }
       {{- end }}
     {{- end }}
+    {{- if eq .Values.networkPolicy.egressMode "CIDR" }}
+    {{- range .Values.networkPolicy.external.postgresql }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.nats }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.objectStorage }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.otlp }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.oidc }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.matrix }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.modelProviders }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- end }}
     {{- if .Values.observability.tracing.enabled }}
     - to:
         - podSelector:
@@ -99,7 +136,9 @@ spec:
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
-    {{- if .Values.controlPlane.security.oidc.enabled }}
+    {{- if and .Values.controlPlane.security.oidc.enabled (not (gt (len .Values.networkPolicy.external.oidc) 0)) }}
+    # Local Kind Keycloak uses HTTP inside the namespace; external providers
+    # use the configured HTTPS egress CIDR and port below.
     - to:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: keycloak }
@@ -181,6 +220,23 @@ spec:
             cidr: {{ .Values.networkPolicy.natsEgressCIDR | quote }}
       ports:
         - { protocol: TCP, port: 4222 }
+    {{- end }}
+    {{- if eq .Values.networkPolicy.egressMode "CIDR" }}
+    {{- range .Values.networkPolicy.external.postgresql }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.nats }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- range .Values.networkPolicy.external.otlp }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
     {{- end }}
     {{- if .Values.observability.tracing.enabled }}
     - to:
