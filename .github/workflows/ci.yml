@@ -262,6 +262,10 @@ jobs:
           test -n "$AGENTTEAMS_AGENT_ID"
           python scripts/run-kind-worker-quota-admission.py \
             --agent-id "$AGENTTEAMS_AGENT_ID"
+      # The Collector debug exporter is intentionally ephemeral. Validate the
+      # fresh end-to-end trace before later recovery tests rotate its logs.
+      - name: Verify OTLP trace continuity
+        run: python scripts/validate-kind-otel.py
       - name: Run Kind quota recovery test
         run: |
           set -euo pipefail
@@ -306,8 +310,6 @@ jobs:
         run: python scripts/run-kind-minio-restore.py
       - name: Run Kind object reference integrity validation
         run: python scripts/run-kind-object-reference-integrity.py
-      - name: Verify OTLP trace continuity
-        run: python scripts/validate-kind-otel.py
       - name: Verify multi-replica Prometheus scraping
         run: python scripts/validate-kind-prometheus.py
       - name: Run Kind Task and Artifact API smoke
