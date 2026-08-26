@@ -91,6 +91,20 @@ class WorkerResourceFactoryTest {
     }
 
     @Test
+    void keepsLegacyWorkersOnTheStableHelmRuntimeConfigMapByDefault() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-legacy")
+                .withNamespace("agentteams").build());
+        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of()));
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0)
+                .getEnvFrom().get(0).getConfigMapRef().getName())
+                .isEqualTo("agentteams-java-agent-runtime");
+    }
+
+    @Test
     void mountsConfiguredTlsSecretIntoWorkerDeployment() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-tls").withNamespace("agentteams").build());

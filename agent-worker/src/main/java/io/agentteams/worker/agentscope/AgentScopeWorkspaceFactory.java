@@ -60,6 +60,13 @@ public final class AgentScopeWorkspaceFactory {
                 new InMemorySandboxWorkspaceOwnershipPort(), true);
     }
 
+    /** Compatibility test construction for the worker probe boundary. */
+    public static AgentScopeWorkspaceFactory testOnly(SandboxStateProbePort sandboxStateProbe,
+            Clock clock, Path sandboxRoot) {
+        return new AgentScopeWorkspaceFactory(null, sandboxStateProbe, clock, sandboxRoot,
+                new InMemorySandboxWorkspaceOwnershipPort(), true);
+    }
+
     public AgentScopeWorkspaceFactory(SandboxRuntimePort sandboxRuntime, Clock clock,
             Path sandboxRoot, SandboxWorkspaceOwnershipPort ownership, boolean testMode) {
         this(sandboxRuntime, null, clock, sandboxRoot, ownership, testMode);

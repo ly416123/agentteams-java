@@ -89,6 +89,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 startExecutionLocked(task, currentContext, generation);
             } catch (RuntimeException error) {
                 state.cancel(task.id());
+                releaseBinding(task.id());
                 return RuntimeSubmission.rejected("RUNTIME_UNAVAILABLE");
             }
             return submission;
@@ -131,6 +132,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         } catch (RuntimeException error) {
             executions.remove(task.id(), execution);
             execution.close();
+            releaseBinding(task.id());
             throw error;
         }
     }
@@ -228,6 +230,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         } catch (RuntimeException error) {
             executions.remove(execution.task.id(), execution);
             execution.close();
+            releaseBinding(execution.task.id());
             if (!enforceWorkspaceGate) throw error;
             return completeFencedLocked(execution);
         }
@@ -241,6 +244,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
             if (status == CompletionStatus.COMPLETED) {
                 executions.remove(execution.task.id(), execution);
                 execution.close();
+                releaseBinding(execution.task.id());
                 pendingTerminalResults.remove(execution.task.id(), result);
             } else {
                 execution.terminalSubmitted.set(false);
@@ -250,6 +254,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         } catch (RuntimeException error) {
             executions.remove(execution.task.id(), execution);
             execution.close();
+            releaseBinding(execution.task.id());
             pendingTerminalResults.remove(execution.task.id(), result);
             throw error;
         }
@@ -261,6 +266,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     "Sandbox workspace is stale", Instant.now(context.clock())));
             executions.remove(execution.task.id(), execution);
             execution.close();
+            releaseBinding(execution.task.id());
             return status;
         } catch (RuntimeException ignored) {
             executions.remove(execution.task.id(), execution);
@@ -310,7 +316,11 @@ public final class AgentScopeRuntime implements AgentRuntime {
             if (execution != null) {
                 execution.close();
             }
-            return state.cancel(taskId);
+            try {
+                return state.cancel(taskId);
+            } finally {
+                releaseBinding(taskId);
+            }
         }
     }
 
@@ -357,6 +367,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
             }
             executions.clear();
             pendingTerminalResults.clear();
+            harnessFactory.releaseAll();
             if (context != null) {
                 state.stop();
                 state = new FakeRuntime();
@@ -370,6 +381,14 @@ public final class AgentScopeRuntime implements AgentRuntime {
             throw new IllegalStateException("runtime is not started");
         }
         return context;
+    }
+
+    private void releaseBinding(UUID taskId) {
+        try {
+            harnessFactory.release(taskId);
+        } catch (RuntimeException ignored) {
+            // Binding cleanup must not mask the terminal runtime outcome.
+        }
     }
 
     private boolean isCurrentLocked(Execution execution) {

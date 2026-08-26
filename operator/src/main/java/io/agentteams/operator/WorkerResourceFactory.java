@@ -168,7 +168,9 @@ public final class WorkerResourceFactory {
             }
         }
         if (configured == null || configured.isBlank()) {
-            throw new IllegalArgumentException("Worker runtime ConfigMap binding is required");
+            // Existing Worker CRs predate explicit release binding. This is the
+            // stable name rendered by the current Helm runtime ConfigMap.
+            configured = "agentteams-java-agent-runtime";
         }
         String name = configured.trim();
         if (!name.matches("[a-z0-9]([-a-z0-9]*[a-z0-9])?")) {

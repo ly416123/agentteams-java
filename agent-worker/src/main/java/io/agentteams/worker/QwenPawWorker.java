@@ -393,6 +393,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     reportRuntimeResult(pending);
                 }
             } else {
+                sandboxStateProbe.forget(taskId);
                 resultGates.remove(taskId, resultGate);
             }
         } catch (RuntimeException error) {
