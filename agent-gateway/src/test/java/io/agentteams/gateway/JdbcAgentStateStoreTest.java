@@ -42,6 +42,21 @@ class JdbcAgentStateStoreTest {
     }
 
     @Test
+    void registrationDoesNotUndoARequestedDrain() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(contains("UPDATE agents"), any(Object[].class))).thenReturn(1);
+        JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
+        UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
+        ConnectionRegistry.ConnectionSnapshot connection = new ConnectionRegistry.ConnectionSnapshot(
+                UUID.randomUUID(), agentId.toString(), "qwenpaw", "1.0", Map.of(),
+                Instant.parse("2026-08-16T00:00:00Z"), 0);
+
+        store.registered(connection, Instant.parse("2026-08-16T00:00:01Z"));
+
+        verify(jdbc).update(contains("phase = CASE"), any(Object[].class));
+    }
+
+    @Test
     void recordsSeenAndDisconnectedPresenceTransitions() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(contains("UPDATE agents"), any(Object[].class))).thenReturn(1);
