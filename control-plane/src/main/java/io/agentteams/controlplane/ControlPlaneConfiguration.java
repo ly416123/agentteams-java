@@ -36,6 +36,9 @@ import io.agentteams.controlplane.team.TeamCrdSynchronizer;
 import io.agentteams.controlplane.team.TeamResourceSource;
 import io.agentteams.controlplane.team.TeamRevisionRepository;
 import io.agentteams.controlplane.team.TeamRevisionService;
+import io.agentteams.controlplane.team.TeamRevisionPublishValidator;
+import io.agentteams.controlplane.team.CatalogTeamRevisionPublishValidator;
+import io.agentteams.controlplane.agentspec.AgentSpecReferenceValidator;
 import io.agentteams.controlplane.team.TeamDeploymentRepository;
 import io.agentteams.controlplane.team.TeamDeploymentService;
 import io.agentteams.controlplane.service.ExecutionEventService;
@@ -288,12 +291,9 @@ public class ControlPlaneConfiguration {
 
     @Bean
     TeamRevisionPublishValidator teamRevisionPublishValidator(TeamRevisionRepository repository,
-            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes) {
-        return revision -> {
-            resourceScopes.requireVisible("TEAM", revision.teamId());
-            revision.memberAgentIds().forEach(agent -> resourceScopes.requireVisible("AGENT", agent));
-            repository.validatePublish(revision);
-        };
+            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes,
+            AgentSpecReferenceValidator references) {
+        return new CatalogTeamRevisionPublishValidator(repository, resourceScopes, references);
     }
 
     @Bean

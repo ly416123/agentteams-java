@@ -15,19 +15,23 @@ import java.util.UUID;
 public final class TeamRevisionService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final TeamRevisionRepository repository;
+    private final TeamRevisionPublishValidator publishValidator;
 
     public TeamRevisionService(TeamRevisionRepository repository) {
+        this(repository, repository::validatePublish);
+    }
+
+    public TeamRevisionService(TeamRevisionRepository repository, TeamRevisionPublishValidator publishValidator) {
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.publishValidator = Objects.requireNonNull(publishValidator, "publishValidator");
     }
 
     public TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlayJson,
             List<UUID> memberAgentIds, String actor, String idempotencyKey, Instant now) {
         Objects.requireNonNull(memberAgentIds, "memberAgentIds");
         String overlay = canonicalObject(overlayJson);
-        TeamRevision revision = new TeamRevision(teamId, repository.nextRevision(teamId), leaderAgentId,
-                overlay, sha256(overlay), TeamRevisionStatus.DRAFT, null, actor, now, 0,
-                memberAgentIds);
-        return repository.insert(revision, requireKey(idempotencyKey));
+        return repository.createDraft(teamId, leaderAgentId, overlay, sha256(overlay), null, actor, now,
+                memberAgentIds, requireKey(idempotencyKey));
     }
 
     public TeamRevision updateOverlay(UUID teamId, long revisionNumber, String overlayJson,
@@ -43,34 +47,45 @@ public final class TeamRevisionService {
                 current.memberAgentIds()));
     }
 
-    public TeamRevision review(UUID teamId, long revisionNumber, long expectedVersion) {
+    public TeamRevision review(UUID teamId, long revisionNumber, long expectedVersion, String idempotencyKey) {
         TeamRevision current = get(teamId, revisionNumber);
+        if (current.status() == TeamRevisionStatus.REVIEWING) {
+            return repository.transition(teamId, revisionNumber, expectedVersion, TeamRevisionStatus.DRAFT,
+                    TeamRevisionStatus.REVIEWING, requireKey(idempotencyKey));
+        }
         if (current.status() != TeamRevisionStatus.DRAFT || current.version() != expectedVersion) {
             throw new TeamRevisionConflictException("only the current draft can enter review");
         }
-        return repository.update(new TeamRevision(current.teamId(), current.revision(), current.leaderAgentId(),
-                current.overlayJson(), current.digest(), TeamRevisionStatus.REVIEWING, current.rollbackOfRevision(),
-                current.createdBy(), current.createdAt(), expectedVersion, current.memberAgentIds()));
+        return repository.transition(teamId, revisionNumber, expectedVersion, TeamRevisionStatus.DRAFT,
+                TeamRevisionStatus.REVIEWING, requireKey(idempotencyKey));
     }
 
-    public TeamRevision publish(UUID teamId, long revisionNumber, long expectedVersion) {
+    public TeamRevision review(UUID teamId, long revisionNumber, long expectedVersion) {
+        return review(teamId, revisionNumber, expectedVersion, "legacy-review-" + teamId + "-" + revisionNumber);
+    }
+
+    public TeamRevision publish(UUID teamId, long revisionNumber, long expectedVersion, String idempotencyKey) {
         TeamRevision current = get(teamId, revisionNumber);
-        if (current.status() == TeamRevisionStatus.PUBLISHED && current.version() == expectedVersion) return current;
+        if (current.status() == TeamRevisionStatus.PUBLISHED) {
+            if (current.version() == expectedVersion) return current;
+            return repository.publish(teamId, revisionNumber, expectedVersion, requireKey(idempotencyKey));
+        }
         if ((current.status() != TeamRevisionStatus.DRAFT && current.status() != TeamRevisionStatus.REVIEWING)
                 || current.version() != expectedVersion) {
             throw new TeamRevisionConflictException("team revision cannot be published");
         }
-        repository.deprecatePublished(teamId, revisionNumber);
-        return repository.update(new TeamRevision(current.teamId(), current.revision(), current.leaderAgentId(),
-                current.overlayJson(), current.digest(), TeamRevisionStatus.PUBLISHED, current.rollbackOfRevision(),
-                current.createdBy(), current.createdAt(), expectedVersion, current.memberAgentIds()));
+        publishValidator.validate(current);
+        return repository.publish(teamId, revisionNumber, expectedVersion, requireKey(idempotencyKey));
+    }
+
+    public TeamRevision publish(UUID teamId, long revisionNumber, long expectedVersion) {
+        return publish(teamId, revisionNumber, expectedVersion, "legacy-publish-" + teamId + "-" + revisionNumber);
     }
 
     public TeamRevision rollback(UUID teamId, long targetRevision, String actor,
             String idempotencyKey, Instant now) {
         TeamRevision target = get(teamId, targetRevision);
-        return createDraft(teamId, target.leaderAgentId(), target.overlayJson(), target.memberAgentIds(), actor,
-                requireKey(idempotencyKey), now, target.revision());
+        return repository.createRollback(teamId, target, actor, now, requireKey(idempotencyKey));
     }
 
     public TeamRevision get(UUID teamId, long revision) {
@@ -80,14 +95,6 @@ public final class TeamRevisionService {
 
     public List<TeamRevision> list(UUID teamId) {
         return repository.findAll(teamId);
-    }
-
-    private TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlayJson,
-            List<UUID> memberAgentIds, String actor, String idempotencyKey, Instant now, long rollbackOf) {
-        String overlay = canonicalObject(overlayJson);
-        TeamRevision revision = new TeamRevision(teamId, repository.nextRevision(teamId), leaderAgentId, overlay,
-                sha256(overlay), TeamRevisionStatus.DRAFT, rollbackOf, actor, now, 0, memberAgentIds);
-        return repository.insert(revision, idempotencyKey);
     }
 
     private static String canonicalObject(String value) {

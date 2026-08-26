@@ -1,21 +1,31 @@
 package io.agentteams.controlplane.config;
 
 import java.util.Objects;
+import java.util.List;
 import java.util.UUID;
 
 /** Non-secret provenance for an immutable effective configuration snapshot. */
-public record ConfigProvenance(UUID agentId, UUID teamId, long teamRevision, UUID taskId,
+public record ConfigProvenance(UUID agentBaseSnapshotId, UUID agentId, UUID teamId, long teamRevision, UUID taskId,
+        List<String> bindingDigests,
         String schemaVersion) {
     public ConfigProvenance {
+        Objects.requireNonNull(agentBaseSnapshotId, "agentBaseSnapshotId");
         Objects.requireNonNull(agentId, "agentId");
         Objects.requireNonNull(teamId, "teamId");
+        Objects.requireNonNull(taskId, "taskId");
         if (teamRevision < 1) throw new IllegalArgumentException("teamRevision must be positive");
         if (schemaVersion == null || schemaVersion.isBlank()) {
             throw new IllegalArgumentException("schemaVersion must not be blank");
         }
+        bindingDigests = List.copyOf(Objects.requireNonNull(bindingDigests, "bindingDigests"));
+        if (bindingDigests.stream().anyMatch(value -> value == null || value.isBlank())) {
+            throw new IllegalArgumentException("bindingDigests must not contain blank values");
+        }
     }
 
     public ConfigProvenance(UUID agentId, UUID teamId, long teamRevision, UUID taskId) {
-        this(agentId, teamId, teamRevision, taskId, "v1");
+        this(UUID.nameUUIDFromBytes((agentId + ":" + teamId + ":" + teamRevision)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                agentId, teamId, teamRevision, taskId, List.of(), "v1");
     }
 }

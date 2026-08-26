@@ -31,7 +31,8 @@ public final class EffectiveConfigComposer {
         applyOverlay(result, object(request.taskOverlay(), "taskOverlay"));
         String canonical = ConfigManifestCanonicalizer.normalize(result.toString());
         return new EffectiveConfig(canonical, sha256(canonical),
-                new ConfigProvenance(request.agentId(), request.teamId(), request.teamRevision(), request.taskId()));
+                new ConfigProvenance(request.agentBaseSnapshotId(), request.agentId(), request.teamId(),
+                        request.teamRevision(), request.taskId(), request.bindingDigests(), "v1"));
     }
 
     private static void applyOverlay(ObjectNode target, ObjectNode overlay) {
@@ -39,6 +40,7 @@ public final class EffectiveConfigComposer {
     }
 
     private static void mergeField(ObjectNode target, String key, JsonNode value) {
+        validateSecurityField(key, value);
         JsonNode current = target.get(key);
         if ("sandboxProfile".equals(key) && value.isTextual()) {
             target.put(key, saferProfile(current == null ? "NONE" : current.asText(), value.asText()));
@@ -108,11 +110,35 @@ public final class EffectiveConfigComposer {
         try {
             JsonNode value = MAPPER.readTree(json);
             if (value == null || !value.isObject()) throw new IllegalArgumentException(name + " must be a JSON object");
-            return (ObjectNode) value;
+            validateSecurityTypes(value);
+            return (ObjectNode) MAPPER.readTree(ConfigManifestCanonicalizer.normalize(value.toString()));
         } catch (EffectiveConfigConflictException error) {
             throw error;
         } catch (Exception error) {
             throw new IllegalArgumentException(name + " must be valid JSON", error);
+        }
+    }
+
+    private static void validateSecurityTypes(JsonNode node) {
+        if (!node.isObject() && !node.isArray()) return;
+        if (node.isArray()) {
+            node.forEach(EffectiveConfigComposer::validateSecurityTypes);
+            return;
+        }
+        node.fields().forEachRemaining(entry -> {
+            validateSecurityField(entry.getKey(), entry.getValue());
+            validateSecurityTypes(entry.getValue());
+        });
+    }
+
+    private static void validateSecurityField(String key, JsonNode value) {
+        if (RESTRICTIVE_ARRAYS.contains(key) && !value.isArray()) {
+            throw new EffectiveConfigConflictException("EFFECTIVE_CONFIG_INVALID_TYPE",
+                    key + " must be an array");
+        }
+        if ("sandboxProfile".equals(key) && !value.isTextual()) {
+            throw new EffectiveConfigConflictException("EFFECTIVE_CONFIG_INVALID_TYPE",
+                    "sandboxProfile must be a string");
         }
     }
 

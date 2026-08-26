@@ -20,6 +20,9 @@ public record TeamRevision(UUID teamId, long revision, UUID leaderAgentId, Strin
         Objects.requireNonNull(createdAt, "createdAt");
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         memberAgentIds = List.copyOf(Objects.requireNonNull(memberAgentIds, "memberAgentIds"));
+        if (memberAgentIds.stream().distinct().count() != memberAgentIds.size()) {
+            throw new IllegalArgumentException("revision members must be unique");
+        }
         if (!memberAgentIds.contains(leaderAgentId)) {
             throw new IllegalArgumentException("leader must be a revision member");
         }

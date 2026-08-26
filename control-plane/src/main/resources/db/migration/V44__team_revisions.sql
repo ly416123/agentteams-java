@@ -1,4 +1,6 @@
 ALTER TABLE teams ADD COLUMN current_revision BIGINT;
+ALTER TABLE teams ADD CONSTRAINT teams_current_revision_positive
+    CHECK (current_revision IS NULL OR current_revision > 0);
 
 CREATE TABLE team_revisions (
     team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -39,3 +41,15 @@ CREATE TABLE team_revision_members (
 );
 
 CREATE INDEX team_revision_members_agent_idx ON team_revision_members(agent_id, team_id, team_revision);
+
+CREATE TABLE team_revision_operations (
+    team_id UUID NOT NULL,
+    operation TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    result_revision BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (team_id, operation, idempotency_key),
+    FOREIGN KEY (team_id, result_revision) REFERENCES team_revisions(team_id, revision),
+    CONSTRAINT team_revision_operations_key_non_blank CHECK (length(trim(idempotency_key)) > 0),
+    CONSTRAINT team_revision_operations_name_valid CHECK (operation IN ('TRANSITION', 'PUBLISH'))
+);

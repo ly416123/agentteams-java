@@ -7,36 +7,40 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** PostgreSQL persistence for deployment aggregates and independent member bindings. */
 public class TeamDeploymentRepository {
     private final JdbcTemplate jdbc;
+    private final TransactionTemplate transaction;
 
     public TeamDeploymentRepository(JdbcTemplate jdbc) {
         this.jdbc = java.util.Objects.requireNonNull(jdbc, "jdbc");
+        this.transaction = new TransactionTemplate(new DataSourceTransactionManager(
+                java.util.Objects.requireNonNull(jdbc.getDataSource(), "jdbc data source")));
     }
 
     public TeamDeployment create(TeamDeployment deployment) {
-        Optional<TeamDeployment> existing = findByIdempotencyKey(deployment.teamId(), deployment.idempotencyKey());
-        if (existing.isPresent()) return existing.get();
-        jdbc.update("""
-                INSERT INTO team_deployments(id, team_id, team_revision, status, created_at, idempotency_key)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT DO NOTHING
-        """, deployment.id(), deployment.teamId(), deployment.teamRevision(), deployment.status(),
-                java.sql.Timestamp.from(deployment.createdAt()), deployment.idempotencyKey());
-        for (TeamDeployment.Member member : deployment.members()) {
+        return transaction.execute(status -> {
+            Optional<TeamDeployment> existing = findByIdempotencyKey(deployment.teamId(), deployment.idempotencyKey());
+            if (existing.isPresent()) return existing.get();
             jdbc.update("""
-                    INSERT INTO team_deployment_members(deployment_id, agent_id, base_manifest, task_overlay,
-                        binding_id, status, failure_code)
-                    VALUES (?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?)
-                    ON CONFLICT (deployment_id, agent_id) DO NOTHING
-                    """, deployment.id(), member.agentId(), nullableJson(member.baseManifest()),
-                    member.taskOverlay() == null ? "{}" : member.taskOverlay(), member.bindingId(), member.status(),
-                    member.failureCode());
-        }
-        return findByIdempotencyKey(deployment.teamId(), deployment.idempotencyKey())
-                .or(() -> find(deployment.id())).orElseThrow();
+                    INSERT INTO team_deployments(id, team_id, team_revision, status, version, created_at, idempotency_key)
+                    VALUES (?, ?, ?, ?, 0, ?, ?)
+            """, deployment.id(), deployment.teamId(), deployment.teamRevision(), deployment.status(),
+                    java.sql.Timestamp.from(deployment.createdAt()), deployment.idempotencyKey());
+            for (TeamDeployment.Member member : deployment.members()) {
+                jdbc.update("""
+                        INSERT INTO team_deployment_members(deployment_id, agent_id, base_manifest, task_overlay,
+                            binding_id, status, failure_code)
+                        VALUES (?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?)
+                        """, deployment.id(), member.agentId(), nullableJson(member.baseManifest()),
+                        member.taskOverlay() == null ? "{}" : member.taskOverlay(), member.bindingId(), member.status(),
+                        member.failureCode());
+            }
+            return find(deployment.id()).orElseThrow();
+        });
     }
 
     public Optional<TeamDeployment> find(UUID deploymentId) {
@@ -78,6 +82,18 @@ public class TeamDeploymentRepository {
         updateStatus(deploymentId, "PENDING");
     }
 
+    public void markRetrying(UUID deploymentId, List<UUID> agentIds, Instant at, String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key is required");
+        }
+        boolean recorded = jdbc.update("""
+                INSERT INTO team_deployment_operations(deployment_id, operation, idempotency_key, created_at)
+                VALUES (?, 'RETRY', ?, ?)
+                ON CONFLICT DO NOTHING
+                """, deploymentId, idempotencyKey, java.sql.Timestamp.from(at)) == 1;
+        if (recorded) markRetrying(deploymentId, agentIds, at);
+    }
+
     public void markMember(UUID deploymentId, UUID agentId, UUID bindingId, String status, String failureCode) {
         jdbc.update("""
                 UPDATE team_deployment_members SET binding_id = ?, status = ?, failure_code = ?
@@ -92,6 +108,28 @@ public class TeamDeploymentRepository {
                 """, status, failureCode, deploymentId, agentId);
     }
 
+    /** A ConfigApplied ACK can advance only the still-pending member of its frozen deployment binding. */
+    public void recordConfigAppliedAck(io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand command) {
+        String status = command.applied() ? "SUCCEEDED" : "FAILED";
+        int updated = jdbc.update("""
+                UPDATE team_deployment_members member
+                   SET status = ?, failure_code = ?
+                  FROM team_deployments deployment
+                 WHERE member.deployment_id = deployment.id
+                   AND member.binding_id = ? AND member.agent_id = ?
+                   AND EXISTS (SELECT 1 FROM config_bindings binding
+                                JOIN config_snapshots snapshot ON snapshot.id = binding.snapshot_id
+                               WHERE binding.id = member.binding_id
+                                 AND binding.snapshot_id = ? AND snapshot.version = ?)
+                   AND member.status = 'PENDING'
+                   AND deployment.status IN ('PENDING', 'PARTIAL_FAILURE')
+                """, status, command.applied() ? null : command.errorMessage(), command.bindingId(), command.agentId(),
+                command.snapshotId(), command.configVersion());
+        if (updated == 1) {
+            refreshStatusByBinding(command.bindingId());
+        }
+    }
+
     public void updateStatus(UUID deploymentId, String status) {
         jdbc.update("UPDATE team_deployments SET status = ? WHERE id = ?", status, deploymentId);
     }
@@ -99,7 +137,9 @@ public class TeamDeploymentRepository {
     public void refreshStatus(UUID deploymentId) {
         long pending = count(deploymentId, "PENDING");
         long failed = count(deploymentId, "FAILED");
-        if (pending == 0) updateStatus(deploymentId, failed == 0 ? "SUCCEEDED" : "PARTIAL_FAILURE");
+        long succeeded = count(deploymentId, "SUCCEEDED");
+        if (pending == 0) updateStatus(deploymentId,
+                failed == 0 ? "SUCCEEDED" : (succeeded == 0 ? "FAILED" : "PARTIAL_FAILURE"));
     }
 
     private List<TeamDeployment.Member> members(UUID deploymentId) {
@@ -129,5 +169,11 @@ public class TeamDeploymentRepository {
         Long value = jdbc.queryForObject("SELECT count(*) FROM team_deployment_members"
                 + " WHERE deployment_id = ? AND status = ?", Long.class, deploymentId, status);
         return value == null ? 0 : value;
+    }
+
+    private void refreshStatusByBinding(UUID bindingId) {
+        jdbc.query("SELECT deployment_id FROM team_deployment_members WHERE binding_id = ?",
+                (rs, row) -> rs.getObject("deployment_id", UUID.class), bindingId)
+                .stream().findFirst().ifPresent(this::refreshStatus);
     }
 }

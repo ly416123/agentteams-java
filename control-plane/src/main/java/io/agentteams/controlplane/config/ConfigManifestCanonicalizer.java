@@ -28,7 +28,12 @@ public final class ConfigManifestCanonicalizer {
         if (node == null || node.isValueNode()) return node;
         if (node.isArray()) {
             ArrayNode result = JsonNodeFactory.instance.arrayNode();
-            node.forEach(value -> result.add(canonicalize(value)));
+            var unique = new java.util.TreeMap<String, JsonNode>();
+            node.forEach(value -> {
+                JsonNode canonical = canonicalize(value);
+                unique.putIfAbsent(canonical.toString(), canonical);
+            });
+            unique.values().forEach(result::add);
             return result;
         }
         ObjectNode result = JsonNodeFactory.instance.objectNode();

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class EffectiveConfigComposerTest {
@@ -53,6 +54,24 @@ class EffectiveConfigComposerTest {
                 .isInstanceOf(EffectiveConfigConflictException.class)
                 .extracting(error -> ((EffectiveConfigConflictException) error).code())
                 .isEqualTo("EFFECTIVE_CONFIG_ESCALATION_REJECTED");
+    }
+
+    @Test
+    void rejectsSecurityFieldsWithInvalidTypesAndRequiresCompleteProvenance() {
+        EffectiveConfigComposer composer = new EffectiveConfigComposer();
+        assertThatThrownBy(() -> composer.compose(request(
+                "{\"permissions\":{}}", "{}", "{}")))
+                .isInstanceOf(EffectiveConfigConflictException.class);
+        assertThatThrownBy(() -> composer.compose(request(
+                "{}", "{\"sandboxProfile\":false}", "{}")))
+                .isInstanceOf(EffectiveConfigConflictException.class);
+
+        EffectiveConfigRequest complete = new EffectiveConfigRequest(UUID.randomUUID(), AGENT_ID, TEAM_ID, 7,
+                TASK_ID, List.of("sha256:skill"), "{}", "{}", "{}");
+        EffectiveConfig result = composer.compose(complete);
+        assertThat(result.provenance().agentBaseSnapshotId()).isEqualTo(complete.agentBaseSnapshotId());
+        assertThat(result.provenance().bindingDigests()).containsExactly("sha256:skill");
+        assertThat(result.provenance().taskId()).isEqualTo(TASK_ID);
     }
 
     private static EffectiveConfigRequest request(String base, String team, String task) {

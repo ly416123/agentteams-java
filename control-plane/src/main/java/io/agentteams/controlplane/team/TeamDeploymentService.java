@@ -6,8 +6,11 @@ import io.agentteams.controlplane.config.EffectiveConfigRequest;
 import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigSnapshot;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
+import io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand;
 import java.time.Clock;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -50,7 +53,16 @@ public final class TeamDeploymentService {
     public TeamDeployment deploy(TeamRevision revision, List<TeamDeployment.Member> members,
             String actor, String idempotencyKey) {
         Objects.requireNonNull(revision, "revision");
+        if (revision.status() != TeamRevisionStatus.PUBLISHED) {
+            throw new TeamRevisionConflictException("deployment requires a PUBLISHED revision");
+        }
         if (members == null || members.isEmpty()) throw new IllegalArgumentException("members must not be empty");
+        java.util.Set<UUID> expectedMembers = new java.util.LinkedHashSet<>(revision.memberAgentIds());
+        java.util.Set<UUID> requestedMembers = members.stream().map(TeamDeployment.Member::agentId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        if (requestedMembers.size() != members.size() || !requestedMembers.equals(expectedMembers)) {
+            throw new TeamRevisionConflictException("deployment member set must equal the published revision");
+        }
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new IllegalArgumentException("Idempotency-Key is required");
         }
@@ -71,11 +83,28 @@ public final class TeamDeploymentService {
     }
 
     public void retry(UUID deploymentId) {
+        retryInternal(deploymentId, "legacy-retry-" + deploymentId + "-" + clock.instant().toEpochMilli(), false);
+    }
+
+    public void retry(UUID deploymentId, String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key is required");
+        }
+        retryInternal(deploymentId, idempotencyKey, true);
+    }
+
+    private void retryInternal(UUID deploymentId, String idempotencyKey, boolean persistKey) {
         TeamDeployment deployment = repository.find(Objects.requireNonNull(deploymentId, "deploymentId"))
                 .orElseThrow(() -> new IllegalArgumentException("team deployment does not exist"));
         List<TeamDeployment.Member> failed = repository.failedMembers(deployment.id());
         if (failed.isEmpty()) throw new IllegalArgumentException("team deployment has no failed members");
-        repository.markRetrying(deployment.id(), failed.stream().map(TeamDeployment.Member::agentId).toList(), clock.instant());
+        if (persistKey) {
+            repository.markRetrying(deployment.id(), failed.stream().map(TeamDeployment.Member::agentId).toList(),
+                    clock.instant(), idempotencyKey);
+        } else {
+            repository.markRetrying(deployment.id(), failed.stream().map(TeamDeployment.Member::agentId).toList(),
+                    clock.instant());
+        }
         for (TeamDeployment.Member member : failed) {
             try {
                 if (member.bindingId() != null) {
@@ -113,18 +142,31 @@ public final class TeamDeploymentService {
         retry(deploymentId);
     }
 
+    public void retry(UUID deploymentId, UUID teamId, String idempotencyKey) {
+        find(deploymentId, teamId);
+        retry(deploymentId, idempotencyKey);
+    }
+
     public void recordAck(UUID deploymentId, UUID agentId, boolean applied, String failureCode) {
         repository.markMemberStatus(deploymentId, agentId, applied ? "SUCCEEDED" : "FAILED", failureCode);
         repository.refreshStatus(deploymentId);
     }
 
+    /** Consumes the durable ConfigApplied event and fences stale binding acknowledgements. */
+    public void recordAck(ConfigAppliedCommand command) {
+        repository.recordConfigAppliedAck(Objects.requireNonNull(command, "command"));
+    }
+
     private void applyMember(TeamDeployment deployment, TeamRevision revision, TeamDeployment.Member member,
             String actor) {
-        if (member.baseManifest() == null || member.baseManifest().isBlank()) return;
-        EffectiveConfig effective = composer.compose(new EffectiveConfigRequest(member.agentId(), revision.teamId(),
-                revision.revision(), null, member.baseManifest(), revision.overlayJson(),
-                member.taskOverlay() == null ? "{}" : member.taskOverlay()));
+        if (member.baseManifest() == null || member.baseManifest().isBlank()) {
+            throw new IllegalArgumentException("baseManifest is required for every deployment member");
+        }
         String subject = "team-revision:" + revision.teamId() + ":" + revision.revision() + ":" + member.agentId();
+        EffectiveConfig effective = composer.compose(new EffectiveConfigRequest(
+                UUID.nameUUIDFromBytes(member.baseManifest().getBytes(StandardCharsets.UTF_8)), member.agentId(),
+                revision.teamId(), revision.revision(), deployment.id(), List.of(sha256(subject)),
+                member.baseManifest(), revision.overlayJson(), member.taskOverlay() == null ? "{}" : member.taskOverlay()));
         ConfigSnapshot snapshot = snapshots.create(subject, effective.canonicalManifest(), actor);
         ConfigDeploymentService.ConfigDeployment deploymentResult = deployments.deploy(member.agentId(), subject, snapshot);
         repository.markMember(deployment.id(), member.agentId(), deploymentResult.binding().id(), "PENDING", null);
@@ -135,5 +177,14 @@ public final class TeamDeploymentService {
         ConfigSnapshot snapshot = snapshots.create(subject, member.baseManifest(), actor);
         ConfigDeploymentService.ConfigDeployment result = deployments.deploy(member.agentId(), subject, snapshot);
         repository.markMember(deployment.id(), member.agentId(), result.binding().id(), "PENDING", null);
+    }
+
+    private static String sha256(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 }

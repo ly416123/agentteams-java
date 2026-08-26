@@ -129,7 +129,7 @@ public final class TeamController {
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
             @RequestBody VersionRequest request) {
         requireIdempotencyKey(idempotencyKey);
-        return RevisionResponse.from(revisions.review(teamId, revision, expectedVersion(request)));
+        return RevisionResponse.from(revisions.review(teamId, revision, expectedVersion(request), idempotencyKey));
     }
 
     @PostMapping("/{teamId}/revisions/{revision}/publish")
@@ -137,7 +137,7 @@ public final class TeamController {
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
             @RequestBody VersionRequest request) {
         requireIdempotencyKey(idempotencyKey);
-        return RevisionResponse.from(revisions.publish(teamId, revision, expectedVersion(request)));
+        return RevisionResponse.from(revisions.publish(teamId, revision, expectedVersion(request), idempotencyKey));
     }
 
     @PostMapping("/{teamId}/revisions/{revision}/deployments")
@@ -162,7 +162,7 @@ public final class TeamController {
     public void retry(@PathVariable UUID teamId, @PathVariable UUID deploymentId,
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey) {
         requireIdempotencyKey(idempotencyKey);
-        deployments.retry(deploymentId, teamId);
+        deployments.retry(deploymentId, teamId, idempotencyKey);
     }
 
     @PostMapping("/{teamId}/rollback")
