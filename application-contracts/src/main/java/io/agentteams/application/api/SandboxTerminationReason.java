@@ -9,5 +9,6 @@ public enum SandboxTerminationReason {
     TASK_CANCELLED,
     LEASE_EXPIRED,
     SANDBOX_LOST,
+    SUPERSEDED,
     OPERATOR_CLEANUP
 }
