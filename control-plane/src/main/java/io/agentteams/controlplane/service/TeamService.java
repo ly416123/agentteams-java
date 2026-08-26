@@ -84,18 +84,7 @@ public final class TeamService {
     }
 
     public TeamMemberRecord addMember(UUID teamId, UUID agentId, String role, Instant now) {
-        Objects.requireNonNull(teamId, "teamId");
-        Objects.requireNonNull(agentId, "agentId");
-        requireVisible(teamId);
-        requireWorkerVisible(agentId);
-        TeamMemberRecord member = new TeamMemberRecord(UUID.randomUUID(), teamId, agentId, role,
-                "ACTIVE", now, now, 0);
-        return persistence.inTransaction(tx -> {
-            tx.teams().findById(teamId).orElseThrow(() -> new ResourceNotFoundException("team", teamId));
-            tx.agents().findById(agentId).orElseThrow(() -> new ResourceNotFoundException("agent", agentId));
-            tx.teams().insertMember(member);
-            return tx.teams().findActiveMember(teamId, agentId).orElse(member);
-        });
+        throw new IllegalArgumentException("Idempotency-Key is required");
     }
 
     public TeamMemberRecord addMember(UUID teamId, UUID agentId, String role, Instant now, String idempotencyKey) {
@@ -153,15 +142,7 @@ public final class TeamService {
 
     public TeamPolicyRecord updatePolicy(UUID teamId, int maxConcurrentTasks, boolean requireHumanApproval,
             List<String> allowedRuntimes, List<String> requiredCapabilities, long expectedVersion, Instant now) {
-        Objects.requireNonNull(teamId, "teamId");
-        Objects.requireNonNull(allowedRuntimes, "allowedRuntimes");
-        Objects.requireNonNull(requiredCapabilities, "requiredCapabilities");
-        Objects.requireNonNull(now, "now");
-        if (expectedVersion < 0) throw new IllegalArgumentException("expectedVersion must not be negative");
-        get(teamId);
-        TeamPolicyRecord next = new TeamPolicyRecord(teamId, maxConcurrentTasks, requireHumanApproval,
-                allowedRuntimes, requiredCapabilities, now, expectedVersion);
-        return persistence.inTransaction(tx -> tx.teams().updatePolicy(next, expectedVersion));
+        throw new IllegalArgumentException("Idempotency-Key is required");
     }
 
     public TeamPolicyRecord updatePolicy(UUID teamId, int maxConcurrentTasks, boolean requireHumanApproval,
@@ -193,12 +174,7 @@ public final class TeamService {
     }
 
     public void removeMember(UUID teamId, UUID agentId, Instant now) {
-        Objects.requireNonNull(agentId, "agentId");
-        get(teamId);
-        persistence.inTransaction(tx -> {
-            tx.teams().deactivateMember(teamId, agentId, now);
-            return null;
-        });
+        throw new IllegalArgumentException("Idempotency-Key is required");
     }
 
     public void removeMember(UUID teamId, UUID agentId, Instant now, String idempotencyKey) {
@@ -225,11 +201,7 @@ public final class TeamService {
     }
 
     public void delete(UUID teamId, Instant now) {
-        get(teamId);
-        persistence.inTransaction(tx -> {
-            tx.teams().markDeleted(teamId, now);
-            return null;
-        });
+        throw new IllegalArgumentException("Idempotency-Key is required");
     }
 
     public void delete(UUID teamId, Instant now, String idempotencyKey) {

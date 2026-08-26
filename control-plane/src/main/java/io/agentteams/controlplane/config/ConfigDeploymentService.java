@@ -193,27 +193,7 @@ public final class ConfigDeploymentService {
     /** Re-emits the current failed revision; repeated calls for one failed state are idempotent. */
     public ConfigDeployment retry(UUID bindingId) {
         Objects.requireNonNull(bindingId, "bindingId");
-        return persistence.inTransaction(tx -> {
-            ConfigBindingRecord binding = tx.configLifecycle().findBindingForUpdate(bindingId)
-                    .orElseThrow(() -> new IllegalArgumentException("config binding does not exist"));
-            ConfigSnapshot snapshot = snapshots.findById(binding.snapshotId())
-                    .orElseThrow(() -> new IllegalStateException("desired config snapshot does not exist"));
-            ConfigApplyRecord apply = tx.configLifecycle().findApply(binding.id(), snapshot.id())
-                    .orElseThrow(() -> new IllegalArgumentException("config binding has no apply result"));
-            if (!"FAILED".equals(apply.phase())) {
-                throw new IllegalArgumentException("only failed config deployments can be retried");
-            }
-            UUID eventId = replayEventId(binding.id(), snapshot.id(), apply.updatedAt());
-            if (tx.outboxEvents().findByEventId(eventId).isPresent()) {
-                return new ConfigDeployment(binding, snapshot, eventId);
-            }
-            tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), snapshot.id(), eventId,
-                    clock.instant(), snapshot.version());
-            String payload = payload(eventId, binding, snapshot, tx.configLifecycle().findFiles(snapshot.id()), false);
-            FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
-                    clock.instant(), snapshot.version());
-            return new ConfigDeployment(binding, snapshot, eventId);
-        });
+        return retry(bindingId, "legacy-config-retry-" + bindingId);
     }
 
     public ConfigDeployment retry(UUID bindingId, String idempotencyKey) {
@@ -255,30 +235,7 @@ public final class ConfigDeploymentService {
     /** Selects the newest previously applied snapshot and emits a durable rollback command. */
     public ConfigDeployment rollback(UUID bindingId) {
         Objects.requireNonNull(bindingId, "bindingId");
-        return persistence.inTransaction(tx -> {
-            ConfigBindingRecord binding = tx.configLifecycle().findBindingForUpdate(bindingId)
-                    .orElseThrow(() -> new IllegalArgumentException("config binding does not exist"));
-            ConfigSnapshot current = snapshots.findById(binding.snapshotId())
-                    .orElseThrow(() -> new IllegalStateException("desired config snapshot does not exist"));
-            ConfigSnapshot stable = tx.configLifecycle()
-                    .findLatestAppliedSnapshotForRollback(binding.id(), current.id())
-                    .orElseThrow(() -> new IllegalArgumentException("config binding has no stable revision to roll back to"));
-            UUID eventId = rollbackEventId(binding.id(), current.id(), stable.id());
-            ConfigBindingRecord target = new ConfigBindingRecord(binding.id(), binding.subject(), binding.agentId(),
-                    stable.id(), clock.instant());
-            if (tx.outboxEvents().findByEventId(eventId).isPresent()) {
-                return new ConfigDeployment(target, stable, eventId);
-            }
-            tx.configLifecycle().upsertBinding(target);
-            tx.configLifecycle().markApplyPending(binding.id(), binding.agentId(), stable.id(), eventId,
-                    clock.instant(), stable.version());
-            tx.configLifecycle().markRollbackRequested(binding.id(), stable.id());
-            if (metrics != null) metrics.configRollbackRequested();
-            String payload = payload(eventId, target, stable, tx.configLifecycle().findFiles(stable.id()), true);
-            FoundationPersistenceService.appendEvent(tx, eventId, "agent", binding.agentId(), CONFIG_CHANGED, payload,
-                    clock.instant(), stable.version());
-            return new ConfigDeployment(target, stable, eventId);
-        });
+        return rollback(bindingId, "legacy-config-rollback-" + bindingId);
     }
 
     public ConfigDeployment rollback(UUID bindingId, String idempotencyKey) {

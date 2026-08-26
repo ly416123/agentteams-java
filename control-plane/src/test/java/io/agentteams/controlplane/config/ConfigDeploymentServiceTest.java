@@ -83,6 +83,7 @@ class ConfigDeploymentServiceTest {
         FoundationTransaction tx = mock(FoundationTransaction.class);
         ConfigLifecycleRepository lifecycle = mock(ConfigLifecycleRepository.class);
         ConfigSnapshotRepository snapshots = mock(ConfigSnapshotRepository.class);
+        IdempotencyKeyRepository keys = mock(IdempotencyKeyRepository.class);
         OutboxEventRepository outbox = mock(OutboxEventRepository.class);
         DomainEventRepository domainEvents = mock(DomainEventRepository.class);
         UUID bindingId = UUID.randomUUID();
@@ -94,13 +95,15 @@ class ConfigDeploymentServiceTest {
         ConfigBindingRecord binding = new ConfigBindingRecord(bindingId, "worker", agentId, current.id(), NOW);
         when(tx.configLifecycle()).thenReturn(lifecycle);
         when(tx.outboxEvents()).thenReturn(outbox);
+        when(tx.idempotencyKeys()).thenReturn(keys);
         when(tx.domainEvents()).thenReturn(domainEvents);
         when(lifecycle.findBindingForUpdate(bindingId)).thenReturn(Optional.of(binding));
-        when(lifecycle.findBinding(bindingId)).thenReturn(Optional.of(binding));
         when(snapshots.findById(current.id())).thenReturn(Optional.of(current));
         when(lifecycle.findLatestAppliedSnapshotForRollback(bindingId, current.id())).thenReturn(Optional.of(stable));
         when(lifecycle.findFiles(stable.id())).thenReturn(List.of());
         when(outbox.findByEventId(any())).thenReturn(Optional.empty());
+        when(keys.findByKey("rollback-key")).thenReturn(Optional.empty());
+        when(keys.insertIfAbsent(any())).thenReturn(true);
         when(persistence.inTransaction(any())).thenAnswer(invocation -> {
             Function<FoundationTransaction, ?> work = invocation.getArgument(0);
             return work.apply(tx);
@@ -109,7 +112,7 @@ class ConfigDeploymentServiceTest {
         ConfigDeploymentService service = new ConfigDeploymentService(persistence, snapshots,
                 Clock.fixed(NOW, ZoneOffset.UTC), MAPPER);
 
-        ConfigDeploymentService.ConfigDeployment result = service.rollback(bindingId);
+        ConfigDeploymentService.ConfigDeployment result = service.rollback(bindingId, "rollback-key");
 
         assertThat(result.snapshot()).isEqualTo(stable);
         assertThat(result.binding().snapshotId()).isEqualTo(stable.id());

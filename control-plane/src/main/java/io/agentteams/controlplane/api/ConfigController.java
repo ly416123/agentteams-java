@@ -58,7 +58,8 @@ public final class ConfigController {
         ConfigSnapshot snapshot = snapshotRepository.findById(snapshotId)
                 .orElseThrow(() -> new IllegalArgumentException("config snapshot does not exist"));
         PrincipalContext.requireScope(snapshot.manifestJson());
-        ConfigDeploymentService.ConfigDeployment deployment = deployments.deploy(agentId, snapshot.subject(), snapshot);
+        ConfigDeploymentService.ConfigDeployment deployment = deployments.deploy(agentId, snapshot.subject(), snapshot,
+                idempotencyKey);
         return DeploymentResponse.from(deployment);
     }
 
