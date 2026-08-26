@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -8,6 +9,11 @@ import static org.mockito.Mockito.when;
 
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.FoundationTransaction;
+import io.agentteams.controlplane.persistence.AgentRecord;
+import io.agentteams.controlplane.persistence.AgentRepository;
+import io.agentteams.controlplane.persistence.IdempotencyKeyRecord;
+import io.agentteams.controlplane.persistence.IdempotencyKeyRepository;
+import io.agentteams.controlplane.persistence.TeamMemberRecord;
 import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
 import io.agentteams.controlplane.persistence.TeamRepository;
@@ -18,6 +24,7 @@ import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -44,6 +51,12 @@ class TeamServiceScopeTest {
 
     @Mock
     private TeamRepository teams;
+
+    @Mock
+    private AgentRepository agents;
+
+    @Mock
+    private IdempotencyKeyRepository idempotencyKeys;
 
     @Mock
     private ResourceScopeRepository resourceScopes;
@@ -92,5 +105,69 @@ class TeamServiceScopeTest {
                         UUID.randomUUID(), List.of(), false)))
                 .isInstanceOf(AuthorizationException.class)
                 .hasMessage("resource is outside caller project");
+    }
+
+    @Test
+    void memberMutationWithSameKeyAndRequestReturnsTheExistingMember() {
+        UUID teamId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        TeamMemberRecord member = new TeamMemberRecord(UUID.randomUUID(), teamId, agentId, "MEMBER", "ACTIVE",
+                NOW, NOW, 0);
+        when(transaction.teams()).thenReturn(teams);
+        when(transaction.agents()).thenReturn(agents);
+        when(transaction.idempotencyKeys()).thenReturn(idempotencyKeys);
+        when(teams.findById(teamId)).thenReturn(Optional.of(new TeamRecord(teamId, "team", "Team", "ACTIVE", NOW, NOW, 0)));
+        when(agents.findById(agentId)).thenReturn(Optional.of(AgentRecord.create(agentId, "agent",
+                io.agentteams.domain.agent.AgentPhase.PROVISIONING, "qwenpaw", "{}", NOW)));
+        when(teams.findActiveMember(teamId, agentId)).thenReturn(Optional.of(member));
+        when(idempotencyKeys.findByKey("member-key")).thenReturn(Optional.empty(),
+                Optional.of(idempotency("member-key", "TEAM_ADD_MEMBER",
+                        new IdempotencyService().requestHash(teamId.toString(), agentId.toString(), "MEMBER"), member.id())));
+        when(idempotencyKeys.insertIfAbsent(any())).thenReturn(true);
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Function<FoundationTransaction, Object> work = invocation.getArgument(0);
+            return work.apply(transaction);
+        });
+
+        TeamService keyed = new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
+                null, new IdempotencyService());
+
+        assertThat(keyed.addMember(teamId, agentId, "MEMBER", NOW, "member-key")).isEqualTo(member);
+        assertThat(keyed.addMember(teamId, agentId, "MEMBER", NOW, "member-key")).isEqualTo(member);
+        verify(idempotencyKeys).insertIfAbsent(any());
+    }
+
+    @Test
+    void policyMutationWithSameKeyAndRequestReturnsTheExistingPolicy() {
+        UUID teamId = UUID.randomUUID();
+        TeamPolicyRecord policy = new TeamPolicyRecord(teamId, 3, true, List.of("java"), List.of("gpu"), NOW, 2);
+        when(transaction.teams()).thenReturn(teams);
+        when(transaction.idempotencyKeys()).thenReturn(idempotencyKeys);
+        when(teams.findById(teamId)).thenReturn(Optional.of(new TeamRecord(teamId, "team", "Team", "ACTIVE", NOW, NOW, 0)));
+        when(teams.findPolicy(teamId)).thenReturn(Optional.of(policy));
+        String hash = new IdempotencyService().requestHash(teamId.toString(), "3", "true", "[java]", "[gpu]", "2");
+        when(idempotencyKeys.findByKey("policy-key")).thenReturn(Optional.empty(),
+                Optional.of(idempotency("policy-key", "TEAM_UPDATE_POLICY", hash, teamId)));
+        when(idempotencyKeys.insertIfAbsent(any())).thenReturn(true);
+        when(teams.updatePolicy(any(), eq(2L))).thenReturn(policy);
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Function<FoundationTransaction, Object> work = invocation.getArgument(0);
+            return work.apply(transaction);
+        });
+
+        TeamService keyed = new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
+                null, new IdempotencyService());
+
+        assertThat(keyed.updatePolicy(teamId, 3, true, List.of("java"), List.of("gpu"), 2, NOW, "policy-key"))
+                .isEqualTo(policy);
+        assertThat(keyed.updatePolicy(teamId, 3, true, List.of("java"), List.of("gpu"), 2, NOW, "policy-key"))
+                .isEqualTo(policy);
+        verify(idempotencyKeys).insertIfAbsent(any());
+    }
+
+    private static IdempotencyKeyRecord idempotency(String key, String operation, String hash, UUID resourceId) {
+        return new IdempotencyKeyRecord(UUID.randomUUID(), key, operation, hash, "team", resourceId, "{}", NOW, NOW, 0);
     }
 }

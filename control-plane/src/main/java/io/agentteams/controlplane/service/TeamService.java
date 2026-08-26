@@ -2,6 +2,8 @@ package io.agentteams.controlplane.service;
 
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
+import io.agentteams.controlplane.persistence.IdempotencyConflictException;
+import io.agentteams.controlplane.persistence.IdempotencyKeyRecord;
 import io.agentteams.controlplane.persistence.TeamMemberRecord;
 import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
@@ -14,6 +16,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 public final class TeamService {
+    private static final String ADD_MEMBER = "TEAM_ADD_MEMBER";
+    private static final String UPDATE_POLICY = "TEAM_UPDATE_POLICY";
+    private static final String REMOVE_MEMBER = "TEAM_REMOVE_MEMBER";
+    private static final String DELETE_TEAM = "TEAM_DELETE";
     private final FoundationPersistenceService persistence;
     private final TeamSchedulingPolicy schedulingPolicy;
     private final ResourceScopeRepository resourceScopes;
@@ -92,6 +98,36 @@ public final class TeamService {
         });
     }
 
+    public TeamMemberRecord addMember(UUID teamId, UUID agentId, String role, Instant now, String idempotencyKey) {
+        String key = requireKey(idempotencyKey);
+        Objects.requireNonNull(now, "now");
+        requireVisible(teamId);
+        requireWorkerVisible(agentId);
+        String hash = idempotency.requestHash(teamId.toString(), agentId.toString(), role);
+        return persistence.inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(key);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), ADD_MEMBER, hash, key);
+                return tx.teams().findActiveMember(teamId, agentId)
+                        .orElseThrow(() -> new IllegalStateException("idempotent team member is missing"));
+            }
+            tx.teams().findById(teamId).orElseThrow(() -> new ResourceNotFoundException("team", teamId));
+            tx.agents().findById(agentId).orElseThrow(() -> new ResourceNotFoundException("agent", agentId));
+            TeamMemberRecord member = new TeamMemberRecord(UUID.randomUUID(), teamId, agentId, role,
+                    "ACTIVE", now, now, 0);
+            IdempotencyKeyRecord record = idempotencyRecord(key, ADD_MEMBER, hash, member.id(), now);
+            if (!tx.idempotencyKeys().insertIfAbsent(record)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, ADD_MEMBER, hash, key);
+                return tx.teams().findActiveMember(teamId, agentId)
+                        .orElseThrow(() -> new IllegalStateException("idempotent team member is missing"));
+            }
+            tx.teams().insertMember(member);
+            return tx.teams().findActiveMember(teamId, agentId).orElse(member);
+        });
+    }
+
     public TeamRecord get(UUID teamId) {
         Objects.requireNonNull(teamId, "teamId");
         requireVisible(teamId);
@@ -128,6 +164,34 @@ public final class TeamService {
         return persistence.inTransaction(tx -> tx.teams().updatePolicy(next, expectedVersion));
     }
 
+    public TeamPolicyRecord updatePolicy(UUID teamId, int maxConcurrentTasks, boolean requireHumanApproval,
+            List<String> allowedRuntimes, List<String> requiredCapabilities, long expectedVersion, Instant now,
+            String idempotencyKey) {
+        String key = requireKey(idempotencyKey);
+        Objects.requireNonNull(now, "now");
+        get(teamId);
+        TeamPolicyRecord next = new TeamPolicyRecord(teamId, maxConcurrentTasks, requireHumanApproval,
+                allowedRuntimes, requiredCapabilities, now, expectedVersion);
+        String hash = idempotency.requestHash(teamId.toString(), Integer.toString(maxConcurrentTasks),
+                Boolean.toString(requireHumanApproval), allowedRuntimes.toString(), requiredCapabilities.toString(),
+                Long.toString(expectedVersion));
+        return persistence.inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(key);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), UPDATE_POLICY, hash, key);
+                return tx.teams().findPolicy(teamId).orElseThrow(() -> new IllegalStateException("team policy is missing"));
+            }
+            IdempotencyKeyRecord record = idempotencyRecord(key, UPDATE_POLICY, hash, teamId, now);
+            if (!tx.idempotencyKeys().insertIfAbsent(record)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, UPDATE_POLICY, hash, key);
+                return tx.teams().findPolicy(teamId).orElseThrow(() -> new IllegalStateException("team policy is missing"));
+            }
+            return tx.teams().updatePolicy(next, expectedVersion);
+        });
+    }
+
     public void removeMember(UUID teamId, UUID agentId, Instant now) {
         Objects.requireNonNull(agentId, "agentId");
         get(teamId);
@@ -137,9 +201,55 @@ public final class TeamService {
         });
     }
 
+    public void removeMember(UUID teamId, UUID agentId, Instant now, String idempotencyKey) {
+        String key = requireKey(idempotencyKey);
+        Objects.requireNonNull(now, "now");
+        get(teamId);
+        String hash = idempotency.requestHash(teamId.toString(), agentId.toString());
+        persistence.inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(key);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), REMOVE_MEMBER, hash, key);
+                return null;
+            }
+            IdempotencyKeyRecord record = idempotencyRecord(key, REMOVE_MEMBER, hash, teamId, now);
+            if (!tx.idempotencyKeys().insertIfAbsent(record)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, REMOVE_MEMBER, hash, key);
+                return null;
+            }
+            tx.teams().deactivateMember(teamId, agentId, now);
+            return null;
+        });
+    }
+
     public void delete(UUID teamId, Instant now) {
         get(teamId);
         persistence.inTransaction(tx -> {
+            tx.teams().markDeleted(teamId, now);
+            return null;
+        });
+    }
+
+    public void delete(UUID teamId, Instant now, String idempotencyKey) {
+        String key = requireKey(idempotencyKey);
+        Objects.requireNonNull(now, "now");
+        get(teamId);
+        String hash = idempotency.requestHash(teamId.toString());
+        persistence.inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(key);
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), DELETE_TEAM, hash, key);
+                return null;
+            }
+            IdempotencyKeyRecord record = idempotencyRecord(key, DELETE_TEAM, hash, teamId, now);
+            if (!tx.idempotencyKeys().insertIfAbsent(record)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, DELETE_TEAM, hash, key);
+                return null;
+            }
             tx.teams().markDeleted(teamId, now);
             return null;
         });
@@ -198,6 +308,22 @@ public final class TeamService {
     private void requireWorkerVisible(UUID resourceId) {
         if (resourceScopes != null) {
             resourceScopes.requireVisible("WORKER", resourceId);
+        }
+    }
+
+    private String requireKey(String value) {
+        if (idempotency == null) throw new IllegalStateException("team idempotency is not configured");
+        return idempotency.requireKey(value);
+    }
+
+    private static IdempotencyKeyRecord idempotencyRecord(String key, String operation, String hash, UUID resourceId,
+            Instant now) {
+        return new IdempotencyKeyRecord(UUID.randomUUID(), key, operation, hash, "team", resourceId, "{}", now, now, 0);
+    }
+
+    private static void assertIdempotency(IdempotencyKeyRecord existing, String operation, String hash, String key) {
+        if (!operation.equals(existing.operation()) || !hash.equals(existing.requestHash())) {
+            throw new IdempotencyConflictException(key, operation);
         }
     }
 }

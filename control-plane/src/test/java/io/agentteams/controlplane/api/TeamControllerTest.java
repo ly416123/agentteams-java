@@ -51,9 +51,10 @@ class TeamControllerTest {
         TeamPolicyRecord policy = new TeamPolicyRecord(teamId, 3, true, List.of("java"), List.of("gpu"), now, 2);
         when(service.get(teamId)).thenReturn(team);
         when(service.members(teamId)).thenReturn(List.of(member));
-        when(service.addMember(eq(teamId), eq(agentId), eq("LEADER"), any())).thenReturn(member);
+        when(service.addMember(eq(teamId), eq(agentId), eq("LEADER"), any(), eq("member-key"))).thenReturn(member);
         when(service.policy(teamId)).thenReturn(policy);
-        when(service.updatePolicy(eq(teamId), eq(3), eq(true), eq(List.of("java")), eq(List.of("gpu")), eq(2L), any()))
+        when(service.updatePolicy(eq(teamId), eq(3), eq(true), eq(List.of("java")), eq(List.of("gpu")), eq(2L), any(),
+                eq("policy-key")))
                 .thenReturn(policy);
 
         mockMvc.perform(get("/api/v1/teams/{teamId}", teamId))
@@ -86,7 +87,7 @@ class TeamControllerTest {
         mockMvc.perform(delete("/api/v1/teams/{teamId}/members/{agentId}", teamId, agentId)
                         .header("Idempotency-Key", "remove-key"))
                 .andExpect(status().isOk());
-        verify(service).removeMember(eq(teamId), eq(agentId), any());
+        verify(service).removeMember(eq(teamId), eq(agentId), any(), eq("remove-key"));
     }
 
     @Test

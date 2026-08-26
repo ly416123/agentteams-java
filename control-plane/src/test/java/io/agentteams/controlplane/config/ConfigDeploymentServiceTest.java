@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.persistence.AgentRecord;
+import io.agentteams.controlplane.persistence.IdempotencyKeyRecord;
+import io.agentteams.controlplane.persistence.IdempotencyKeyRepository;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.AgentRepository;
@@ -94,6 +96,7 @@ class ConfigDeploymentServiceTest {
         when(tx.outboxEvents()).thenReturn(outbox);
         when(tx.domainEvents()).thenReturn(domainEvents);
         when(lifecycle.findBindingForUpdate(bindingId)).thenReturn(Optional.of(binding));
+        when(lifecycle.findBinding(bindingId)).thenReturn(Optional.of(binding));
         when(snapshots.findById(current.id())).thenReturn(Optional.of(current));
         when(lifecycle.findLatestAppliedSnapshotForRollback(bindingId, current.id())).thenReturn(Optional.of(stable));
         when(lifecycle.findFiles(stable.id())).thenReturn(List.of());
@@ -116,5 +119,58 @@ class ConfigDeploymentServiceTest {
         var event = org.mockito.ArgumentCaptor.forClass(OutboxEventRecord.class);
         org.mockito.Mockito.verify(outbox).insert(event.capture());
         assertThat(MAPPER.readTree(event.getValue().payloadJson()).path("rollback").asBoolean()).isTrue();
+    }
+
+    @Test
+    void retryWithSameKeyAndRequestReturnsTheOriginalEvent() {
+        FoundationPersistenceService persistence = mock(FoundationPersistenceService.class);
+        FoundationTransaction tx = mock(FoundationTransaction.class);
+        ConfigLifecycleRepository lifecycle = mock(ConfigLifecycleRepository.class);
+        ConfigSnapshotRepository snapshots = mock(ConfigSnapshotRepository.class);
+        IdempotencyKeyRepository keys = mock(IdempotencyKeyRepository.class);
+        OutboxEventRepository outbox = mock(OutboxEventRepository.class);
+        UUID bindingId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        ConfigSnapshot snapshot = new ConfigSnapshot(UUID.randomUUID(), "worker", 3, "{}", "sha", "test", NOW);
+        ConfigBindingRecord binding = new ConfigBindingRecord(bindingId, "worker", agentId, snapshot.id(), NOW);
+        ConfigApplyRecord failed = new ConfigApplyRecord(UUID.randomUUID(), bindingId, agentId, snapshot.id(),
+                "FAILED", "temporary", null, NOW.minusSeconds(1), snapshot.version(), "TEMPORARY_FAILURE", false);
+        when(tx.configLifecycle()).thenReturn(lifecycle);
+        when(tx.idempotencyKeys()).thenReturn(keys);
+        when(tx.outboxEvents()).thenReturn(outbox);
+        when(tx.domainEvents()).thenReturn(mock(DomainEventRepository.class));
+        when(lifecycle.findBindingForUpdate(bindingId)).thenReturn(Optional.of(binding));
+        when(lifecycle.findBinding(bindingId)).thenReturn(Optional.of(binding));
+        when(lifecycle.findApply(bindingId, snapshot.id())).thenReturn(Optional.of(failed));
+        when(snapshots.findById(snapshot.id())).thenReturn(Optional.of(snapshot));
+        when(lifecycle.findFiles(snapshot.id())).thenReturn(List.of());
+        when(outbox.findByEventId(any())).thenReturn(Optional.empty());
+        when(keys.findByKey("retry-key")).thenReturn(Optional.empty(), Optional.of(
+                new IdempotencyKeyRecord(UUID.randomUUID(), "retry-key", "CONFIG_RETRY", retryHash(bindingId, snapshot),
+                        "config-binding", bindingId, "{}", NOW, NOW, 0)));
+        when(keys.insertIfAbsent(any())).thenReturn(true);
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            Function<FoundationTransaction, ?> work = invocation.getArgument(0);
+            return work.apply(tx);
+        });
+
+        ConfigDeploymentService service = new ConfigDeploymentService(persistence, snapshots,
+                Clock.fixed(NOW, ZoneOffset.UTC), MAPPER);
+
+        ConfigDeploymentService.ConfigDeployment first = service.retry(bindingId, "retry-key");
+        ConfigDeploymentService.ConfigDeployment replay = service.retry(bindingId, "retry-key");
+
+        assertThat(replay.eventId()).isEqualTo(first.eventId());
+        org.mockito.Mockito.verify(keys).insertIfAbsent(any());
+    }
+
+    private static String retryHash(UUID bindingId, ConfigSnapshot snapshot) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((bindingId + "\u0000" + snapshot.id() + "\u0000" + snapshot.version())
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException(error);
+        }
     }
 }

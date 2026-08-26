@@ -86,7 +86,7 @@ public final class TeamController {
         if (request == null) throw new IllegalArgumentException("request body is required");
         return PolicyResponse.from(service.updatePolicy(teamId, positive(request.maxConcurrentTasks()),
                 request.requireHumanApproval(), values(request.allowedRuntimes()),
-                values(request.requiredCapabilities()), request.expectedVersion(), Instant.now()));
+                values(request.requiredCapabilities()), request.expectedVersion(), Instant.now(), idempotencyKey));
     }
 
     @PostMapping("/{teamId}/members")
@@ -96,21 +96,21 @@ public final class TeamController {
         requireIdempotencyKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
         return MemberResponse.from(service.addMember(teamId, request.agentId(), required(request.role(), "role"),
-                Instant.now()));
+                Instant.now(), idempotencyKey));
     }
 
     @DeleteMapping("/{teamId}/members/{agentId}")
     public void removeMember(@PathVariable UUID teamId, @PathVariable UUID agentId,
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey) {
         requireIdempotencyKey(idempotencyKey);
-        service.removeMember(teamId, agentId, Instant.now());
+        service.removeMember(teamId, agentId, Instant.now(), idempotencyKey);
     }
 
     @DeleteMapping("/{teamId}")
     public void delete(@PathVariable UUID teamId,
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey) {
         requireIdempotencyKey(idempotencyKey);
-        service.delete(teamId, Instant.now());
+        service.delete(teamId, Instant.now(), idempotencyKey);
     }
 
     @PostMapping("/{teamId}/revisions")
