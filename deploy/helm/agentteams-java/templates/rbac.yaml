@@ -5,10 +5,13 @@ metadata:
   namespace: {{ .Release.Namespace }}
 rules:
   - apiGroups: ["agentteams.io"]
-    resources: ["workers", "teams", "tasksandboxes"]
+    resources: ["workers", "teams"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["agentteams.io"]
-    resources: ["workers/status", "teams/status", "tasksandboxes/status"]
+    resources: ["tasksandboxes", "tasksandboxes/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["agentteams.io"]
+    resources: ["workers/status", "teams/status"]
     verbs: ["get", "patch", "update"]
   - apiGroups: ["apps"]
     resources: ["deployments", "deployments/status"]
