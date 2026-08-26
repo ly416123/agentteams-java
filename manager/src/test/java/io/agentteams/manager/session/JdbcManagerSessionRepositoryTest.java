@@ -57,10 +57,19 @@ class JdbcManagerSessionRepositoryTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JdbcManagerSessionRepository repository = new JdbcManagerSessionRepository(jdbc);
         UUID sessionId = UUID.randomUUID();
+        org.mockito.Mockito.when(jdbc.query(contains("nextval('manager_event_cursor_seq')"),
+                org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Long>>any()))
+                .thenReturn(java.util.List.of(1L));
+        org.mockito.Mockito.when(jdbc.update(contains("INSERT INTO manager_events"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(1);
 
         repository.appendEvent(sessionId, "SESSION_CANCELLED", "{\"status\":\"CANCELLED\"}",
                 Instant.parse("2026-08-26T00:00:00Z"));
 
+        verify(jdbc).query(contains("nextval('manager_event_cursor_seq')"),
+                org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Long>>any());
         verify(jdbc).update(contains("INSERT INTO manager_events"), eq(sessionId), eq(1L),
                 org.mockito.ArgumentMatchers.isNull(), eq("SESSION_CANCELLED"),
                 eq("{\"status\":\"CANCELLED\"}"), eq(Instant.parse("2026-08-26T00:00:00Z")));

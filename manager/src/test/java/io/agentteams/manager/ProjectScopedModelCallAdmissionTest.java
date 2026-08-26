@@ -49,6 +49,18 @@ class ProjectScopedModelCallAdmissionTest {
     }
 
     @Test
+    void translatesQuotaDependencyFailureToRetryableClassification() {
+        ProjectScopedModelCallAdmission admission = new ProjectScopedModelCallAdmission((tenant, project, tokens) -> {
+            throw new IllegalStateException("gateway unavailable");
+        });
+
+        assertThatThrownBy(() -> admission.acquire(
+                new ModelCallAdmissionRequest("qwen", "qwen-plus", 321, "tenant-a", "project-a")))
+                .isInstanceOf(ModelCallAdmissionTemporaryFailureException.class)
+                .hasMessage("project quota service is unavailable");
+    }
+
+    @Test
     void releaseIsIdempotentAcrossManagerAndQuotaWrappers() {
         AtomicInteger releases = new AtomicInteger();
         ProjectScopedModelCallAdmission admission = new ProjectScopedModelCallAdmission((tenant, project, tokens) ->

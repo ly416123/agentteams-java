@@ -15,6 +15,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class ManagerSessionServiceFacadeTest {
@@ -95,6 +99,53 @@ class ManagerSessionServiceFacadeTest {
         assertThatThrownBy(() -> facade.appendMessage(session.id(), 1, "message-key", "actor-a", "different",
                 Set.of("task:create"), false, null, null))
                 .isInstanceOf(io.agentteams.manager.ManagerToolConflictException.class);
+    }
+
+    @Test
+    void concurrentSameKeyClaimsOnceAndDoesNotCallModelTwice() throws Exception {
+        AtomicInteger modelCalls = new AtomicInteger();
+        CountDownLatch providerEntered = new CountDownLatch(1);
+        CountDownLatch releaseProvider = new CountDownLatch(1);
+        ModelProvider provider = request -> {
+            modelCalls.incrementAndGet();
+            providerEntered.countDown();
+            try {
+                releaseProvider.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+            return new ModelProvider.ModelResponse(
+                    "{\"intent\":\"CREATE_TASK\",\"title\":\"Persisted\","
+                            + "\"description\":\"message\",\"required_capabilities\":[],"
+                            + "\"priority\":10,\"requires_approval\":false}", "test-model", 1, 1);
+        };
+        ManagerSessionService model = new ManagerSessionService(provider, new ObjectMapper(),
+                new ManagerToolRegistry(Map.of("create_task", new ManagerToolRegistry.Tool(
+                        "task:create", false, input -> "task-created"))));
+        InMemoryManagerSessionRepository repository = new InMemoryManagerSessionRepository();
+        ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, model,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        ManagerSessionRecord session = facade.createSession(
+                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "actor-a"),
+                "session-key");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> facade.appendMessage(session.id(), 0, "same-key", "actor-a",
+                    "create", Set.of("task:create"), false, null, null));
+            assertThat(providerEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            var duplicate = executor.submit(() -> facade.appendMessage(session.id(), 0, "same-key", "actor-a",
+                    "create", Set.of("task:create"), false, null, null));
+            ManagerSessionServiceFacade.MessageResult processing = duplicate.get(5, TimeUnit.SECONDS);
+            assertThat(processing.message().status()).isEqualTo(ManagerMessageRecord.Status.PROCESSING);
+            releaseProvider.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS).message().status())
+                    .isEqualTo(ManagerMessageRecord.Status.COMPLETED);
+            assertThat(modelCalls).hasValue(1);
+        } finally {
+            releaseProvider.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -188,6 +239,35 @@ class ManagerSessionServiceFacadeTest {
 
         @Override public java.util.Optional<ManagerMessageRecord> findMessage(UUID sessionId, String key) {
             return java.util.Optional.ofNullable(messages.get(sessionId + ":" + key));
+        }
+
+        @Override
+        public synchronized MessageReservation reserveMessage(UUID sessionId, long expectedVersion,
+                ManagerMessageRecord message) {
+            ManagerMessageRecord prior = messages.get(sessionId + ":" + message.idempotencyKey());
+            ManagerSessionRecord current = sessions.get(sessionId);
+            if (prior != null) return new MessageReservation(current, prior, false);
+            if (current.status() == ManagerSessionRecord.Status.CANCELLED) throw new SessionCancelledException();
+            if (current.version() != expectedVersion) throw new SessionVersionConflictException(sessionId,
+                    expectedVersion, current.version());
+            messages.put(sessionId + ":" + message.idempotencyKey(), message);
+            ManagerSessionRecord updated = current.withStatus(ManagerSessionRecord.Status.ACTIVE, message.createdAt());
+            sessions.put(sessionId, updated);
+            return new MessageReservation(updated, message, true);
+        }
+
+        @Override public synchronized ManagerMessageRecord completeMessage(UUID sessionId, String key,
+                String resultSummary) {
+            ManagerMessageRecord updated = messages.get(sessionId + ":" + key).completed(resultSummary);
+            messages.put(sessionId + ":" + key, updated);
+            return updated;
+        }
+
+        @Override public synchronized ManagerMessageRecord failMessage(UUID sessionId, String key,
+                String resultSummary) {
+            ManagerMessageRecord updated = messages.get(sessionId + ":" + key).failed(resultSummary);
+            messages.put(sessionId + ":" + key, updated);
+            return updated;
         }
 
         @Override public void insertMessage(ManagerMessageRecord message) {

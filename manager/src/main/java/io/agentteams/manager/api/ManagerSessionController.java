@@ -3,6 +3,9 @@ package io.agentteams.manager.api;
 import io.agentteams.manager.session.ManagerEventRecord;
 import io.agentteams.manager.session.ManagerSessionRecord;
 import io.agentteams.manager.session.ManagerSessionServiceFacade;
+import io.agentteams.manager.security.ManagerAuthorizationException;
+import io.agentteams.manager.security.ManagerPrincipal;
+import io.agentteams.manager.security.ManagerRequestContext;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -35,9 +38,15 @@ public final class ManagerSessionController {
             @RequestBody CreateSessionRequest request) {
         requireKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        String tenantId = request.resolvedTenantId() == null ? principal.tenantId() : request.resolvedTenantId();
+        String projectId = request.resolvedProjectId() == null ? principal.projectId() : request.resolvedProjectId();
+        requireTrusted(request.actor(), principal.subject(), "actor");
+        requireTrusted(tenantId, principal.tenantId(), "tenantId");
+        requireTrusted(projectId, principal.projectId(), "projectId");
         ManagerSessionRecord session = facade.createSession(
-                new ManagerSessionServiceFacade.CreateSessionCommand(request.resolvedTenantId(), request.resolvedProjectId(),
-                        request.actor()), idempotencyKey);
+                new ManagerSessionServiceFacade.CreateSessionCommand(principal.tenantId(), principal.projectId(),
+                        principal.subject()), idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session));
     }
 
@@ -49,9 +58,21 @@ public final class ManagerSessionController {
         if (request == null || request.expectedVersion() == null) {
             throw new IllegalArgumentException("expectedVersion is required");
         }
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        requireTrusted(request.actor(), principal.subject(), "actor");
+        if (request.teamId() != null && !request.teamId().equals(principal.teamId())) {
+            throw new ManagerAuthorizationException("team scope does not match authenticated principal");
+        }
+        Set<String> requestedPermissions = request.permissions() == null ? Set.of() : request.permissions();
+        if (!principal.permissions().containsAll(requestedPermissions)) {
+            throw new ManagerAuthorizationException("requested permissions exceed authenticated principal");
+        }
+        if (request.approved() && !principal.permissions().contains("manager:approve")) {
+            throw new ManagerAuthorizationException("approval permission is required");
+        }
         ManagerSessionServiceFacade.MessageResult result = facade.appendMessage(sessionId,
-                request.expectedVersion(), idempotencyKey, request.actor(), request.content(),
-                request.permissions() == null ? Set.of() : request.permissions(), request.approved(),
+                request.expectedVersion(), idempotencyKey, principal.subject(), request.content(),
+                principal.permissions(), request.approved(),
                 request.taskId(), request.teamId());
         return MessageResponse.from(result);
     }
@@ -84,8 +105,10 @@ public final class ManagerSessionController {
         if (request == null || request.expectedVersion() == null) {
             throw new IllegalArgumentException("expectedVersion is required");
         }
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        requireTrusted(request.actor(), principal.subject(), "actor");
         return SessionResponse.from(facade.cancel(sessionId, request.expectedVersion(), idempotencyKey,
-                request.actor()));
+                principal.subject()));
     }
 
     public record CreateSessionRequest(String tenantId, String projectId, String actor, Scope scope) {
@@ -121,6 +144,12 @@ public final class ManagerSessionController {
     private static void requireKey(String key) {
         if (key == null || key.isBlank() || key.length() > 255) {
             throw new IllegalArgumentException("Idempotency-Key is required and must be at most 255 characters");
+        }
+    }
+
+    private static void requireTrusted(String requested, String trusted, String field) {
+        if (requested != null && !requested.equals(trusted)) {
+            throw new ManagerAuthorizationException(field + " does not match authenticated principal");
         }
     }
 

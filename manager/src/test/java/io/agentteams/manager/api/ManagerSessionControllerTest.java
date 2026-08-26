@@ -14,11 +14,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.manager.session.ManagerEventRecord;
 import io.agentteams.manager.session.ManagerSessionRecord;
 import io.agentteams.manager.session.ManagerSessionServiceFacade;
+import io.agentteams.manager.security.ManagerPrincipal;
+import io.agentteams.manager.security.ManagerRequestContext;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -30,11 +33,16 @@ class ManagerSessionControllerTest {
 
     @BeforeEach
     void setUp() {
+        ManagerRequestContext.set(new ManagerPrincipal("actor-a", "tenant-a", "project-a", "team-a",
+                Set.of("task:create")));
         facade = mock(ManagerSessionServiceFacade.class);
         sessionId = UUID.randomUUID();
         mvc = MockMvcBuilders.standaloneSetup(new ManagerSessionController(facade))
                 .setControllerAdvice(new ManagerErrorHandler()).build();
     }
+
+    @AfterEach
+    void clearContext() { ManagerRequestContext.clear(); }
 
     @Test
     void exposesAllFiveSessionEndpointsWithIdempotencyAndVersionHeaders() throws Exception {

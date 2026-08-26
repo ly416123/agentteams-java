@@ -20,6 +20,8 @@ CREATE TABLE manager_messages (
     content_hash CHAR(64) NOT NULL,
     redacted_summary VARCHAR(512) NOT NULL,
     result_summary VARCHAR(512),
+    status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED'
+        CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED')),
     created_at TIMESTAMPTZ NOT NULL,
     UNIQUE (session_id, idempotency_key)
 );

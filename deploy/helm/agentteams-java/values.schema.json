@@ -156,6 +156,46 @@
         "env": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }
       }
     },
+    "manager": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "image": { "type": "string", "minLength": 1 },
+        "existingSecret": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "managerId": { "type": "string", "minLength": 1 },
+        "controlPlaneUrl": { "type": "string", "minLength": 1 },
+        "modelEgressCIDR": { "type": "string", "minLength": 1 },
+        "securityEgressCIDR": { "type": "string", "minLength": 1 },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "issuerUri": { "type": "string", "minLength": 1 },
+            "jwkSetUri": { "type": "string", "minLength": 1 },
+            "audience": { "type": "string", "minLength": 1 },
+            "tenantClaim": { "type": "string", "minLength": 1 },
+            "projectClaim": { "type": "string", "minLength": 1 },
+            "teamClaim": { "type": "string", "minLength": 1 },
+            "permissionsClaim": { "type": "string", "minLength": 1 }
+          }
+        },
+        "quota": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "remoteEnabled": { "type": "boolean" },
+            "gatewayHost": { "type": "string", "minLength": 1 },
+            "gatewayPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "timeoutSeconds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
     "gateway": {
       "type": "object",
       "additionalProperties": false,
@@ -389,6 +429,32 @@
             "required": ["oidcEgressCIDR"],
             "properties": {
               "oidcEgressCIDR": { "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["manager"],
+        "properties": {
+          "manager": {
+            "required": ["enabled"],
+            "properties": { "enabled": { "const": true } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "manager": {
+            "required": ["existingSecret", "security"],
+            "properties": {
+              "security": {
+                "required": ["issuerUri", "jwkSetUri", "audience"],
+                "properties": {
+                  "enabled": { "const": true }
+                }
+              }
             }
           }
         }

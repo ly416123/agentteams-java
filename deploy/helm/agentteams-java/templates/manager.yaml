@@ -1,4 +1,6 @@
 {{- $manager := .Values.manager | default dict -}}
+{{- $security := $manager.security | default dict -}}
+{{- $quota := $manager.quota | default dict -}}
 {{- if $manager.enabled }}
 apiVersion: apps/v1
 kind: Deployment
@@ -50,6 +52,30 @@ spec:
               value: {{ default (printf "http://%s-control-plane:%d" (include "agentteams-java.fullname" .) (int .Values.controlPlane.port)) $manager.controlPlaneUrl | quote }}
             - name: AGENTTEAMS_MANAGER_ID
               value: {{ default (include "agentteams-java.fullname" .) $manager.managerId | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_ENABLED
+              value: {{ default true $security.enabled | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_ISSUER_URI
+              value: {{ $security.issuerUri | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_JWK_SET_URI
+              value: {{ $security.jwkSetUri | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_AUDIENCE
+              value: {{ $security.audience | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_TENANT_CLAIM
+              value: {{ default "tenant" $security.tenantClaim | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_PROJECT_CLAIM
+              value: {{ default "project" $security.projectClaim | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_TEAM_CLAIM
+              value: {{ default "team" $security.teamClaim | quote }}
+            - name: AGENTTEAMS_MANAGER_SECURITY_PERMISSIONS_CLAIM
+              value: {{ default "permissions" $security.permissionsClaim | quote }}
+            - name: AGENTTEAMS_QUOTA_REMOTE_ENABLED
+              value: {{ default false $quota.remoteEnabled | quote }}
+            - name: AGENTTEAMS_GATEWAY_HOST
+              value: {{ default (printf "%s-gateway" (include "agentteams-java.fullname" .)) $quota.gatewayHost | quote }}
+            - name: AGENTTEAMS_GATEWAY_PORT
+              value: {{ default 9090 $quota.gatewayPort | quote }}
+            - name: AGENTTEAMS_QUOTA_TIMEOUT_SECONDS
+              value: {{ default 3 $quota.timeoutSeconds | quote }}
             - name: SPRING_FLYWAY_ENABLED
               value: "true"
           startupProbe:

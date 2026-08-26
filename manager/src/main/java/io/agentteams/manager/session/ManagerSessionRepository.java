@@ -12,6 +12,13 @@ public interface ManagerSessionRepository {
 
     Optional<ManagerMessageRecord> findMessage(UUID sessionId, String idempotencyKey);
 
+    /** Atomically claims an idempotency key and consumes the expected session version. */
+    MessageReservation reserveMessage(UUID sessionId, long expectedVersion, ManagerMessageRecord message);
+
+    ManagerMessageRecord completeMessage(UUID sessionId, String idempotencyKey, String resultSummary);
+
+    ManagerMessageRecord failMessage(UUID sessionId, String idempotencyKey, String resultSummary);
+
     void insertMessage(ManagerMessageRecord message);
 
     Optional<ManagerToolCallRecord> findToolCall(UUID sessionId, String idempotencyKey);
@@ -31,4 +38,6 @@ public interface ManagerSessionRepository {
     Optional<ManagerEventRecord> findEvent(UUID sessionId, String idempotencyKey);
 
     List<ManagerEventRecord> findEventsAfter(UUID sessionId, long cursor);
+
+    record MessageReservation(ManagerSessionRecord session, ManagerMessageRecord message, boolean acquired) { }
 }

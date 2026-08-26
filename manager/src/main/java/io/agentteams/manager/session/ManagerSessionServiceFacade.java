@@ -67,27 +67,38 @@ public class ManagerSessionServiceFacade {
             return new MessageResult(getSession(sessionId), message, toolCall);
         }
         if (session.status() == ManagerSessionRecord.Status.CANCELLED) throw new SessionCancelledException();
-        if (session.version() != expectedVersion) {
-            throw new SessionVersionConflictException(sessionId, expectedVersion, session.version());
+        ManagerMessageRecord requested = ManagerMessageRecord.processing(UUID.randomUUID(), sessionId,
+                idempotencyKey, actor, sha256(content), clock.instant());
+        ManagerSessionRepository.MessageReservation reservation = repository.reserveMessage(sessionId,
+                expectedVersion, requested);
+        ManagerMessageRecord message = reservation.message();
+        if (!message.contentHash().equals(sha256(content)) || !message.actor().equals(actor)) {
+            throw new ManagerToolConflictException("message idempotency key was reused with different input");
+        }
+        if (!reservation.acquired()) {
+            ManagerToolCallRecord priorToolCall = repository.findToolCall(sessionId, idempotencyKey).orElse(null);
+            return new MessageResult(reservation.session(), message, priorToolCall);
         }
         if (modelService == null) throw new IllegalStateException("manager model service is not configured");
 
         ManagerToolRegistry.ToolContext context = new ManagerToolRegistry.ToolContext(permissions, approved,
                 session.tenantId(), session.projectId(), null, taskId, teamId, "create_task", null, null);
-        Object result = modelService.handleCreateTask(content, context);
+        Object result;
+        try {
+            result = modelService.handleCreateTask(content, context);
+        } catch (RuntimeException error) {
+            repository.failMessage(sessionId, idempotencyKey, safeFailureSummary(error));
+            throw error;
+        }
         String resultSummary = bounded(String.valueOf(result), 512);
         Instant now = clock.instant();
-        ManagerMessageRecord message = ManagerMessageRecord.completed(UUID.randomUUID(), sessionId,
-                idempotencyKey, actor, sha256(content), resultSummary, now);
+        message = repository.completeMessage(sessionId, idempotencyKey, resultSummary);
         ManagerToolCallRecord toolCall = ManagerToolCallRecord.completed(UUID.randomUUID(), sessionId,
                 idempotencyKey, "create_task", sha256(content), resultSummary, now);
-        repository.insertMessage(message);
         repository.insertToolCall(toolCall);
-        ManagerSessionRecord updated = repository.updateSession(sessionId, expectedVersion,
-                ManagerSessionRecord.Status.ACTIVE, now);
         repository.appendEvent(sessionId, "MESSAGE_COMPLETED",
                 "{\"messageId\":\"" + message.id() + "\",\"tool\":\"create_task\"}", idempotencyKey, now);
-        return new MessageResult(updated, message, toolCall);
+        return new MessageResult(reservation.session(), message, toolCall);
     }
 
     public ManagerSessionRecord cancel(UUID sessionId, long expectedVersion, String idempotencyKey, String actor) {
@@ -133,6 +144,11 @@ public class ManagerSessionServiceFacade {
 
     private static String bounded(String value, int max) {
         return value.length() <= max ? value : value.substring(0, max);
+    }
+
+    private static String safeFailureSummary(RuntimeException error) {
+        String category = error.getClass().getSimpleName();
+        return bounded("message failed: " + category, 512);
     }
 
     private static String sha256(String value) {

@@ -4,11 +4,14 @@ import io.agentteams.manager.InvalidModelOutputException;
 import io.agentteams.manager.ManagerToolConflictException;
 import io.agentteams.manager.ManagerToolTemporaryFailureException;
 import io.agentteams.manager.ModelCallAdmissionRejectedException;
+import io.agentteams.manager.ModelCallAdmissionTemporaryFailureException;
 import io.agentteams.manager.ModelProviderException;
 import io.agentteams.manager.QuotaRejectedException;
 import io.agentteams.manager.session.ManagerSessionNotFoundException;
 import io.agentteams.manager.session.SessionCancelledException;
 import io.agentteams.manager.session.SessionVersionConflictException;
+import io.agentteams.manager.security.ManagerAuthenticationException;
+import io.agentteams.manager.security.ManagerAuthorizationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 import java.util.UUID;
@@ -33,7 +36,12 @@ public final class ManagerErrorHandler {
                 Map.of());
     }
 
-    @ExceptionHandler(SecurityException.class)
+    @ExceptionHandler(ManagerAuthenticationException.class)
+    ResponseEntity<ErrorResponse> authentication(ManagerAuthenticationException error, HttpServletRequest request) {
+        return error(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED", "authentication required", request, Map.of());
+    }
+
+    @ExceptionHandler({ManagerAuthorizationException.class, SecurityException.class})
     ResponseEntity<ErrorResponse> authorization(SecurityException error, HttpServletRequest request) {
         return error(HttpStatus.FORBIDDEN, "AUTHORIZATION_REJECTED", "permission denied", request, Map.of());
     }
@@ -53,6 +61,13 @@ public final class ManagerErrorHandler {
     @ExceptionHandler({ModelCallAdmissionRejectedException.class, QuotaRejectedException.class})
     ResponseEntity<ErrorResponse> quota(Exception error, HttpServletRequest request) {
         return error(HttpStatus.TOO_MANY_REQUESTS, "QUOTA_REJECTED", "project quota rejected the call", request,
+                Map.of());
+    }
+
+    @ExceptionHandler(ModelCallAdmissionTemporaryFailureException.class)
+    ResponseEntity<ErrorResponse> quotaTemporary(ModelCallAdmissionTemporaryFailureException error,
+            HttpServletRequest request) {
+        return error(HttpStatus.SERVICE_UNAVAILABLE, "QUOTA_UNAVAILABLE", "quota service is unavailable", request,
                 Map.of());
     }
 
@@ -92,8 +107,7 @@ public final class ManagerErrorHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorResponse> internal(Exception error, HttpServletRequest request) {
-        LOG.error("Manager request failed type={} correlationId={}", error.getClass().getName(), correlationId(request),
-                error);
+        LOG.error("Manager request failed type={} correlationId={}", error.getClass().getName(), correlationId(request));
         return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "request could not be completed", request,
                 Map.of());
     }

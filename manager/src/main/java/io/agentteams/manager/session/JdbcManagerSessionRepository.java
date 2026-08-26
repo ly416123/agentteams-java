@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 public final class JdbcManagerSessionRepository implements ManagerSessionRepository {
     private final JdbcTemplate jdbc;
@@ -49,10 +50,59 @@ public final class JdbcManagerSessionRepository implements ManagerSessionReposit
     public Optional<ManagerMessageRecord> findMessage(UUID sessionId, String idempotencyKey) {
         return jdbc.query("""
                 SELECT id, session_id, idempotency_key, actor, role, content_hash,
-                       redacted_summary, result_summary, created_at
+                       redacted_summary, result_summary, status, created_at
                   FROM manager_messages WHERE session_id = ? AND idempotency_key = ?
                 """, this::mapMessage, sessionId, idempotencyKey)
                 .stream().findFirst();
+    }
+
+    @Override
+    @Transactional
+    public MessageReservation reserveMessage(UUID sessionId, long expectedVersion,
+            ManagerMessageRecord message) {
+        int inserted = jdbc.update("""
+                INSERT INTO manager_messages
+                    (id, session_id, idempotency_key, actor, role, content_hash,
+                     redacted_summary, result_summary, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (session_id, idempotency_key) DO NOTHING
+                """, message.id(), message.sessionId(), message.idempotencyKey(), message.actor(), message.role(),
+                message.contentHash(), message.redactedSummary(), message.resultSummary(), message.status().name(),
+                message.createdAt());
+        if (inserted == 0) {
+            ManagerMessageRecord existing = findMessage(sessionId, message.idempotencyKey())
+                    .orElseThrow(() -> new DuplicateKeyException("message idempotency reservation disappeared"));
+            return new MessageReservation(findSession(sessionId).orElseThrow(() -> new ManagerSessionNotFoundException(sessionId)),
+                    existing, false);
+        }
+        ManagerSessionRecord current = findSession(sessionId)
+                .orElseThrow(() -> new ManagerSessionNotFoundException(sessionId));
+        if (current.status() == ManagerSessionRecord.Status.CANCELLED) {
+            throw new SessionCancelledException();
+        }
+        ManagerSessionRecord updated = updateSession(sessionId, expectedVersion,
+                ManagerSessionRecord.Status.ACTIVE, message.createdAt());
+        return new MessageReservation(updated, message, true);
+    }
+
+    @Override
+    public ManagerMessageRecord completeMessage(UUID sessionId, String idempotencyKey, String resultSummary) {
+        jdbc.update("""
+                UPDATE manager_messages SET result_summary = ?, redacted_summary = 'message accepted', status = 'COMPLETED'
+                 WHERE session_id = ? AND idempotency_key = ?
+                """, resultSummary, sessionId, idempotencyKey);
+        return findMessage(sessionId, idempotencyKey)
+                .orElseThrow(() -> new ManagerSessionNotFoundException(sessionId));
+    }
+
+    @Override
+    public ManagerMessageRecord failMessage(UUID sessionId, String idempotencyKey, String resultSummary) {
+        jdbc.update("""
+                UPDATE manager_messages SET result_summary = ?, status = 'FAILED'
+                 WHERE session_id = ? AND idempotency_key = ?
+                """, resultSummary, sessionId, idempotencyKey);
+        return findMessage(sessionId, idempotencyKey)
+                .orElseThrow(() -> new ManagerSessionNotFoundException(sessionId));
     }
 
     @Override
@@ -104,13 +154,18 @@ public final class JdbcManagerSessionRepository implements ManagerSessionReposit
     @Override
     public ManagerEventRecord appendEvent(UUID sessionId, String type, String payload, String idempotencyKey,
             Instant createdAt) {
-        Long cursor = jdbc.query("SELECT COALESCE(MAX(cursor), 0) + 1 FROM manager_events WHERE session_id = ?",
-                (rs, row) -> rs.getLong(1), sessionId).stream().findFirst().orElse(1L);
-        jdbc.update("""
+        Long cursor = jdbc.query("SELECT nextval('manager_event_cursor_seq')",
+                (rs, row) -> rs.getLong(1)).stream().findFirst().orElseThrow();
+        int inserted = jdbc.update("""
                 INSERT INTO manager_events
                     (session_id, cursor, idempotency_key, event_type, payload, created_at)
                 VALUES (?, ?, ?, ?, ?::jsonb, ?)
+                ON CONFLICT (session_id, idempotency_key) DO NOTHING
                 """, sessionId, cursor, idempotencyKey, type, payload, createdAt);
+        if (inserted == 0) {
+            return findEvent(sessionId, idempotencyKey)
+                    .orElseThrow(() -> new DuplicateKeyException("event idempotency conflict"));
+        }
         return new ManagerEventRecord(sessionId, cursor, type, payload, createdAt);
     }
 
@@ -143,7 +198,7 @@ public final class JdbcManagerSessionRepository implements ManagerSessionReposit
         return new ManagerMessageRecord(rs.getObject("id", UUID.class), rs.getObject("session_id", UUID.class),
                 rs.getString("idempotency_key"), rs.getString("actor"), rs.getString("role"),
                 rs.getString("content_hash"), rs.getString("redacted_summary"), rs.getString("result_summary"),
-                rs.getObject("created_at", Instant.class));
+                ManagerMessageRecord.Status.valueOf(rs.getString("status")), rs.getObject("created_at", Instant.class));
     }
 
     private ManagerToolCallRecord mapToolCall(ResultSet rs, int row) throws SQLException {
