@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 import io.agentteams.application.api.SandboxFailureCategory;
 import io.agentteams.application.api.SandboxObservation;
@@ -17,6 +19,7 @@ import io.agentteams.application.api.SandboxProviderRef;
 import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.dsl.MixedOperation;
+import io.fabric8.kubernetes.client.dsl.NamespaceableResource;
 import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
 import io.fabric8.kubernetes.client.dsl.Resource;
 import io.fabric8.kubernetes.api.model.GenericKubernetesResourceList;
@@ -83,7 +86,9 @@ class KubernetesSandboxRuntimeTest {
                 "phase", "READY",
                 "endpointRef", "sandbox+grpc://task-sandbox.agentteams.svc:7443/runner",
                 "observedGeneration", 3L,
-                "workloadUid", "workload-uid"))));
+                "workloadUid", "workload-uid",
+                "runnerReady", true,
+                "healthy", true))));
         when(client.genericKubernetesResources(any(ResourceDefinitionContext.class))).thenReturn(operation);
         when(operation.inNamespace("agentteams")).thenReturn(namespaced);
         when(namespaced.withName("task-sandbox-22222222222222222222222222222222")).thenReturn(handle);
@@ -101,6 +106,77 @@ class KubernetesSandboxRuntimeTest {
         assertThat(observation.workloadUid()).isEqualTo("workload-uid");
     }
 
+    @Test
+    void createRaceReReadsTheWinnerBeforeReturningItsReceipt() {
+        KubernetesClient client = mock(KubernetesClient.class, RETURNS_DEEP_STUBS);
+        Resource<GenericKubernetesResource> getHandle = mock(Resource.class);
+        NamespaceableResource<GenericKubernetesResource> applyHandle = mock(NamespaceableResource.class);
+        NonNamespaceOperation<GenericKubernetesResource, GenericKubernetesResourceList, Resource<GenericKubernetesResource>> namespaced = mock(NonNamespaceOperation.class);
+        MixedOperation<GenericKubernetesResource, GenericKubernetesResourceList, Resource<GenericKubernetesResource>> operation = mock(MixedOperation.class);
+        GenericKubernetesResource applied = resource("winner-uid", Map.of());
+        when(client.genericKubernetesResources(any(ResourceDefinitionContext.class))).thenReturn(operation);
+        when(operation.inNamespace("agentteams")).thenReturn(namespaced);
+        when(namespaced.withName("task-sandbox-22222222222222222222222222222222")).thenReturn(getHandle);
+        when(getHandle.get()).thenReturn(null, applied);
+        when(client.resource(any(GenericKubernetesResource.class))).thenReturn(applyHandle);
+        when(applyHandle.inNamespace("agentteams")).thenReturn(applyHandle);
+        when(applyHandle.fieldManager("agentteams-control-plane")).thenReturn(applyHandle);
+        when(applyHandle.serverSideApply()).thenReturn(applied);
+
+        var receipt = new KubernetesSandboxRuntime(client, "agentteams",
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC)).ensureProvisioned(command("template-a"));
+
+        assertThat(receipt.providerRef().resourceUid()).isEqualTo("winner-uid");
+        verify(getHandle, times(2)).get();
+    }
+
+    @Test
+    void runtimeClassNameIsPartOfTheImmutableProvisionSpec() {
+        KubernetesClient client = mock(KubernetesClient.class, RETURNS_DEEP_STUBS);
+        Resource<GenericKubernetesResource> handle = mock(Resource.class);
+        NonNamespaceOperation<GenericKubernetesResource, GenericKubernetesResourceList, Resource<GenericKubernetesResource>> namespaced = mock(NonNamespaceOperation.class);
+        MixedOperation<GenericKubernetesResource, GenericKubernetesResourceList, Resource<GenericKubernetesResource>> operation = mock(MixedOperation.class);
+        GenericKubernetesResource existing = resource("cr-uid", Map.of("runtimeClassName", "other-runtime"));
+        when(client.genericKubernetesResources(any(ResourceDefinitionContext.class))).thenReturn(operation);
+        when(operation.inNamespace("agentteams")).thenReturn(namespaced);
+        when(namespaced.withName("task-sandbox-22222222222222222222222222222222")).thenReturn(handle);
+        when(handle.get()).thenReturn(existing);
+
+        assertThatThrownBy(() -> new KubernetesSandboxRuntime(client, "agentteams",
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC)).ensureProvisioned(command("template-a")))
+                .isInstanceOf(SandboxProviderException.class)
+                .extracting(error -> ((SandboxProviderException) error).category())
+                .isEqualTo(SandboxFailureCategory.IDEMPOTENCY_CONFLICT);
+    }
+
+    @Test
+    void readyWithoutRunnerHealthIsNotPublishedAsReady() {
+        KubernetesClient client = mock(KubernetesClient.class, RETURNS_DEEP_STUBS);
+        Resource<GenericKubernetesResource> handle = mock(Resource.class);
+        NonNamespaceOperation<GenericKubernetesResource, GenericKubernetesResourceList, Resource<GenericKubernetesResource>> namespaced = mock(NonNamespaceOperation.class);
+        MixedOperation<GenericKubernetesResource, GenericKubernetesResourceList, Resource<GenericKubernetesResource>> operation = mock(MixedOperation.class);
+        GenericKubernetesResource resource = resource("cr-uid", Map.of());
+        resource.setAdditionalProperties(new LinkedHashMap<>(Map.of(
+                "spec", resource.get("spec"),
+                "status", Map.of(
+                        "phase", "READY",
+                        "endpointRef", "sandbox+grpc://task-sandbox.agentteams.svc:7443/runner",
+                        "observedGeneration", 3L,
+                        "workloadUid", "workload-uid",
+                        "runnerReady", true))));
+        when(client.genericKubernetesResources(any(ResourceDefinitionContext.class))).thenReturn(operation);
+        when(operation.inNamespace("agentteams")).thenReturn(namespaced);
+        when(namespaced.withName("task-sandbox-22222222222222222222222222222222")).thenReturn(handle);
+        when(handle.get()).thenReturn(resource);
+
+        SandboxObservation observation = new KubernetesSandboxRuntime(client, "agentteams",
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC))
+                .inspect(new SandboxProviderRef("kubernetes", "agentteams/task-sandbox-22222222222222222222222222222222",
+                        "cr-uid"));
+
+        assertThat(observation.phase()).isEqualTo(SandboxProviderPhase.PROVISIONING);
+    }
+
     private static SandboxProvisionCommand command(String template) {
         return new SandboxProvisionCommand(TASK_ID, ATTEMPT_ID, SandboxProfile.ISOLATED,
                 Duration.ofMinutes(5), template, NOW, "sandbox:" + ATTEMPT_ID);
@@ -113,7 +189,15 @@ class KubernetesSandboxRuntimeTest {
         resource.setMetadata(new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
                 .withName("task-sandbox-22222222222222222222222222222222")
                 .withNamespace("agentteams").withUid(uid).withGeneration(3L).build());
-        resource.setAdditionalProperties(new LinkedHashMap<>(Map.of("spec", spec)));
+        Map<String, Object> completeSpec = new LinkedHashMap<>(spec);
+        completeSpec.putIfAbsent("taskId", TASK_ID.toString());
+        completeSpec.putIfAbsent("attemptId", ATTEMPT_ID.toString());
+        completeSpec.putIfAbsent("idempotencyKey", "sandbox:" + ATTEMPT_ID);
+        completeSpec.putIfAbsent("profile", "ISOLATED");
+        completeSpec.putIfAbsent("template", "template-a");
+        completeSpec.putIfAbsent("expiresAt", NOW.plusSeconds(300).toString());
+        completeSpec.putIfAbsent("runtimeClassName", "agentteams-sandbox");
+        resource.setAdditionalProperties(new LinkedHashMap<>(Map.of("spec", completeSpec)));
         return resource;
     }
 }

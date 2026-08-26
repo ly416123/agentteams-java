@@ -42,10 +42,22 @@ public final class SandboxLifecycleService {
 
     private final FoundationPersistenceService persistence;
     private final SandboxRuntimePort runtime;
+    private final SandboxRuntimeProperties properties;
+    private final String operationOwner;
 
     public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime) {
+        this(persistence, runtime, new SandboxRuntimeProperties(), "sandbox-lifecycle");
+    }
+
+    public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime,
+            SandboxRuntimeProperties properties, String operationOwner) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
+        this.properties = Objects.requireNonNull(properties, "properties");
+        if (operationOwner == null || operationOwner.isBlank()) {
+            throw new IllegalArgumentException("operationOwner must not be blank");
+        }
+        this.operationOwner = operationOwner;
     }
 
     /** Reads the small sandbox section without copying the complete task spec. */
@@ -102,12 +114,14 @@ public final class SandboxLifecycleService {
 
     public int recoverStaleOperations(Instant now) {
         Objects.requireNonNull(now, "now");
-        return persistence.inTransaction(tx -> tx.taskSandboxes().recoverStaleOperations(now));
+        return persistence.inTransaction(tx -> tx.taskSandboxes().recoverStaleOperations(now,
+                properties.getBaseRetryDelay(), properties.getMaxRetryDelay()));
     }
 
     public int provisionRequested(Instant now, int limit) {
         List<TaskSandboxRecord> claimed = persistence.inTransaction(tx -> {
-            List<TaskSandboxRecord> requested = tx.taskSandboxes().claimRequested(now, limit);
+            List<TaskSandboxRecord> requested = tx.taskSandboxes().claimRequested(now, limit, operationOwner,
+                    operationExpiresAt(now));
             return requested.stream()
                     .map(record -> tx.taskSandboxes().markProvisioning(record.id(), record.version(), now))
                     .toList();
@@ -121,12 +135,11 @@ public final class SandboxLifecycleService {
                 TaskSandboxRecord bound = persistence.inTransaction(tx -> tx.taskSandboxes().updateProviderBinding(
                         provisioning.id(), receipt.providerRef().provider(), receipt.providerRef().resourceId(),
                         receipt.providerRef().resourceUid(), SandboxStatus.PROVISIONING, null, command.expiresAt(),
-                        receipt.observedGeneration(), null, "{}", provisioning.version() + 1, now));
+                        receipt.observedGeneration(), null, "{}", provisioning.version(), now));
                 applyObservation(bound, observation, now);
                 completed++;
             } catch (RuntimeException error) {
-                persistence.inTransaction(tx -> tx.taskSandboxes().markFailed(provisioning.id(),
-                        failureCode(error), error.getMessage(), provisioning.version() + 1, now));
+                releaseFailure(provisioning, "PROVISION", properties.getMaxProvisionAttempts(), error, now);
             }
         }
         return completed;
@@ -135,15 +148,15 @@ public final class SandboxLifecycleService {
     public int observeActive(Instant now, int limit) {
         Objects.requireNonNull(now, "now");
         int observed = 0;
-        List<TaskSandboxRecord> candidates = persistence.inTransaction(tx -> tx.taskSandboxes()
-                .findActiveForObservation(now, limit));
+        List<TaskSandboxRecord> candidates = claimCandidates(now, limit, "OBSERVE",
+                tx -> tx.taskSandboxes().findActiveForObservation(now, limit));
         for (TaskSandboxRecord candidate : candidates) {
             try {
                 SandboxObservation observation = runtime.inspect(providerRef(candidate));
                 applyObservation(candidate, observation, now);
                 observed++;
             } catch (RuntimeException error) {
-                recordFailure(candidate, error, now);
+                releaseFailure(candidate, "OBSERVE", properties.getMaxProvisionAttempts(), error, now);
             }
         }
         return observed;
@@ -157,8 +170,8 @@ public final class SandboxLifecycleService {
         if (extension.isZero() || extension.isNegative()) {
             throw new IllegalArgumentException("extension must be positive");
         }
-        List<TaskSandboxRecord> candidates = persistence.inTransaction(tx -> tx.taskSandboxes()
-                .findExpiring(now, renewBefore, limit));
+        List<TaskSandboxRecord> candidates = claimCandidates(now, limit, "RENEW",
+                tx -> tx.taskSandboxes().findExpiring(now, renewBefore, limit));
         int renewed = 0;
         for (TaskSandboxRecord candidate : candidates) {
             if (candidate.providerResourceId() == null || candidate.providerResourceUid() == null) {
@@ -171,7 +184,7 @@ public final class SandboxLifecycleService {
                         candidate.version(), now));
                 renewed++;
             } catch (RuntimeException error) {
-                recordFailure(candidate, error, now);
+                releaseFailure(candidate, "RENEW", properties.getMaxProvisionAttempts(), error, now);
             }
         }
         return renewed;
@@ -183,7 +196,8 @@ public final class SandboxLifecycleService {
         Objects.requireNonNull(extension, "extension");
         if (extension.isZero() || extension.isNegative()) throw new IllegalArgumentException("extension must be positive");
         int renewed = 0;
-        for (TaskSandboxRecord candidate : persistence.inTransaction(tx -> tx.taskSandboxes().findRenewable(limit))) {
+        for (TaskSandboxRecord candidate : claimCandidates(now, limit, "RENEW",
+                tx -> tx.taskSandboxes().findRenewable(limit))) {
             if (candidate.providerResourceId() == null || candidate.providerResourceUid() == null) continue;
             try {
                 Instant expiresAt = now.plus(extension);
@@ -192,7 +206,7 @@ public final class SandboxLifecycleService {
                         candidate.version(), now));
                 renewed++;
             } catch (RuntimeException error) {
-                recordFailure(candidate, error, now);
+                releaseFailure(candidate, "RENEW", properties.getMaxProvisionAttempts(), error, now);
             }
         }
         return renewed;
@@ -206,32 +220,36 @@ public final class SandboxLifecycleService {
             try {
                 persistence.inTransaction(tx -> tx.taskSandboxes().markExpired(candidate.id(), candidate.version(), now));
                 expired++;
-            } catch (RuntimeException error) {
-                recordFailure(candidate, error, now);
+            } catch (RuntimeException ignored) {
+                // A concurrent lifecycle transition is picked up by the next leader.
             }
         }
         return expired;
     }
 
     public int terminateStopping(Instant now, int limit) {
-        List<TaskSandboxRecord> candidates = persistence.inTransaction(tx -> tx.taskSandboxes()
-                .findStopping(limit));
+        List<TaskSandboxRecord> candidates = claimCandidates(now, limit, "TERMINATE",
+                tx -> tx.taskSandboxes().findStopping(limit));
         int terminated = 0;
         for (TaskSandboxRecord candidate : candidates) {
+            TaskSandboxRecord operation = candidate;
             try {
-                if (candidate.providerResourceId() != null && candidate.providerResourceUid() != null) {
+                if (candidate.status() != SandboxStatus.STOPPING) {
+                    operation = persistence.inTransaction(tx -> tx.taskSandboxes().markStopping(
+                            candidate.id(), candidate.version(), now));
+                }
+                if (operation.providerResourceId() != null && operation.providerResourceUid() != null) {
                     runtime.ensureTerminated(new io.agentteams.application.api.SandboxTerminationCommand(
-                            providerRef(candidate), candidate.terminationReason() == null
-                                    ? SandboxTerminationReason.OPERATOR_CLEANUP : candidate.terminationReason()));
-                    if (candidate.status() != SandboxStatus.STOPPING) {
-                        persistence.inTransaction(tx -> tx.taskSandboxes().markStopping(candidate.id(), candidate.version(), now));
-                    }
+                            providerRef(operation), operation.terminationReason() == null
+                                    ? SandboxTerminationReason.OPERATOR_CLEANUP : operation.terminationReason()));
                 } else {
-                    persistence.inTransaction(tx -> tx.taskSandboxes().markDestroyed(candidate.id(), candidate.version(), now));
+                    TaskSandboxRecord destroyed = operation;
+                    persistence.inTransaction(tx -> tx.taskSandboxes().markDestroyed(
+                            destroyed.id(), destroyed.version(), now));
                 }
                 terminated++;
             } catch (RuntimeException error) {
-                recordFailure(candidate, error, now);
+                releaseFailure(operation, "TERMINATE", properties.getMaxTerminateAttempts(), error, now);
             }
         }
         return terminated;
@@ -240,8 +258,8 @@ public final class SandboxLifecycleService {
     public int observeStopping(Instant now, int limit) {
         Objects.requireNonNull(now, "now");
         int destroyed = 0;
-        for (TaskSandboxRecord candidate : persistence.inTransaction(tx -> tx.taskSandboxes()
-                .findStopping(limit))) {
+        for (TaskSandboxRecord candidate : claimCandidates(now, limit, "OBSERVE_STOPPING",
+                tx -> tx.taskSandboxes().findStopping(limit))) {
             try {
                 SandboxObservation observation = runtime.inspect(providerRef(candidate));
                 if (observation.phase() == SandboxProviderPhase.DESTROYED) {
@@ -249,7 +267,7 @@ public final class SandboxLifecycleService {
                     destroyed++;
                 }
             } catch (RuntimeException error) {
-                recordFailure(candidate, error, now);
+                releaseFailure(candidate, "OBSERVE_STOPPING", properties.getMaxTerminateAttempts(), error, now);
             }
         }
         return destroyed;
@@ -306,18 +324,37 @@ public final class SandboxLifecycleService {
         });
     }
 
-    private void recordFailure(TaskSandboxRecord candidate, RuntimeException error, Instant now) {
+    private void releaseFailure(TaskSandboxRecord candidate, String operationKind, int maxAttempts,
+            RuntimeException error, Instant now) {
         try {
-            persistence.inTransaction(tx -> tx.taskSandboxes().markFailed(candidate.id(), failureCode(error),
-                    error.getMessage(), candidate.version(), now));
+            persistence.inTransaction(tx -> tx.taskSandboxes().releaseOperation(candidate.id(), candidate.version(),
+                    operationOwner, operationKind, maxAttempts, properties.getBaseRetryDelay(),
+                    properties.getMaxRetryDelay(), failureCode(error), error.getMessage(), now,
+                    candidate.retryCount()));
         } catch (RuntimeException ignored) {
             // A stale version or a provider failure is retried by the next leader.
         }
     }
 
+    private List<TaskSandboxRecord> claimCandidates(Instant now, int limit, String operationKind,
+            java.util.function.Function<io.agentteams.controlplane.persistence.FoundationTransaction,
+                    List<TaskSandboxRecord>> finder) {
+        return persistence.inTransaction(tx -> finder.apply(tx).stream()
+                .map(record -> tx.taskSandboxes().claimOperation(record.id(), operationOwner, operationKind,
+                        now, operationExpiresAt(now)))
+                .flatMap(Optional::stream)
+                .toList());
+    }
+
+    private Instant operationExpiresAt(Instant now) {
+        return now.plus(properties.getOperationTimeout());
+    }
+
     private static SandboxStatus statusFor(TaskSandboxRecord current, SandboxObservation observation) {
         if (observation.phase() == SandboxProviderPhase.READY
-                && observation.endpointRef() != null && !observation.endpointRef().isBlank()) {
+                && observation.endpointRef() != null && !observation.endpointRef().isBlank()
+                && observation.workloadUid() != null && !observation.workloadUid().isBlank()
+                && observation.failure() == null) {
             return current.status() == SandboxStatus.RUNNING ? SandboxStatus.RUNNING : SandboxStatus.READY;
         }
         return switch (observation.phase()) {

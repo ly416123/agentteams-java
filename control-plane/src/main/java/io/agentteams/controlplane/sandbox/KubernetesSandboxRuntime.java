@@ -56,8 +56,22 @@ public final class KubernetesSandboxRuntime implements SandboxRuntimePort {
         String name = resourceName(command.attemptId());
         GenericKubernetesResource existing = get(name);
         if (existing == null) {
-            GenericKubernetesResource applied = apply(newResource(name, command));
-            return provisionReceipt(applied, command);
+            try {
+                apply(newResource(name, command));
+            } catch (SandboxProviderException error) {
+                if (error.category() != SandboxFailureCategory.IDEMPOTENCY_CONFLICT) throw error;
+                GenericKubernetesResource winner = get(name);
+                if (winner == null) throw error;
+                assertSameProvision(winner, command);
+                return provisionReceipt(winner, command);
+            }
+            GenericKubernetesResource created = get(name);
+            if (created == null) {
+                throw new SandboxProviderException(SandboxFailureCategory.PROVIDER_RESPONSE_INVALID,
+                        "TaskSandbox disappeared after apply");
+            }
+            assertSameProvision(created, command);
+            return provisionReceipt(created, command);
         }
         assertSameProvision(existing, command);
         return provisionReceipt(existing, command);
@@ -83,6 +97,12 @@ public final class KubernetesSandboxRuntime implements SandboxRuntimePort {
         String endpoint = text(status.get("endpointRef"));
         String workloadUid = text(status.get("workloadUid"));
         SandboxFailure failure = failure(status, phase);
+        if (phase == SandboxProviderPhase.READY
+                && (endpoint == null || workloadUid == null
+                || !conditionTrue(status, "runnerReady", "RunnerReady", "Ready")
+                || !conditionTrue(status, "healthy", "healthy", "Healthy", "RunnerHealthy"))) {
+            phase = SandboxProviderPhase.PROVISIONING;
+        }
         return new SandboxObservation(providerRef, phase, endpoint, expiresAt, generation, workloadUid, failure);
     }
 
@@ -214,7 +234,8 @@ public final class KubernetesSandboxRuntime implements SandboxRuntimePort {
                 && command.idempotencyKey().equals(text(spec.get("idempotencyKey")))
                 && command.profile().name().equals(text(spec.get("profile")))
                 && command.template().equals(text(spec.get("template")))
-                && command.expiresAt().toString().equals(text(spec.get("expiresAt")));
+                && command.expiresAt().toString().equals(text(spec.get("expiresAt")))
+                && properties.runtimeClassName(command.profile()).equals(text(spec.get("runtimeClassName")));
         if (!same) throw conflict("TaskSandbox spec conflicts with the existing resource");
     }
 
@@ -275,6 +296,25 @@ public final class KubernetesSandboxRuntime implements SandboxRuntimePort {
             value = SandboxFailureCategory.PROVIDER_RESPONSE_INVALID;
         }
         return new SandboxFailure(value, text(status.get("message")));
+    }
+
+    private static boolean conditionTrue(Map<String, Object> status, String directField, String... conditionTypes) {
+        Object direct = status.get(directField);
+        if (Boolean.TRUE.equals(direct) || "true".equalsIgnoreCase(text(direct))) return true;
+        Object conditions = status.get("conditions");
+        if (!(conditions instanceof Iterable<?> values)) return false;
+        for (Object value : values) {
+            if (!(value instanceof Map<?, ?> condition)) continue;
+            String type = text(condition.get("type"));
+            String conditionStatus = text(condition.get("status"));
+            if (type == null || conditionStatus == null || !"true".equalsIgnoreCase(conditionStatus)
+                    && !"ready".equalsIgnoreCase(conditionStatus)
+                    && !"healthy".equalsIgnoreCase(conditionStatus)) continue;
+            for (String expectedType : conditionTypes) {
+                if (expectedType.equalsIgnoreCase(type)) return true;
+            }
+        }
+        return false;
     }
 
     private static long observedGeneration(GenericKubernetesResource resource) {

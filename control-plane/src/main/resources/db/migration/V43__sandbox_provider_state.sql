@@ -20,7 +20,13 @@ ALTER TABLE task_sandboxes
     ADD CONSTRAINT task_sandboxes_desired_state_valid
         CHECK (desired_state IN ('ACTIVE', 'TERMINATED')),
     ADD CONSTRAINT task_sandboxes_retry_count_non_negative
-        CHECK (retry_count >= 0);
+        CHECK (retry_count >= 0),
+    ADD CONSTRAINT task_sandboxes_operation_kind_valid
+        CHECK (operation_kind IS NULL OR operation_kind IN
+            ('PROVISION', 'OBSERVE', 'RENEW', 'TERMINATE', 'OBSERVE_STOPPING')),
+    ADD CONSTRAINT task_sandboxes_operation_lease_consistent
+        CHECK ((operation_owner IS NULL AND operation_expires_at IS NULL AND operation_kind IS NULL)
+            OR (operation_owner IS NOT NULL AND operation_expires_at IS NOT NULL AND operation_kind IS NOT NULL));
 
 CREATE UNIQUE INDEX task_sandboxes_provider_resource_idx
     ON task_sandboxes (provider, provider_resource_id)
