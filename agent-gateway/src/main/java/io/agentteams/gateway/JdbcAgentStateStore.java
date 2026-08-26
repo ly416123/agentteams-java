@@ -26,8 +26,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(at, "at");
         UUID agentId = canonicalAgentId(connection.agentId());
-        updateCanonicalAgent(agentId, "READY", connection.runtime(), connection.capabilities(), at,
-                "'PROVISIONING', 'OFFLINE', 'READY'");
+        updateCanonicalAgentOnRegister(agentId, connection.runtime(), connection.capabilities(), at);
         jdbc.update(upsertSql(), connection.agentId(), connection.connectionId(), "ONLINE", "READY",
                 connection.runtime(), connection.runtimeVersion(), capabilitiesJson(connection.capabilities()),
                 Timestamp.from(at), Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
@@ -91,6 +90,20 @@ public class JdbcAgentStateStore implements GatewayStateStore {
                  WHERE id = ? AND phase IN (%s)
                 """.formatted(allowedPhases), phase, runtime, capabilitiesJson(capabilities),
                 Timestamp.from(at), agentId);
+        if (updated == 0) {
+            throw unknownOrInvalidAgent(agentId);
+        }
+    }
+
+    private void updateCanonicalAgentOnRegister(UUID agentId, String runtime,
+            Map<String, String> capabilities, Instant at) {
+        int updated = jdbc.update("""
+                UPDATE agents
+                   SET phase = CASE WHEN phase = 'DRAINING' THEN phase ELSE ? END,
+                       runtime = ?, capabilities = ?::jsonb,
+                       updated_at = ?, version = version + 1
+                 WHERE id = ? AND phase IN ('PROVISIONING', 'OFFLINE', 'READY', 'DRAINING')
+                """, "READY", runtime, capabilitiesJson(capabilities), Timestamp.from(at), agentId);
         if (updated == 0) {
             throw unknownOrInvalidAgent(agentId);
         }
