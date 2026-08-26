@@ -27,6 +27,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check pyyaml
           python scripts/validate-production-values.py
+          python scripts/validate-production-network.py
           python scripts/validate-matrix-registration.py
       - name: Validate backup and restore scripts
         run: bash scripts/validate-backup-scripts.sh

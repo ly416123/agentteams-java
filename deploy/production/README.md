@@ -8,6 +8,40 @@ The chart deliberately consumes stable Kubernetes Secret names. An external
 secret issuer owns the Secret data; AgentTeams only mounts the Secret and never
 generates or stores production private keys.
 
+## External dependency egress
+
+Production values use explicit CIDR allow-lists instead of attempting to infer
+network rules from hostnames. Replace the documentation ranges in
+`values-production.example.yaml` with the target environment's private ranges
+or controlled egress addresses before deployment:
+
+```yaml
+networkPolicy:
+  enabled: true
+  egressMode: CIDR
+  allowPublicInternet: false
+  external:
+    postgresql: [{cidr: 10.10.0.0/24, port: 5432}]
+    nats: [{cidr: 10.20.0.0/24, port: 4222}]
+    objectStorage: [{cidr: 10.30.0.0/24, port: 443}]
+    otlp: [{cidr: 10.40.0.0/24, port: 443}]
+    oidc: [{cidr: 10.50.0.0/24, port: 443}]
+```
+
+The chart does not generate FQDN-based policies. `PROXY` and `PLATFORM` are
+reserved for environment-specific overlays; the repository production gate
+currently requires `CIDR`. Validate before rendering with:
+
+```bash
+python scripts/validate-production-values.py
+python scripts/validate-production-network.py
+helm lint deploy/helm/agentteams-java \
+  -f deploy/helm/agentteams-java/values-production.example.yaml
+```
+
+Never replace an external target with `0.0.0.0/0` or `::/0`, and keep all
+credentials in the referenced Kubernetes Secrets.
+
 ## Gateway mTLS
 
 Set the Gateway Secret name once and keep it unchanged during certificate

@@ -70,7 +70,18 @@ availability:
 
 networkPolicy:
   enabled: true
-  oidcEgressCIDR: 198.51.100.0/24 # replace with the IdP egress range
+  egressMode: CIDR
+  allowPublicInternet: false
+  # Replace documentation CIDRs with the private ranges or egress addresses
+  # owned by the target environment. Do not use 0.0.0.0/0 or ::/0.
+  external:
+    postgresql: [{cidr: 198.51.100.0/24, port: 5432}]
+    nats: [{cidr: 198.51.101.0/24, port: 4222}]
+    objectStorage: [{cidr: 198.51.102.0/24, port: 443}]
+    otlp: [{cidr: 198.51.103.0/24, port: 443}]
+    oidc: [{cidr: 198.51.104.0/24, port: 443}]
+    matrix: []
+    modelProviders: []
   oidcEgressPort: 443
   kubernetesApiAllowAllEgress: false
 
