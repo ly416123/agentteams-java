@@ -44,7 +44,9 @@ select 'domain_events|' || count(*)::text || '|' ||
   from domain_events
 union all
 select 'outbox_events|' || count(*)::text || '|' ||
-       md5(coalesce(string_agg(event_id::text || '|' || status || '|' || attempts::text || '|' || version::text,
+       md5(coalesce(string_agg(event_id::text || '|' || aggregate_type || '|' || aggregate_id::text || '|' ||
+                             event_type || '|' || aggregate_version::text || '|' || occurred_at::text || '|' ||
+                             md5(payload::text),
                              ',' order by event_id), ''))
   from outbox_events
 union all
