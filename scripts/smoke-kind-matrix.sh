@@ -113,10 +113,10 @@ authorization_fixture_sql="
   VALUES ('00000000-0000-0000-0000-000000000025', 'tenant-a', 'project-a', 'ACTIVE', 'matrix-smoke', now(), now(), 0)
   ON CONFLICT (tenant_id, name) DO UPDATE SET status = 'ACTIVE', updated_at = now();
   INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
-  SELECT 'tenant-a', id, 'matrix-smoke', 'DEVELOPER', 'ACTIVE', now(), now(), 0
+  SELECT 'tenant-a', id, 'matrix-smoke', 'ADMIN', 'ACTIVE', now(), now(), 0
     FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'
   ON CONFLICT (tenant_id, project_id, subject)
-  DO UPDATE SET role = 'DEVELOPER', status = 'ACTIVE', updated_at = now();"
+  DO UPDATE SET role = 'ADMIN', status = 'ACTIVE', updated_at = now();"
 kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
   psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "${authorization_fixture_sql}" >/dev/null
 

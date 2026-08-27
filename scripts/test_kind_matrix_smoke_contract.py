@@ -19,7 +19,7 @@ class KindMatrixSmokeContractTest(unittest.TestCase):
 
         self.assertIn("INSERT INTO projects", fixture)
         self.assertIn("INSERT INTO project_memberships", fixture)
-        self.assertIn("'matrix-smoke', 'DEVELOPER', 'ACTIVE'", fixture)
+        self.assertIn("'matrix-smoke', 'ADMIN', 'ACTIVE'", fixture)
 
     def test_start_retries_only_before_appservice_delivery_is_recorded(self):
         script_text = (ROOT / "scripts/smoke-kind-matrix.sh").read_text(encoding="utf-8")
