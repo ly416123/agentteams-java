@@ -115,6 +115,8 @@ git commit -m "feat(worker): 增加可恢复运维操作"
 
 **当前增量进度（2026-08-27）：** 已完成第一纵切：V48 `project_invitations` 与邀请幂等表、namespace/tenant 约束下的邀请记录、SHA-256 token hash 存储、24 小时有效期、接受邀请时的 subject 校验、过期拒绝和数据库条件更新幂等激活，并开放项目邀请创建/接受 API；补齐成员重新启用、角色变更 CAS、最后 Owner 保护和带 expected project version 的 Owner 转移 API。随后新增不可变 `ResourceAction`/`ResourceRef`/`ResourceAuthorizationMatrix`/`ResourceAuthorizationService`，并接入邀请创建路径，覆盖跨 scope 与角色越权负向测试。现已补齐邀请、接受、启用、禁用、角色变更和 Owner 转移的成功审计，目标 subject 仅以 SHA-256 hash 进入事件，审计 sink 故障不改变成员主业务结果。当前仍未完成 Manager/异步消费者统一授权接线。
 
+**任务提交授权纵切（2026-08-27）：** `TaskService.create` 现在在持久化前校验已认证主体的完整 scope，并通过项目名称解析到 UUID 后复用 `ResourceAuthorizationService` 的 `TASK_CREATE` 角色矩阵；拒绝请求不会写入任务。Matrix 入口在调用同一 Control Plane TaskService 前后绑定并恢复 `PrincipalContext`，因此不会依赖客户端权限集合扩大权限，也不会在线程复用时串身份。HTTP/Matrix/Service 定向测试、Control Plane 全量测试、脚本测试和本机 Colima Docker 集成验证已通过。Manager 跨服务用户身份委托协议及异步消费者接线仍待后续纵切，当前不以未定义的信任 Header 代替认证。
+
 - [ ] **步骤 1：编写失败测试**
 
 覆盖 Action 矩阵的允许/拒绝组合、跨 tenant/project 负向请求、异步消费者 scope 校验、邀请 Token 只保存 hash、过期邀请拒绝、重复 accept 幂等、最后一个 Owner 不能禁用、Owner 转移需要 expected project version，以及成员状态变化产生脱敏审计。

@@ -7,6 +7,8 @@ import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Permission;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskService;
 import java.util.Objects;
 import java.util.UUID;
@@ -36,9 +38,21 @@ public final class MatrixTaskCommandHandler implements MatrixCommandHandler {
     public String handle(MatrixIdentity identity, MatrixCommand command) {
         Objects.requireNonNull(identity, "identity");
         Objects.requireNonNull(command, "command");
+        java.util.Optional<Principal> previous = PrincipalContext.current();
+        PrincipalContext.set(identity.principal());
+        try {
+            return handleBound(identity, command);
+        } finally {
+            previous.ifPresentOrElse(PrincipalContext::set, PrincipalContext::clear);
+        }
+    }
+
+    private String handleBound(MatrixIdentity identity, MatrixCommand command) {
         if (command instanceof MatrixCommand.Start start) {
-            new AuthorizationService().require(identity.principal().subject(), Permission.TASK_CREATE,
-                    identity.principal().permissions());
+            if (taskService == null) {
+                new AuthorizationService().require(identity.principal().subject(), Permission.TASK_CREATE,
+                        identity.principal().permissions());
+            }
             TaskCommandPort.TaskCreationResult created = tasks.create("matrix:" + UUID.randomUUID(),
                     new TaskCommandPort.TaskCreateCommand(start.title(),
                             "Started from Matrix by " + identity.matrixUserId(), scopedSpec(identity),

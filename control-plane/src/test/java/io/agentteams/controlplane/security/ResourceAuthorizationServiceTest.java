@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.agentteams.controlplane.project.ProjectMembershipRecord;
+import io.agentteams.controlplane.project.ProjectRecord;
 import io.agentteams.controlplane.project.ProjectRepository;
 import io.agentteams.controlplane.project.ProjectRole;
 import java.time.Instant;
@@ -65,5 +66,18 @@ class ResourceAuthorizationServiceTest {
         assertThatThrownBy(() -> authorization.require(ResourceAction.PROJECT_OWNER_TRANSFER,
                 ResourceRef.project("tenant-a", PROJECT_ID)))
                 .isInstanceOf(AuthorizationException.class);
+    }
+
+    @Test
+    void taskAuthorizationResolvesProjectNameWithinTenant() {
+        when(repository.findProjectByName("tenant-a", "project-a")).thenReturn(Optional.of(
+                ProjectRecord.create(PROJECT_ID, "tenant-a", "project-a", "alice", Instant.EPOCH)));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "alice")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "alice", ProjectRole.DEVELOPER,
+                        Instant.EPOCH)));
+
+        assertThatCode(() -> authorization.require(ResourceAction.TASK_CREATE,
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a")))
+                .doesNotThrowAnyException();
     }
 }

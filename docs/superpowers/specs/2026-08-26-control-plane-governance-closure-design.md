@@ -5,7 +5,7 @@
 **优先级：** P0/P1
 **代码基线：** `93d99fb`
 
-**批次 B 增量（2026-08-27）：** 已实现可恢复 Worker Operation 与双事实 rollout 确认、ResourceAction/scope 授权矩阵第一纵切、项目邀请幂等和成员状态/Owner CAS、邀请及成员变更的脱敏审计、ExternalSecret Ready 与目标 Secret metadata 只读解析。当前剩余 Manager/异步消费者统一授权接线以及真实 Kubernetes controller 收敛验收。
+**批次 B 增量（2026-08-27）：** 已实现可恢复 Worker Operation 与双事实 rollout 确认、ResourceAction/scope 授权矩阵第一纵切、项目邀请幂等和成员状态/Owner CAS、邀请及成员变更的脱敏审计、ExternalSecret Ready 与目标 Secret metadata 只读解析；任务提交入口已在 TaskService、HTTP 和 Matrix 之间复用 `TASK_CREATE` 授权边界，拒绝创建在持久化前终止。当前剩余 Manager/异步消费者统一授权接线以及真实 Kubernetes controller 收敛验收。
 
 ## 1. 目标
 

@@ -8,6 +8,8 @@ import java.util.UUID;
 public interface ProjectRepository {
     Optional<ProjectRecord> findProject(String tenantId, UUID projectId);
 
+    Optional<ProjectRecord> findProjectByName(String tenantId, String name);
+
     void insertProject(ProjectRecord project);
 
     Optional<ProjectMembershipRecord> findMembership(String tenantId, UUID projectId, String subject);

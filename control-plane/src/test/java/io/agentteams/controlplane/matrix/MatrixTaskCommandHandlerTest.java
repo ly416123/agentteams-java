@@ -18,8 +18,14 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
 class MatrixTaskCommandHandlerTest {
+    @AfterEach
+    void clearPrincipal() {
+        io.agentteams.controlplane.security.PrincipalContext.clear();
+    }
+
     @Test
     void createsScopedTaskForAuthorizedMatrixStartCommand() {
         TaskCommandPort tasks = mock(TaskCommandPort.class);
@@ -117,6 +123,18 @@ class MatrixTaskCommandHandlerTest {
         assertThatThrownBy(() -> handler.handle(identity(Set.of("task:read")),
                 new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.RETRY, UUID.randomUUID())))
                 .isInstanceOf(AuthorizationException.class);
+    }
+
+    @Test
+    void restoresMatrixPrincipalContextAfterCommand() {
+        TaskCommandPort tasks = mock(TaskCommandPort.class);
+        when(tasks.create(any(), any())).thenReturn(new TaskCommandPort.TaskCreationResult(
+                UUID.randomUUID(), "DRAFT", 0));
+        MatrixTaskCommandHandler handler = new MatrixTaskCommandHandler(tasks);
+
+        handler.handle(identity(Set.of("task:create")), new MatrixCommand.Start("scoped"));
+
+        assertThat(io.agentteams.controlplane.security.PrincipalContext.current()).isEmpty();
     }
 
     private static TaskRecord task(UUID id, TaskPhase phase, long version) {

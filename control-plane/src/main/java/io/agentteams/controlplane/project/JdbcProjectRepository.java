@@ -29,6 +29,18 @@ public class JdbcProjectRepository implements ProjectRepository {
     }
 
     @Override
+    public Optional<ProjectRecord> findProjectByName(String tenantId, String name) {
+        return jdbc.query("""
+                SELECT id, tenant_id, name, status, created_by, created_at, updated_at, version
+                  FROM projects WHERE tenant_id = ? AND name = ?
+                """, (rs, row) -> new ProjectRecord(rs.getObject("id", UUID.class),
+                rs.getString("tenant_id"), rs.getString("name"), rs.getString("status"),
+                rs.getString("created_by"), instant(rs, "created_at"),
+                instant(rs, "updated_at"), rs.getLong("version")), tenantId, name)
+                .stream().findFirst();
+    }
+
+    @Override
     public void insertProject(ProjectRecord project) {
         jdbc.update("""
                 INSERT INTO projects(id, tenant_id, name, status, created_by, created_at, updated_at, version)

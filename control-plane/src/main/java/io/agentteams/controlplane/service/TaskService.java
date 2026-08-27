@@ -9,7 +9,10 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceAction;
+import io.agentteams.controlplane.security.ResourceAuthorizationService;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
+import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.domain.task.Task;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.TaskPhase;
@@ -41,6 +44,7 @@ public final class TaskService {
     private final Clock clock;
     private final TaskMetricsPort metrics;
     private final ResourceScopeRepository resourceScopes;
+    private final ResourceAuthorizationService authorization;
 
     public TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
             TaskTransitionService transitions) {
@@ -50,8 +54,10 @@ public final class TaskService {
     @Autowired
     public TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
             TaskTransitionService transitions, TaskMetricsPort metrics,
-            ObjectProvider<ResourceScopeRepository> scopes) {
-        this(persistence, idempotency, transitions, Clock.systemUTC(), metrics, scopes.getIfAvailable());
+            ObjectProvider<ResourceScopeRepository> scopes,
+            ObjectProvider<ResourceAuthorizationService> authorization) {
+        this(persistence, idempotency, transitions, Clock.systemUTC(), metrics, scopes.getIfAvailable(),
+                authorization.getIfAvailable());
     }
 
     TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
@@ -67,12 +73,19 @@ public final class TaskService {
     TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
             TaskTransitionService transitions, Clock clock, TaskMetricsPort metrics,
             ResourceScopeRepository resourceScopes) {
+        this(persistence, idempotency, transitions, clock, metrics, resourceScopes, null);
+    }
+
+    TaskService(FoundationPersistenceService persistence, IdempotencyService idempotency,
+            TaskTransitionService transitions, Clock clock, TaskMetricsPort metrics,
+            ResourceScopeRepository resourceScopes, ResourceAuthorizationService authorization) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.transitions = Objects.requireNonNull(transitions, "transitions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.resourceScopes = resourceScopes;
+        this.authorization = authorization;
     }
 
     public TaskRecord create(String idempotencyKey, TaskInput input) {
@@ -83,6 +96,7 @@ public final class TaskService {
         String actor = defaultText(input.actor(), "api");
         String source = defaultText(input.source(), "rest");
         String spec = jsonObjectOrDefault(input.specJson());
+        authorizeCreate(spec);
         Instant now = clock.instant();
         TaskRecord created = persistence.createTask(new CreateTaskCommand(key, title, description, actor, source, spec, now));
         bindIfAuthenticated(created.id());
@@ -244,5 +258,15 @@ public final class TaskService {
         if (resourceScopes != null) {
             resourceScopes.requireVisible("TASK", resourceId);
         }
+    }
+
+    private void authorizeCreate(String spec) {
+        if (authorization == null) {
+            return;
+        }
+        PrincipalContext.current().ifPresent(principal -> {
+            new AuthorizationService().requireScope(principal, spec);
+            authorization.require(ResourceAction.TASK_CREATE, principal.scope());
+        });
     }
 }

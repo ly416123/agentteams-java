@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.security;
 
 import io.agentteams.controlplane.project.ProjectMembershipRecord;
+import io.agentteams.controlplane.project.ProjectRecord;
 import io.agentteams.controlplane.project.ProjectRepository;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -28,5 +29,13 @@ public class ResourceAuthorizationService {
         if (!ResourceAuthorizationMatrix.allows(member.role(), action)) {
             throw new AuthorizationException("permission denied: " + action.name());
         }
+    }
+
+    /** Resolves the externally visible project name before applying the same role matrix. */
+    public void require(ResourceAction action, AuthorizationService.Scope scope) {
+        Objects.requireNonNull(scope, "scope");
+        ProjectRecord project = projects.findProjectByName(scope.tenant(), scope.project())
+                .orElseThrow(() -> new AuthorizationException("project scope not found"));
+        require(action, ResourceRef.team(scope.tenant(), project.id(), scope.team()));
     }
 }
