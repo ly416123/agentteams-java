@@ -53,8 +53,11 @@ public final class TaskAssignmentService {
     public AssignmentResult queueReadyTask(UUID taskId, Instant now) {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(now, "now");
-        AssignmentResult result = persistence.inTransaction(tx -> {
+        persistence.inTransaction(tx -> {
             io.agentteams.controlplane.worker.WorkerOperationService.recoverExpiredOperations(tx, now);
+            return null;
+        });
+        AssignmentResult result = persistence.inTransaction(tx -> {
             TaskRecord queued = tx.tasks().findByIdForUpdate(taskId)
                     .orElseThrow(() -> new IllegalArgumentException("task does not exist: " + taskId));
             if (queued.phase() != TaskPhase.QUEUED) {

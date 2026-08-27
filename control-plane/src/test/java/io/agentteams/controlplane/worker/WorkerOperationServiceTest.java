@@ -183,6 +183,22 @@ class WorkerOperationServiceTest {
     }
 
     @Test
+    void commitsExpiredOperationRecoveryEvenWhenAssignmentFailsLater() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+        WorkerOperation drain = operations.drain(agentId, 0, "expired-before-assignment-1");
+        TaskAssignmentService assignments = new TaskAssignmentService(persistence, Duration.ofSeconds(30));
+
+        assertThatThrownBy(() -> assignments.queueReadyTask(UUID.randomUUID(), NOW.plusSeconds(180)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("task does not exist");
+
+        WorkerOperationStatus expiredStatus = persistence.inTransaction(tx ->
+                tx.workerOperations().findById(drain.id()).orElseThrow().status());
+        assertThat(expiredStatus).isEqualTo(WorkerOperationStatus.FAILED);
+    }
+
+    @Test
     void rejectsDrainingAWorkerThatCanNoLongerBeDrained() {
         UUID agentId = UUID.randomUUID();
         insertAgent(agentId, AgentPhase.TERMINATED);
