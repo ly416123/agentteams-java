@@ -11,6 +11,9 @@ public final class WorkerSpec {
     private int replicas;
     private Map<String, String> env;
     private String tlsSecret;
+    private String specDigest;
+    private String configRevision;
+    private String secretGeneration;
 
     public WorkerSpec() {
         this.agentId = "";
@@ -19,6 +22,9 @@ public final class WorkerSpec {
         this.replicas = 1;
         this.env = Map.of();
         this.tlsSecret = "";
+        this.specDigest = "";
+        this.configRevision = "";
+        this.secretGeneration = "";
     }
 
     public WorkerSpec(String agentId, String runtime, String image, int replicas, Map<String, String> env) {
@@ -27,12 +33,20 @@ public final class WorkerSpec {
 
     public WorkerSpec(String agentId, String runtime, String image, int replicas, Map<String, String> env,
             String tlsSecret) {
+        this(agentId, runtime, image, replicas, env, tlsSecret, "", "", "");
+    }
+
+    public WorkerSpec(String agentId, String runtime, String image, int replicas, Map<String, String> env,
+            String tlsSecret, String specDigest, String configRevision, String secretGeneration) {
         setAgentId(agentId);
         setRuntime(runtime);
         setImage(image);
         setReplicas(replicas);
         setEnv(env);
         setTlsSecret(tlsSecret);
+        setSpecDigest(specDigest);
+        setConfigRevision(configRevision);
+        setSecretGeneration(secretGeneration);
     }
 
     public String agentId() { return agentId; }
@@ -41,6 +55,9 @@ public final class WorkerSpec {
     public int replicas() { return replicas; }
     public Map<String, String> env() { return env; }
     public String tlsSecret() { return tlsSecret; }
+    public String specDigest() { return specDigest; }
+    public String configRevision() { return configRevision; }
+    public String secretGeneration() { return secretGeneration; }
 
     public String getAgentId() { return agentId; }
     public void setAgentId(String value) { agentId = requireText(value, "agentId"); }
@@ -57,11 +74,21 @@ public final class WorkerSpec {
     public void setEnv(Map<String, String> value) { env = Map.copyOf(Objects.requireNonNull(value, "env")); }
     public String getTlsSecret() { return tlsSecret; }
     public void setTlsSecret(String value) { tlsSecret = value == null ? "" : value.trim(); }
+    public String getSpecDigest() { return specDigest; }
+    public void setSpecDigest(String value) { specDigest = optionalText(value); }
+    public String getConfigRevision() { return configRevision; }
+    public void setConfigRevision(String value) { configRevision = optionalText(value); }
+    public String getSecretGeneration() { return secretGeneration; }
+    public void setSecretGeneration(String value) { secretGeneration = optionalText(value); }
 
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be blank");
         }
         return value;
+    }
+
+    private static String optionalText(String value) {
+        return value == null ? "" : value.trim();
     }
 }

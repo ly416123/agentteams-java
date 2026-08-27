@@ -73,6 +73,10 @@ class WorkerResourceFactoryTest {
                 .isEqualTo("AGENTSCOPE");
         assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnvFrom())
                 .isNotEmpty();
+        assertThat(deployment.getSpec().getTemplate().getMetadata().getAnnotations())
+                .containsEntry(WorkerResourceFactory.RUNTIME_ANNOTATION, "AGENTSCOPE")
+                .doesNotContainKey(WorkerResourceFactory.SPEC_DIGEST_ANNOTATION)
+                .doesNotContainKey(WorkerResourceFactory.CONFIG_REVISION_ANNOTATION);
     }
 
     @Test

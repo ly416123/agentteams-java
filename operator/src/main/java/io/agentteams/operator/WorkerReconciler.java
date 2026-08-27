@@ -1,12 +1,14 @@
 package io.agentteams.operator;
 
 import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.apps.DeploymentStatus;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.javaoperatorsdk.operator.api.reconciler.ControllerConfiguration;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
 import io.javaoperatorsdk.operator.api.reconciler.Reconciler;
 import io.javaoperatorsdk.operator.api.reconciler.UpdateControl;
 import java.time.Duration;
+import java.util.Map;
 
 @ControllerConfiguration
 public final class WorkerReconciler implements Reconciler<Worker> {
@@ -27,20 +29,85 @@ public final class WorkerReconciler implements Reconciler<Worker> {
                 .resource(WorkerResourceFactory.service(resource)).createOrReplace();
 
         Deployment deployment = client.apps().deployments().inNamespace(namespace).withName(name).get();
-        int ready = deployment == null || deployment.getStatus() == null
-                || deployment.getStatus().getReadyReplicas() == null
-                ? 0 : deployment.getStatus().getReadyReplicas();
-        WorkerStatus status = new WorkerStatus();
-        status.setReadyReplicas(ready);
-        status.setObservedGeneration(resource.getMetadata().getGeneration());
-        status.setPhase(ready >= resource.getSpec().replicas() ? "Ready" : "Progressing");
-        status.setMessage(ready >= resource.getSpec().replicas()
-                ? "Worker deployment is ready" : "Waiting for Worker deployment readiness");
+        WorkerStatus status = statusFor(resource, deployment);
         resource.setStatus(status);
         UpdateControl<Worker> update = UpdateControl.updateStatus(resource);
         // A deleted or externally mutated Deployment does not necessarily
         // enqueue its Worker owner. Keep a bounded repair loop so the CR
         // cannot remain Ready while its child Deployment is missing.
         return update.rescheduleAfter(Duration.ofSeconds(30));
+    }
+
+    static WorkerStatus statusFor(Worker resource, Deployment deployment) {
+        int ready = deployment == null || deployment.getStatus() == null
+                || deployment.getStatus().getReadyReplicas() == null
+                ? 0 : deployment.getStatus().getReadyReplicas();
+        boolean readyForDesiredReplicas = ready >= resource.getSpec().replicas();
+        WorkerStatus status = new WorkerStatus();
+        status.setReadyReplicas(ready);
+        status.setObservedGeneration(resource.getMetadata().getGeneration());
+        WorkerStatus previous = resource.getStatus();
+        if (previous != null) {
+            status.setObservedSpecDigest(previous.getObservedSpecDigest());
+            status.setObservedRuntime(previous.getObservedRuntime());
+            status.setObservedConfigRevision(previous.getObservedConfigRevision());
+            status.setObservedSecretGeneration(previous.getObservedSecretGeneration());
+        }
+        Map<String, String> rawAnnotations = deployment == null
+                || deployment.getSpec() == null
+                || deployment.getSpec().getTemplate() == null
+                || deployment.getSpec().getTemplate().getMetadata() == null
+                ? Map.of() : deployment.getSpec().getTemplate().getMetadata().getAnnotations();
+        Map<String, String> annotations = rawAnnotations == null ? Map.of() : rawAnnotations;
+        boolean versionConfirmed = versionConfirmed(resource.getSpec(), annotations);
+        boolean rolloutComplete = rolloutComplete(resource, deployment);
+        boolean deploymentReady = readyForDesiredReplicas && versionConfirmed && rolloutComplete;
+        status.setPhase(deploymentReady ? "Ready" : "Progressing");
+        status.setMessage(deploymentReady
+                ? "Worker deployment is ready" : "Waiting for Worker deployment readiness");
+        if (rolloutComplete) {
+            status.setObservedSpecDigest(annotations.get(WorkerResourceFactory.SPEC_DIGEST_ANNOTATION));
+            status.setObservedRuntime(annotations.get(WorkerResourceFactory.RUNTIME_ANNOTATION));
+            status.setObservedConfigRevision(annotations.get(WorkerResourceFactory.CONFIG_REVISION_ANNOTATION));
+            status.setObservedSecretGeneration(annotations.get(WorkerResourceFactory.SECRET_GENERATION_ANNOTATION));
+        }
+        return status;
+    }
+
+    private static boolean rolloutComplete(Worker resource, Deployment deployment) {
+        if (!hasVersionExpectation(resource.getSpec())) {
+            return true;
+        }
+        DeploymentStatus deploymentStatus = deployment == null ? null : deployment.getStatus();
+        if (deploymentStatus == null || deploymentStatus.getObservedGeneration() == null
+                || deploymentStatus.getUpdatedReplicas() == null
+                || deploymentStatus.getAvailableReplicas() == null) {
+            return false;
+        }
+        Long generation = resource.getMetadata().getGeneration();
+        return (generation == null || deploymentStatus.getObservedGeneration() >= generation)
+                && deploymentStatus.getUpdatedReplicas() >= resource.getSpec().replicas()
+                && deploymentStatus.getAvailableReplicas() >= resource.getSpec().replicas();
+    }
+
+    private static boolean hasVersionExpectation(WorkerSpec spec) {
+        return !spec.specDigest().isBlank() || !spec.configRevision().isBlank()
+                || !spec.secretGeneration().isBlank();
+    }
+
+    private static boolean versionConfirmed(WorkerSpec spec, Map<String, String> annotations) {
+        if (spec.specDigest().isBlank() && spec.configRevision().isBlank()
+                && spec.secretGeneration().isBlank()) {
+            return true;
+        }
+        return same(spec.specDigest(), annotations.get(WorkerResourceFactory.SPEC_DIGEST_ANNOTATION))
+                && same(spec.runtime(), annotations.get(WorkerResourceFactory.RUNTIME_ANNOTATION))
+                && same(spec.configRevision(), annotations.get(WorkerResourceFactory.CONFIG_REVISION_ANNOTATION))
+                && same(spec.secretGeneration(), annotations.get(WorkerResourceFactory.SECRET_GENERATION_ANNOTATION));
+    }
+
+    private static boolean same(String expected, String observed) {
+        return expected == null || expected.isBlank() ? observed == null || observed.isBlank()
+                : expected.equals(observed);
     }
 }

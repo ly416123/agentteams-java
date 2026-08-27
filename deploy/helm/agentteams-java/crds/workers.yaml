@@ -24,6 +24,9 @@ spec:
                 replicas: { type: integer, minimum: 1, default: 1 }
                 env: { type: object, additionalProperties: { type: string } }
                 tlsSecret: { type: string }
+                specDigest: { type: string }
+                configRevision: { type: string }
+                secretGeneration: { type: string }
             status:
               type: object
               properties:
@@ -31,4 +34,8 @@ spec:
                 observedGeneration: { type: integer, format: int64 }
                 readyReplicas: { type: integer }
                 message: { type: string }
+                observedSpecDigest: { type: string }
+                observedRuntime: { type: string }
+                observedConfigRevision: { type: string }
+                observedSecretGeneration: { type: string }
       subresources: { status: {} }

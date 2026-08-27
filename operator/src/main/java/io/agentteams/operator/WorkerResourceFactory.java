@@ -30,6 +30,10 @@ public final class WorkerResourceFactory {
     private static final String SECRET_RELOADER_ANNOTATION = "secret.reloader.stakater.com/reload";
     private static final String RUNTIME_CONFIG_MAP_ENV = "AGENTTEAMS_RUNTIME_CONFIG_MAP";
     private static final String RUNTIME_CONFIG_MAP_ANNOTATION = "agentteams.io/runtime-config-map";
+    static final String SPEC_DIGEST_ANNOTATION = "agentteams.io/spec-digest";
+    static final String RUNTIME_ANNOTATION = "agentteams.io/runtime";
+    static final String CONFIG_REVISION_ANNOTATION = "agentteams.io/config-revision";
+    static final String SECRET_GENERATION_ANNOTATION = "agentteams.io/secret-generation";
 
     private WorkerResourceFactory() { }
 
@@ -91,10 +95,11 @@ public final class WorkerResourceFactory {
                         .withReplicas(spec.replicas())
                         .withSelector(new LabelSelectorBuilder().withMatchLabels(labels).build())
                         .withTemplate(new PodTemplateSpecBuilder()
-                                .withMetadata(new ObjectMetaBuilder().withLabels(labels).build())
+                                .withMetadata(new ObjectMetaBuilder().withLabels(labels)
+                                        .withAnnotations(versionAnnotations(spec)).build())
                                 .withSpec(podSpec.build())
                                 .build())
-                        .build())
+                .build())
                 .build();
     }
 
@@ -140,6 +145,21 @@ public final class WorkerResourceFactory {
         labels.put("agentteams.io/agent-id", worker.getSpec().agentId());
         labels.put("agentteams.io/runtime", worker.getSpec().runtime());
         return labels;
+    }
+
+    private static Map<String, String> versionAnnotations(WorkerSpec spec) {
+        Map<String, String> annotations = new LinkedHashMap<>();
+        putIfPresent(annotations, SPEC_DIGEST_ANNOTATION, spec.specDigest());
+        putIfPresent(annotations, RUNTIME_ANNOTATION, spec.runtime());
+        putIfPresent(annotations, CONFIG_REVISION_ANNOTATION, spec.configRevision());
+        putIfPresent(annotations, SECRET_GENERATION_ANNOTATION, spec.secretGeneration());
+        return annotations;
+    }
+
+    private static void putIfPresent(Map<String, String> target, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(key, value);
+        }
     }
 
     private static String name(Worker worker) {

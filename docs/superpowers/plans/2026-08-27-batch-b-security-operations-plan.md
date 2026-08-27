@@ -66,7 +66,7 @@
 
 **目标：** 把 drain、rollout、rollback、terminate 从瞬时 API 变成数据库驱动、可重试、可审计的 Operation。
 
-**当前增量进度（2026-08-27）：** 已完成第一纵切：V46 `worker_operations` 表、JDBC Repository、Operation 类型/记录、DRAIN/TERMINATE 服务入口和 HTTP `202 Accepted` 入口；已验证幂等复用、幂等键请求变更拒绝、活动 Lease 终止保护、活动 Operation 唯一约束、过期 lease 回收、rollout 调度 fencing、DRAIN 后新任务排除和资源范围校验。Operator 双确认、Operation 通用恢复调度、rollout/rollback 实际资源编排仍未完成，不能将任务 1 标记为整体完成。
+**当前增量进度（2026-08-27）：** 已完成第一纵切：V46 `worker_operations` 表、JDBC Repository、Operation 类型/记录、DRAIN/TERMINATE 服务入口和 HTTP `202 Accepted` 入口；已验证幂等复用、幂等键请求变更拒绝、活动 Lease 终止保护、活动 Operation 唯一约束、过期 lease 回收、rollout 调度 fencing、DRAIN 后新任务排除和资源范围校验。随后补齐 Worker CR 的 rollout 版本期望字段（spec digest/runtime/config revision/Secret generation）、Deployment Pod template 版本 annotations 和 Reconciler 的就绪版本状态投影，旧 CR 兼容且已通过本地 Docker/Colima 全量 Gate。Gateway Hello 双确认、Operation 通用恢复调度、rollout/rollback 实际资源编排仍未完成，不能将任务 1 标记为整体完成。
 
 - [ ] **步骤 1：编写失败测试**
 

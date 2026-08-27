@@ -86,8 +86,11 @@ def main():
         if required not in team_crd:
             fail(f"Team CRD schema missing {required}")
     worker_crd = (ROOT / "deploy/helm/agentteams-java/crds/workers.yaml").read_text(encoding="utf-8")
-    if "tlsSecret" not in worker_crd:
-        fail("Worker CRD schema missing tlsSecret")
+    for required in ("tlsSecret", "specDigest", "configRevision", "secretGeneration",
+                     "observedSpecDigest", "observedRuntime", "observedConfigRevision",
+                     "observedSecretGeneration"):
+        if required not in worker_crd:
+            fail(f"Worker CRD schema missing {required}")
     qwenpaw_mock_manifest = ROOT / "deploy/kind-qwenpaw-openai-mock.yaml"
     qwenpaw_mock_script = ROOT / "scripts/qwenpaw-openai-mock.py"
     if not qwenpaw_mock_manifest.exists() or not qwenpaw_mock_script.exists():
