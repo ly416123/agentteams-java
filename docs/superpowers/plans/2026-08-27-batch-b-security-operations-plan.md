@@ -113,7 +113,7 @@ git commit -m "feat(worker): 增加可恢复运维操作"
 
 **目标：** 让 HTTP、Manager Tool 和异步业务入口复用同一 Action/scope 授权，并补齐邀请、启用、禁用、角色变更和 Owner 转移。
 
-**当前增量进度（2026-08-27）：** 已完成第一纵切：V48 `project_invitations` 与邀请幂等表、namespace/tenant 约束下的邀请记录、SHA-256 token hash 存储、24 小时有效期、接受邀请时的 subject 校验、过期拒绝和数据库条件更新幂等激活，并开放项目邀请创建/接受 API；补齐成员重新启用、角色变更 CAS、最后 Owner 保护和带 expected project version 的 Owner 转移 API。随后新增不可变 `ResourceAction`/`ResourceRef`/`ResourceAuthorizationMatrix`/`ResourceAuthorizationService`，并接入邀请创建路径，覆盖跨 scope 与角色越权负向测试。当前仍未完成成员状态变化脱敏审计和 Manager/异步消费者接线。
+**当前增量进度（2026-08-27）：** 已完成第一纵切：V48 `project_invitations` 与邀请幂等表、namespace/tenant 约束下的邀请记录、SHA-256 token hash 存储、24 小时有效期、接受邀请时的 subject 校验、过期拒绝和数据库条件更新幂等激活，并开放项目邀请创建/接受 API；补齐成员重新启用、角色变更 CAS、最后 Owner 保护和带 expected project version 的 Owner 转移 API。随后新增不可变 `ResourceAction`/`ResourceRef`/`ResourceAuthorizationMatrix`/`ResourceAuthorizationService`，并接入邀请创建路径，覆盖跨 scope 与角色越权负向测试。现已补齐邀请、接受、启用、禁用、角色变更和 Owner 转移的成功审计，目标 subject 仅以 SHA-256 hash 进入事件，审计 sink 故障不改变成员主业务结果。当前仍未完成 Manager/异步消费者统一授权接线。
 
 - [ ] **步骤 1：编写失败测试**
 

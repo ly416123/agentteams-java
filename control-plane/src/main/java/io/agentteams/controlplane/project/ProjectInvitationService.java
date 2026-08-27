@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.project;
 
+import io.agentteams.controlplane.audit.AuditEvent;
+import io.agentteams.controlplane.audit.AuditRecorder;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -15,6 +17,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,27 +33,35 @@ public class ProjectInvitationService {
     private final ResourceAuthorizationService authorization;
     private final Clock clock;
     private final SecureRandom random;
+    private final AuditRecorder auditRecorder;
+    private static final AuditRecorder NOOP_AUDIT = event -> { };
 
     @Autowired
     public ProjectInvitationService(ProjectInvitationRepository repository,
-            ResourceAuthorizationService authorization) {
-        this(repository, Clock.systemUTC(), new SecureRandom(), authorization);
+            ResourceAuthorizationService authorization, AuditRecorder auditRecorder) {
+        this(repository, Clock.systemUTC(), new SecureRandom(), authorization, auditRecorder);
     }
 
     ProjectInvitationService(ProjectInvitationRepository repository, Clock clock) {
-        this(repository, clock, new SecureRandom(), null);
+        this(repository, clock, new SecureRandom(), null, NOOP_AUDIT);
     }
 
     ProjectInvitationService(ProjectInvitationRepository repository, Clock clock, SecureRandom random) {
-        this(repository, clock, random, null);
+        this(repository, clock, random, null, NOOP_AUDIT);
     }
 
     ProjectInvitationService(ProjectInvitationRepository repository, Clock clock, SecureRandom random,
             ResourceAuthorizationService authorization) {
+        this(repository, clock, random, authorization, NOOP_AUDIT);
+    }
+
+    ProjectInvitationService(ProjectInvitationRepository repository, Clock clock, SecureRandom random,
+            ResourceAuthorizationService authorization, AuditRecorder auditRecorder) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.random = Objects.requireNonNull(random, "random");
         this.authorization = authorization;
+        this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
     }
 
     @Transactional
@@ -97,6 +109,8 @@ public class ProjectInvitationService {
             return new InvitationResult(existingInvitation, "");
         }
         repository.insertInvitation(invitation);
+        auditMembershipChange(principal, project.id(), "PROJECT_MEMBER_INVITED", target,
+                Map.of("new_role", role.name(), "new_status", invitation.status().name()));
         return new InvitationResult(invitation, token);
     }
 
@@ -134,6 +148,8 @@ public class ProjectInvitationService {
         ProjectMembershipRecord member = ProjectMembershipRecord.create(invitation.tenantId(), invitation.projectId(),
                 invitation.subject(), invitation.role(), now);
         repository.upsertMembership(member);
+        auditMembershipChange(principal, invitation.projectId(), "PROJECT_MEMBER_ACCEPTED", invitation.subject(),
+                Map.of("new_role", invitation.role().name(), "new_status", "ACTIVE"));
         return repository.findMembership(invitation.tenantId(), invitation.projectId(), invitation.subject())
                 .orElse(member);
     }
@@ -166,6 +182,18 @@ public class ProjectInvitationService {
     private static void assertSame(String actual, String expected, String key, String operation) {
         if (!actual.equals(expected)) {
             throw new io.agentteams.controlplane.persistence.IdempotencyConflictException(key, operation);
+        }
+    }
+
+    private void auditMembershipChange(Principal actor, UUID projectId, String action, String targetSubject,
+        Map<String, String> attributes) {
+        try {
+            Map<String, String> safeAttributes = new LinkedHashMap<>(attributes);
+            safeAttributes.put("target_subject_hash", hash(targetSubject));
+            auditRecorder.record(new AuditEvent(UUID.randomUUID(), actor.subject(), action, "project_member",
+                    projectId.toString(), safeAttributes, clock.instant()));
+        } catch (RuntimeException ignored) {
+            // Invitation or membership state is authoritative; auditing is best effort.
         }
     }
 

@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.project;
 
+import io.agentteams.controlplane.audit.AuditEvent;
+import io.agentteams.controlplane.audit.AuditRecorder;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.Principal;
@@ -11,7 +13,9 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,15 +27,27 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProjectAuthorizationService {
     private final ProjectRepository repository;
     private final Clock clock;
+    private final AuditRecorder auditRecorder;
+
+    private static final AuditRecorder NOOP_AUDIT = event -> { };
 
     @Autowired
+    public ProjectAuthorizationService(ProjectRepository repository, AuditRecorder auditRecorder) {
+        this(repository, Clock.systemUTC(), auditRecorder);
+    }
+
     public ProjectAuthorizationService(ProjectRepository repository) {
-        this(repository, Clock.systemUTC());
+        this(repository, Clock.systemUTC(), NOOP_AUDIT);
     }
 
     ProjectAuthorizationService(ProjectRepository repository, Clock clock) {
+        this(repository, clock, NOOP_AUDIT);
+    }
+
+    ProjectAuthorizationService(ProjectRepository repository, Clock clock, AuditRecorder auditRecorder) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
     }
 
     @Transactional
@@ -135,6 +151,9 @@ public class ProjectAuthorizationService {
             throw new ProjectMembershipConflictException("MEMBERSHIP_LAST_OWNER");
         }
         repository.deactivateMembership(project.tenantId(), project.id(), memberSubject, clock.instant());
+        auditMembershipChange(principal, project.id(), "PROJECT_MEMBER_DISABLED", memberSubject,
+                Map.of("previous_role", target.role().name(), "previous_status", target.status(),
+                        "new_status", "INACTIVE"));
     }
 
     @Transactional
@@ -160,6 +179,8 @@ public class ProjectAuthorizationService {
                 expectedProjectVersion, clock.instant())) {
             throw new ProjectMembershipConflictException("PROJECT_VERSION_CONFLICT");
         }
+        auditMembershipChange(principal, project.id(), "PROJECT_OWNER_TRANSFERRED", target,
+                Map.of("previous_owner_hash", hash(principal.subject()), "new_role", ProjectRole.OWNER.name()));
     }
 
     @Transactional
@@ -178,6 +199,9 @@ public class ProjectAuthorizationService {
                 expectedMembershipVersion, clock.instant())) {
             throw new ProjectMembershipConflictException("MEMBERSHIP_VERSION_CONFLICT");
         }
+        auditMembershipChange(principal, project.id(), "PROJECT_MEMBER_ENABLED", memberSubject,
+                Map.of("previous_role", target.role().name(), "previous_status", target.status(),
+                        "new_role", target.role().name(), "new_status", "ACTIVE"));
     }
 
     @Transactional
@@ -202,6 +226,9 @@ public class ProjectAuthorizationService {
                 expectedMembershipVersion, clock.instant())) {
             throw new ProjectMembershipConflictException("MEMBERSHIP_VERSION_CONFLICT");
         }
+        auditMembershipChange(principal, project.id(), "PROJECT_MEMBER_ROLE_CHANGED", memberSubject,
+                Map.of("previous_role", target.role().name(), "new_role", role.name(),
+                        "previous_status", target.status()));
     }
 
     public record RoleCheck(UUID projectId, String subject, ProjectRole role, boolean allowed) { }
@@ -233,6 +260,18 @@ public class ProjectAuthorizationService {
 
     private static void assertSame(String actual, String expected, String key, String operation) {
         if (!actual.equals(expected)) throw new IdempotencyConflictException(key, operation);
+    }
+
+    private void auditMembershipChange(Principal actor, UUID projectId, String action, String targetSubject,
+            Map<String, String> attributes) {
+        try {
+            Map<String, String> safeAttributes = new LinkedHashMap<>(attributes);
+            safeAttributes.put("target_subject_hash", hash(targetSubject));
+            auditRecorder.record(new AuditEvent(UUID.randomUUID(), actor.subject(), action, "project_member",
+                    projectId.toString(), safeAttributes, clock.instant()));
+        } catch (RuntimeException ignored) {
+            // Membership state is authoritative; an unavailable audit sink must not change its result.
+        }
     }
 
     private static String hash(String value) {

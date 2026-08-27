@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.agentteams.controlplane.audit.AuditEvent;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -18,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -30,12 +33,15 @@ class ProjectInvitationServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-27T00:00:00Z");
     private ProjectInvitationRepository repository;
     private ProjectInvitationService service;
+    private List<AuditEvent> auditEvents;
 
     @BeforeEach
     void setUp() {
         repository = mock(ProjectInvitationRepository.class);
+        auditEvents = new ArrayList<>();
         service = new ProjectInvitationService(repository,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), new java.security.SecureRandom(), null,
+                auditEvents::add);
         PrincipalContext.set(new Principal("owner",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
         when(repository.findProject("tenant-a", PROJECT_ID)).thenReturn(Optional.of(
@@ -58,6 +64,12 @@ class ProjectInvitationServiceTest {
         assertThat(invitation.token()).isNotBlank();
         assertThat(invitation.record().tokenHash()).doesNotContain(invitation.token());
         verify(repository).insertInvitation(any(ProjectInvitationRecord.class));
+        assertThat(auditEvents).singleElement().satisfies(event -> {
+            assertThat(event.action()).isEqualTo("PROJECT_MEMBER_INVITED");
+            assertThat(event.attributes()).containsEntry("target_subject_hash",
+                    "88fa0d759f845b47c044c2cd44e29082cf6fea665c30c146374ec7c8f3d699e3");
+            assertThat(event.attributes()).doesNotContainValue(invitation.token());
+        });
 
         ProjectInvitationRecord pending = invitation.record();
         when(repository.findInvitationByTokenHash("tenant-a", pending.tokenHash()))
@@ -73,6 +85,10 @@ class ProjectInvitationServiceTest {
 
         assertThat(service.accept(invitation.token())).isEqualTo(accepted);
         verify(repository).upsertMembership(accepted);
+        assertThat(auditEvents).hasSize(2);
+        assertThat(auditEvents.get(1).action()).isEqualTo("PROJECT_MEMBER_ACCEPTED");
+        assertThat(auditEvents.get(1).attributes()).containsEntry("target_subject_hash",
+                "88fa0d759f845b47c044c2cd44e29082cf6fea665c30c146374ec7c8f3d699e3");
     }
 
     @Test
