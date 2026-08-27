@@ -42,6 +42,13 @@ Integration tests use the `integration-tests` profile:
 mvn -q -Pintegration-tests verify
 ```
 
+## Git development workflow
+
+`main` is the only integration and release baseline. New work must branch from
+the latest `origin/main`, and completed work must be merged back before the
+next task starts. See the [Git development workflow](docs/development/git-workflow.md)
+for worktree, synchronization, and branch-governance rules.
+
 Generated protobuf and gRPC sources are build artifacts and are not committed.
 
 ## Kubernetes delivery
