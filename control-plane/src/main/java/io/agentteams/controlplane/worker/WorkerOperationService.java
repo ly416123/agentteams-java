@@ -207,15 +207,18 @@ public final class WorkerOperationService {
         }
     }
 
-    public static void recoverExpiredOperations(
+    public static int recoverExpiredOperations(
             io.agentteams.controlplane.persistence.FoundationTransaction tx, Instant now) {
+        int recovered = 0;
         for (WorkerOperation expired : tx.workerOperations().findExpiredForUpdate(now)) {
             WorkerOperation failed = tx.workerOperations().updateStatus(expired.id(), WorkerOperationStatus.FAILED,
                     "OPERATION_LEASE_EXPIRED", expired.version(), now);
             FoundationPersistenceService.appendEvent(tx, "worker_operation", failed.id(),
                     "WorkerOperationLeaseExpired", "{\"operationId\":\"" + failed.id() + "\"}", now,
                     failed.version());
+            recovered++;
         }
+        return recovered;
     }
 
     private static String correlationOr(String fallback) {

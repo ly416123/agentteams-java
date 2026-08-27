@@ -29,6 +29,7 @@ import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
 import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.agentteams.controlplane.service.TaskAssignmentScheduler;
 import io.agentteams.controlplane.service.TaskAssignmentService;
+import io.agentteams.controlplane.worker.WorkerOperationRecoveryScheduler;
 import io.agentteams.controlplane.service.TeamService;
 import io.agentteams.controlplane.team.KubernetesTeamResourceSource;
 import io.agentteams.controlplane.team.TeamCrdParser;
@@ -250,6 +251,17 @@ public class ControlPlaneConfiguration {
             @Value("${agentteams.scheduler.batch-size:16}") int batchSize) {
         return new TaskAssignmentScheduler(assignments, schedulerLease, clock,
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "agentteams.worker-operations.scheduler.enabled", havingValue = "true", matchIfMissing = true)
+    WorkerOperationRecoveryScheduler workerOperationRecoveryScheduler(
+            FoundationPersistenceService persistence, SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration) {
+        return new WorkerOperationRecoveryScheduler(persistence, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration);
     }
 
     @Bean
