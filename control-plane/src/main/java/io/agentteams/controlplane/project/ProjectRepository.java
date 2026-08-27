@@ -12,6 +12,9 @@ public interface ProjectRepository {
 
     Optional<ProjectMembershipRecord> findMembership(String tenantId, UUID projectId, String subject);
 
+    Optional<ProjectMembershipRecord> findMembershipIncludingInactive(String tenantId, UUID projectId,
+            String subject);
+
     List<ProjectMembershipRecord> findMemberships(String tenantId, UUID projectId);
 
     void upsertMembership(ProjectMembershipRecord membership);
@@ -22,6 +25,12 @@ public interface ProjectRepository {
 
     boolean transferOwnership(String tenantId, UUID projectId, String currentOwner, String newOwner,
             long expectedProjectVersion, Instant updatedAt);
+
+    boolean updateMembershipStatus(String tenantId, UUID projectId, String subject, String status,
+            long expectedVersion, Instant updatedAt);
+
+    boolean updateMembershipRole(String tenantId, UUID projectId, String subject, ProjectRole role,
+            long expectedVersion, Instant updatedAt);
 
     Optional<ProjectCreateIdempotency> findProjectCreateIdempotency(String tenantId, String key);
 

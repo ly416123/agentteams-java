@@ -68,6 +68,22 @@ public final class ProjectController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{projectId}/members/{subject}/enable")
+    public ResponseEntity<Void> enableMember(@PathVariable UUID projectId, @PathVariable String subject,
+            @RequestBody MembershipVersionRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        service.enableMember(projectId, subject, request.expectedMembershipVersion());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{projectId}/members/{subject}/role")
+    public ResponseEntity<Void> changeRole(@PathVariable UUID projectId, @PathVariable String subject,
+            @RequestBody ChangeRoleRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        service.changeRole(projectId, subject, request.role(), request.expectedMembershipVersion());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{projectId}/members")
     public List<MemberResponse> members(@PathVariable UUID projectId) {
         return service.listMembers(projectId).stream().map(MemberResponse::from).toList();
@@ -94,6 +110,10 @@ public final class ProjectController {
     public record AcceptInvitationRequest(String token) { }
 
     public record TransferOwnerRequest(String newOwner, long expectedProjectVersion) { }
+
+    public record MembershipVersionRequest(long expectedMembershipVersion) { }
+
+    public record ChangeRoleRequest(ProjectRole role, long expectedMembershipVersion) { }
 
     public record ProjectResponse(UUID id, String tenantId, String name, String status, String createdBy) {
         static ProjectResponse from(ProjectRecord project) {

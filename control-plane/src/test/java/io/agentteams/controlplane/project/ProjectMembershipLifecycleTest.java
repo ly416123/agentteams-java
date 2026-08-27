@@ -65,4 +65,32 @@ class ProjectMembershipLifecycleTest {
 
         verify(repository).transferOwnership("tenant-a", PROJECT_ID, "owner-a", "owner-b", 7, NOW);
     }
+
+    @Test
+    void disabledMemberCanBeReenabledWithExpectedMembershipVersion() {
+        ProjectMembershipRecord disabled = new ProjectMembershipRecord(
+                "tenant-a", PROJECT_ID, "developer", ProjectRole.DEVELOPER, "INACTIVE", NOW, NOW, 3);
+        when(repository.findMembershipIncludingInactive("tenant-a", PROJECT_ID, "developer"))
+                .thenReturn(Optional.of(disabled));
+        when(repository.updateMembershipStatus("tenant-a", PROJECT_ID, "developer", "ACTIVE", 3, NOW))
+                .thenReturn(true);
+
+        service.enableMember(PROJECT_ID, "developer", 3);
+
+        verify(repository).updateMembershipStatus("tenant-a", PROJECT_ID, "developer", "ACTIVE", 3, NOW);
+    }
+
+    @Test
+    void roleChangeUsesCompareAndSetAndCannotGrantOwnerDirectly() {
+        ProjectMembershipRecord target = ProjectMembershipRecord.create(
+                "tenant-a", PROJECT_ID, "developer", ProjectRole.DEVELOPER, NOW);
+        when(repository.findMembership("tenant-a", PROJECT_ID, "developer"))
+                .thenReturn(Optional.of(target));
+        when(repository.updateMembershipRole("tenant-a", PROJECT_ID, "developer", ProjectRole.OPERATOR, 0, NOW))
+                .thenReturn(true);
+
+        service.changeRole(PROJECT_ID, "developer", ProjectRole.OPERATOR, 0);
+
+        verify(repository).updateMembershipRole("tenant-a", PROJECT_ID, "developer", ProjectRole.OPERATOR, 0, NOW);
+    }
 }

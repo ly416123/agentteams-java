@@ -48,6 +48,16 @@ public class JdbcProjectRepository implements ProjectRepository {
     }
 
     @Override
+    public Optional<ProjectMembershipRecord> findMembershipIncludingInactive(String tenantId, UUID projectId,
+            String subject) {
+        return jdbc.query("""
+                SELECT tenant_id, project_id, subject, role, status, created_at, updated_at, version
+                  FROM project_memberships
+                 WHERE tenant_id = ? AND project_id = ? AND subject = ?
+                """, (rs, row) -> membership(rs), tenantId, projectId, subject).stream().findFirst();
+    }
+
+    @Override
     public List<ProjectMembershipRecord> findMemberships(String tenantId, UUID projectId) {
         return jdbc.query("""
                 SELECT tenant_id, project_id, subject, role, status, created_at, updated_at, version
@@ -111,6 +121,24 @@ public class JdbcProjectRepository implements ProjectRepository {
                  WHERE tenant_id = ? AND project_id = ? AND subject = ? AND status = 'ACTIVE' AND role <> 'OWNER'
                 """, timestamp(updatedAt), tenantId, projectId, newOwner);
         return demoted == 1 && promoted == 1;
+    }
+
+    @Override
+    public boolean updateMembershipStatus(String tenantId, UUID projectId, String subject, String status,
+            long expectedVersion, java.time.Instant updatedAt) {
+        return jdbc.update("""
+                UPDATE project_memberships SET status = ?, updated_at = ?, version = version + 1
+                 WHERE tenant_id = ? AND project_id = ? AND subject = ? AND version = ?
+                """, status, timestamp(updatedAt), tenantId, projectId, subject, expectedVersion) == 1;
+    }
+
+    @Override
+    public boolean updateMembershipRole(String tenantId, UUID projectId, String subject, ProjectRole role,
+            long expectedVersion, java.time.Instant updatedAt) {
+        return jdbc.update("""
+                UPDATE project_memberships SET role = ?, updated_at = ?, version = version + 1
+                 WHERE tenant_id = ? AND project_id = ? AND subject = ? AND status = 'ACTIVE' AND version = ?
+                """, role.name(), timestamp(updatedAt), tenantId, projectId, subject, expectedVersion) == 1;
     }
 
     @Override

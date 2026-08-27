@@ -162,6 +162,48 @@ public class ProjectAuthorizationService {
         }
     }
 
+    @Transactional
+    public void enableMember(UUID projectId, String subject, long expectedMembershipVersion) {
+        Principal principal = principal();
+        ProjectRecord project = project(principal.scope().tenant(), projectId);
+        ProjectMembershipRecord actor = membership(project.tenantId(), project.id(), principal.subject());
+        if (!actor.role().atLeast(ProjectRole.ADMIN)) {
+            throw new AuthorizationException("project membership management denied");
+        }
+        String memberSubject = required(subject, "subject");
+        ProjectMembershipRecord target = repository.findMembershipIncludingInactive(project.tenantId(), project.id(),
+                memberSubject).orElseThrow(() -> new ResourceNotFoundException("project member", projectId));
+        if (target.status().equals("ACTIVE")) return;
+        if (!repository.updateMembershipStatus(project.tenantId(), project.id(), memberSubject, "ACTIVE",
+                expectedMembershipVersion, clock.instant())) {
+            throw new ProjectMembershipConflictException("MEMBERSHIP_VERSION_CONFLICT");
+        }
+    }
+
+    @Transactional
+    public void changeRole(UUID projectId, String subject, ProjectRole role, long expectedMembershipVersion) {
+        Principal principal = principal();
+        if (role == null) throw new IllegalArgumentException("role is required");
+        ProjectRecord project = project(principal.scope().tenant(), projectId);
+        ProjectMembershipRecord actor = membership(project.tenantId(), project.id(), principal.subject());
+        if (!actor.role().atLeast(ProjectRole.ADMIN)
+                || (actor.role() == ProjectRole.ADMIN && role.atLeast(ProjectRole.ADMIN))) {
+            throw new AuthorizationException("project membership management denied");
+        }
+        if (role == ProjectRole.OWNER) {
+            throw new ProjectMembershipConflictException("OWNER_TRANSFER_REQUIRED");
+        }
+        String memberSubject = required(subject, "subject");
+        ProjectMembershipRecord target = membership(project.tenantId(), project.id(), memberSubject);
+        if (target.role() == ProjectRole.OWNER && repository.countActiveOwners(project.tenantId(), project.id()) <= 1) {
+            throw new ProjectMembershipConflictException("MEMBERSHIP_LAST_OWNER");
+        }
+        if (!repository.updateMembershipRole(project.tenantId(), project.id(), memberSubject, role,
+                expectedMembershipVersion, clock.instant())) {
+            throw new ProjectMembershipConflictException("MEMBERSHIP_VERSION_CONFLICT");
+        }
+    }
+
     public record RoleCheck(UUID projectId, String subject, ProjectRole role, boolean allowed) { }
 
     private ProjectRecord project(String tenantId, UUID projectId) {
