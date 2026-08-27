@@ -3,6 +3,9 @@ package io.agentteams.controlplane.project;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceAction;
+import io.agentteams.controlplane.security.ResourceAuthorizationService;
+import io.agentteams.controlplane.security.ResourceRef;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -23,22 +26,30 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProjectInvitationService {
     private static final Duration INVITATION_TTL = Duration.ofHours(24);
     private final ProjectInvitationRepository repository;
+    private final ResourceAuthorizationService authorization;
     private final Clock clock;
     private final SecureRandom random;
 
     @Autowired
-    public ProjectInvitationService(ProjectInvitationRepository repository) {
-        this(repository, Clock.systemUTC(), new SecureRandom());
+    public ProjectInvitationService(ProjectInvitationRepository repository,
+            ResourceAuthorizationService authorization) {
+        this(repository, Clock.systemUTC(), new SecureRandom(), authorization);
     }
 
     ProjectInvitationService(ProjectInvitationRepository repository, Clock clock) {
-        this(repository, clock, new SecureRandom());
+        this(repository, clock, new SecureRandom(), null);
     }
 
     ProjectInvitationService(ProjectInvitationRepository repository, Clock clock, SecureRandom random) {
+        this(repository, clock, random, null);
+    }
+
+    ProjectInvitationService(ProjectInvitationRepository repository, Clock clock, SecureRandom random,
+            ResourceAuthorizationService authorization) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.random = Objects.requireNonNull(random, "random");
+        this.authorization = authorization;
     }
 
     @Transactional
@@ -48,6 +59,10 @@ public class ProjectInvitationService {
         String target = required(subject, "subject");
         if (role == null) throw new IllegalArgumentException("role is required");
         ProjectRecord project = project(principal.scope().tenant(), projectId);
+        if (authorization != null) {
+            authorization.require(ResourceAction.PROJECT_MEMBER_INVITE,
+                    ResourceRef.project(project.tenantId(), project.id()));
+        }
         ProjectMembershipRecord actor = membership(project, principal.subject());
         if (!actor.role().atLeast(ProjectRole.ADMIN)
                 || (actor.role() == ProjectRole.ADMIN && role.atLeast(ProjectRole.ADMIN))) {
