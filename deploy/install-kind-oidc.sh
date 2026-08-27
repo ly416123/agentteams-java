@@ -33,4 +33,22 @@ helm upgrade --install agentteams "${ROOT}/deploy/helm/agentteams-java" \
 kubectl -n "${NAMESPACE}" rollout status \
   deployment/agentteams-agentteams-java-control-plane --timeout=180s
 
+# The OIDC smoke users authenticate through Keycloak, while task authorization
+# is decided from the Control Plane project membership facts. Keep this fixture
+# idempotent and scoped to the documented tenant/project used by the smoke.
+DB_PASSWORD=$(kubectl -n "${NAMESPACE}" get secret agentteams-database \
+  -o jsonpath='{.data.password}' | base64 --decode)
+kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "
+    INSERT INTO projects(id, tenant_id, name, status, created_by, created_at, updated_at, version)
+    VALUES ('00000000-0000-0000-0000-000000000025', 'tenant-a', 'project-a', 'ACTIVE', 'alice', now(), now(), 0)
+    ON CONFLICT (tenant_id, name) DO UPDATE SET status = 'ACTIVE', updated_at = now();
+    INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
+    SELECT 'tenant-a', id, 'alice', 'DEVELOPER', 'ACTIVE', now(), now(), 0
+      FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'
+    ON CONFLICT (tenant_id, project_id, subject)
+    DO UPDATE SET role = 'DEVELOPER', status = 'ACTIVE', updated_at = now();
+  " >/dev/null
+echo "OIDC authorization fixture ready: tenant-a/project-a alice=DEVELOPER"
+
 "${ROOT}/scripts/smoke-kind-oidc.sh"
