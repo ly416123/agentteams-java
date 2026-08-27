@@ -102,7 +102,7 @@ void drainingWorkerIsExcludedFromNewAssignments() {
 
 预期：Operation 幂等、重启恢复、活动任务保护、旧版本 fencing 和回滚测试全部通过。
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add control-plane/src/main/java/io/agentteams/controlplane/worker control-plane/src/main/java/io/agentteams/controlplane/service/AgentService.java control-plane/src/main/java/io/agentteams/controlplane/service/TaskAssignmentService.java control-plane/src/main/resources/db/migration/V46__worker_operations.sql control-plane/src/test operator
