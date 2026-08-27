@@ -1,0 +1,162 @@
+name: agentteams-java-promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag containing release-manifest.json"
+        required: true
+        type: string
+      environment:
+        description: "Approved production GitHub Environment"
+        required: true
+        type: choice
+        options:
+          - production
+
+concurrency:
+  group: agentteams-java-promote-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+env:
+  COSIGN_EXPERIMENTAL: "1"
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out deployment definitions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Download the existing release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'release-manifest.json*' \
+            --dir "$RUNNER_TEMP/release"
+          test -s "$RUNNER_TEMP/release/release-manifest.json"
+          test -s "$RUNNER_TEMP/release/release-manifest.json.sig"
+          chart_version="$(jq -er '.chart_version' "$RUNNER_TEMP/release/release-manifest.json")"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "agentteams-java-${chart_version}.tgz*" \
+            --dir "$RUNNER_TEMP/release"
+          test -s "$RUNNER_TEMP/release/agentteams-java-${chart_version}.tgz"
+          test -s "$RUNNER_TEMP/release/agentteams-java-${chart_version}.tgz.sig"
+
+      - name: Validate manifest and target environment
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-release-manifest.py \
+            --manifest "$RUNNER_TEMP/release/release-manifest.json" \
+            --environment "${{ inputs.environment }}"
+
+      - name: Install Cosign
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/bin"
+          mkdir -p "$install_dir"
+          GOBIN="$install_dir" go install github.com/sigstore/cosign/v2/cmd/cosign@v2.4.1
+          echo "$install_dir" >> "$GITHUB_PATH"
+          "$install_dir/cosign" version
+
+      - name: Verify release manifest signature
+        env:
+          MANIFEST: ${{ runner.temp }}/release/release-manifest.json
+          SIGNATURE: ${{ runner.temp }}/release/release-manifest.json.sig
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          set -euo pipefail
+          cosign verify-blob \
+            --signature "$SIGNATURE" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github.com/.*/.github/workflows/release.yml@refs/tags/.*$" \
+            "$MANIFEST"
+          chart_version="$(jq -er '.chart_version' "$MANIFEST")"
+          cosign verify-blob \
+            --signature "$RELEASE_DIR/agentteams-java-${chart_version}.tgz.sig" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github.com/.*/.github/workflows/release.yml@refs/tags/.*$" \
+            "$RELEASE_DIR/agentteams-java-${chart_version}.tgz"
+
+      - name: Verify signatures and image digests
+        env:
+          MANIFEST: ${{ runner.temp }}/release/release-manifest.json
+        run: |
+          set -euo pipefail
+          for component in control-plane gateway operator worker; do
+            image="$(jq -er --arg component "$component" '.components[$component].image' "$MANIFEST")"
+            signature="$(jq -er --arg component "$component" '.components[$component].signature' "$MANIFEST")"
+            provenance="$(jq -er --arg component "$component" '.components[$component].provenance' "$MANIFEST")"
+            sbom="$(jq -er --arg component "$component" '.components[$component].sbom' "$MANIFEST")"
+            [[ "$image" =~ @sha256:[0-9a-f]{64}$ ]]
+            [[ "$signature" == https://* && "$provenance" == https://* && "$sbom" == https://* ]]
+            cosign verify "$image" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp "^https://github.com/.*/.github/workflows/release.yml@refs/tags/.*$"
+            cosign verify-attestation --type cyclonedx "$image" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp "^https://github.com/.*/.github/workflows/release.yml@refs/tags/.*$"
+            cosign verify-attestation --type slsaprovenance "$image" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp "^https://github.com/.*/.github/workflows/release.yml@refs/tags/.*$"
+          done
+
+      - name: Render and preflight digest-only deployment
+        env:
+          MANIFEST: ${{ runner.temp }}/release/release-manifest.json
+        run: |
+          set -euo pipefail
+          control_plane="$(jq -er '.components["control-plane"].image' "$MANIFEST")"
+          gateway="$(jq -er '.components.gateway.image' "$MANIFEST")"
+          operator="$(jq -er '.components.operator.image' "$MANIFEST")"
+          helm lint deploy/helm/agentteams-java \
+            -f deploy/helm/agentteams-java/values-production.example.yaml \
+            --set-string "images.controlPlane=$control_plane" \
+            --set-string "images.gateway=$gateway" \
+            --set-string "images.operator=$operator"
+          helm template agentteams deploy/helm/agentteams-java \
+            -f deploy/helm/agentteams-java/values-production.example.yaml \
+            --set-string "images.controlPlane=$control_plane" \
+            --set-string "images.gateway=$gateway" \
+            --set-string "images.operator=$operator" \
+            >/tmp/agentteams-promote-rendered.yaml
+          ! grep -Eq 'image:.*:(latest|RELEASE_TAG)([[:space:]]|$)' /tmp/agentteams-promote-rendered.yaml
+
+      - name: Promote without rebuilding images
+        env:
+          MANIFEST: ${{ runner.temp }}/release/release-manifest.json
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.environment' "$MANIFEST")" = "${{ inputs.environment }}"
+          test -n "$KUBECONFIG_B64"
+          kubeconfig="$RUNNER_TEMP/kubeconfig"
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          export KUBECONFIG="$kubeconfig"
+
+          # The manifest is the sole image source. This job intentionally has
+          # no docker build/buildx build step and never creates a new image.
+          helm upgrade --install agentteams deploy/helm/agentteams-java \
+            --namespace agentteams --create-namespace --wait --timeout 10m \
+            -f deploy/helm/agentteams-java/values-production.example.yaml \
+            --set-string "images.controlPlane=$(jq -er '.components[\"control-plane\"].image' "$MANIFEST")" \
+            --set-string "images.gateway=$(jq -er '.components.gateway.image' "$MANIFEST")" \
+            --set-string "images.operator=$(jq -er '.components.operator.image' "$MANIFEST")"
+          kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
+          kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
+          kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-operator --timeout=300s
+          echo "PROMOTION_OK environment=${{ inputs.environment }} manifest_git_sha=$(jq -r '.git_sha' "$MANIFEST")"

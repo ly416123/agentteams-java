@@ -1,0 +1,182 @@
+name: agentteams-java-release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: agentteams-java-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io/ly416123
+  COSIGN_EXPERIMENTAL: "1"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag points at main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Run release verification gates
+        run: |
+          set -euo pipefail
+          java -version
+          mvn --version
+          helm version --short
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          mvn -q -Pintegration-tests clean verify
+          helm lint deploy/helm/agentteams-java
+
+      - name: Install Cosign
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/bin"
+          mkdir -p "$install_dir"
+          GOBIN="$install_dir" go install github.com/sigstore/cosign/v2/cmd/cosign@v2.4.1
+          echo "$install_dir" >> "$GITHUB_PATH"
+          "$install_dir/cosign" version
+
+      - name: Build, sign, and attest service images
+        id: images
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          declare -a components=(
+            "control-plane|deploy/docker/control-plane.Dockerfile|agentteams-control-plane"
+            "gateway|deploy/docker/gateway.Dockerfile|agentteams-agent-gateway"
+            "operator|deploy/docker/operator.Dockerfile|agentteams-operator"
+            "worker|deploy/docker/worker.Dockerfile|agentteams-agent-worker"
+          )
+
+          mkdir -p "$RUNNER_TEMP/release"
+          for entry in "${components[@]}"; do
+            IFS='|' read -r component dockerfile repository <<<"$entry"
+            image="$REGISTRY/$repository"
+            metadata="$RUNNER_TEMP/release/$component-metadata.json"
+            sbom="$RUNNER_TEMP/release/$component-sbom.json"
+            provenance="$RUNNER_TEMP/release/$component-provenance.json"
+
+            docker buildx build \
+              --platform linux/amd64 \
+              --file "$dockerfile" \
+              --tag "$image:$RELEASE_TAG" \
+              --provenance=true \
+              --sbom=true \
+              --metadata-file "$metadata" \
+              --push .
+            digest="$(jq -er '."containerimage.digest"' "$metadata")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+            # Buildx emits its own SBOM/provenance attestations. Also publish a
+            # small CycloneDX predicate whose subject is the exact image
+            # digest, so promotion can verify a stable, typed attestation.
+            jq -n \
+              --arg name "$image" \
+              --arg digest "$digest" \
+              '{bomFormat:"CycloneDX", specVersion:"1.5", version:1,
+                metadata:{component:{type:"container", name:$name, version:$digest}},
+                components:[{type:"container", name:$name, version:$digest}]}' \
+              > "$sbom"
+            jq -n \
+              --arg subject "$image@$digest" \
+              --arg digest "${digest#sha256:}" \
+              --arg git_sha "$GITHUB_SHA" \
+              --arg workflow "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              '{_type:"https://in-toto.io/Statement/v1",
+                subject:[{name:$subject, digest:{sha256:$digest}}],
+                predicateType:"https://slsa.dev/provenance/v1",
+                predicate:{buildDefinition:{buildType:$workflow,
+                  externalParameters:{gitSha:$git_sha}, resolvedDependencies:[]},
+                  runDetails:{builder:{id:$workflow}, metadata:{invocationId:$git_sha}}}}' \
+              > "$provenance"
+            cosign sign --yes "$image@$digest"
+            cosign attest --yes --predicate "$sbom" --type cyclonedx "$image@$digest"
+            cosign attest --yes --predicate "$provenance" --type slsaprovenance "$image@$digest"
+
+            jq -n \
+              --arg image "$image@$digest" \
+              --arg component "$component" \
+              --arg repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              '{component:$component, image:$image,
+                sbom:($repository + "/attestations/" + $component + "-sbom"),
+                signature:($repository + "/attestations/" + $component + "-signature"),
+                provenance:($repository + "/attestations/" + $component + "-provenance")}' \
+              > "$RUNNER_TEMP/release/$component.json"
+          done
+
+      - name: Create and validate release manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          chart_version="${RELEASE_TAG#v}"
+          jq -n \
+            --arg git_sha "$GITHUB_SHA" \
+            --arg chart_version "$chart_version" \
+            --arg repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --slurpfile control_plane "$RUNNER_TEMP/release/control-plane.json" \
+            --slurpfile gateway "$RUNNER_TEMP/release/gateway.json" \
+            --slurpfile operator "$RUNNER_TEMP/release/operator.json" \
+            --slurpfile worker "$RUNNER_TEMP/release/worker.json" \
+            '{schema_version:1, git_sha:$git_sha, chart_version:$chart_version,
+              environment:"production",
+              components:{
+                "control-plane":$control_plane[0], gateway:$gateway[0],
+                operator:$operator[0], worker:$worker[0]},
+              manifest_signature:{
+                bundle:($repository + "/attestations/release-manifest"),
+                issuer:"https://token.actions.githubusercontent.com",
+                identity:($repository + "/.github/workflows/release.yml")}}' \
+            > release-manifest.json
+          python3 scripts/validate-release-manifest.py \
+            --manifest release-manifest.json \
+            --git-sha "$GITHUB_SHA" \
+            --environment production
+          cosign sign-blob --yes --output-signature release-manifest.json.sig release-manifest.json
+
+      - name: Package and sign Helm chart
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          chart_version="${RELEASE_TAG#v}"
+          mkdir -p "$RUNNER_TEMP/release"
+          helm package deploy/helm/agentteams-java \
+            --version "$chart_version" \
+            --app-version "$RELEASE_TAG" \
+            --destination "$RUNNER_TEMP/release"
+          chart="$RUNNER_TEMP/release/agentteams-java-$chart_version.tgz"
+          test -s "$chart"
+          cosign sign-blob --yes \
+            --output-signature "$chart.sig" \
+            "$chart"
+
+      - name: Publish signed release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" release-manifest.json release-manifest.json.sig \
+            "$RUNNER_TEMP/release/agentteams-java-${RELEASE_TAG#v}.tgz" \
+            "$RUNNER_TEMP/release/agentteams-java-${RELEASE_TAG#v}.tgz.sig" \
+            --title "AgentTeams $RELEASE_TAG" \
+            --generate-notes

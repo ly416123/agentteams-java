@@ -196,25 +196,27 @@ git commit -m "feat(安全): 接入External Secrets状态解析"
 
 **目标：** 让生产部署只接受可追溯、可验证的 digest 和签名 Release Manifest。
 
-- [ ] **步骤 1：编写失败契约测试**
+**当前增量进度（2026-08-27）：** 已完成第一纵切：新增 Release Manifest 校验器，强制校验 Git SHA、稳定 Chart 版本、四个服务组件的 SHA-256 digest、SBOM/signature/provenance HTTPS 引用、Manifest 签名元数据和显式环境；补充正向/负向 fixture。新增 tag 受限的 release workflow，完成 Java/集成/Helm 门禁、BuildKit digest 镜像构建、CycloneDX/SLSA attestation、Cosign keyless 签名、签名 Chart 打包和 Release Artifact 上传；新增 production Environment 晋级 workflow，验证 Manifest、Chart、镜像签名及 SBOM/provenance attestation，仅消费 digest，不重建镜像。脚本契约、YAML/Action pin、Helm 和本机 Docker/Colima Maven 全量 Gate 已通过。当前仍未完成生产 Canary、错误预算、自动回滚和真实 GHCR/受控环境演练，不能将任务 4 整体标记完成。
+
+- [x] **步骤 1：编写失败契约测试**
 
 检查 manifest 缺少组件、digest 格式错误、Git SHA 不匹配、签名/attestation 缺失、生产 values 使用 tag、未知目标环境和未批准 Environment；验证工作流中的第三方 Action 使用完整 commit SHA。
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`python3 -m unittest scripts/test_batch_b_release_contract.py`。
 
 预期：因 release/promote workflow 和 manifest validator 不存在而失败。
 
-- [ ] **步骤 3：实现 manifest 校验和 release workflow**
+- [x] **步骤 3：实现 manifest 校验和 release workflow**
 
 `release.yml` 只接受受保护分支 tag，依次运行 Java/Helm/Kind 验收、BuildKit 构建、SBOM、依赖/Secret 扫描、GHCR 推送、Cosign keyless 签名和 provenance 生成；输出包含组件 digest、Chart version、Git SHA 和 SBOM 引用的 `release-manifest.json`。
 
-- [ ] **步骤 4：实现 promote workflow**
+- [x] **步骤 4：实现 promote workflow**
 
 `promote.yml` 只接收已签名 manifest 和显式环境，验证签名后替换 production overlay 的 digest，执行预检、Canary、Task/Config/Sandbox 冒烟和错误预算检查；失败时恢复上一签名 manifest，不重建镜像。
 
-- [ ] **步骤 5：运行静态验证**
+- [x] **步骤 5：运行静态验证**
 
 运行：`python3 -m unittest scripts/test_batch_b_release_contract.py`、`python3 scripts/validate-release-manifest.py --manifest scripts/fixtures/release-manifest-valid.json`、`helm lint deploy/helm/agentteams-java`、`git diff --check`。
 
