@@ -23,6 +23,17 @@ class KindMatrixSmokeContractTest(unittest.TestCase):
         self.assertIn("reached Control Plane but did not create task", start_task)
         self.assertIn("was not delivered to Control Plane", start_task)
 
+    def test_start_returns_task_id_after_waiting_for_async_creation(self):
+        script_text = (ROOT / "scripts/smoke-kind-matrix.sh").read_text(encoding="utf-8")
+        start_task = script_text.split("start_task() {", 1)[1].split("\nwait_task_phase", 1)[0]
+
+        self.assertIn(
+            'if task_id="$(wait_for_task "${title}" 70)"; then\n'
+            '        printf \'%s\\n\' "${task_id}"\n'
+            '        return 0',
+            start_task,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

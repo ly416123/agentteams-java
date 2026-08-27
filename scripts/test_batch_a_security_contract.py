@@ -176,6 +176,24 @@ class BatchASecurityContractTest(unittest.TestCase):
         ]
         self.assertEqual([], default_matrix_peers)
 
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_prometheus_can_scrape_control_plane_replicas(self):
+        docs = render_chart()
+        control_plane = next(
+            policy for policy in docs
+            if policy.get("kind") == "NetworkPolicy"
+            and policy["metadata"]["name"].endswith("-control-plane")
+        )
+
+        allowed = [
+            peer
+            for rule in control_plane["spec"]["ingress"]
+            for peer in rule.get("from", [])
+            if peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+            == "prometheus"
+        ]
+        self.assertEqual(1, len(allowed))
+
     def test_oidc_default_is_fail_closed(self):
         values = yaml.safe_load(read_chart("values.yaml"))
         policy = values["networkPolicy"]

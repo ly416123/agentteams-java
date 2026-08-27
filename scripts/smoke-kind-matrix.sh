@@ -210,6 +210,7 @@ start_task() {
     # may still be processing it, and a second event could create a duplicate task.
     if wait_for_matrix_event "${body}" 20; then
       if task_id="$(wait_for_task "${title}" 70)"; then
+        printf '%s\n' "${task_id}"
         return 0
       fi
       echo "Matrix command reached Control Plane but did not create task ${title}" >&2

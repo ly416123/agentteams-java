@@ -32,6 +32,10 @@ spec:
     - from:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: agentteams-gateway }
+        # Prometheus discovers the application pods directly and scrapes their
+        # actuator endpoint rather than going through the Service.
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: prometheus }
         {{- if .Values.controlPlane.matrix.appservice.hsTokenSecret }}
         - podSelector:
             matchLabels: { app.kubernetes.io/name: tuwunel }
