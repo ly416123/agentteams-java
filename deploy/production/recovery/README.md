@@ -1,6 +1,6 @@
 # 生产恢复演练入口
 
-本目录只提供恢复演练的两个安全闸门：参数预检和恢复后元数据引用校验。它们不执行恢复、不连接集群、不访问对象内容，也不输出备份内容或环境凭据。真正的恢复编排由受控平台流程执行，并由值班人与变更审批人共同确认。
+本目录提供恢复演练的参数预检、恢复后元数据引用校验和显式恢复编排入口。脚本不连接集群、不读取对象内容，也不输出备份内容或环境凭据；真正的数据库、对象存储、NATS 和入口操作由环境拥有的 hook 执行，并由值班人与变更审批人共同确认。
 
 ## 恢复步骤
 
@@ -29,6 +29,43 @@
    只有看到 `RECOVERY_CONSISTENCY_OK` 才能逐步启动 Control Plane、Gateway、Operator、Worker 和 Manager，并观察重复抑制与 Outbox 重放。
 
 6. 通过任务、配置、配额、Sandbox 和通知冒烟后，恢复入口，记录实际 RPO/RTO、发布清单 digest、校验结果和审批人。
+
+## 编排入口
+
+需要执行平台恢复时，使用 `restore.sh`。默认只做参数预检和元数据一致性
+校验；只有显式提供 `--execute`、匹配的 `RECOVERY_APPROVAL_ID`，并为全部
+阶段设置环境拥有的可执行 hook 才会执行恢复。hook 只通过环境变量接收备份
+元数据，标准输出和错误输出会被丢弃：
+
+```bash
+RECOVERY_APPROVAL_ID=change-123 \
+RECOVERY_PAUSE_ENTRYPOINT_COMMAND=/platform/recovery/pause-entrypoint \
+RECOVERY_PAUSE_SCHEDULER_COMMAND=/platform/recovery/pause-scheduler \
+RECOVERY_RESTORE_POSTGRES_COMMAND=/platform/recovery/restore-postgres \
+RECOVERY_RESTORE_OBJECT_STORAGE_COMMAND=/platform/recovery/restore-object-storage \
+RECOVERY_RESTORE_NATS_COMMAND=/platform/recovery/restore-nats \
+RECOVERY_FLYWAY_VALIDATE_COMMAND=/platform/recovery/flyway-validate \
+RECOVERY_CONSISTENCY_CHECK_COMMAND=/platform/recovery/consistency-check \
+RECOVERY_START_CONTROL_PLANE_COMMAND=/platform/recovery/start-control-plane \
+RECOVERY_START_GATEWAY_COMMAND=/platform/recovery/start-gateway \
+RECOVERY_START_OPERATOR_COMMAND=/platform/recovery/start-operator \
+RECOVERY_START_WORKER_COMMAND=/platform/recovery/start-worker \
+RECOVERY_REPLAY_OUTBOX_COMMAND=/platform/recovery/replay-outbox \
+RECOVERY_SMOKE_COMMAND=/platform/recovery/smoke \
+RECOVERY_OPEN_ENTRYPOINT_COMMAND=/platform/recovery/open-entrypoint \
+RECOVERY_CLOSE_ENTRYPOINT_COMMAND=/platform/recovery/close-entrypoint \
+./restore.sh --environment production --backup-id pg-20260827-0100 \
+  --restore-point 2026-08-27T01:00:00Z \
+  --endpoint s3://backup.example/agentteams \
+  --manifest-digest sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --metadata /controlled/metadata.json --approval-id change-123 --execute
+```
+
+阶段顺序固定为：暂停入口与写操作、恢复 PostgreSQL/对象存储/NATS、Flyway
+validate、一致性校验、逐步启动服务、重放 Outbox、冒烟，最后才开放入口。
+任一阶段失败都会调用 `RECOVERY_CLOSE_ENTRYPOINT_COMMAND` 并返回
+`RECOVERY_RESTORE_FAIL`；入口 hook 未配置或不可执行时，脚本不会开始恢复。
+这只是受控平台的编排契约，不等同于已完成真实 PITR/RPO/RTO 演练。
 
 ## 安全边界
 
