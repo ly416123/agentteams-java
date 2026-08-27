@@ -49,6 +49,8 @@ class KindWorkerRestartContractTest(unittest.TestCase):
         self.assertIn("def mock_delay_is_active", source)
         self.assertIn("mock response delay", source)
         self.assertIn("QWENPAW_MOCK_RESPONSE_DELAY_SECONDS", source)
+        self.assertIn("/debug/inflight", source)
+        self.assertIn("mock_port_forward", source)
 
 
 if __name__ == "__main__":

@@ -235,6 +235,7 @@ def main() -> int:
         fail(f"expected one running Worker Pod before restart, got {pods}")
 
     port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
+    mock_port_forward = None
     base_url = f"http://127.0.0.1:{args.local_port}"
     task_id = None
     delay_configured = False
@@ -242,6 +243,9 @@ def main() -> int:
         wait_until("Control Plane API", lambda: api_request(f"{base_url}/actuator/health"), args.timeout)
         delay_configured = True
         set_mock_delay(args.namespace, args.mock_deployment, args.response_delay_seconds, args.timeout)
+        mock_port_forward = start_port_forward(args.namespace, args.mock_deployment, args.local_port + 1)
+        mock_base_url = f"http://127.0.0.1:{args.local_port + 1}"
+        wait_until("QwenPaw mock API", lambda: api_request(f"{mock_base_url}/v1/models"), args.timeout)
         wait_until(f"QwenPaw Agent registration for {args.agent_id}", lambda: qwenpaw_agent_ready(
             args.namespace, args.postgres_pod, args.agent_id), args.timeout)
 
@@ -257,7 +261,8 @@ def main() -> int:
                     f"kind-worker-restart-queue-{uuid.uuid4()}")
         try:
             wait_until("task RUNNING before Worker restart",
-                       lambda: task_phase(args.namespace, args.postgres_pod, task_id) == "RUNNING",
+                       lambda: task_phase(args.namespace, args.postgres_pod, task_id) == "RUNNING"
+                       and api_request(f"{mock_base_url}/debug/inflight").get("inflight", 0) > 0,
                        args.timeout)
         except RuntimeError as error:
             fail(f"{error}; {task_snapshot(args.namespace, args.postgres_pod, task_id, args.agent_id)}")
@@ -335,6 +340,8 @@ def main() -> int:
             run("scale", "deployment", args.worker_deployment, f"--replicas={worker_replicas}",
                 namespace=args.namespace)
         stop_port_forward(port_forward)
+        if mock_port_forward is not None:
+            stop_port_forward(mock_port_forward)
 
 
 if __name__ == "__main__":
