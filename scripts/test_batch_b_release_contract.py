@@ -2,6 +2,7 @@
 """Contract tests for signed, digest-pinned release promotion."""
 
 import json
+import importlib.util
 import re
 import subprocess
 import sys
@@ -13,6 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 VALID = ROOT / "scripts/fixtures/release-manifest-valid.json"
 INVALID = ROOT / "scripts/fixtures/release-manifest-invalid.json"
 VALIDATOR = ROOT / "scripts/validate-release-manifest.py"
+PROMOTION_GATE = ROOT / "scripts/check-promotion-gate.py"
+PROMOTION_POLICY = ROOT / "deploy/production/promotion/canary-policy.json"
+
+GATE_SPEC = importlib.util.spec_from_file_location("check_promotion_gate", PROMOTION_GATE)
+GATE = importlib.util.module_from_spec(GATE_SPEC)
+GATE_SPEC.loader.exec_module(GATE)
 
 
 class BatchBReleaseContractTest(unittest.TestCase):
@@ -58,6 +65,36 @@ class BatchBReleaseContractTest(unittest.TestCase):
         for workflow in (release, promote):
             for reference in re.findall(r"uses:\s*[^@\s]+@([^\s#]+)", workflow):
                 self.assertRegex(reference, r"^[0-9a-f]{40}$", reference)
+
+    def test_promotion_gate_accepts_healthy_metrics_and_rejects_missing_or_breached_metrics(self):
+        policy = json.loads(PROMOTION_POLICY.read_text(encoding="utf-8"))
+        healthy = {
+            "error_rate": 0.001,
+            "p95_latency_seconds": 0.4,
+            "outbox_backlog": 0,
+            "ready_replicas": {"control-plane": 3, "gateway": 3, "operator": 2},
+        }
+        self.assertEqual([], GATE.evaluate_metrics(healthy, policy))
+
+        missing = dict(healthy)
+        del missing["outbox_backlog"]
+        self.assertTrue(any("outbox_backlog is missing" in breach
+                            for breach in GATE.evaluate_metrics(missing, policy)))
+
+        breached = dict(healthy)
+        breached["error_rate"] = policy["max_error_rate"] + 0.001
+        self.assertTrue(any("error_rate exceeds" in breach
+                            for breach in GATE.evaluate_metrics(breached, policy)))
+
+    def test_promote_workflow_has_fail_closed_gate_and_automatic_rollback(self):
+        promote = (ROOT / ".github/workflows/promote.yml").read_text(encoding="utf-8")
+        self.assertIn("check-promotion-gate.py", promote)
+        self.assertIn("canary-policy.json", promote)
+        self.assertIn("PROMETHEUS_URL", promote)
+        self.assertIn("helm history", promote)
+        self.assertIn("helm rollback", promote)
+        self.assertIn("if !", promote)
+        self.assertIn("PROMOTION_GATE_FAIL", promote)
 
 
 if __name__ == "__main__":

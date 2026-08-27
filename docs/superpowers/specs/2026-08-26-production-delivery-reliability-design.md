@@ -5,7 +5,7 @@
 **优先级：** P0/P1
 **代码基线：** `93d99fb`
 
-**批次 B 增量（2026-08-27）：** 已新增 digest-pinned Release Manifest、CycloneDX/SLSA attestation、Cosign keyless 发布/Chart 签名和 production Environment 晋级入口；Helm 已支持默认关闭的 Ingress/Gateway API，NetworkPolicy 已支持 CIDR/PROXY/PLATFORM 契约，恢复目录已提供不读取 Secret/业务载荷的 preflight 与一致性校验。当前剩余真实 GHCR/受控环境 Canary、错误预算、自动回滚、CNI egress 和 PITR 演练。
+**批次 B 增量（2026-08-28）：** 已新增 digest-pinned Release Manifest、CycloneDX/SLSA attestation、Cosign keyless 发布/Chart 签名和 production Environment 晋级入口；Helm 已支持默认关闭的 Ingress/Gateway API，NetworkPolicy 已支持 CIDR/PROXY/PLATFORM 契约，恢复目录已提供不读取 Secret/业务载荷的 preflight 与一致性校验；晋级入口已增加可配置 Prometheus 健康/错误预算门禁，并在证据缺失或预算超限时自动回滚到晋级前 Helm revision。当前剩余真实 GHCR/受控环境流量 Canary、平台 Prometheus 选择、CNI egress 和 PITR 演练。
 
 ## 1. 目标
 

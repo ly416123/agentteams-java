@@ -65,6 +65,26 @@ cluster to turn an update into a rolling restart. Without Reloader the mount is
 still updated by Kubernetes, but the running gRPC server keeps its existing TLS
 context until the Pod is restarted.
 
+## Signed promotion gate
+
+The `agentteams-java-promote` workflow consumes an existing signed release and
+requires the production GitHub Environment to provide `KUBECONFIG_B64` and
+`PROMETHEUS_URL` secrets. It records the currently deployed Helm revision,
+applies only the manifest's image digests, waits for the Control Plane,
+Gateway, and Operator rollouts, and evaluates
+[`canary-policy.json`](promotion/canary-policy.json). Missing Prometheus
+evidence, a readiness shortfall, an Outbox backlog, or an error-rate/latency
+budget breach fails closed and automatically rolls back to the recorded Helm
+revision. A first production bootstrap is intentionally excluded and must be
+performed as a separately approved platform operation.
+
+The policy is an environment-owned contract: its PromQL must select only the
+promoted production workloads, and the platform must expose a unique scalar
+for every query. The workflow does not print metric payloads or credentials.
+This rolling verification gate is not evidence of a completed L5/L6 traffic
+split; real canary routing and the production recovery drill still require the
+controlled environment.
+
 Worker CRs use the same stable-name contract:
 
 ```yaml

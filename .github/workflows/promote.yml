@@ -25,6 +25,8 @@ permissions:
 
 env:
   COSIGN_EXPERIMENTAL: "1"
+  PROMOTION_NAMESPACE: agentteams
+  PROMOTION_RELEASE: agentteams
 
 jobs:
   promote:
@@ -139,24 +141,62 @@ jobs:
         env:
           MANIFEST: ${{ runner.temp }}/release/release-manifest.json
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+          PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
         run: |
           set -euo pipefail
           test "$(jq -r '.environment' "$MANIFEST")" = "${{ inputs.environment }}"
           test -n "$KUBECONFIG_B64"
+          test -n "$PROMETHEUS_URL"
           kubeconfig="$RUNNER_TEMP/kubeconfig"
           printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$kubeconfig"
           chmod 600 "$kubeconfig"
           export KUBECONFIG="$kubeconfig"
 
+          # A promotion must have a deployed, signed predecessor so a failed
+          # gate can return to a known Helm revision. First install is an
+          # explicit bootstrap operation outside this workflow.
+          previous_revision="$(helm history "$PROMOTION_RELEASE" \
+            --namespace "$PROMOTION_NAMESPACE" --output json \
+            | jq -er 'map(select(.status == "deployed")) | last.id')"
+          test "$previous_revision" != "null"
+
           # The manifest is the sole image source. This job intentionally has
           # no docker build/buildx build step and never creates a new image.
-          helm upgrade --install agentteams deploy/helm/agentteams-java \
-            --namespace agentteams --create-namespace --wait --timeout 10m \
+          promotion_failed=0
+          if ! helm upgrade --install "$PROMOTION_RELEASE" deploy/helm/agentteams-java \
+            --namespace "$PROMOTION_NAMESPACE" --wait --timeout 10m \
             -f deploy/helm/agentteams-java/values-production.example.yaml \
             --set-string "images.controlPlane=$(jq -er '.components[\"control-plane\"].image' "$MANIFEST")" \
             --set-string "images.gateway=$(jq -er '.components.gateway.image' "$MANIFEST")" \
-            --set-string "images.operator=$(jq -er '.components.operator.image' "$MANIFEST")"
-          kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
-          kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
-          kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-operator --timeout=300s
+            --set-string "images.operator=$(jq -er '.components.operator.image' "$MANIFEST")"; then
+            promotion_failed=1
+          fi
+          for deployment in control-plane gateway operator; do
+            if (( promotion_failed == 0 )) && ! kubectl -n "$PROMOTION_NAMESPACE" rollout status \
+              "deployment/agentteams-agentteams-java-$deployment" --timeout=300s; then
+              promotion_failed=1
+            fi
+          done
+
+          # This is the observable canary gate for the rolling deployment:
+          # every required service must be ready and the error budget must be
+          # healthy before the workflow reports success.
+          if (( promotion_failed == 0 )) && ! python3 scripts/check-promotion-gate.py \
+            --policy deploy/production/promotion/canary-policy.json \
+            --prometheus-url "$PROMETHEUS_URL" \
+            --namespace "$PROMOTION_NAMESPACE" \
+            --deployment-prefix agentteams-agentteams-java; then
+            promotion_failed=1
+          fi
+
+          if (( promotion_failed != 0 )); then
+            echo "PROMOTION_GATE_FAIL: reverting to Helm revision $previous_revision" >&2
+            if ! helm rollback "$PROMOTION_RELEASE" "$previous_revision" \
+              --namespace "$PROMOTION_NAMESPACE" --wait --timeout 10m; then
+              echo "PROMOTION_ROLLBACK_FAIL: manual recovery required" >&2
+              exit 1
+            fi
+            echo "PROMOTION_ROLLBACK_OK: restored Helm revision $previous_revision" >&2
+            exit 1
+          fi
           echo "PROMOTION_OK environment=${{ inputs.environment }} manifest_git_sha=$(jq -r '.git_sha' "$MANIFEST")"

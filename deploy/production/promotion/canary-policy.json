@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "window": "5m",
+  "max_error_rate": 0.02,
+  "max_p95_latency_seconds": 1.5,
+  "max_outbox_backlog": 0,
+  "min_ready_replicas": {
+    "control-plane": 1,
+    "gateway": 1,
+    "operator": 1
+  },
+  "prometheus_queries": {
+    "error_rate": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[{window}])) / clamp_min(sum(rate(http_server_requests_seconds_count[{window}])), 1)",
+    "p95_latency_seconds": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket[{window}])))",
+    "outbox_backlog": "max(agentteams_outbox_backlog)",
+    "ready_replicas": "max(kube_deployment_status_replicas_available{namespace=\"{namespace}\",deployment=\"{deployment}\"})"
+  }
+}

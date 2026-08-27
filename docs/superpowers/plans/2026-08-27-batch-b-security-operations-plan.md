@@ -198,7 +198,7 @@ git commit -m "feat(安全): 接入External Secrets状态解析"
 
 **目标：** 让生产部署只接受可追溯、可验证的 digest 和签名 Release Manifest。
 
-**当前增量进度（2026-08-27）：** 已完成第一纵切：新增 Release Manifest 校验器，强制校验 Git SHA、稳定 Chart 版本、四个服务组件的 SHA-256 digest、SBOM/signature/provenance HTTPS 引用、Manifest 签名元数据和显式环境；补充正向/负向 fixture。新增 tag 受限的 release workflow，完成 Java/集成/Helm 门禁、BuildKit digest 镜像构建、CycloneDX/SLSA attestation、Cosign keyless 签名、签名 Chart 打包和 Release Artifact 上传；新增 production Environment 晋级 workflow，验证 Manifest、Chart、镜像签名及 SBOM/provenance attestation，仅消费 digest，不重建镜像。脚本契约、YAML/Action pin、Helm 和本机 Docker/Colima Maven 全量 Gate 已通过。当前仍未完成生产 Canary、错误预算、自动回滚和真实 GHCR/受控环境演练，不能将任务 4 整体标记完成。
+**当前增量进度（2026-08-28）：** 已完成第一纵切：新增 Release Manifest 校验器，强制校验 Git SHA、稳定 Chart 版本、四个服务组件的 SHA-256 digest、SBOM/signature/provenance HTTPS 引用、Manifest 签名元数据和显式环境；补充正向/负向 fixture。新增 tag 受限的 release workflow，完成 Java/集成/Helm 门禁、BuildKit digest 镜像构建、CycloneDX/SLSA attestation、Cosign keyless 签名、签名 Chart 打包和 Release Artifact 上传；新增 production Environment 晋级 workflow，验证 Manifest、Chart、镜像签名及 SBOM/provenance attestation，仅消费 digest，不重建镜像。随后补齐可配置的滚动晋级健康门禁：读取唯一 Prometheus 标量，校验错误率、P95 延迟、Outbox backlog 和三类 Deployment 就绪副本；任一证据缺失或超预算均 fail-closed，并自动回滚到晋级前记录的 Helm revision。脚本契约、YAML/Action pin、Helm 和本机 Docker/Colima Maven 全量 Gate 已通过。真实 GHCR、生产流量 Canary、平台 Prometheus 选择和受控环境演练仍未完成，不能将任务 4 整体标记完成。
 
 - [x] **步骤 1：编写失败契约测试**
 
