@@ -287,6 +287,10 @@ def main() -> int:
         if not previous_connection_id:
             fail("could not find the active Gateway connection before Worker restart")
         run("delete", "pod", failed_worker_pod, "--wait=true", namespace=args.namespace)
+        # The delayed request proves the old Worker was in flight. Once that
+        # pod is gone, remove the artificial delay so the replacement can
+        # complete its recovered attempt within the smoke-test window.
+        clear_mock_delay(args.namespace, args.mock_deployment, args.timeout)
         wait_until(
             "replacement Worker Pod",
             lambda: next((pod for pod in worker_pod_names(args.namespace, args.worker_deployment)

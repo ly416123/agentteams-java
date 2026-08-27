@@ -43,6 +43,15 @@ class KindWorkerRestartContractTest(unittest.TestCase):
         self.assertIn("second task attempt after Worker restart", source)
         self.assertIn("expected two attempts with one success after lease recovery", source)
 
+    def test_clears_mock_delay_after_old_worker_is_deleted(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+
+        deleted = source.index('run("delete", "pod", failed_worker_pod')
+        clear_delay = source.index("clear_mock_delay(", deleted)
+        replacement = source.index('"replacement Worker Pod"', deleted)
+        self.assertLess(deleted, clear_delay)
+        self.assertLess(clear_delay, replacement)
+
     def test_verifies_mock_delay_is_running_in_a_replacement_pod(self):
         source = SCRIPT.read_text(encoding="utf-8")
 
