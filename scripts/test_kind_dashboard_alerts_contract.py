@@ -42,6 +42,13 @@ class KindDashboardAlertsContractTest(unittest.TestCase):
         alert_step = next(step for step in steps if step.get("name") == "Run Kind Dashboard alert acceptance")
         self.assertIn("scripts/run-kind-dashboard-alerts.py", alert_step["run"])
 
+    def test_recovery_workflow_passes_tracing_sampling_as_json_number(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["kind-recovery"]["steps"]
+        install = next(step for step in steps if step.get("name") == "Install AgentTeams chart")
+
+        self.assertIn("--set-json observability.tracing.samplingProbability=1.0", install["run"])
+
     def test_kind_values_allow_control_plane_to_reach_receiver(self):
         values = yaml.safe_load((ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8"))
         network_policy = (ROOT / "deploy/helm/agentteams-java/templates/networkpolicy.yaml").read_text(

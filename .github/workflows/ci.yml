@@ -193,7 +193,7 @@ jobs:
             --set controlPlane.security.apiEnabled=false \
             --set controlPlane.security.oidc.enabled=false \
             --set observability.tracing.enabled=true \
-            --set observability.tracing.samplingProbability=1.0 \
+            --set-json observability.tracing.samplingProbability=1.0 \
             --set observability.tracing.otlpEndpoint=http://otel-collector:4318/v1/traces \
             --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_ENABLED=true \
             --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_POLL_INTERVAL_MS=1000 \

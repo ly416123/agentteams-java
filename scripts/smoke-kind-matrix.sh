@@ -144,22 +144,86 @@ find_task_by_title() {
     | tr -d '\r' | head -n 1
 }
 
-start_task() {
+wait_for_task() {
   local title="$1"
-  local transaction="kind-matrix-start-${RANDOM}-${SECONDS}"
-  send_matrix_command "${transaction}" "!agentteams start ${title}"
+  local timeout_seconds="${2:-90}"
+  local deadline=$((SECONDS + timeout_seconds))
   local task_id=""
-  local deadline=$((SECONDS + 90))
   while [[ -z "${task_id}" ]]; do
     task_id="$(find_task_by_title "${title}")"
-    [[ -n "${task_id}" ]] && break
-    if (( SECONDS >= deadline )); then
-      echo "Matrix command did not create task ${title}" >&2
-      exit 1
-    fi
+    [[ -n "${task_id}" ]] && {
+      printf '%s\n' "${task_id}"
+      return 0
+    }
+    (( SECONDS >= deadline )) && return 1
     sleep 2
   done
-  printf '%s\n' "${task_id}"
+}
+
+matrix_event_seen() {
+  local body="$1"
+  kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+    psql -At -U agentteams -d agentteams -c \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM matrix_inbox_events WHERE room_id='${room_id}' AND sender='${user_id}' AND body='${body}') THEN 1 ELSE 0 END" \
+    | tr -d '\r' | head -n 1
+}
+
+wait_for_matrix_event() {
+  local body="$1"
+  local timeout_seconds="${2:-90}"
+  local deadline=$((SECONDS + timeout_seconds))
+  local seen=0
+  while [[ "${seen}" != "1" ]]; do
+    seen="$(matrix_event_seen "${body}")"
+    [[ "${seen}" == "1" ]] && return 0
+    (( SECONDS >= deadline )) && return 1
+    sleep 2
+  done
+}
+
+print_matrix_delivery_diagnostics() {
+  echo "Recent Tuwunel logs:" >&2
+  kubectl -n "${NAMESPACE}" logs deployment/tuwunel --tail=120 >&2 || true
+  echo "Recent Matrix inbox transactions:" >&2
+  kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+    psql -At -U agentteams -d agentteams -c \
+    "SELECT transaction_id || ' processed=' || COALESCE(processed_at::text, 'null') FROM matrix_inbox_transactions ORDER BY received_at DESC LIMIT 20" >&2 || true
+}
+
+start_task() {
+  local title="$1"
+  local body="!agentteams start ${title}"
+  local max_attempts=3
+  local attempt=1
+  local task_id=""
+  while (( attempt <= max_attempts )); do
+    task_id="$(find_task_by_title "${title}")"
+    if [[ -n "${task_id}" ]]; then
+      printf '%s\n' "${task_id}"
+      return 0
+    fi
+
+    local transaction="kind-matrix-start-${RANDOM}-${SECONDS}-${attempt}"
+    send_matrix_command "${transaction}" "${body}"
+
+    # Do not resend after the Control Plane has recorded the event: the handler
+    # may still be processing it, and a second event could create a duplicate task.
+    if wait_for_matrix_event "${body}" 20; then
+      if task_id="$(wait_for_task "${title}" 70)"; then
+        return 0
+      fi
+      echo "Matrix command reached Control Plane but did not create task ${title}" >&2
+      print_matrix_delivery_diagnostics
+      return 1
+    fi
+
+    echo "Matrix command was not delivered to Control Plane; retrying attempt ${attempt}/${max_attempts}" >&2
+    attempt=$((attempt + 1))
+  done
+
+  echo "Matrix command was not delivered to Control Plane after ${max_attempts} attempts: ${body}" >&2
+  print_matrix_delivery_diagnostics
+  return 1
 }
 
 wait_task_phase() {
@@ -208,21 +272,18 @@ wait_task_transition() {
 
 wait_matrix_event() {
   local body="$1"
-  local deadline=$((SECONDS + 90))
-  local seen=0
-  while [[ "${seen}" != "1" ]]; do
-    seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
-      psql -At -U agentteams -d agentteams -c \
-      "SELECT CASE WHEN EXISTS (SELECT 1 FROM matrix_inbox_events WHERE room_id='${room_id}' AND sender='${user_id}' AND body='${body}') THEN 1 ELSE 0 END" \
-      | tr -d '\r' | head -n 1)"
-    [[ "${seen}" == "1" ]] && break
-    if (( SECONDS >= deadline )); then
-      echo "Matrix command was not delivered: ${body}" >&2
-      exit 1
-    fi
-    sleep 2
-  done
+  if ! wait_for_matrix_event "${body}" 90; then
+    echo "Matrix command was not delivered: ${body}" >&2
+    print_matrix_delivery_diagnostics
+    exit 1
+  fi
 }
+
+# The homeserver may accept client requests before its first AppService
+# delivery has completed. Establish that delivery path before creating tasks.
+readiness_body="matrix-appservice-ready-${run_id}"
+send_matrix_command "kind-matrix-readiness-${run_id}" "${readiness_body}"
+wait_matrix_event "${readiness_body}"
 
 title="matrix-e2e-${run_id}"
 task_id="$(start_task "${title}")"
