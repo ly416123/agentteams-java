@@ -6,6 +6,7 @@ import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.ModelCatalogDependencyException;
 import io.agentteams.controlplane.service.UnavailableDependencyException;
 import io.agentteams.controlplane.service.WorkerLifecycleConflictException;
+import io.agentteams.controlplane.project.ProjectMembershipConflictException;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.quota.QuotaExceededException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
@@ -60,6 +61,11 @@ public final class ApiErrorHandler {
     @ExceptionHandler(WorkerLifecycleConflictException.class)
     ResponseEntity<ApiError> workerLifecycleConflict(WorkerLifecycleConflictException error) {
         return error(HttpStatus.CONFLICT, error.code(), "worker lifecycle transition is not allowed");
+    }
+
+    @ExceptionHandler(ProjectMembershipConflictException.class)
+    ResponseEntity<ApiError> projectMembershipConflict(ProjectMembershipConflictException error) {
+        return error(HttpStatus.CONFLICT, error.code(), "project membership transition is not allowed");
     }
 
     @ExceptionHandler(IllegalTaskTransitionException.class)

@@ -9,4 +9,8 @@ public final class ResourceNotFoundException extends RuntimeException {
     public ResourceNotFoundException(String resourceType, UUID id) {
         super(resourceType + " " + id + " was not found");
     }
+
+    public ResourceNotFoundException(String resourceType) {
+        super(resourceType + " was not found");
+    }
 }

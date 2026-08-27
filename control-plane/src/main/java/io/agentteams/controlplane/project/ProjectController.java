@@ -18,9 +18,11 @@ import org.springframework.web.bind.annotation.RestController;
 public final class ProjectController {
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final ProjectAuthorizationService service;
+    private final ProjectInvitationService invitations;
 
-    public ProjectController(ProjectAuthorizationService service) {
+    public ProjectController(ProjectAuthorizationService service, ProjectInvitationService invitations) {
         this.service = service;
+        this.invitations = invitations;
     }
 
     @PostMapping
@@ -38,6 +40,24 @@ public final class ProjectController {
         if (request == null) throw new IllegalArgumentException("request body is required");
         return ResponseEntity.status(201).body(MemberResponse.from(
                 service.addMember(projectId, idempotencyKey, request.subject(), request.role())));
+    }
+
+    @PostMapping("/{projectId}/invitations")
+    public ResponseEntity<InvitationResponse> invite(@PathVariable UUID projectId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody InviteRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        ProjectInvitationService.InvitationResult result = invitations.invite(projectId, idempotencyKey,
+                request.subject(), request.role());
+        ProjectInvitationRecord invitation = result.record();
+        return ResponseEntity.status(201).body(new InvitationResponse(invitation.id(), invitation.projectId(),
+                invitation.subject(), invitation.role(), invitation.expiresAt(), result.token()));
+    }
+
+    @PostMapping("/{projectId}/invitations/accept")
+    public MemberResponse acceptInvitation(@PathVariable UUID projectId, @RequestBody AcceptInvitationRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        return MemberResponse.from(invitations.accept(projectId, request.token()));
     }
 
     @GetMapping("/{projectId}/members")
@@ -61,6 +81,10 @@ public final class ProjectController {
 
     public record AddMemberRequest(String subject, ProjectRole role) { }
 
+    public record InviteRequest(String subject, ProjectRole role) { }
+
+    public record AcceptInvitationRequest(String token) { }
+
     public record ProjectResponse(UUID id, String tenantId, String name, String status, String createdBy) {
         static ProjectResponse from(ProjectRecord project) {
             return new ProjectResponse(project.id(), project.tenantId(), project.name(), project.status(),
@@ -73,6 +97,9 @@ public final class ProjectController {
             return new MemberResponse(member.projectId(), member.subject(), member.role(), member.status());
         }
     }
+
+    public record InvitationResponse(UUID id, UUID projectId, String subject, ProjectRole role,
+            java.time.Instant expiresAt, String token) { }
 
     public record RoleResponse(UUID projectId, String subject, ProjectRole role, boolean allowed) {
         static RoleResponse from(ProjectAuthorizationService.RoleCheck check) {

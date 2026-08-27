@@ -113,6 +113,8 @@ git commit -m "feat(worker): 增加可恢复运维操作"
 
 **目标：** 让 HTTP、Manager Tool 和异步业务入口复用同一 Action/scope 授权，并补齐邀请、启用、禁用、角色变更和 Owner 转移。
 
+**当前增量进度（2026-08-27）：** 已完成第一纵切：V48 `project_invitations` 表、namespace/tenant 约束下的邀请记录、SHA-256 token hash 存储、24 小时有效期、接受邀请时的 subject 校验、过期拒绝和数据库条件更新幂等激活，并开放项目邀请创建/接受 API。当前仍未完成统一 Action 矩阵、邀请创建幂等响应、成员重新启用/角色变更、最后 Owner 保护和 Owner 转移。
+
 - [ ] **步骤 1：编写失败测试**
 
 覆盖 Action 矩阵的允许/拒绝组合、跨 tenant/project 负向请求、异步消费者 scope 校验、邀请 Token 只保存 hash、过期邀请拒绝、重复 accept 幂等、最后一个 Owner 不能禁用、Owner 转移需要 expected project version，以及成员状态变化产生脱敏审计。
