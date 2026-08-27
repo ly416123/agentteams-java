@@ -56,10 +56,18 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         if (event.getConfigVersion() <= 0) {
             throw invalid("config_version must be positive");
         }
+        var resourceResults = event.getResourceResultsList().stream().map(result -> {
+            if (result.getStatus() == io.agentteams.contracts.v1.ResourceApplyResult.Status.STATUS_UNSPECIFIED) {
+                throw invalid("resource result status must be specified");
+            }
+            return new ConfigEventPort.ResourceApplyResult(result.getType(), result.getResourceId(),
+                    result.getRevision(), result.getExpectedDigest(), result.getObservedDigest(),
+                    result.getStatus().name(), result.getFailureCategory());
+        }).toList();
         configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(eventId, bindingId, snapshotId,
                 uuid(connection.agentId(), "agent_id"), event.getConfigVersion(), event.getApplied(),
                 event.getErrorMessage(), occurredAt(metadata), SOURCE,
-                correlationId(metadata)));
+                correlationId(metadata), resourceResults));
     }
 
     @Override

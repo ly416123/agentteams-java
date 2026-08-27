@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand;
+import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
@@ -173,6 +174,12 @@ public final class ConfigDeploymentService {
                     command.snapshotId(), phase, command.errorMessage(), appliedAt, now, command.configVersion(),
                     ConfigFailureClassifier.classify(command.errorMessage()), existing != null && existing.rollback());
             tx.configLifecycle().recordApply(record);
+            for (ConfigEventPort.ResourceApplyResult resource : command.resourceResults()) {
+                tx.configLifecycle().recordResourceApply(new ResourceApplyRecord(binding.id(), binding.snapshotId(),
+                        command.agentId(), command.configVersion(), resource.type(), resource.resourceId(),
+                        resource.revision(), resource.expectedDigest(), resource.observedDigest(), resource.status(),
+                        resource.failureCategory(), command.occurredAt()));
+            }
             if (metrics != null) {
                 if (command.applied()) metrics.configApplyAcknowledged();
                 else metrics.configApplyFailed();

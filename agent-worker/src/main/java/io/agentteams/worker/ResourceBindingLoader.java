@@ -64,9 +64,9 @@ public final class ResourceBindingLoader {
             if (failures.isEmpty()) {
                 ResourceBinding binding = new ResourceBinding(type, reference, revision, digest);
                 bindings.add(binding);
-                acknowledgements.add(BindingAck.success(binding.key()));
+                acknowledgements.add(BindingAck.success(binding));
             } else {
-                acknowledgements.add(BindingAck.failed(index, failures));
+                acknowledgements.add(BindingAck.failed(index, type, reference, revision, digest, failures));
             }
         }
 
@@ -107,9 +107,14 @@ public final class ResourceBindingLoader {
         }
     }
 
-    public record BindingAck(String key, AckStatus status, List<String> failureCodes) {
+    public record BindingAck(String key, String type, String resourceId, String revision, String digest,
+            AckStatus status, List<String> failureCodes) {
         public BindingAck {
             if (key == null || key.isBlank()) throw new IllegalArgumentException("binding ACK key must not be blank");
+            type = valueOrUnknown(type);
+            resourceId = valueOrUnknown(resourceId);
+            revision = valueOrUnknown(revision);
+            digest = valueOrUnknown(digest);
             Objects.requireNonNull(status, "status");
             failureCodes = List.copyOf(Objects.requireNonNull(failureCodes, "failureCodes"));
             if (status == AckStatus.SUCCESS && !failureCodes.isEmpty()) {
@@ -120,16 +125,31 @@ public final class ResourceBindingLoader {
             }
         }
 
-        static BindingAck success(String key) {
-            return new BindingAck(key, AckStatus.SUCCESS, List.of());
+        static BindingAck success(ResourceBinding binding) {
+            return new BindingAck(binding.key(), binding.type(), binding.reference(), binding.revision(),
+                    binding.digest(), AckStatus.SUCCESS, List.of());
         }
 
         static BindingAck failed(int index, List<String> codes) {
-            return failed("index:" + index, codes);
+            return failed("index:" + index, null, null, null, null, codes);
+        }
+
+        static BindingAck failed(int index, String type, String resourceId, String revision, String digest,
+                List<String> codes) {
+            return failed("index:" + index, type, resourceId, revision, digest, codes);
         }
 
         static BindingAck failed(String key, List<String> codes) {
-            return new BindingAck(key, AckStatus.FAILED, codes);
+            return failed(key, null, null, null, null, codes);
+        }
+
+        static BindingAck failed(String key, String type, String resourceId, String revision, String digest,
+                List<String> codes) {
+            return new BindingAck(key, type, resourceId, revision, digest, AckStatus.FAILED, codes);
+        }
+
+        private static String valueOrUnknown(String value) {
+            return value == null || value.isBlank() ? "unknown" : value.trim();
         }
     }
 

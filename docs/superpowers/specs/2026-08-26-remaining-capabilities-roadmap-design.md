@@ -61,7 +61,7 @@
 - 批次 A 的本地 Java/脚本/Helm 验证及 GitHub Actions `verify`、`kind-recovery`、`kind-oidc` 已通过。
 - W1 的 gVisor/Kata、外部 Secret Manager、外部 IdP、生产镜像签名和预发布环境恢复演练仍属于 L5/L6，不以 Kind 结果替代。
 - W2/W3 批次 B 第一纵切已进入 `main`：Worker 运维双确认/恢复调度、统一资源授权与项目成员生命周期、External Secrets Ready/metadata 解析、签名 Release Manifest/Chart 晋级、Ingress/Gateway API、三种 egress 模式和恢复安全闸门均已落库。
-- `main` 的 GitHub Actions CI `33077363017` 已通过 `verify`、`kind-oidc` 和 `kind-recovery`；本机 Colima Docker-backed Maven、脚本全量和 Helm 验证也已通过。生产 Canary、自动回滚、真实外部 Secret/IdP 和 L5/L6 恢复演练仍未完成，不以静态契约或 Kind 结果替代。
+- `main` 的 GitHub Actions CI `33124422786` 已通过 `verify`、`kind-oidc` 和 `kind-recovery`；本机 Colima Docker-backed Maven、脚本全量和 Helm 验证也已通过。生产 Canary、自动回滚、真实外部 Secret/IdP 和 L5/L6 恢复演练仍未完成，不以静态契约或 Kind 结果替代。
 - 批次 B 后续实施计划见 `docs/superpowers/plans/2026-08-27-batch-b-security-operations-plan.md`。
 
 ## 5. 统一架构决策

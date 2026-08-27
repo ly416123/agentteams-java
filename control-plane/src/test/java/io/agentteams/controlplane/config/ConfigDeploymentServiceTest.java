@@ -167,6 +167,40 @@ class ConfigDeploymentServiceTest {
         org.mockito.Mockito.verify(keys).insertIfAbsent(any());
     }
 
+    @Test
+    void recordsStructuredResourceResultsWithTheAcknowledgedConfigRevision() {
+        FoundationPersistenceService persistence = mock(FoundationPersistenceService.class);
+        FoundationTransaction tx = mock(FoundationTransaction.class);
+        ConfigLifecycleRepository lifecycle = mock(ConfigLifecycleRepository.class);
+        ConfigSnapshotRepository snapshots = mock(ConfigSnapshotRepository.class);
+        UUID bindingId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        UUID snapshotId = UUID.randomUUID();
+        ConfigSnapshot snapshot = new ConfigSnapshot(snapshotId, "worker", 7, "{}", "sha", "test", NOW);
+        ConfigBindingRecord binding = new ConfigBindingRecord(bindingId, "worker", agentId, snapshotId, NOW);
+        var resource = new io.agentteams.application.api.ConfigEventPort.ResourceApplyResult("SKILL", "skill-a",
+                "7", "sha256:skill", "", "APPLIED", "");
+        var command = new io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand(
+                UUID.randomUUID(), bindingId, snapshotId, agentId, 7, true, "", NOW, "gateway", "corr-7",
+                List.of(resource));
+        when(tx.configLifecycle()).thenReturn(lifecycle);
+        when(lifecycle.findBinding(bindingId)).thenReturn(Optional.of(binding));
+        when(lifecycle.findApply(bindingId, snapshotId)).thenReturn(Optional.empty());
+        when(snapshots.findById(snapshotId)).thenReturn(Optional.of(snapshot));
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            Function<FoundationTransaction, ?> work = invocation.getArgument(0);
+            return work.apply(tx);
+        });
+
+        new ConfigDeploymentService(persistence, snapshots, Clock.fixed(NOW, ZoneOffset.UTC), MAPPER)
+                .recordApplied(command);
+
+        org.mockito.Mockito.verify(lifecycle).recordResourceApply(org.mockito.ArgumentMatchers.argThat(result ->
+                result.bindingId().equals(bindingId) && result.snapshotId().equals(snapshotId)
+                        && result.configVersion() == 7 && result.resourceType().equals("SKILL")
+                        && result.resourceId().equals("skill-a") && result.status().equals("APPLIED")));
+    }
+
     private static String retryHash(UUID bindingId, ConfigSnapshot snapshot) {
         try {
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")

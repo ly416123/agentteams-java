@@ -56,6 +56,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -254,6 +255,7 @@ public final class QwenPawWorker implements AutoCloseable {
                 configuration.agentId(), changed.getConfigVersion(), input.getSequence());
         boolean applied = false;
         String errorMessage = "";
+        List<io.agentteams.contracts.v1.ResourceApplyResult> resourceResults = List.of();
         try {
             if (!configuration.agentId().equals(input.getAgentId())) {
                 throw new IllegalArgumentException("config agent_id does not match Worker");
@@ -262,6 +264,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     ? manifestFetcher.fetch(changed.getManifestUri(), changed.getSnapshotId(),
                             changed.getManifestSha256(), changed.getSizeBytes())
                     : changed.getManifestJson();
+            resourceResults = resourceApplyResults(manifestJson);
             UUID bindingId = UUID.fromString(changed.getBindingId());
             RuntimeConfigSnapshot snapshot = buildConfigSnapshot(changed, manifestJson, configFileFetcher,
                     configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion()));
@@ -274,7 +277,7 @@ public final class QwenPawWorker implements AutoCloseable {
             errorMessage = truncate(rootMessage(failure));
         }
         channelPort.send(AgentMessage.newBuilder()
-                .setConfigApplied(configApplied(changed, applied, errorMessage, clock)).build());
+                .setConfigApplied(configApplied(changed, applied, errorMessage, resourceResults, clock)).build());
         System.out.printf("ConfigChanged completed agent=%s version=%d applied=%s error=%s%n",
                 configuration.agentId(), changed.getConfigVersion(), applied, errorMessage);
         if (input.getSequence() > 0) {
@@ -302,7 +305,13 @@ public final class QwenPawWorker implements AutoCloseable {
      * Plane can correlate the acknowledgement with its pending apply record.
      */
     static ConfigApplied configApplied(ConfigChanged changed, boolean applied, String errorMessage, Clock clock) {
+        return configApplied(changed, applied, errorMessage, List.of(), clock);
+    }
+
+    static ConfigApplied configApplied(ConfigChanged changed, boolean applied, String errorMessage,
+            List<io.agentteams.contracts.v1.ResourceApplyResult> resourceResults, Clock clock) {
         Objects.requireNonNull(changed, "changed");
+        Objects.requireNonNull(resourceResults, "resourceResults");
         Objects.requireNonNull(clock, "clock");
         EventMetadata input = changed.getMetadata();
         EventMetadata metadata = input.toBuilder()
@@ -315,7 +324,31 @@ public final class QwenPawWorker implements AutoCloseable {
                 .setErrorMessage(applied ? "" : truncate(errorMessage))
                 .setBindingId(changed.getBindingId())
                 .setSnapshotId(changed.getSnapshotId())
+                .addAllResourceResults(resourceResults)
                 .build();
+    }
+
+    /** Converts validated manifest bindings into bounded, structured wire results. */
+    static List<io.agentteams.contracts.v1.ResourceApplyResult> resourceApplyResults(String manifestJson) {
+        try {
+            JsonNode root = new ObjectMapper().readTree(manifestJson);
+            if (root == null || !root.isObject()) return List.of();
+            ResourceBindingLoader.LoadResult loaded = ResourceBindingLoader.load(root);
+            return loaded.acknowledgements().stream().map(ack ->
+                    io.agentteams.contracts.v1.ResourceApplyResult.newBuilder()
+                            .setType(ack.type())
+                            .setResourceId(ack.resourceId())
+                            .setRevision(ack.revision())
+                            .setExpectedDigest(ack.digest())
+                            .setStatus(ack.status() == ResourceBindingLoader.AckStatus.SUCCESS
+                                    ? io.agentteams.contracts.v1.ResourceApplyResult.Status.APPLIED
+                                    : io.agentteams.contracts.v1.ResourceApplyResult.Status.FAILED)
+                            .setFailureCategory(ack.status() == ResourceBindingLoader.AckStatus.SUCCESS
+                                    ? "" : "POLICY_REJECTED")
+                            .build()).toList();
+        } catch (IOException ignored) {
+            return List.of();
+        }
     }
 
     static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,

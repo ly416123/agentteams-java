@@ -8,6 +8,11 @@ import io.agentteams.application.api.SandboxProfile;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.domain.task.TaskAttempt;
 import io.agentteams.domain.task.TaskPhase;
+import io.agentteams.controlplane.config.ConfigBindingRecord;
+import io.agentteams.controlplane.config.ConfigLifecycleRepository;
+import io.agentteams.controlplane.config.ConfigSnapshot;
+import io.agentteams.controlplane.config.ConfigSnapshotRepository;
+import io.agentteams.controlplane.config.ResourceApplyRecord;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -37,6 +43,7 @@ class FoundationRepositoryIT {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private FoundationPersistenceService persistence;
+    private JdbcTemplate jdbc;
 
     @BeforeEach
     void migrate() {
@@ -53,6 +60,7 @@ class FoundationRepositoryIT {
         dataSource.setURL(POSTGRES.getJdbcUrl());
         dataSource.setUser(POSTGRES.getUsername());
         dataSource.setPassword(POSTGRES.getPassword());
+        jdbc = new JdbcTemplate(dataSource);
         persistence = new FoundationPersistenceService(dataSource);
     }
 
@@ -154,6 +162,50 @@ class FoundationRepositoryIT {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void resourceApplyResultsAreFencedToTheCurrentBindingRevision() {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        UUID agentId = UUID.randomUUID();
+        UUID bindingId = UUID.randomUUID();
+        UUID oldSnapshotId = UUID.randomUUID();
+        UUID newSnapshotId = UUID.randomUUID();
+        UUID resourceId = UUID.randomUUID();
+        AgentRecord agent = AgentRecord.create(agentId, "resource-agent", AgentPhase.READY,
+                "fake", "{}", now);
+        ConfigSnapshot oldSnapshot = new ConfigSnapshot(oldSnapshotId, "resource-agent", 1, "{}",
+                "old-sha", "test", now);
+        ConfigSnapshot newSnapshot = new ConfigSnapshot(newSnapshotId, "resource-agent", 2, "{}",
+                "new-sha", "test", now.plusSeconds(1));
+        ConfigBindingRecord oldBinding = new ConfigBindingRecord(bindingId, "resource-agent", agentId,
+                oldSnapshotId, now);
+        ConfigBindingRecord newBinding = new ConfigBindingRecord(bindingId, "resource-agent", agentId,
+                newSnapshotId, now.plusSeconds(1));
+
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            return null;
+        });
+        ConfigSnapshotRepository snapshots = new ConfigSnapshotRepository(jdbc);
+        snapshots.insertIfAbsent(oldSnapshot);
+        snapshots.insertIfAbsent(newSnapshot);
+        ConfigLifecycleRepository lifecycle = new ConfigLifecycleRepository(jdbc);
+        lifecycle.upsertBinding(oldBinding);
+
+        ResourceApplyRecord oldResult = new ResourceApplyRecord(bindingId, oldSnapshotId, agentId, 1,
+                "SKILL", resourceId.toString(), "1", "sha256:old", "", "APPLIED", "", now);
+        ResourceApplyRecord newResult = new ResourceApplyRecord(bindingId, newSnapshotId, agentId, 2,
+                "SKILL", resourceId.toString(), "2", "sha256:new", "", "APPLIED", "", now.plusSeconds(2));
+        assertThat(lifecycle.recordResourceApply(oldResult)).isTrue();
+        lifecycle.upsertBindingIfNewer(newBinding, 2);
+        assertThat(lifecycle.recordResourceApply(oldResult)).isFalse();
+        assertThat(lifecycle.recordResourceApply(newResult)).isTrue();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM runtime_resource_apply_records", Integer.class))
+                .isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT status FROM runtime_resource_apply_records WHERE config_version = 1",
+                String.class)).isEqualTo("APPLIED");
     }
 
     @Test

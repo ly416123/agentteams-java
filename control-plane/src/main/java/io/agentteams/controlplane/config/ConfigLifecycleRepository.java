@@ -225,6 +225,32 @@ public final class ConfigLifecycleRepository {
                 apply.rollback());
     }
 
+    /** Records one resource result only for the current config revision. */
+    public boolean recordResourceApply(ResourceApplyRecord result) {
+        int updated = jdbc.update("""
+                INSERT INTO runtime_resource_apply_records
+                    (binding_id, snapshot_id, agent_id, config_version, resource_type, resource_id,
+                     resource_revision, expected_digest, observed_digest, status, failure_category, observed_at)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                 WHERE EXISTS (
+                    SELECT 1 FROM config_bindings b
+                     JOIN config_snapshots s ON s.id = b.snapshot_id
+                    WHERE b.id = ? AND b.snapshot_id = ? AND s.version = ?
+                 )
+                ON CONFLICT (binding_id, resource_type, resource_id, resource_revision)
+                DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id, agent_id = EXCLUDED.agent_id,
+                    config_version = EXCLUDED.config_version, expected_digest = EXCLUDED.expected_digest,
+                    observed_digest = EXCLUDED.observed_digest, status = EXCLUDED.status,
+                    failure_category = EXCLUDED.failure_category, observed_at = EXCLUDED.observed_at
+                WHERE runtime_resource_apply_records.config_version <= EXCLUDED.config_version
+                """, result.bindingId(), result.snapshotId(), result.agentId(), result.configVersion(),
+                result.resourceType(), result.resourceId(), result.revision(), result.expectedDigest(),
+                result.observedDigest(), result.status(), result.failureCategory(),
+                java.sql.Timestamp.from(result.observedAt()), result.bindingId(), result.snapshotId(),
+                result.configVersion());
+        return updated > 0;
+    }
+
     public boolean insertUpload(ConfigUploadRecord upload) {
         return jdbc.update("""
                 INSERT INTO config_uploads(id, snapshot_id, path, storage_key, content_type,

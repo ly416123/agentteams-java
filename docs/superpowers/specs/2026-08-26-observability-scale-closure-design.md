@@ -1,11 +1,13 @@
 # AgentTeams Java 可观测与规模化闭环设计
 
 **日期：** 2026-08-26
-**状态：** 批次 C 配额压力验证已进入仓库实现；L6 长压测待受控环境
+**状态：** 批次 C 配额压力验证已完成仓库侧短压测；资源级 ACK 与 revision 栅栏已进入仓库实现；L6 长压测待受控环境
 **优先级：** P1
 **依赖：** 运行时生产闭环、Team Revision、生产 Secret 和网络契约
 
 **当前进度（2026-08-28）：** 已增加确定性配额并发压测脚本和 CI 短压测入口，覆盖 acquire/release 幂等、拒绝/超时分类、最大观察并发和 reservation 泄漏汇总。脚本只输出固定 JSON 字段，不输出请求、响应、scope claim 或凭据。4 客户端/200 请求是 L4 短压测；50 客户端/30 分钟并穿插 Gateway、Control Plane 重启仍需 L6 受控环境真实报告。
+
+**资源 ACK 进度（2026-08-28）：** `ConfigApplied` 已增加资源级结构化结果，Gateway/NATS/Control Plane 完成透传，Control Plane 以 V50 表持久化并按 binding/snapshot/config version 栅栏拒绝旧结果。当前 Worker 仍只完成绑定字段校验和配置应用流程报告；Skill 下载/digest 校验、MCP 工具发现及跨实例聚合仍待后续运行时 Port 接入。
 
 ## 1. 目标
 

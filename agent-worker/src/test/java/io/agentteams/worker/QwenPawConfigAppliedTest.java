@@ -9,6 +9,7 @@ import io.agentteams.contracts.v1.EventMetadata;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class QwenPawConfigAppliedTest {
@@ -53,5 +54,24 @@ class QwenPawConfigAppliedTest {
 
         assertThat(QwenPawWorker.configApplied(changed, true, "old failure", CLOCK).getErrorMessage())
                 .isEmpty();
+    }
+
+    @Test
+    void carriesStructuredResourceApplyResults() {
+        ConfigChanged changed = ConfigChanged.newBuilder()
+                .setMetadata(EventMetadata.newBuilder().setEventId("config-event-3").setAgentId("agent-1").build())
+                .setConfigVersion(9)
+                .setBindingId("00000000-0000-0000-0000-000000000011")
+                .setSnapshotId("00000000-0000-0000-0000-000000000012")
+                .build();
+
+        var result = io.agentteams.contracts.v1.ResourceApplyResult.newBuilder()
+                .setType("MCP").setResourceId("server-a").setRevision("3")
+                .setExpectedDigest("sha256:mcp")
+                .setStatus(io.agentteams.contracts.v1.ResourceApplyResult.Status.APPLIED)
+                .build();
+
+        assertThat(QwenPawWorker.configApplied(changed, true, "", List.of(result), CLOCK)
+                .getResourceResultsList()).containsExactly(result);
     }
 }

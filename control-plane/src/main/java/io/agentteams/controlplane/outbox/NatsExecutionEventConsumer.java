@@ -174,7 +174,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(envelope.eventId(),
                         envelope.bindingId(), envelope.snapshotId(), envelope.agentId(), envelope.configVersion(),
                         envelope.applied(), envelope.errorMessage(), envelope.occurredAt(), envelope.source(),
-                        envelope.correlationId()));
+                        envelope.correlationId(), envelope.resourceResults()));
                 message.ack();
                 return;
             }

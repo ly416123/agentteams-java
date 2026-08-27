@@ -108,6 +108,14 @@ class AgentChannelContractTest {
                         .setMetadata(AGENT_METADATA)
                         .setConfigVersion(12)
                         .setApplied(true)
+                        .addResourceResults(ResourceApplyResult.newBuilder()
+                                .setType("SKILL")
+                                .setResourceId("skill-a")
+                                .setRevision("7")
+                                .setExpectedDigest("sha256:expected")
+                                .setObservedDigest("sha256:observed")
+                                .setStatus(ResourceApplyResult.Status.APPLIED)
+                                .build())
                         .build()).build(),
                 AgentMessage.PayloadCase.CONFIG_APPLIED);
 

@@ -188,6 +188,23 @@ message ConfigFile {
   string content_type = 5;
 }
 
+message ResourceApplyResult {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    APPLIED = 1;
+    REJECTED = 2;
+    FAILED = 3;
+  }
+
+  string type = 1;
+  string resource_id = 2;
+  string revision = 3;
+  string expected_digest = 4;
+  string observed_digest = 5;
+  Status status = 6;
+  string failure_category = 7;
+}
+
 message ConfigApplied {
   EventMetadata metadata = 1;
   uint64 config_version = 2;
@@ -195,6 +212,7 @@ message ConfigApplied {
   string error_message = 4;
   string binding_id = 5;
   string snapshot_id = 6;
+  repeated ResourceApplyResult resource_results = 7;
 }
 
 message Ack {
