@@ -194,6 +194,10 @@ spec:
     - from:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: agentteams-worker }
+        # Prometheus discovers the application pods directly and scrapes their
+        # actuator endpoint rather than going through the Service.
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: prometheus }
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
       ports:

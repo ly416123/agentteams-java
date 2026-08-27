@@ -194,6 +194,24 @@ class BatchASecurityContractTest(unittest.TestCase):
         ]
         self.assertEqual(1, len(allowed))
 
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_prometheus_can_scrape_gateway_replicas(self):
+        docs = render_chart()
+        gateway = next(
+            policy for policy in docs
+            if policy.get("kind") == "NetworkPolicy"
+            and policy["metadata"]["name"].endswith("-gateway")
+        )
+
+        allowed = [
+            peer
+            for rule in gateway["spec"]["ingress"]
+            for peer in rule.get("from", [])
+            if peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+            == "prometheus"
+        ]
+        self.assertEqual(1, len(allowed))
+
     def test_oidc_default_is_fail_closed(self):
         values = yaml.safe_load(read_chart("values.yaml"))
         policy = values["networkPolicy"]
