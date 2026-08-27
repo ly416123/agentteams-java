@@ -268,7 +268,7 @@ git commit -m "feat(生产): 增加入口网络与恢复契约"
 
 ## 任务 6：批次 B 联合验收、文档和交付
 
-**当前增量进度（2026-08-27）：** 本机 Docker/Colima Gate、脚本和 Helm 全量验证已通过；GitHub Actions `33077363017` 的 `verify`、`kind-oidc`、`kind-recovery` 已全绿。已完成安全/规格审查并同步路线图、两份子规格、架构地图和 L5/L6 验收边界；当前只剩本次文档提交和远程一致性确认。
+**当前增量进度（2026-08-27）：** 本机 Docker/Colima Gate、脚本和 Helm 全量验证已通过；GitHub Actions `33077363017` 首次全绿，针对既有 Worker restart 时序问题的修复提交 `237c3ef` 已由 `33080377055` 的 `verify`、`kind-oidc`、`kind-recovery` 再次全绿确认。已完成安全/规格审查并同步路线图、两份子规格、架构地图和 L5/L6 验收边界；当前第一纵切收口完成，后续仍需补齐各模块整体完成定义。
 
 - [x] **步骤 1：运行本地 Docker-backed、脚本和 Helm 全量验证**
 
@@ -288,7 +288,7 @@ git commit -m "feat(生产): 增加入口网络与恢复契约"
 
 更新路线图、两份子规格、生产 Runbook 和架构地图：W2/W3 只在 L1-L4 或真实 L5/L6 证据具备时标记对应层级；记录每个 release manifest、Git SHA、签名和恢复演练报告的关联关系。
 
-- [ ] **步骤 5：Commit 并推送主线**
+- [x] **步骤 5：Commit 并推送主线**
 
 ```bash
 git add docs/superpowers/plans/2026-08-27-batch-b-security-operations-plan.md docs/superpowers/specs docs/architecture-map.html deploy/production
