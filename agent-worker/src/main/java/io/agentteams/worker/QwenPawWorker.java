@@ -91,6 +91,7 @@ public final class QwenPawWorker implements AutoCloseable {
     private final AssignmentSandboxStateProbePort sandboxStateProbe;
     private final ConfigManifestFetcher manifestFetcher;
     private final ConfigFileFetcher configFileFetcher;
+    private final SkillArtifactFetcher skillArtifactFetcher;
     private final Path configDirectory;
     /** Configuration versions are scoped to a Control Plane binding. */
     private final Map<UUID, RuntimeConfigCoordinator> configCoordinators = new ConcurrentHashMap<>();
@@ -127,6 +128,8 @@ public final class QwenPawWorker implements AutoCloseable {
                 configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
         this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigFileBytes());
+        this.skillArtifactFetcher = new SkillArtifactFetcher(configuration.configFetchTimeout(),
+                configuration.maxConfigFileBytes());
         this.configDirectory = configuration.configDirectory();
         this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock);
         RuntimeResultSink resultSink = this::onRuntimeResult;
@@ -264,15 +267,17 @@ public final class QwenPawWorker implements AutoCloseable {
                     ? manifestFetcher.fetch(changed.getManifestUri(), changed.getSnapshotId(),
                             changed.getManifestSha256(), changed.getSizeBytes())
                     : changed.getManifestJson();
-            resourceResults = resourceApplyResults(manifestJson);
+            resourceResults = resourceApplyResults(manifestJson, false);
             UUID bindingId = UUID.fromString(changed.getBindingId());
             RuntimeConfigSnapshot snapshot = buildConfigSnapshot(changed, manifestJson, configFileFetcher,
-                    configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion()));
+                    configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion()),
+                    skillArtifactFetcher);
             synchronized (configApplyLock) {
                 configCoordinators.computeIfAbsent(bindingId, ignored -> newConfigCoordinator())
                         .apply(snapshot, changed.getRollback());
             }
             applied = true;
+            resourceResults = resourceApplyResults(manifestJson, true);
         } catch (Exception failure) {
             errorMessage = truncate(rootMessage(failure));
         }
@@ -298,12 +303,7 @@ public final class QwenPawWorker implements AutoCloseable {
         });
     }
 
-    /**
-     * Builds the wire-compatible configuration ACK. Resource binding details
-     * stay in the bounded error_message because ConfigApplied has no repeated
-     * per-binding result field. The original event ID is echoed so the Control
-     * Plane can correlate the acknowledgement with its pending apply record.
-     */
+    /** Builds the wire-compatible configuration ACK and its bounded resource results. */
     static ConfigApplied configApplied(ConfigChanged changed, boolean applied, String errorMessage, Clock clock) {
         return configApplied(changed, applied, errorMessage, List.of(), clock);
     }
@@ -330,6 +330,11 @@ public final class QwenPawWorker implements AutoCloseable {
 
     /** Converts validated manifest bindings into bounded, structured wire results. */
     static List<io.agentteams.contracts.v1.ResourceApplyResult> resourceApplyResults(String manifestJson) {
+        return resourceApplyResults(manifestJson, true);
+    }
+
+    static List<io.agentteams.contracts.v1.ResourceApplyResult> resourceApplyResults(String manifestJson,
+            boolean artifactFetched) {
         try {
             JsonNode root = new ObjectMapper().readTree(manifestJson);
             if (root == null || !root.isObject()) return List.of();
@@ -341,10 +346,12 @@ public final class QwenPawWorker implements AutoCloseable {
                             .setRevision(ack.revision())
                             .setExpectedDigest(ack.digest())
                             .setStatus(ack.status() == ResourceBindingLoader.AckStatus.SUCCESS
+                                    && (artifactFetched || ack.artifactRef() == null)
                                     ? io.agentteams.contracts.v1.ResourceApplyResult.Status.APPLIED
                                     : io.agentteams.contracts.v1.ResourceApplyResult.Status.FAILED)
                             .setFailureCategory(ack.status() == ResourceBindingLoader.AckStatus.SUCCESS
-                                    ? "" : "POLICY_REJECTED")
+                                    && (artifactFetched || ack.artifactRef() == null)
+                                    ? "" : (ack.artifactRef() == null ? "POLICY_REJECTED" : "DOWNLOAD_FAILED"))
                             .build()).toList();
         } catch (IOException ignored) {
             return List.of();
@@ -353,6 +360,11 @@ public final class QwenPawWorker implements AutoCloseable {
 
     static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,
             ConfigFileFetcher files, Path versionDirectory) {
+        return buildConfigSnapshot(changed, manifestJson, files, versionDirectory, null);
+    }
+
+    static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,
+            ConfigFileFetcher files, Path versionDirectory, SkillArtifactFetcher skills) {
         Objects.requireNonNull(changed, "changed");
         Objects.requireNonNull(manifestJson, "manifestJson");
         Objects.requireNonNull(files, "files");
@@ -373,6 +385,12 @@ public final class QwenPawWorker implements AutoCloseable {
             ResourceBindingLoader.LoadResult resourceBindings = ResourceBindingLoader.load(root);
             if (!resourceBindings.successful()) {
                 throw new IllegalArgumentException(resourceBindings.failureMessage());
+            }
+            for (ResourceBindingLoader.ResourceBinding binding : resourceBindings.bindings()) {
+                if (binding.artifactRef() != null) {
+                    if (skills == null) throw new IllegalArgumentException("Skill artifact fetcher is required");
+                    skills.fetch(binding, versionDirectory);
+                }
             }
             Map<String, String> values = new LinkedHashMap<>();
             root.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().isTextual()

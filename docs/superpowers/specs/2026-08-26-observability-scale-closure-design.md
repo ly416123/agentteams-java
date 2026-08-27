@@ -9,6 +9,8 @@
 
 **资源 ACK 进度（2026-08-28）：** `ConfigApplied` 已增加资源级结构化结果，Gateway/NATS/Control Plane 完成透传，Control Plane 以 V50 表持久化并按 binding/snapshot/config version 栅栏拒绝旧结果。当前 Worker 仍只完成绑定字段校验和配置应用流程报告；Skill 下载/digest 校验、MCP 工具发现及跨实例聚合仍待后续运行时 Port 接入。
 
+**Skill Loader 进度（2026-08-28）：** Worker 已支持 manifest 显式提供 `artifactRef` 和 `sizeBytes` 时的 HTTP(S) Skill 包下载、大小/SHA-256 校验和原子落盘；旧 manifest 保持兼容。Control Plane 生成预签名 artifactRef、解压扫描复核和运行时注册仍待后续任务。
+
 ## 1. 目标
 
 本规格把已经存在的 Registry、Usage、Dashboard、Quota、Operator 和告警基础推进为多副本、长时间运行条件下可验证的生产能力。重点不是增加更多指标，而是保证业务维度完整、状态跨实例一致、告警能够送达、配额不会超发，并为运行时绑定提供可恢复事实。

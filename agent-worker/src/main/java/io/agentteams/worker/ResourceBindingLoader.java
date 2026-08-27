@@ -55,6 +55,8 @@ public final class ResourceBindingLoader {
             String reference = text(node, "reference", failures);
             String revision = text(node, "revision", failures);
             String digest = text(node, "digest", failures);
+            String artifactRef = optionalText(node, "artifactRef", failures);
+            long sizeBytes = optionalSize(node, artifactRef, failures);
             if (type != null) {
                 type = type.toUpperCase(Locale.ROOT);
                 if (!SUPPORTED_TYPES.contains(type)) {
@@ -62,7 +64,7 @@ public final class ResourceBindingLoader {
                 }
             }
             if (failures.isEmpty()) {
-                ResourceBinding binding = new ResourceBinding(type, reference, revision, digest);
+                ResourceBinding binding = new ResourceBinding(type, reference, revision, digest, artifactRef, sizeBytes);
                 bindings.add(binding);
                 acknowledgements.add(BindingAck.success(binding));
             } else {
@@ -84,7 +86,32 @@ public final class ResourceBindingLoader {
         return value.asText().trim();
     }
 
-    public record ResourceBinding(String type, String reference, String revision, String digest) {
+    private static String optionalText(JsonNode node, String field, List<String> failures) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) return null;
+        if (!value.isTextual() || value.asText().isBlank()) {
+            failures.add("INVALID_" + field.toUpperCase(Locale.ROOT));
+            return null;
+        }
+        return value.asText().trim();
+    }
+
+    private static long optionalSize(JsonNode node, String artifactRef, List<String> failures) {
+        JsonNode value = node.get("sizeBytes");
+        if (artifactRef == null && (value == null || value.isNull())) return -1;
+        if (value == null || !value.isIntegralNumber() || value.asLong() < 0) {
+            failures.add("INVALID_SIZE_BYTES");
+            return -1;
+        }
+        return value.asLong();
+    }
+
+    public record ResourceBinding(String type, String reference, String revision, String digest,
+            String artifactRef, long sizeBytes) {
+        public ResourceBinding(String type, String reference, String revision, String digest) {
+            this(type, reference, revision, digest, null, -1);
+        }
+
         public ResourceBinding {
             requireText(type, "type");
             requireText(reference, "reference");
@@ -94,6 +121,9 @@ public final class ResourceBindingLoader {
             reference = reference.trim();
             revision = revision.trim();
             digest = digest.trim();
+            artifactRef = artifactRef == null || artifactRef.isBlank() ? null : artifactRef.trim();
+            if (artifactRef != null && sizeBytes < 0) throw new IllegalArgumentException("sizeBytes must be non-negative");
+            if (sizeBytes < -1) throw new IllegalArgumentException("sizeBytes must be -1 or non-negative");
         }
 
         public String key() {
@@ -108,13 +138,15 @@ public final class ResourceBindingLoader {
     }
 
     public record BindingAck(String key, String type, String resourceId, String revision, String digest,
-            AckStatus status, List<String> failureCodes) {
+            String artifactRef, long sizeBytes, AckStatus status, List<String> failureCodes) {
         public BindingAck {
             if (key == null || key.isBlank()) throw new IllegalArgumentException("binding ACK key must not be blank");
             type = valueOrUnknown(type);
             resourceId = valueOrUnknown(resourceId);
             revision = valueOrUnknown(revision);
             digest = valueOrUnknown(digest);
+            artifactRef = artifactRef == null || artifactRef.isBlank() ? null : artifactRef.trim();
+            if (sizeBytes < -1) throw new IllegalArgumentException("sizeBytes must be -1 or non-negative");
             Objects.requireNonNull(status, "status");
             failureCodes = List.copyOf(Objects.requireNonNull(failureCodes, "failureCodes"));
             if (status == AckStatus.SUCCESS && !failureCodes.isEmpty()) {
@@ -127,7 +159,7 @@ public final class ResourceBindingLoader {
 
         static BindingAck success(ResourceBinding binding) {
             return new BindingAck(binding.key(), binding.type(), binding.reference(), binding.revision(),
-                    binding.digest(), AckStatus.SUCCESS, List.of());
+                    binding.digest(), binding.artifactRef(), binding.sizeBytes(), AckStatus.SUCCESS, List.of());
         }
 
         static BindingAck failed(int index, List<String> codes) {
@@ -145,7 +177,7 @@ public final class ResourceBindingLoader {
 
         static BindingAck failed(String key, String type, String resourceId, String revision, String digest,
                 List<String> codes) {
-            return new BindingAck(key, type, resourceId, revision, digest, AckStatus.FAILED, codes);
+            return new BindingAck(key, type, resourceId, revision, digest, null, -1, AckStatus.FAILED, codes);
         }
 
         private static String valueOrUnknown(String value) {
