@@ -4,6 +4,14 @@ images:
   controlPlane: ghcr.io/ly416123/agentteams-control-plane:RELEASE_TAG
   gateway: ghcr.io/ly416123/agentteams-agent-gateway:RELEASE_TAG
   operator: ghcr.io/ly416123/agentteams-operator:RELEASE_TAG
+ingress:
+  enabled: false
+  mode: INGRESS
+  className: nginx
+  host: api.example.com
+  tlsSecretName: agentteams-api-tls
+  annotations: {}
+  gatewayClassName: ""
 imagePullPolicy: IfNotPresent
 podSecurityContext:
   runAsNonRoot: true
@@ -102,7 +110,9 @@ networkPolicy:
     matrix: []
     modelProviders: []
   oidcEgressPort: 443
+  oidcEgressCIDR: 198.51.104.0/24
   kubernetesApiAllowAllEgress: false
+
 
 observability:
   tracing:

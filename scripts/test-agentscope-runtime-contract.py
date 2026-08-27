@@ -10,7 +10,10 @@ from pathlib import Path
 
 
 FORBIDDEN_MODEL_KEY_NAMES = ("DEEPSEEK_API_KEY", "QWENPAW_API_KEY")
-SECRET_REFERENCE = re.compile(r"\$\{\{\s*secrets\.[^}]+\}\}", re.IGNORECASE)
+MODEL_SECRET_REFERENCE = re.compile(
+    r"\$\{\{\s*secrets\.(?:DEEPSEEK_API_KEY|QWENPAW_API_KEY|MODEL_[^}]+)\}\}",
+    re.IGNORECASE,
+)
 SECRET_ENV_REFERENCE = re.compile(
     r"(?:env|environment)\s*[:=][^\n]*\b(?:api[_-]?key|token|secret|password)\b",
     re.IGNORECASE,
@@ -67,8 +70,8 @@ def credential_findings(root: Path) -> list[str]:
         for key_name in FORBIDDEN_MODEL_KEY_NAMES:
             if key_name in text:
                 findings.append(f"{path.relative_to(root)} mentions forbidden {key_name}")
-        if SECRET_REFERENCE.search(text):
-            findings.append(f"{path.relative_to(root)} references a GitHub secret")
+        if MODEL_SECRET_REFERENCE.search(text):
+            findings.append(f"{path.relative_to(root)} references a model credential secret")
         if SECRET_ENV_REFERENCE.search(text):
             findings.append(f"{path.relative_to(root)} injects a credential-like environment value")
         if AUTHORIZATION_SECRET_REFERENCE.search(text):
@@ -111,8 +114,19 @@ class AgentScopeRuntimeContractTest(unittest.TestCase):
 
             findings = credential_findings(root)
             self.assertEqual(2, len(findings))
-            self.assertTrue(any("GitHub secret" in finding for finding in findings))
+            self.assertTrue(any("model credential" in finding for finding in findings))
             self.assertTrue(any("Authorization" in finding for finding in findings))
+
+    def test_deployment_secret_is_not_treated_as_model_credential(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflow = root / ".github" / "workflows"
+            workflow.mkdir(parents=True)
+            (workflow / "promote.yml").write_text(
+                "env:\n  KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}\n",
+                encoding="utf-8",
+            )
+            self.assertEqual([], credential_findings(root))
 
 
 if __name__ == "__main__":

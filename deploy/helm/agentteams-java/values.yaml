@@ -2,6 +2,16 @@ images:
   controlPlane: ghcr.io/ly416123/agentteams-control-plane:latest
   gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
   operator: ghcr.io/ly416123/agentteams-operator:latest
+ingress:
+  # Public HTTP entry is opt-in. Gateway gRPC remains a separate internal
+  # Service and is never routed by these resources.
+  enabled: false
+  mode: INGRESS # INGRESS | GATEWAY_API
+  className: nginx
+  host: ""
+  tlsSecretName: ""
+  annotations: {}
+  gatewayClassName: ""
 imagePullPolicy: IfNotPresent
 podSecurityContext:
   runAsNonRoot: true
@@ -152,6 +162,7 @@ networkPolicy:
   proxy:
     host: ""
     port: 0
+    cidr: ""
   platformPolicyArtifact: ""
   dashboardAlertReceiver:
     # Allow an in-cluster dashboard alert receiver when explicitly enabled.

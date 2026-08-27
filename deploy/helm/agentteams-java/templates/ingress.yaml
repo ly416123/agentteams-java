@@ -1,0 +1,34 @@
+{{- $manager := .Values.manager | default dict -}}
+{{- if and .Values.ingress.enabled (eq .Values.ingress.mode "INGRESS") }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-public
+  annotations:
+{{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- if .Values.ingress.tlsSecretName }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ .Values.ingress.tlsSecretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "agentteams-java.fullname" . }}-control-plane
+                port: { name: http }
+          {{- if $manager.enabled }}
+          - path: /api/v1/manager
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "agentteams-java.fullname" . }}-manager
+                port: { name: http }
+          {{- end }}
+{{- end }}

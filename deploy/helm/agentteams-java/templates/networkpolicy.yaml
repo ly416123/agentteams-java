@@ -85,6 +85,11 @@ spec:
         - { protocol: TCP, port: 9000 }
       {{- end }}
     {{- end }}
+    {{- if eq .Values.networkPolicy.egressMode "PROXY" }}
+    - to:
+        - ipBlock: { cidr: {{ required "networkPolicy.proxy.cidr is required for PROXY mode" .Values.networkPolicy.proxy.cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ required "networkPolicy.proxy.port is required for PROXY mode" .Values.networkPolicy.proxy.port }} }]
+    {{- end }}
     {{- if eq .Values.networkPolicy.egressMode "CIDR" }}
     {{- range .Values.networkPolicy.external.postgresql }}
     - to:
@@ -121,6 +126,11 @@ spec:
         - ipBlock: { cidr: {{ .cidr | quote }} }
       ports: [{ protocol: TCP, port: {{ .port }} }]
     {{- end }}
+    {{- end }}
+    {{- if eq .Values.networkPolicy.egressMode "PROXY" }}
+    - to:
+        - ipBlock: { cidr: {{ required "networkPolicy.proxy.cidr is required for PROXY mode" .Values.networkPolicy.proxy.cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ required "networkPolicy.proxy.port is required for PROXY mode" .Values.networkPolicy.proxy.port }} }]
     {{- end }}
     {{- if .Values.observability.tracing.enabled }}
     - to:

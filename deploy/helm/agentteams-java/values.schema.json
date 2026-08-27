@@ -13,6 +13,19 @@
         "operator": { "type": "string", "minLength": 1 }
       }
     },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string", "enum": ["INGRESS", "GATEWAY_API"] },
+        "className": { "type": "string" },
+        "host": { "type": "string" },
+        "tlsSecretName": { "type": "string" },
+        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "gatewayClassName": { "type": "string" }
+      }
+    },
     "imagePullPolicy": {
       "type": "string",
       "enum": ["Always", "IfNotPresent", "Never"]
@@ -377,7 +390,8 @@
           "additionalProperties": false,
           "properties": {
             "host": { "type": "string" },
-            "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "cidr": { "type": "string" }
           }
         },
         "platformPolicyArtifact": { "type": "string" },
@@ -506,6 +520,85 @@
         "properties": {
           "networkPolicy": {
             "required": ["egressMode", "external"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ingress": {
+            "required": ["enabled"],
+            "properties": { "enabled": { "const": true } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ingress": {
+            "required": ["mode", "host"],
+            "properties": {
+              "host": { "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ingress": {
+            "properties": { "mode": { "const": "GATEWAY_API" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ingress": {
+            "required": ["gatewayClassName", "tlsSecretName"],
+            "properties": {
+              "gatewayClassName": { "minLength": 1 },
+              "tlsSecretName": { "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "networkPolicy": {
+            "properties": { "egressMode": { "const": "PROXY" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "networkPolicy": {
+            "properties": {
+              "proxy": {
+                "required": ["host", "port", "cidr"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "networkPolicy": {
+            "properties": { "egressMode": { "const": "PLATFORM" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "networkPolicy": {
+            "required": ["platformPolicyArtifact"],
+            "properties": {
+              "platformPolicyArtifact": { "minLength": 1, "format": "uri" }
+            }
           }
         }
       }

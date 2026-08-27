@@ -233,25 +233,27 @@ git commit -m "feat(交付): 建立签名制品晋级流程"
 
 **目标：** 补齐 Ingress/Gateway API 选择、外部 egress 契约和不含凭据的生产恢复入口。
 
-- [ ] **步骤 1：编写失败契约测试**
+**当前增量进度（2026-08-27）：** 已完成第一纵切：新增默认关闭的 Ingress/Gateway API 入口模板，仅暴露 `/api/v1` Control Plane HTTP API，Gateway gRPC 保持独立内部 Service；补齐 `CIDR`、`PROXY`、`PLATFORM` egress 模式的配置校验与 proxy CIDR 渲染，并扩展 values schema；新增恢复参数预检和恢复后元数据引用一致性校验，脚本 fail-closed 且不读取 Secret、dump 或业务载荷。恢复契约、网络模式负向测试、Ingress/Gateway API Helm render、Helm lint 已通过。当前仍未完成真实 CNI/平台 egress 验收、Canary 入口切换和完整生产恢复演练，不能将任务 5 整体标记完成。
+
+- [x] **步骤 1：编写失败契约测试**
 
 覆盖 CIDR/PROXY/PLATFORM 三种 egress 模式、公共网段拒绝、Ingress 不暴露 `/internal` 和 Actuator、Gateway gRPC 不与公共 API 共用入口、恢复脚本拒绝 dump/Secret 路径、恢复失败保持入口关闭。
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`python3 -m unittest scripts/test_batch_b_recovery_contract.py scripts/test_production_network_contract.py`。
 
 预期：Ingress/Gateway API 模板和生产恢复编排测试失败。
 
-- [ ] **步骤 3：实现 Helm 入口与 egress 模式**
+- [x] **步骤 3：实现 Helm 入口与 egress 模式**
 
 增加可选 Ingress/Gateway API 模板和 values schema；默认关闭；公共 API 与内部端点分离；NetworkPolicy 根据 `CIDR`、`PROXY`、`PLATFORM` 生成对应规则，禁止未豁免 `0.0.0.0/0`/`::/0`，不生成虚假的 FQDN Policy。
 
-- [ ] **步骤 4：实现恢复 preflight 与一致性校验**
+- [x] **步骤 4：实现恢复 preflight 与一致性校验**
 
 `preflight.sh` 只接受 backup ID、时间点和非 Secret endpoint，验证目标环境、版本和 manifest；`consistency-check.py` 检查 Task、Attempt、Artifact、Config binding、Quota reservation、Sandbox 和 Outbox 引用，不输出数据库 dump、对象内容或 Secret。
 
-- [ ] **步骤 5：运行静态验证**
+- [x] **步骤 5：运行静态验证**
 
 运行：`python3 -m unittest scripts/test_batch_b_recovery_contract.py scripts/test_production_network_contract.py`、`python3 scripts/validate-production-network.py`、`python3 scripts/validate-production-values.py`、`helm lint deploy/helm/agentteams-java`、`helm template agentteams deploy/helm/agentteams-java --namespace agentteams`。
 
