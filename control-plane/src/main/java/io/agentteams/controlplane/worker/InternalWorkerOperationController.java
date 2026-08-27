@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -44,6 +45,16 @@ public final class InternalWorkerOperationController {
         WorkerOperation operation = operations.confirmRollout(operationId, request.expectedVersion(),
                 request.toDomain());
         return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
+    }
+
+    @GetMapping("/active/{agentId}")
+    public ResponseEntity<ActiveOperationResponse> active(
+            @PathVariable UUID agentId,
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token) {
+        authorize(token);
+        return operations.active(agentId, Instant.now())
+                .map(operation -> ResponseEntity.ok(ActiveOperationResponse.from(operation)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping("/{operationId}/operator")
@@ -113,6 +124,19 @@ public final class InternalWorkerOperationController {
             if (observedAt == null) throw new IllegalArgumentException("observedAt is required");
             return new WorkerGatewayObservation(online, specDigest, runtime, configRevision,
                     secretGeneration, observedAt);
+        }
+    }
+
+    public record ActiveOperationResponse(UUID id, UUID agentId, String type, String status,
+            String requestedSpecDigest, String requestedRuntime, String requestedConfigRevision,
+            String requestedSecretGeneration, Instant leaseExpiresAt, String correlationId,
+            Instant createdAt, Instant updatedAt, long version) {
+        static ActiveOperationResponse from(WorkerOperation operation) {
+            return new ActiveOperationResponse(operation.id(), operation.agentId(), operation.type().name(),
+                    operation.status().name(), operation.requestedSpecDigest(), operation.requestedRuntime(),
+                    operation.requestedConfigRevision(), operation.requestedSecretGeneration(),
+                    operation.leaseExpiresAt(), operation.correlationId(), operation.createdAt(),
+                    operation.updatedAt(), operation.version());
         }
     }
 }

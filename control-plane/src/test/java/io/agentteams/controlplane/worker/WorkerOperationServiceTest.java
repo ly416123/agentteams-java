@@ -303,6 +303,16 @@ class WorkerOperationServiceTest {
         assertThat(succeeded.status()).isEqualTo(WorkerOperationStatus.SUCCEEDED);
     }
 
+    @Test
+    void exposesLiveOperationForInternalObservationAdapters() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+        WorkerOperation operation = operations.rollout(agentId, new WorkerRolloutRequest(0, "lookup-1",
+                "sha256:image", "qwenpaw", "config-1", "secret-1"));
+
+        assertThat(operations.active(agentId, NOW)).contains(operation);
+    }
+
     private void insertAgent(UUID id, AgentPhase phase) {
         persistence.inTransaction(tx -> {
             tx.agents().insert(AgentRecord.create(id, "worker-" + id, phase, "qwenpaw",

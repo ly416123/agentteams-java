@@ -4,11 +4,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -104,5 +106,37 @@ class InternalWorkerOperationControllerTest {
                 org.mockito.ArgumentMatchers.any(WorkerOperatorObservation.class));
         verify(operations).confirmGateway(eq(operationId), eq(1L),
                 org.mockito.ArgumentMatchers.any(WorkerGatewayObservation.class));
+    }
+
+    @Test
+    void returnsLiveOperationToTokenAuthenticatedObservationAdapters() throws Exception {
+        UUID agentId = UUID.randomUUID();
+        WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), agentId, WorkerOperationType.ROLLOUT,
+                "sha256:image", "qwenpaw", "config-2", "secret-2", "{}", "lookup-1", 3,
+                "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
+                Instant.parse("2030-01-01T00:00:00Z"));
+        when(operations.active(eq(agentId), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.of(operation));
+
+        mockMvc.perform(get("/internal/v1/worker-operations/active/{agentId}", agentId)
+                        .header(InternalWorkerOperationController.TOKEN_HEADER, "secret"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(operation.id().toString()))
+                .andExpect(jsonPath("$.version").value(0))
+                .andExpect(jsonPath("$.requestedRuntime").value("qwenpaw"))
+                .andExpect(jsonPath("$.requestedSecretGeneration").value("secret-2"));
+
+        verify(operations).active(eq(agentId), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void doesNotExposeMissingLiveOperationAsAFalseSuccess() throws Exception {
+        UUID agentId = UUID.randomUUID();
+        when(operations.active(eq(agentId), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.empty());
+
+        mockMvc.perform(get("/internal/v1/worker-operations/active/{agentId}", agentId)
+                        .header(InternalWorkerOperationController.TOKEN_HEADER, "secret"))
+                .andExpect(status().is(HttpStatus.NOT_FOUND.value()));
     }
 }

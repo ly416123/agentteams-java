@@ -9,6 +9,7 @@ import io.agentteams.controlplane.persistence.JdbcSupport;
 import io.agentteams.controlplane.persistence.OptimisticLockFailure;
 import io.agentteams.domain.agent.AgentPhase;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -105,6 +106,44 @@ class WorkerOperationRepositoryTest {
         assertThat(observation.gatewayOnline()).isTrue();
         assertThat(observation.operatorSpecDigest()).isEqualTo("sha256:image");
         assertThat(observation.gatewayConfigRevision()).isEqualTo("config-7");
+    }
+
+    @Test
+    void findsOnlyTheLiveActiveOperationForAnAgent() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId);
+        WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), agentId, WorkerOperationType.ROLLOUT,
+                "sha256:active", "qwenpaw", "config-8", "secret-4", "{}", "active-operation-1", 0,
+                "alice", NOW.plusSeconds(120), "correlation-1", NOW);
+
+        persistence.inTransaction(tx -> {
+            tx.workerOperations().insert(operation);
+            return null;
+        });
+
+        WorkerOperation active = persistence.inTransaction(tx ->
+                tx.workerOperations().findActiveByAgent(agentId, NOW).orElseThrow());
+
+        assertThat(active.id()).isEqualTo(operation.id());
+        assertThat(active.version()).isZero();
+        assertThat(active.requestedConfigRevision()).isEqualTo("config-8");
+    }
+
+    @Test
+    void doesNotExposeLifecycleOperationsToRolloutObservationAdapters() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId);
+        WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), agentId, WorkerOperationType.DRAIN,
+                null, "{}", "active-drain-1", 0, "alice", NOW.plusSeconds(120), "correlation-2", NOW);
+
+        persistence.inTransaction(tx -> {
+            tx.workerOperations().insert(operation);
+            return null;
+        });
+
+        Optional<WorkerOperation> active = persistence.inTransaction(tx ->
+                tx.workerOperations().findActiveByAgent(agentId, NOW));
+        assertThat(active).isEmpty();
     }
 
     private void insertAgent(UUID id) {

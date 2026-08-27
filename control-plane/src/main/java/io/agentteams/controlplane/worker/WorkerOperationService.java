@@ -111,6 +111,13 @@ public final class WorkerOperationService {
         });
     }
 
+    /** Returns the non-expired rollout visible to trusted internal observers. */
+    public java.util.Optional<WorkerOperation> active(UUID agentId, Instant now) {
+        Objects.requireNonNull(agentId, "agentId");
+        Objects.requireNonNull(now, "now");
+        return persistence.inTransaction(tx -> tx.workerOperations().findActiveByAgent(agentId, now));
+    }
+
     /**
      * Advances a rollout only from independently observed Operator and Gateway
      * facts. A partial or stale observation keeps the durable operation RUNNING.
