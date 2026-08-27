@@ -8,14 +8,15 @@ SCRIPT = ROOT / "deploy/install-kind-oidc.sh"
 
 class InstallKindOidcContractTest(unittest.TestCase):
     def test_oidc_smoke_seeds_project_membership_before_acceptance(self):
-        content = SCRIPT.read_text()
-        self.assertIn("INSERT INTO projects", content)
-        self.assertIn("tenant-a', 'project-a'", content)
-        self.assertIn("INSERT INTO project_memberships", content)
-        self.assertIn("'alice', 'DEVELOPER', 'ACTIVE'", content)
-        self.assertLess(content.index("INSERT INTO project_memberships"),
-                        content.index('scripts/smoke-kind-oidc.sh')
-                        if 'scripts/smoke-kind-oidc.sh' in content else len(content))
+        install_content = SCRIPT.read_text()
+        smoke_content = (ROOT / "scripts/smoke-kind-oidc.sh").read_text()
+        self.assertIn("INSERT INTO projects", install_content)
+        self.assertIn("tenant-a', 'project-a'", install_content)
+        self.assertIn("TOKEN_SUBJECT=", smoke_content)
+        self.assertIn("INSERT INTO project_memberships", smoke_content)
+        self.assertIn("'${TOKEN_SUBJECT}', 'DEVELOPER', 'ACTIVE'", smoke_content)
+        self.assertLess(smoke_content.index("INSERT INTO project_memberships"),
+                        smoke_content.index('scripts/validate-oidc-acceptance.sh'))
 
 
 if __name__ == "__main__":
