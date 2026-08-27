@@ -90,7 +90,7 @@ void drainingWorkerIsExcludedFromNewAssignments() {
 
 预期：编译或断言失败，因为 `worker_operations` 表、Operation 服务和 rollout 状态接线不存在。
 
-- [ ] **步骤 3：实现持久化 Operation**
+- [x] **步骤 3：实现持久化 Operation**
 
 新增 `V46__worker_operations.sql`，保存 agent、type、status、requested spec digest、previous stable spec、idempotency key、expected version、owner、lease expiry、failure category、correlation ID 和审计时间；为 `(agent_id, idempotency_key)`、活动 Operation 和版本建立唯一约束。Repository 使用 `SELECT ... FOR UPDATE` 和 expected version。
 
@@ -267,7 +267,7 @@ git commit -m "feat(交付): 建立签名制品晋级流程"
 
 预期：模板、生产 values、网络规则和恢复参数校验全部通过。
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add deploy/helm/agentteams-java deploy/production/recovery deploy/production/README.md scripts/test_batch_b_recovery_contract.py scripts/test_production_network_contract.py scripts/validate-production-network.py scripts/validate-production-values.py
