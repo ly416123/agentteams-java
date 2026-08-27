@@ -78,6 +78,61 @@ public final class WorkerOperationRepository {
         return findById(id).orElseThrow();
     }
 
+    public void recordOperatorObservation(UUID operationId, boolean ready, String specDigest, String runtime,
+            String configRevision, String secretGeneration, Instant observedAt) {
+        jdbc.update("""
+                INSERT INTO worker_operation_observations
+                    (operation_id, operator_ready, operator_spec_digest, operator_runtime,
+                     operator_config_revision, operator_secret_generation, operator_observed_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (operation_id) DO UPDATE SET
+                    operator_ready = EXCLUDED.operator_ready,
+                    operator_spec_digest = EXCLUDED.operator_spec_digest,
+                    operator_runtime = EXCLUDED.operator_runtime,
+                    operator_config_revision = EXCLUDED.operator_config_revision,
+                    operator_secret_generation = EXCLUDED.operator_secret_generation,
+                    operator_observed_at = EXCLUDED.operator_observed_at,
+                    updated_at = EXCLUDED.updated_at
+                """, operationId, ready, text(specDigest), text(runtime), text(configRevision),
+                text(secretGeneration), JdbcSupport.timestamp(observedAt), JdbcSupport.timestamp(observedAt));
+    }
+
+    public void recordGatewayObservation(UUID operationId, boolean online, String specDigest, String runtime,
+            String configRevision, String secretGeneration, Instant observedAt) {
+        jdbc.update("""
+                INSERT INTO worker_operation_observations
+                    (operation_id, gateway_online, gateway_spec_digest, gateway_runtime,
+                     gateway_config_revision, gateway_secret_generation, gateway_observed_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (operation_id) DO UPDATE SET
+                    gateway_online = EXCLUDED.gateway_online,
+                    gateway_spec_digest = EXCLUDED.gateway_spec_digest,
+                    gateway_runtime = EXCLUDED.gateway_runtime,
+                    gateway_config_revision = EXCLUDED.gateway_config_revision,
+                    gateway_secret_generation = EXCLUDED.gateway_secret_generation,
+                    updated_at = EXCLUDED.updated_at
+                """, operationId, online, text(specDigest), text(runtime), text(configRevision),
+                text(secretGeneration), JdbcSupport.timestamp(observedAt), JdbcSupport.timestamp(observedAt));
+    }
+
+    public Optional<WorkerOperationObservation> findObservation(UUID operationId) {
+        return jdbc.query("""
+                SELECT operation_id, operator_ready, operator_spec_digest, operator_runtime,
+                       operator_config_revision, operator_secret_generation, operator_observed_at,
+                       gateway_online, gateway_spec_digest, gateway_runtime, gateway_config_revision,
+                       gateway_secret_generation, gateway_observed_at, updated_at
+                  FROM worker_operation_observations WHERE operation_id = ?
+                """, (rs, row) -> new WorkerOperationObservation(
+                        rs.getObject("operation_id", UUID.class), rs.getBoolean("operator_ready"),
+                        rs.getString("operator_spec_digest"), rs.getString("operator_runtime"),
+                        rs.getString("operator_config_revision"), rs.getString("operator_secret_generation"),
+                        instant(rs.getTimestamp("operator_observed_at")), rs.getBoolean("gateway_online"),
+                        rs.getString("gateway_spec_digest"), rs.getString("gateway_runtime"),
+                        rs.getString("gateway_config_revision"), rs.getString("gateway_secret_generation"),
+                        instant(rs.getTimestamp("gateway_observed_at")), JdbcSupport.instant(rs, "updated_at")),
+                operationId).stream().findFirst();
+    }
+
     private long actualVersion(UUID id) {
         return jdbc.query("SELECT version FROM worker_operations WHERE id = ?", (rs, row) -> rs.getLong(1), id)
                 .stream().findFirst().orElse(-1L);
@@ -112,5 +167,9 @@ public final class WorkerOperationRepository {
 
     private static Instant instant(Timestamp value) {
         return value == null ? null : value.toInstant();
+    }
+
+    private static String text(String value) {
+        return value == null ? "" : value.trim();
     }
 }

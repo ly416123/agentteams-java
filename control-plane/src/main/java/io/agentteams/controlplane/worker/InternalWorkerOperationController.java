@@ -46,6 +46,34 @@ public final class InternalWorkerOperationController {
         return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
     }
 
+    @PostMapping("/{operationId}/operator")
+    public ResponseEntity<WorkerOperationResponse> confirmOperator(
+            @PathVariable UUID operationId,
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token,
+            @RequestBody OperatorConfirmationRequest request) {
+        authorize(token);
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new IllegalArgumentException("expectedVersion is required");
+        }
+        WorkerOperation operation = operations.confirmOperator(operationId, request.expectedVersion(),
+                request.toDomain());
+        return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
+    }
+
+    @PostMapping("/{operationId}/gateway")
+    public ResponseEntity<WorkerOperationResponse> confirmGateway(
+            @PathVariable UUID operationId,
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token,
+            @RequestBody GatewayConfirmationRequest request) {
+        authorize(token);
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new IllegalArgumentException("expectedVersion is required");
+        }
+        WorkerOperation operation = operations.confirmGateway(operationId, request.expectedVersion(),
+                request.toDomain());
+        return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
+    }
+
     private void authorize(String token) {
         byte[] expected = internalToken.getBytes(StandardCharsets.UTF_8);
         byte[] supplied = token == null ? new byte[0] : token.getBytes(StandardCharsets.UTF_8);
@@ -67,6 +95,24 @@ public final class InternalWorkerOperationController {
             return new WorkerRolloutConfirmation(operatorReady, operatorSpecDigest, operatorRuntime,
                     operatorConfigRevision, operatorSecretGeneration, gatewayOnline, gatewaySpecDigest,
                     gatewayRuntime, gatewayConfigRevision, gatewaySecretGeneration, observedAt);
+        }
+    }
+
+    public record OperatorConfirmationRequest(Long expectedVersion, boolean ready, String specDigest,
+            String runtime, String configRevision, String secretGeneration, Instant observedAt) {
+        WorkerOperatorObservation toDomain() {
+            if (observedAt == null) throw new IllegalArgumentException("observedAt is required");
+            return new WorkerOperatorObservation(ready, specDigest, runtime, configRevision,
+                    secretGeneration, observedAt);
+        }
+    }
+
+    public record GatewayConfirmationRequest(Long expectedVersion, boolean online, String specDigest,
+            String runtime, String configRevision, String secretGeneration, Instant observedAt) {
+        WorkerGatewayObservation toDomain() {
+            if (observedAt == null) throw new IllegalArgumentException("observedAt is required");
+            return new WorkerGatewayObservation(online, specDigest, runtime, configRevision,
+                    secretGeneration, observedAt);
         }
     }
 }

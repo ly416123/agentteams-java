@@ -287,6 +287,22 @@ class WorkerOperationServiceTest {
         assertThat(observed.status()).isEqualTo(WorkerOperationStatus.RUNNING);
     }
 
+    @Test
+    void advancesRolloutFromIndependentOperatorAndGatewayReports() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+        WorkerOperation operation = operations.rollout(agentId, new WorkerRolloutRequest(0, "dual-report-1",
+                "sha256:image", "qwenpaw", "config-1", "secret-1"));
+
+        WorkerOperation running = operations.confirmOperator(operation.id(), operation.version(),
+                new WorkerOperatorObservation(true, "sha256:image", "qwenpaw", "config-1", "secret-1", NOW));
+        assertThat(running.status()).isEqualTo(WorkerOperationStatus.RUNNING);
+
+        WorkerOperation succeeded = operations.confirmGateway(running.id(), running.version(),
+                new WorkerGatewayObservation(true, "sha256:image", "qwenpaw", "config-1", "secret-1", NOW));
+        assertThat(succeeded.status()).isEqualTo(WorkerOperationStatus.SUCCEEDED);
+    }
+
     private void insertAgent(UUID id, AgentPhase phase) {
         persistence.inTransaction(tx -> {
             tx.agents().insert(AgentRecord.create(id, "worker-" + id, phase, "qwenpaw",

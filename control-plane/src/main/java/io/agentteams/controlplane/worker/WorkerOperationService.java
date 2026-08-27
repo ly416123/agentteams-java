@@ -119,6 +119,39 @@ public final class WorkerOperationService {
             WorkerRolloutConfirmation confirmation) {
         Objects.requireNonNull(operationId, "operationId");
         Objects.requireNonNull(confirmation, "confirmation");
+        return confirmObservation(operationId, expectedVersion, confirmation.observedAt(),
+                (repository, id, observedAt) -> {
+                    repository.recordOperatorObservation(id, confirmation.operatorReady(),
+                            confirmation.operatorSpecDigest(), confirmation.operatorRuntime(),
+                            confirmation.operatorConfigRevision(), confirmation.operatorSecretGeneration(), observedAt);
+                    repository.recordGatewayObservation(id, confirmation.gatewayOnline(),
+                            confirmation.gatewaySpecDigest(), confirmation.gatewayRuntime(),
+                            confirmation.gatewayConfigRevision(), confirmation.gatewaySecretGeneration(), observedAt);
+                });
+    }
+
+    public WorkerOperation confirmOperator(UUID operationId, long expectedVersion,
+            WorkerOperatorObservation observation) {
+        Objects.requireNonNull(observation, "observation");
+        return confirmObservation(operationId, expectedVersion, observation.observedAt(),
+                (repository, id, observedAt) -> repository.recordOperatorObservation(id, observation.ready(),
+                        observation.specDigest(), observation.runtime(), observation.configRevision(),
+                        observation.secretGeneration(), observedAt));
+    }
+
+    public WorkerOperation confirmGateway(UUID operationId, long expectedVersion,
+            WorkerGatewayObservation observation) {
+        Objects.requireNonNull(observation, "observation");
+        return confirmObservation(operationId, expectedVersion, observation.observedAt(),
+                (repository, id, observedAt) -> repository.recordGatewayObservation(id, observation.online(),
+                        observation.specDigest(), observation.runtime(), observation.configRevision(),
+                        observation.secretGeneration(), observedAt));
+    }
+
+    private WorkerOperation confirmObservation(UUID operationId, long expectedVersion, Instant observedAt,
+            ObservationWriter writer) {
+        Objects.requireNonNull(operationId, "operationId");
+        Objects.requireNonNull(observedAt, "observedAt");
         Instant now = clock.instant();
         return persistence.inTransaction(tx -> {
             WorkerOperation current = tx.workerOperations().findByIdForUpdate(operationId)
@@ -141,7 +174,10 @@ public final class WorkerOperationService {
                         failed.version());
                 return failed;
             }
-            WorkerOperationStatus next = confirmation.matches(current)
+            writer.write(tx.workerOperations(), operationId, observedAt);
+            WorkerOperationObservation observation = tx.workerOperations().findObservation(operationId)
+                    .orElseThrow(() -> new IllegalStateException("worker operation observation was not recorded"));
+            WorkerOperationStatus next = observation.matches(current)
                     ? WorkerOperationStatus.SUCCEEDED : WorkerOperationStatus.RUNNING;
             if (current.status() == next) {
                 return current;
@@ -154,6 +190,11 @@ public final class WorkerOperationService {
                     updated.version());
             return updated;
         });
+    }
+
+    @FunctionalInterface
+    private interface ObservationWriter {
+        void write(WorkerOperationRepository repository, UUID operationId, Instant observedAt);
     }
 
     private WorkerOperation request(UUID agentId, WorkerOperationType type, long expectedAgentVersion,

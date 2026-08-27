@@ -81,6 +81,32 @@ class WorkerOperationRepositoryTest {
                 .hasMessageContaining("secret material");
     }
 
+    @Test
+    void persistsOperatorAndGatewayObservationsIndependently() {
+        UUID agentId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        insertAgent(agentId);
+        WorkerOperation operation = WorkerOperation.pending(operationId, agentId, WorkerOperationType.ROLLOUT,
+                "sha256:image", "qwenpaw", "config-7", "secret-3", "{}", "rollout-observation-1", 0,
+                "alice", NOW.plusSeconds(120), "correlation-1", NOW);
+
+        persistence.inTransaction(tx -> {
+            tx.workerOperations().insert(operation);
+            tx.workerOperations().recordOperatorObservation(operationId, true, "sha256:image", "qwenpaw",
+                    "config-7", "secret-3", NOW.plusSeconds(1));
+            tx.workerOperations().recordGatewayObservation(operationId, true, "sha256:image", "qwenpaw",
+                    "config-7", "secret-3", NOW.plusSeconds(2));
+            return null;
+        });
+
+        WorkerOperationObservation observation = persistence.inTransaction(tx ->
+                tx.workerOperations().findObservation(operationId).orElseThrow());
+        assertThat(observation.operatorReady()).isTrue();
+        assertThat(observation.gatewayOnline()).isTrue();
+        assertThat(observation.operatorSpecDigest()).isEqualTo("sha256:image");
+        assertThat(observation.gatewayConfigRevision()).isEqualTo("config-7");
+    }
+
     private void insertAgent(UUID id) {
         persistence.inTransaction(tx -> {
             tx.agents().insert(AgentRecord.create(id, "worker-" + id, AgentPhase.READY, "qwenpaw",
