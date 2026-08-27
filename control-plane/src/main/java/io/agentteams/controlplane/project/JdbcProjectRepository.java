@@ -81,11 +81,11 @@ public class JdbcProjectRepository implements ProjectRepository {
     }
 
     @Override
-    public void deactivateMembership(String tenantId, UUID projectId, String subject, java.time.Instant updatedAt) {
-        jdbc.update("""
+    public boolean deactivateMembership(String tenantId, UUID projectId, String subject, java.time.Instant updatedAt) {
+        return jdbc.update("""
                 UPDATE project_memberships SET status = 'INACTIVE', updated_at = ?, version = version + 1
                  WHERE tenant_id = ? AND project_id = ? AND subject = ? AND status = 'ACTIVE'
-                """, timestamp(updatedAt), tenantId, projectId, subject);
+                """, timestamp(updatedAt), tenantId, projectId, subject) == 1;
     }
 
     @Override

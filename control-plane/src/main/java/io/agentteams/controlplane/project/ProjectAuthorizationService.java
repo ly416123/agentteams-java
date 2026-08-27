@@ -113,6 +113,8 @@ public class ProjectAuthorizationService {
         ProjectMembershipRecord member = ProjectMembershipRecord.create(tenantId, project.id(), memberSubject,
                 memberRole, now);
         repository.upsertMembership(member);
+        auditMembershipChange(principal, project.id(), "PROJECT_MEMBER_ADDED", memberSubject,
+                Map.of("new_role", memberRole.name(), "new_status", member.status()));
         return repository.findMembership(tenantId, project.id(), memberSubject).orElse(member);
     }
 
@@ -150,7 +152,9 @@ public class ProjectAuthorizationService {
         if (target.role() == ProjectRole.OWNER && repository.countActiveOwners(project.tenantId(), project.id()) <= 1) {
             throw new ProjectMembershipConflictException("MEMBERSHIP_LAST_OWNER");
         }
-        repository.deactivateMembership(project.tenantId(), project.id(), memberSubject, clock.instant());
+        if (!repository.deactivateMembership(project.tenantId(), project.id(), memberSubject, clock.instant())) {
+            throw new ProjectMembershipConflictException("MEMBERSHIP_VERSION_CONFLICT");
+        }
         auditMembershipChange(principal, project.id(), "PROJECT_MEMBER_DISABLED", memberSubject,
                 Map.of("previous_role", target.role().name(), "previous_status", target.status(),
                         "new_status", "INACTIVE"));

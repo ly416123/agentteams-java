@@ -80,6 +80,20 @@ class ProjectMembershipLifecycleTest {
     }
 
     @Test
+    void directMemberAdditionEmitsAStableRedactedAudit() {
+        when(repository.insertMembershipIdempotency(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+
+        service.addMember(PROJECT_ID, "member-1", "developer", ProjectRole.DEVELOPER);
+
+        assertThat(auditEvents).singleElement().satisfies(event -> {
+            assertThat(event.action()).isEqualTo("PROJECT_MEMBER_ADDED");
+            assertThat(event.attributes()).containsEntry("target_subject_hash",
+                    "88fa0d759f845b47c044c2cd44e29082cf6fea665c30c146374ec7c8f3d699e3");
+            assertThat(event.attributes()).doesNotContainValue("developer");
+        });
+    }
+
+    @Test
     void disabledMemberCanBeReenabledWithExpectedMembershipVersion() {
         ProjectMembershipRecord disabled = new ProjectMembershipRecord(
                 "tenant-a", PROJECT_ID, "developer", ProjectRole.DEVELOPER, "INACTIVE", NOW, NOW, 3);
@@ -99,6 +113,7 @@ class ProjectMembershipLifecycleTest {
                 "tenant-a", PROJECT_ID, "developer", ProjectRole.DEVELOPER, NOW);
         when(repository.findMembership("tenant-a", PROJECT_ID, "developer"))
                 .thenReturn(Optional.of(target));
+        when(repository.deactivateMembership("tenant-a", PROJECT_ID, "developer", NOW)).thenReturn(true);
 
         service.disableMember(PROJECT_ID, "developer");
 
@@ -109,6 +124,20 @@ class ProjectMembershipLifecycleTest {
                     "88fa0d759f845b47c044c2cd44e29082cf6fea665c30c146374ec7c8f3d699e3");
             assertThat(event.attributes()).doesNotContainValue("developer");
         });
+    }
+
+    @Test
+    void concurrentDisableThatUpdatesNoRowsDoesNotEmitSuccessAudit() {
+        ProjectMembershipRecord target = ProjectMembershipRecord.create(
+                "tenant-a", PROJECT_ID, "developer", ProjectRole.DEVELOPER, NOW);
+        when(repository.findMembership("tenant-a", PROJECT_ID, "developer"))
+                .thenReturn(Optional.of(target));
+        when(repository.deactivateMembership("tenant-a", PROJECT_ID, "developer", NOW)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.disableMember(PROJECT_ID, "developer"))
+                .isInstanceOf(ProjectMembershipConflictException.class)
+                .hasMessageContaining("MEMBERSHIP_VERSION_CONFLICT");
+        assertThat(auditEvents).isEmpty();
     }
 
     @Test

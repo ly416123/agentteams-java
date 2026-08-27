@@ -42,6 +42,11 @@ public class ProjectInvitationService {
         this(repository, Clock.systemUTC(), new SecureRandom(), authorization, auditRecorder);
     }
 
+    public ProjectInvitationService(ProjectInvitationRepository repository,
+            ResourceAuthorizationService authorization) {
+        this(repository, Clock.systemUTC(), new SecureRandom(), authorization, NOOP_AUDIT);
+    }
+
     ProjectInvitationService(ProjectInvitationRepository repository, Clock clock) {
         this(repository, clock, new SecureRandom(), null, NOOP_AUDIT);
     }

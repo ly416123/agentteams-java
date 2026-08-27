@@ -19,7 +19,7 @@ public interface ProjectRepository {
 
     void upsertMembership(ProjectMembershipRecord membership);
 
-    void deactivateMembership(String tenantId, UUID projectId, String subject, Instant updatedAt);
+    boolean deactivateMembership(String tenantId, UUID projectId, String subject, Instant updatedAt);
 
     int countActiveOwners(String tenantId, UUID projectId);
 

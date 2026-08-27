@@ -109,6 +109,20 @@ class ProjectInvitationServiceTest {
     }
 
     @Test
+    void invitationAuditFailureDoesNotBlockInvitationPersistence() {
+        service = new ProjectInvitationService(repository, Clock.fixed(NOW, ZoneOffset.UTC),
+                new java.security.SecureRandom(), null, event -> {
+                    throw new IllegalStateException("audit unavailable");
+                });
+
+        ProjectInvitationService.InvitationResult result = service.invite(
+                PROJECT_ID, "invite-audit-failure", "developer", ProjectRole.DEVELOPER);
+
+        assertThat(result.token()).isNotBlank();
+        verify(repository).insertInvitation(any(ProjectInvitationRecord.class));
+    }
+
+    @Test
     void duplicateInvitationKeyReusesInvitationWithoutReturningASecondToken() {
         ProjectInvitationRecord existing = ProjectInvitationRecord.invited(UUID.randomUUID(), "tenant-a", PROJECT_ID,
                 "developer", ProjectRole.DEVELOPER, "hash", NOW.plusSeconds(60), "owner", NOW);
