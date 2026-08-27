@@ -43,6 +43,13 @@ class KindWorkerRestartContractTest(unittest.TestCase):
         self.assertIn("second task attempt after Worker restart", source)
         self.assertIn("expected two attempts with one success after lease recovery", source)
 
+    def test_verifies_mock_delay_is_running_in_a_replacement_pod(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("def mock_delay_is_active", source)
+        self.assertIn("mock response delay", source)
+        self.assertIn("QWENPAW_MOCK_RESPONSE_DELAY_SECONDS", source)
+
 
 if __name__ == "__main__":
     unittest.main()

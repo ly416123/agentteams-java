@@ -104,6 +104,25 @@ def worker_pod_names(namespace: str, deployment: str) -> list[str]:
             if item.get("status", {}).get("phase") == "Running"]
 
 
+def mock_delay_is_active(namespace: str, deployment: str, seconds: int) -> bool:
+    deployment_json = kubectl_json("get", "deployment", deployment, namespace=namespace)
+    selector = deployment_json.get("spec", {}).get("selector", {}).get("matchLabels", {})
+    if not selector:
+        fail(f"Mock Deployment {deployment} has no selector")
+    selector_value = ",".join(f"{key}={value}" for key, value in selector.items())
+    pods = kubectl_json("get", "pods", "-l", selector_value, namespace=namespace)
+    expected = str(seconds)
+    for pod in pods.get("items", []):
+        if pod.get("status", {}).get("phase") != "Running" or pod.get("metadata", {}).get("deletionTimestamp"):
+            continue
+        containers = pod.get("spec", {}).get("containers", [])
+        environment = {item.get("name"): item.get("value") for item in containers[0].get("env", [])} \
+            if containers else {}
+        if environment.get("QWENPAW_MOCK_RESPONSE_DELAY_SECONDS") == expected:
+            return True
+    return False
+
+
 def agent_phase(namespace: str, postgres_pod: str, agent_id: str) -> str:
     return sql(namespace, postgres_pod,
                f"select phase from agents where id = '{agent_id}';").strip()
@@ -175,6 +194,7 @@ def set_mock_delay(namespace: str, deployment: str, seconds: int, timeout: float
         f"QWENPAW_MOCK_RESPONSE_DELAY_SECONDS={seconds}", namespace=namespace)
     run("rollout", "status", f"deployment/{deployment}",
         f"--timeout={int(timeout)}s", namespace=namespace)
+    wait_until("mock response delay", lambda: mock_delay_is_active(namespace, deployment, seconds), timeout)
 
 
 def clear_mock_delay(namespace: str, deployment: str, timeout: float) -> None:
@@ -198,7 +218,7 @@ def main() -> int:
     parser.add_argument("--postgres-pod", default="postgresql-0")
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
     parser.add_argument("--local-port", type=int, default=18084)
-    parser.add_argument("--response-delay-seconds", type=int, default=15)
+    parser.add_argument("--response-delay-seconds", type=int, default=60)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--tenant", default=os.environ.get("AGENTTEAMS_API_TENANT", "tenant-a"))
     parser.add_argument("--project", default=os.environ.get("AGENTTEAMS_API_PROJECT", "project-a"))
