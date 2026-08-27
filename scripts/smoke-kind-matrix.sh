@@ -108,6 +108,18 @@ user_id="$(printf '%s' "${registration}" | json_string user_id)"
   exit 1
 }
 
+authorization_fixture_sql="
+  INSERT INTO projects(id, tenant_id, name, status, created_by, created_at, updated_at, version)
+  VALUES ('00000000-0000-0000-0000-000000000025', 'tenant-a', 'project-a', 'ACTIVE', 'matrix-smoke', now(), now(), 0)
+  ON CONFLICT (tenant_id, name) DO UPDATE SET status = 'ACTIVE', updated_at = now();
+  INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
+  SELECT 'tenant-a', id, 'matrix-smoke', 'DEVELOPER', 'ACTIVE', now(), now(), 0
+    FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'
+  ON CONFLICT (tenant_id, project_id, subject)
+  DO UPDATE SET role = 'DEVELOPER', status = 'ACTIVE', updated_at = now();"
+kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "${authorization_fixture_sql}" >/dev/null
+
 mapping_id="00000000-0000-0000-0000-000000000042"
 mapping_sql="INSERT INTO platform_identities(id, subject, tenant, project, team, permissions, created_at, updated_at, matrix_user_id) VALUES ('${mapping_id}', 'matrix-smoke', 'tenant-a', 'project-a', 'team-a', '[\"task:create\",\"task:read\",\"task:cancel\",\"task:retry\",\"task:pause\",\"task:approve\",\"task:reject\"]'::jsonb, now(), now(), '${user_id}') ON CONFLICT (subject) DO UPDATE SET tenant=EXCLUDED.tenant, project=EXCLUDED.project, team=EXCLUDED.team, permissions=EXCLUDED.permissions, updated_at=now(), matrix_user_id=EXCLUDED.matrix_user_id"
 kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \

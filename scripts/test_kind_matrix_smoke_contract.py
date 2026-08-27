@@ -11,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KindMatrixSmokeContractTest(unittest.TestCase):
+    def test_matrix_identity_fixture_has_project_membership_for_task_authorization(self):
+        script_text = (ROOT / "scripts/smoke-kind-matrix.sh").read_text(encoding="utf-8")
+        fixture_start = script_text.index("authorization_fixture_sql=")
+        fixture_end = script_text.index("mapping_sql=", fixture_start)
+        fixture = script_text[fixture_start:fixture_end]
+
+        self.assertIn("INSERT INTO projects", fixture)
+        self.assertIn("INSERT INTO project_memberships", fixture)
+        self.assertIn("'matrix-smoke', 'DEVELOPER', 'ACTIVE'", fixture)
+
     def test_start_retries_only_before_appservice_delivery_is_recorded(self):
         script_text = (ROOT / "scripts/smoke-kind-matrix.sh").read_text(encoding="utf-8")
         start_task = script_text.split("start_task() {", 1)[1].split("\nwait_task_phase", 1)[0]
