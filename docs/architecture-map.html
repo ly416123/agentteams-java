@@ -753,6 +753,10 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
           <td><b>Observability</b></td><td>Prometheus</td>
           <td>Servicemonitor 采集 Control Plane / Gateway 指标；PrometheusRule 告警</td>
         </tr>
+        <tr>
+          <td><b>Public entry / recovery</b></td><td>Optional Helm + scripts</td>
+          <td>Ingress/Gateway API 仅路由 <code>/api/v1</code>；Gateway gRPC 保持内部 Service；生产恢复使用签名清单、参数预检和引用一致性校验</td>
+        </tr>
       </table>
     </div>
     <div class="grid g2" style="margin-top:14px">

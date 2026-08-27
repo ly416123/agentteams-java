@@ -1,9 +1,11 @@
 # AgentTeams Java 生产交付与可靠性闭环设计
 
 **日期：** 2026-08-26
-**状态：** 批次 A 已完成 Helm/NetworkPolicy 基础；镜像发布、生产恢复和外部平台门禁进入批次 B
+**状态：** 批次 A 已完成 Helm/NetworkPolicy 基础；批次 B 已完成签名制品、入口/egress 和恢复安全闸门第一纵切，真实生产平台门禁待后续
 **优先级：** P0/P1
-**代码基线：** `fd721d3`
+**代码基线：** `93d99fb`
+
+**批次 B 增量（2026-08-27）：** 已新增 digest-pinned Release Manifest、CycloneDX/SLSA attestation、Cosign keyless 发布/Chart 签名和 production Environment 晋级入口；Helm 已支持默认关闭的 Ingress/Gateway API，NetworkPolicy 已支持 CIDR/PROXY/PLATFORM 契约，恢复目录已提供不读取 Secret/业务载荷的 preflight 与一致性校验。当前剩余真实 GHCR/受控环境 Canary、错误预算、自动回滚、CNI egress 和 PITR 演练。
 
 ## 1. 目标
 

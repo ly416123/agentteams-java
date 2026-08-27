@@ -1,9 +1,11 @@
 # AgentTeams Java 控制面治理闭环设计
 
 **日期：** 2026-08-26
-**状态：** Team Revision/Effective Config 已随批次 A 完成；Worker 运维、统一 RBAC、成员生命周期和 Secret Resolver 进入批次 B
+**状态：** Team Revision/Effective Config 已随批次 A 完成；批次 B 已完成 Worker 运维、统一 RBAC、成员生命周期和 External Secrets 第一纵切，异步消费者接线与真实平台验收待后续
 **优先级：** P0/P1
-**代码基线：** `fd721d3`
+**代码基线：** `93d99fb`
+
+**批次 B 增量（2026-08-27）：** 已实现可恢复 Worker Operation 与双事实 rollout 确认、ResourceAction/scope 授权矩阵第一纵切、项目邀请幂等和成员状态/Owner CAS、ExternalSecret Ready 与目标 Secret metadata 只读解析。当前剩余 Manager/异步消费者统一授权接线、成员状态脱敏审计以及真实 Kubernetes controller 收敛验收。
 
 ## 1. 目标
 

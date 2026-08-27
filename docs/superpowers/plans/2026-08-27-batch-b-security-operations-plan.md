@@ -268,21 +268,23 @@ git commit -m "feat(生产): 增加入口网络与恢复契约"
 
 ## 任务 6：批次 B 联合验收、文档和交付
 
-- [ ] **步骤 1：运行本地 Docker-backed、脚本和 Helm 全量验证**
+**当前增量进度（2026-08-27）：** 本机 Docker/Colima Gate、脚本和 Helm 全量验证已通过；GitHub Actions `33077363017` 的 `verify`、`kind-oidc`、`kind-recovery` 已全绿。已完成安全/规格审查并同步路线图、两份子规格、架构地图和 L5/L6 验收边界；当前只剩本次文档提交和远程一致性确认。
+
+- [x] **步骤 1：运行本地 Docker-backed、脚本和 Helm 全量验证**
 
 运行：`source deploy/dev-env.sh && docker info && mvn -q -Pintegration-tests verify`、`python3 -m unittest discover -s scripts -p 'test_*.py'`、`helm lint deploy/helm/agentteams-java`、`git diff --check`。
 
 预期：Docker daemon、Maven/Testcontainers、脚本和 Helm 检查全部通过；只有 KVM/外部平台验收单独记录环境条件，不将跳过写成通过。
 
-- [ ] **步骤 2：运行 CI 等价静态与 Kind 验收**
+- [x] **步骤 2：运行 CI 等价静态与 Kind 验收**
 
 验证 Worker drain 后不接收新任务、rollout 失败回滚、跨项目授权拒绝、ExternalSecret Ready 收敛、入口与 egress 策略、签名 manifest 校验和现有 PostgreSQL/MinIO/NATS/Matrix/OIDC/Worker restart 场景。
 
-- [ ] **步骤 3：进行安全与规格审查**
+- [x] **步骤 3：进行安全与规格审查**
 
 逐项对照 `docs/superpowers/specs/2026-08-26-control-plane-governance-closure-design.md` 和 `docs/superpowers/specs/2026-08-26-production-delivery-reliability-design.md`，检查 Secret、JWT、Prompt/Response、数据库内容、artifact 和外部响应没有进入日志、事件、指标或 CI Artifact。
 
-- [ ] **步骤 4：同步路线图和验收边界**
+- [x] **步骤 4：同步路线图和验收边界**
 
 更新路线图、两份子规格、生产 Runbook 和架构地图：W2/W3 只在 L1-L4 或真实 L5/L6 证据具备时标记对应层级；记录每个 release manifest、Git SHA、签名和恢复演练报告的关联关系。
 
