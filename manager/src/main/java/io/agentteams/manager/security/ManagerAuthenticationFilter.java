@@ -38,7 +38,7 @@ public final class ManagerAuthenticationFilter extends OncePerRequestFilter {
             unauthorized(response);
             return;
         }
-        ManagerRequestContext.set(principal);
+        ManagerRequestContext.set(principal, token);
         try {
             chain.doFilter(request, response);
         } finally {

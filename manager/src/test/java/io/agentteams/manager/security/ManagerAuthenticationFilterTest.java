@@ -40,7 +40,10 @@ class ManagerAuthenticationFilterTest {
         ManagerPrincipal principal = new ManagerPrincipal("user", "tenant", "project", "team",
                 Set.of("task:create"));
         when(validator.validate("signed-token")).thenReturn(Optional.of(principal));
-        FilterChain chain = (request, response) -> assertThat(ManagerRequestContext.require()).isEqualTo(principal);
+        FilterChain chain = (request, response) -> {
+            assertThat(ManagerRequestContext.require()).isEqualTo(principal);
+            assertThat(ManagerRequestContext.requireBearerToken()).isEqualTo("signed-token");
+        };
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRequestURI("/api/v1/manager/sessions");
         request.addHeader("Authorization", "Bearer signed-token");

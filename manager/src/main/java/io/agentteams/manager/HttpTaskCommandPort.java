@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.application.api.TaskCommandPort;
+import io.agentteams.manager.security.ManagerRequestContext;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -29,6 +30,7 @@ public final class HttpTaskCommandPort implements TaskCommandPort {
     @Override
     public TaskCreationResult create(String idempotencyKey, TaskCreateCommand command) {
         Objects.requireNonNull(command, "command");
+        String bearerToken = ManagerRequestContext.requireBearerToken();
         ObjectNode body = mapper.createObjectNode();
         body.put("title", command.title());
         body.put("description", command.description());
@@ -39,11 +41,11 @@ public final class HttpTaskCommandPort implements TaskCommandPort {
         }
         body.put("actor", command.actor());
         body.put("source", command.source());
-        HttpRequest request = HttpRequest.newBuilder(tasksEndpoint)
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(tasksEndpoint)
                 .header("Content-Type", "application/json")
                 .header("Idempotency-Key", idempotencyKey)
-                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                .build();
+                .header("Authorization", "Bearer " + bearerToken);
+        HttpRequest request = requestBuilder.POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 409) throw new ManagerToolConflictException("task creation conflicted");

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
+import io.agentteams.manager.security.ManagerPrincipal;
+import io.agentteams.manager.security.ManagerRequestContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,12 +26,16 @@ public final class ControlPlaneCreateTaskTool {
     public TaskCreationResult create(CreateTaskIntent intent) {
         Objects.requireNonNull(intent, "intent");
         return taskCommands.create(idempotencyKey(intent), new TaskCommandPort.TaskCreateCommand(intent.title(),
-                intent.description(), spec(intent), "manager", "manager"));
+                intent.description(), spec(intent, ManagerRequestContext.require()), "manager", "manager"));
     }
 
-    private String spec(CreateTaskIntent intent) {
+    private String spec(CreateTaskIntent intent, ManagerPrincipal principal) {
         ObjectNode root = mapper.createObjectNode();
         root.put("taskType", "manager-request");
+        ObjectNode scope = root.putObject("scope");
+        scope.put("tenant", principal.tenantId());
+        scope.put("project", principal.projectId());
+        scope.put("team", principal.teamId());
         ObjectNode input = root.putObject("inputJson");
         input.put("description", intent.description());
         ArrayNode capabilities = root.putArray("requiredCapabilities");
