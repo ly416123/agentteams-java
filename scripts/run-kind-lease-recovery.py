@@ -120,6 +120,16 @@ def wait_for_new_gateway_connection(namespace: str, postgres_pod: str, agent_id:
     return wait_until("new Worker Gateway registration", restarted_worker_ready, timeout, interval)
 
 
+def wait_for_gateway_disconnection(namespace: str, postgres_pod: str, agent_id: str,
+                                   timeout: float, interval: float = 1.0) -> tuple[str, str]:
+    """Wait until the Worker shutdown has been projected by the Gateway."""
+    def disconnected():
+        connection_id, presence = gateway_connection_state(namespace, postgres_pod, agent_id)
+        return ((connection_id, presence) if presence != "ONLINE" else None)
+
+    return wait_until("Gateway disconnection after Worker shutdown", disconnected, timeout, interval)
+
+
 def deployment_ready(namespace: str, deployment: str, expected: int) -> bool:
     deployment_json = kubectl_json("get", "deployment", deployment, namespace=namespace)
     status = deployment_json.get("status", {})
@@ -230,6 +240,11 @@ def main() -> int:
             args.namespace, args.operator_deployment, 0), args.timeout)
         run("scale", "deployment", args.worker_deployment, "--replicas=0", namespace=args.namespace)
         wait_until("Worker shutdown", lambda: deployment_ready(args.namespace, args.worker_deployment, 0), args.timeout)
+        # The Gateway observes the Worker stream asynchronously. Wait for its
+        # disconnect projection before reseeding the canonical Agent phase;
+        # otherwise the late disconnect can overwrite READY with OFFLINE and
+        # make the initial lease assignment nondeterministic.
+        wait_for_gateway_disconnection(args.namespace, args.postgres_pod, args.agent_id, args.timeout)
 
         for agent_id in original_agent_phases:
             if agent_id != args.agent_id:
