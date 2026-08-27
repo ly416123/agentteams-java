@@ -146,7 +146,8 @@ public final class AgentChannelService extends AgentChannelGrpc.AgentChannelImpl
         }
         Instant now = clock.instant();
         AgentProfile profile = new AgentProfile(hello.getMetadata().getAgentId(), hello.getRuntimeName(),
-                hello.getRuntimeVersion(), hello.getCapabilitiesMap());
+                hello.getRuntimeVersion(), hello.getCapabilitiesMap(), hello.getSpecDigest(),
+                hello.getConfigRevision(), hello.getSecretGeneration());
         registry.register(connection, profile, delivery.lastAcknowledgedSequence(profile.agentId()), now)
                 .ifPresent(replaced -> state.disconnected(replaced, now));
         state.registered(registry.snapshot(connection).orElseThrow(), now);

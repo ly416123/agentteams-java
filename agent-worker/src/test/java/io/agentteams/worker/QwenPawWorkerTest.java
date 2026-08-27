@@ -40,6 +40,21 @@ class QwenPawWorkerTest {
     }
 
     @Test
+    void advertisesWorkerVersionFactsInHelloWhenInjectedByOperator() {
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "00000000-0000-0000-0000-000000000001",
+                "AGENTTEAMS_SPEC_DIGEST", "sha256:worker-v2",
+                "AGENTTEAMS_CONFIG_REVISION", "config-17",
+                "AGENTTEAMS_SECRET_GENERATION", "secret-9"));
+
+        AgentHello hello = QwenPawWorker.hello(configuration, CLOCK);
+
+        assertThat(hello.getSpecDigest()).isEqualTo("sha256:worker-v2");
+        assertThat(hello.getConfigRevision()).isEqualTo("config-17");
+        assertThat(hello.getSecretGeneration()).isEqualTo("secret-9");
+    }
+
+    @Test
     void parsesAgentScopeRuntimeTypeWithoutChangingExecutionPath() {
         QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
                 "AGENTTEAMS_AGENT_ID", "agent-a",

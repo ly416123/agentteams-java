@@ -29,6 +29,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         updateCanonicalAgentOnRegister(agentId, connection.runtime(), connection.capabilities(), at);
         jdbc.update(upsertSql(), connection.agentId(), connection.connectionId(), "ONLINE", "READY",
                 connection.runtime(), connection.runtimeVersion(), capabilitiesJson(connection.capabilities()),
+                connection.specDigest(), connection.configRevision(), connection.secretGeneration(),
                 Timestamp.from(at), Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
     }
 
@@ -39,9 +40,11 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         int owned = jdbc.update("""
                 UPDATE gateway_agent_state
                    SET presence = 'ONLINE', phase = 'READY', runtime = ?, runtime_version = ?,
-                       capabilities = ?::jsonb, last_seen_at = ?, disconnected_at = NULL, updated_at = ?
-                 WHERE agent_id = ? AND connection_id = ?
+                       capabilities = ?::jsonb, spec_digest = ?, config_revision = ?, secret_generation = ?,
+                       last_seen_at = ?, disconnected_at = NULL, updated_at = ?
+                WHERE agent_id = ? AND connection_id = ?
                 """, connection.runtime(), connection.runtimeVersion(), capabilitiesJson(connection.capabilities()),
+                connection.specDigest(), connection.configRevision(), connection.secretGeneration(),
                 Timestamp.from(at), Timestamp.from(at), connection.agentId(), connection.connectionId());
         if (owned == 0) {
             return false;
@@ -139,8 +142,9 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         return """
             INSERT INTO gateway_agent_state
                     (agent_id, connection_id, presence, phase, runtime, runtime_version, capabilities,
-                     connected_at, last_seen_at, disconnected_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
+                     spec_digest, config_revision, secret_generation, connected_at, last_seen_at,
+                     disconnected_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (agent_id) DO UPDATE SET
                     connection_id = EXCLUDED.connection_id,
                     presence = EXCLUDED.presence,
@@ -148,6 +152,9 @@ public class JdbcAgentStateStore implements GatewayStateStore {
                     runtime = EXCLUDED.runtime,
                     runtime_version = EXCLUDED.runtime_version,
                     capabilities = EXCLUDED.capabilities,
+                    spec_digest = EXCLUDED.spec_digest,
+                    config_revision = EXCLUDED.config_revision,
+                    secret_generation = EXCLUDED.secret_generation,
                     connected_at = CASE WHEN EXCLUDED.presence = 'ONLINE'
                         THEN EXCLUDED.connected_at ELSE gateway_agent_state.connected_at END,
                     last_seen_at = EXCLUDED.last_seen_at,

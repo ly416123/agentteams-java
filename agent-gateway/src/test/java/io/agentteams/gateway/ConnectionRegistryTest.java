@@ -88,6 +88,29 @@ class ConnectionRegistryTest {
         assertThat(registry.current("agent-1")).hasValue(second);
     }
 
+    @Test
+    void normalizesOptionalWorkerVersionFactsAndEnforcesLimit() {
+        String maximum = "x".repeat(512);
+        AgentProfile profile = new AgentProfile("agent-1", "qwenpaw", "0.4.0", Map.of(),
+                "  " + maximum + "  ", null, "  secret-9  ");
+
+        assertThat(profile.specDigest()).isEqualTo(maximum);
+        assertThat(profile.configRevision()).isEmpty();
+        assertThat(profile.secretGeneration()).isEqualTo("secret-9");
+        assertThat(new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), "agent-1", "qwenpaw", "0.4.0",
+                "  " + maximum + "  ", null, "secret-9", Map.of(), Instant.EPOCH, 0).specDigest())
+                .isEqualTo(maximum);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new AgentProfile("agent-1", "qwenpaw", "0.4.0",
+                        Map.of(), "x".repeat(513), "", ""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("specDigest");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new ConnectionRegistry.ConnectionSnapshot(
+                        UUID.randomUUID(), "agent-1", "qwenpaw", "0.4.0", "", "x".repeat(513), "", Map.of(),
+                        Instant.EPOCH, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("configRevision");
+    }
+
     private static StreamObserver<ServerMessage> sink() {
         return new StreamObserver<>() {
             @Override

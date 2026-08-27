@@ -550,6 +550,9 @@ public final class QwenPawWorker implements AutoCloseable {
                 .setMaxConcurrentTasks(configuration.maxConcurrentTasks())
                 .setMaxWorkspaceBytes(configuration.maxWorkspaceBytes())
                 .setMaxArtifactBytes(configuration.maxArtifactBytes())
+                .setSpecDigest(configuration.specDigest())
+                .setConfigRevision(configuration.configRevision())
+                .setSecretGeneration(configuration.secretGeneration())
                 .build();
     }
 
@@ -596,6 +599,9 @@ public final class QwenPawWorker implements AutoCloseable {
             Duration qwenPawConnectTimeout,
             Duration reconnectDelay,
             String runtimeVersion,
+            String specDigest,
+            String configRevision,
+            String secretGeneration,
             int maxConcurrentTasks,
             long maxWorkspaceBytes,
             long maxArtifactBytes,
@@ -651,6 +657,9 @@ public final class QwenPawWorker implements AutoCloseable {
                     Duration.ofSeconds(integer(environment, "QWENPAW_CONNECT_TIMEOUT_SECONDS", 10)),
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_RECONNECT_DELAY_SECONDS", 2)),
                     value(environment, "AGENTTEAMS_RUNTIME_VERSION", "0.1.0"),
+                    value(environment, "AGENTTEAMS_SPEC_DIGEST", ""),
+                    value(environment, "AGENTTEAMS_CONFIG_REVISION", ""),
+                    value(environment, "AGENTTEAMS_SECRET_GENERATION", ""),
                     maxConcurrentTasks,
                     longValue(environment, "AGENTTEAMS_MAX_WORKSPACE_BYTES", 2L * 1024 * 1024 * 1024),
                     longValue(environment, "AGENTTEAMS_MAX_ARTIFACT_BYTES", 2L * 1024 * 1024 * 1024),

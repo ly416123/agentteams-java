@@ -51,6 +51,9 @@ class AgentChannelContractTest {
                         .setConfigVersion(12)
                         .setMaxWorkspaceBytes(10_000)
                         .setMaxArtifactBytes(20_000)
+                        .setSpecDigest("sha256:worker-v2")
+                        .setConfigRevision("config-17")
+                        .setSecretGeneration("secret-9")
                         .build()).build(),
                 AgentMessage.PayloadCase.HELLO);
 
@@ -202,6 +205,26 @@ class AgentChannelContractTest {
         assertEquals(8, EventMetadata.getDescriptor().findFieldByName("lease_id").getNumber());
         assertEquals(3, decoded.getExpectedVersion());
         assertEquals("lease-1", decoded.getLeaseId());
+    }
+
+    @Test
+    void workerVersionFactsUseAdditiveFieldsAndOldHelloDefaults() throws Exception {
+        assertEquals(10, AgentHello.getDescriptor().findFieldByName("spec_digest").getNumber());
+        assertEquals(11, AgentHello.getDescriptor().findFieldByName("config_revision").getNumber());
+        assertEquals(12, AgentHello.getDescriptor().findFieldByName("secret_generation").getNumber());
+
+        AgentHello oldHello = AgentHello.newBuilder()
+                .setRuntimeName("qwenpaw")
+                .setRuntimeVersion("0.4.0")
+                .build();
+        AgentHello decoded = AgentHello.parseFrom(oldHello.toByteArray());
+
+        assertEquals("", decoded.getSpecDigest());
+        assertEquals("", decoded.getConfigRevision());
+        assertEquals("", decoded.getSecretGeneration());
+        assertTrue(!decoded.hasSpecDigest());
+        assertTrue(!decoded.hasConfigRevision());
+        assertTrue(!decoded.hasSecretGeneration());
     }
 
     @Test

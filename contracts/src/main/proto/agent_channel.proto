@@ -51,6 +51,12 @@ message AgentHello {
   uint64 config_version = 7;
   uint64 max_workspace_bytes = 8;
   uint64 max_artifact_bytes = 9;
+  // Optional immutable Worker release facts. They are echoed by the runtime
+  // after it has actually started the requested image/configuration and are
+  // used by the Control Plane as one half of rollout confirmation.
+  optional string spec_digest = 10;
+  optional string config_revision = 11;
+  optional string secret_generation = 12;
 }
 
 // Agent-level presence heartbeat. Unlike TaskHeartbeat, this message is not

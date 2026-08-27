@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +40,30 @@ class JdbcAgentStateStoreTest {
         ArgumentCaptor<Object[]> canonicalArgs = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).update(contains("UPDATE agents"), canonicalArgs.capture());
         assertThat(canonicalArgs.getValue()).contains(agentId, "READY", "deepseek-worker");
+    }
+
+    @Test
+    void persistsWorkerVersionFactsInGatewayProjection() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(contains("UPDATE agents"), any(Object[].class))).thenReturn(1);
+        JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
+        UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
+        ConnectionRegistry.ConnectionSnapshot connection = new ConnectionRegistry.ConnectionSnapshot(
+                UUID.randomUUID(), agentId.toString(), "qwenpaw", "0.4.0",
+                "sha256:worker-v2", "config-17", "secret-9", Map.of(),
+                Instant.parse("2026-08-16T00:00:00Z"), 0);
+
+        store.registered(connection, Instant.parse("2026-08-16T00:00:00Z"));
+
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(contains("gateway_agent_state"), args.capture());
+        assertThat(args.getValue()).containsExactly(
+                agentId.toString(), connection.connectionId(), "ONLINE", "READY", "qwenpaw", "0.4.0", "{}",
+                "sha256:worker-v2", "config-17", "secret-9",
+                Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),
+                Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),
+                Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),
+                Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")));
     }
 
     @Test
@@ -79,6 +104,31 @@ class JdbcAgentStateStoreTest {
         verify(jdbc, org.mockito.Mockito.times(2)).update(contains("UPDATE agents"),
                 canonicalArgs.capture());
         assertThat(canonicalArgs.getAllValues().get(1)).contains(agentId);
+    }
+
+    @Test
+    void seenRefreshesVersionFactsInTheirDeclaredSqlPositions() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(contains("UPDATE agents"), any(Object[].class))).thenReturn(1);
+        when(jdbc.update(contains("UPDATE gateway_agent_state"), any(Object[].class))).thenReturn(1);
+        JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
+        UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
+        UUID connectionId = UUID.fromString("3c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
+        ConnectionRegistry.ConnectionSnapshot snapshot = new ConnectionRegistry.ConnectionSnapshot(
+                connectionId, agentId.toString(), "qwenpaw", "0.4.0", "digest", "config", "secret",
+                Map.of(), Instant.parse("2026-08-16T00:00:00Z"), 0);
+
+        store.seen(snapshot, Instant.parse("2026-08-16T00:00:01Z"));
+
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(contains("UPDATE gateway_agent_state"), args.capture());
+        assertThat(args.getValue()[0]).isEqualTo("qwenpaw");
+        assertThat(args.getValue()[1]).isEqualTo("0.4.0");
+        assertThat(args.getValue()[3]).isEqualTo("digest");
+        assertThat(args.getValue()[4]).isEqualTo("config");
+        assertThat(args.getValue()[5]).isEqualTo("secret");
+        assertThat(args.getValue()[8]).isEqualTo(agentId.toString());
+        assertThat(args.getValue()[9]).isEqualTo(connectionId);
     }
 
     @Test

@@ -79,7 +79,8 @@ public final class ConnectionRegistry {
         }
         AgentProfile profile = connection.profile().orElseThrow();
         return Optional.of(new ConnectionSnapshot(connection.connectionId(), profile.agentId(), profile.runtime(),
-                profile.runtimeVersion(), profile.capabilities(), connection.lastSeen(), connection.lastAckSequence()));
+                profile.runtimeVersion(), profile.specDigest(), profile.configRevision(), profile.secretGeneration(),
+                profile.capabilities(), connection.lastSeen(), connection.lastAckSequence()));
     }
 
     public Optional<ConnectionSnapshot> touch(AgentConnection connection, Instant at) {
@@ -127,6 +128,9 @@ public final class ConnectionRegistry {
             String agentId,
             String runtime,
             String runtimeVersion,
+            String specDigest,
+            String configRevision,
+            String secretGeneration,
             Map<String, String> capabilities,
             Instant lastSeen,
             long lastAckSequence) {
@@ -136,6 +140,9 @@ public final class ConnectionRegistry {
             requireText(agentId, "agentId");
             requireText(runtime, "runtime");
             requireText(runtimeVersion, "runtimeVersion");
+            specDigest = optionalText(specDigest, "specDigest");
+            configRevision = optionalText(configRevision, "configRevision");
+            secretGeneration = optionalText(secretGeneration, "secretGeneration");
             capabilities = Map.copyOf(Objects.requireNonNull(capabilities, "capabilities"));
             Objects.requireNonNull(lastSeen, "lastSeen");
             if (lastAckSequence < 0) {
@@ -143,10 +150,27 @@ public final class ConnectionRegistry {
             }
         }
 
+        public ConnectionSnapshot(UUID connectionId, String agentId, String runtime, String runtimeVersion,
+                Map<String, String> capabilities, Instant lastSeen, long lastAckSequence) {
+            this(connectionId, agentId, runtime, runtimeVersion, "", "", "", capabilities, lastSeen,
+                    lastAckSequence);
+        }
+
         private static void requireText(String value, String field) {
             if (value == null || value.isBlank()) {
                 throw new IllegalArgumentException(field + " must not be blank");
             }
+        }
+
+        private static String optionalText(String value, String field) {
+            if (value == null) {
+                return "";
+            }
+            String normalized = value.trim();
+            if (normalized.length() > 512) {
+                throw new IllegalArgumentException(field + " must not exceed 512 characters");
+            }
+            return normalized;
         }
     }
 }

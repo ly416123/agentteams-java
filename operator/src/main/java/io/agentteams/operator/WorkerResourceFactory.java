@@ -48,6 +48,9 @@ public final class WorkerResourceFactory {
         // through env must not make the worker register as another Agent.
         environment.put("AGENTTEAMS_AGENT_ID", spec.agentId());
         environment.put("AGENTTEAMS_RUNTIME", spec.runtime());
+        putOptionalEnvironment(environment, "AGENTTEAMS_SPEC_DIGEST", spec.specDigest());
+        putOptionalEnvironment(environment, "AGENTTEAMS_CONFIG_REVISION", spec.configRevision());
+        putOptionalEnvironment(environment, "AGENTTEAMS_SECRET_GENERATION", spec.secretGeneration());
         ContainerBuilder container = new ContainerBuilder()
                 .withName("worker")
                 .withImage(spec.image())
@@ -159,6 +162,14 @@ public final class WorkerResourceFactory {
     private static void putIfPresent(Map<String, String> target, String key, String value) {
         if (value != null && !value.isBlank()) {
             target.put(key, value);
+        }
+    }
+
+    private static void putOptionalEnvironment(Map<String, String> target, String key, String value) {
+        if (value == null || value.isBlank()) {
+            target.remove(key);
+        } else {
+            target.put(key, value.trim());
         }
     }
 

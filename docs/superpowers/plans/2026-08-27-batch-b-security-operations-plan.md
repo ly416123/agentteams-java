@@ -66,7 +66,7 @@
 
 **目标：** 把 drain、rollout、rollback、terminate 从瞬时 API 变成数据库驱动、可重试、可审计的 Operation。
 
-**当前增量进度（2026-08-27）：** 已完成第一纵切：V46 `worker_operations` 表、JDBC Repository、Operation 类型/记录、DRAIN/TERMINATE 服务入口和 HTTP `202 Accepted` 入口；已验证幂等复用、幂等键请求变更拒绝、活动 Lease 终止保护、活动 Operation 唯一约束、过期 lease 回收、rollout 调度 fencing、DRAIN 后新任务排除和资源范围校验。随后补齐 Worker CR 的 rollout 版本期望字段（spec digest/runtime/config revision/Secret generation）、Deployment Pod template 版本 annotations 和 Reconciler 的就绪版本状态投影，旧 CR 兼容且已通过本地 Docker/Colima 全量 Gate。Gateway Hello 双确认、Operation 通用恢复调度、rollout/rollback 实际资源编排仍未完成，不能将任务 1 标记为整体完成。
+**当前增量进度（2026-08-27）：** 已完成第一纵切：V46 `worker_operations` 表、JDBC Repository、Operation 类型/记录、DRAIN/TERMINATE 服务入口和 HTTP `202 Accepted` 入口；已验证幂等复用、幂等键请求变更拒绝、活动 Lease 终止保护、活动 Operation 唯一约束、过期 lease 回收、rollout 调度 fencing、DRAIN 后新任务排除和资源范围校验。随后补齐 Worker CR 的 rollout 版本期望字段（spec digest/runtime/config revision/Secret generation）、Deployment Pod template 版本 annotations 和 Reconciler 的就绪版本状态投影，旧 CR 兼容且已通过本地 Docker/Colima 全量 Gate。当前又完成 Gateway Hello 版本事实纵切：协议新增可选版本字段，Operator 将 CR 期望值注入 Worker 环境，Worker Hello 回传并由 Gateway 连接快照/JDBC 投影保存，旧 Worker 仍兼容；本地单测、集成测试和重跑的 `TaskPushInfrastructureIT` 已通过，首次全量 Gate 的 PostgreSQL SSL 握手失败为瞬态环境问题。Operation 通用恢复调度、Operator/Gateway 双确认收口、rollout/rollback 实际资源编排仍未完成，不能将任务 1 标记为整体完成。
 
 - [ ] **步骤 1：编写失败测试**
 
@@ -138,7 +138,7 @@ void cannotDisableTheLastProjectOwner() {
 
 - [ ] **步骤 4：实现成员状态机与迁移**
 
-新增 `V47__project_invitations_and_authorization_scope.sql`，保存 invitation token hash、过期时间、目标 subject、角色、状态、project version 和审计关联；实现 `INVITED -> ACTIVE -> DISABLED`、过期和重新启用；Owner 转移在一个事务内检查目标 ACTIVE、当前 Owner 和 expected version。
+新增 `V48__project_invitations_and_authorization_scope.sql`，保存 invitation token hash、过期时间、目标 subject、角色、状态、project version 和审计关联；实现 `INVITED -> ACTIVE -> DISABLED`、过期和重新启用；Owner 转移在一个事务内检查目标 ACTIVE、当前 Owner 和 expected version。（V47 已用于 Gateway Worker 版本投影。）
 
 - [ ] **步骤 5：运行测试确认通过**
 

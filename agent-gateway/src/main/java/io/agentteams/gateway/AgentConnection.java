@@ -52,6 +52,18 @@ public final class AgentConnection {
         return lastSeen;
     }
 
+    public String specDigest() {
+        return profile == null ? "" : profile.specDigest();
+    }
+
+    public String configRevision() {
+        return profile == null ? "" : profile.configRevision();
+    }
+
+    public String secretGeneration() {
+        return profile == null ? "" : profile.secretGeneration();
+    }
+
     public long lastAckSequence() {
         return lastAckSequence.get();
     }

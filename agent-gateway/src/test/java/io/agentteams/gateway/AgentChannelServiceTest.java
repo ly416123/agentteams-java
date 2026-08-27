@@ -53,6 +53,31 @@ class AgentChannelServiceTest {
     }
 
     @Test
+    void registersWorkerVersionFactsFromHelloForRolloutConfirmation() {
+        GatewayTestFixtures.RecordingObserver outbound = new GatewayTestFixtures.RecordingObserver();
+        StreamObserver<AgentMessage> inbound = service.connect(outbound);
+
+        inbound.onNext(GatewayTestFixtures.hello("agent-1").toBuilder()
+                .setHello(GatewayTestFixtures.hello("agent-1").getHello().toBuilder()
+                        .setSpecDigest("sha256:worker-v2")
+                        .setConfigRevision("config-17")
+                        .setSecretGeneration("secret-9"))
+                .build());
+
+        ConnectionRegistry.ConnectionSnapshot snapshot = registry.current("agent-1")
+                .flatMap(registry::snapshot)
+                .orElseThrow();
+        assertThat(snapshot.specDigest()).isEqualTo("sha256:worker-v2");
+        assertThat(snapshot.configRevision()).isEqualTo("config-17");
+        assertThat(snapshot.secretGeneration()).isEqualTo("secret-9");
+        assertThat(stateStore.registered).singleElement().satisfies(registered -> {
+            assertThat(registered.specDigest()).isEqualTo("sha256:worker-v2");
+            assertThat(registered.configRevision()).isEqualTo("config-17");
+            assertThat(registered.secretGeneration()).isEqualTo("secret-9");
+        });
+    }
+
+    @Test
     void negotiatesPeerVersionAndReportsItInReady() {
         AtomicReference<ProtocolVersion> peerSeen = new AtomicReference<>();
         List<String> order = new ArrayList<>();

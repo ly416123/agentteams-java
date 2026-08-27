@@ -80,6 +80,27 @@ class WorkerResourceFactoryTest {
     }
 
     @Test
+    void injectsCanonicalWorkerVersionFactsIntoRuntimeEnvironment() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-version").withNamespace("agentteams").build());
+        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v2", 1, Map.of(
+                "AGENTTEAMS_SPEC_DIGEST", "sha256:stale",
+                "AGENTTEAMS_CONFIG_REVISION", "config-stale",
+                "AGENTTEAMS_SECRET_GENERATION", "secret-stale"), "",
+                "sha256:worker-v2", "config-17", "secret-9"));
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv())
+                .filteredOn(env -> env.getName().startsWith("AGENTTEAMS_")
+                        && !"AGENTTEAMS_RUNTIME_CONFIG_MAP".equals(env.getName()))
+                .extracting(env -> env.getName() + "=" + env.getValue())
+                .contains("AGENTTEAMS_SPEC_DIGEST=sha256:worker-v2",
+                        "AGENTTEAMS_CONFIG_REVISION=config-17",
+                        "AGENTTEAMS_SECRET_GENERATION=secret-9");
+    }
+
+    @Test
     void envFromUsesRuntimeConfigMapNameProvidedByTheHelmReleaseBinding() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-runtime-config")
