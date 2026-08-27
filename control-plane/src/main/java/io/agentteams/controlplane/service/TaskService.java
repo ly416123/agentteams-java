@@ -118,18 +118,21 @@ public final class TaskService {
     }
 
     public TaskRecord queue(UUID id, long expectedVersion, String idempotencyKey, String actor) {
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
         return transition(id, TaskPhase.QUEUED, expectedVersion, idempotencyKey,
                 defaultText(actor, "api"), "service", QUEUE_TASK);
     }
 
     public TaskRecord cancel(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source) {
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
         return transition(id, TaskPhase.CANCELLED, expectedVersion, idempotencyKey,
                 defaultText(actor, "api"), defaultText(source, "rest"), CANCEL_TASK);
     }
 
     public TaskRecord retry(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source) {
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
         return transition(id, TaskPhase.QUEUED, expectedVersion, idempotencyKey,
                 defaultText(actor, "api"), defaultText(source, "rest"), RETRY_TASK);
     }
@@ -138,6 +141,7 @@ public final class TaskService {
     public TaskRecord pause(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source) {
         TaskRecord current = get(id);
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
         TaskPhase target = current.phase() == TaskPhase.PAUSED ? TaskPhase.QUEUED : TaskPhase.PAUSED;
         return transition(id, target, expectedVersion, idempotencyKey,
                 defaultText(actor, "api"), defaultText(source, "rest"), PAUSE_TASK);
@@ -145,12 +149,14 @@ public final class TaskService {
 
     public TaskRecord approve(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source) {
+        authorizeTask(id, ResourceAction.TASK_APPROVE);
         return updateApproval(id, expectedVersion, idempotencyKey,
                 defaultText(actor, "api"), defaultText(source, "rest"), true, APPROVE_TASK);
     }
 
     public TaskRecord reject(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source) {
+        authorizeTask(id, ResourceAction.TASK_APPROVE);
         return updateApproval(id, expectedVersion, idempotencyKey,
                 defaultText(actor, "api"), defaultText(source, "rest"), false, REJECT_TASK);
     }
@@ -267,6 +273,17 @@ public final class TaskService {
         PrincipalContext.current().ifPresent(principal -> {
             new AuthorizationService().requireScope(principal, spec);
             authorization.require(ResourceAction.TASK_CREATE, principal.scope());
+        });
+    }
+
+    private void authorizeTask(UUID id, ResourceAction action) {
+        if (authorization == null) {
+            return;
+        }
+        PrincipalContext.current().ifPresent(principal -> {
+            TaskRecord task = get(id);
+            new AuthorizationService().requireScope(principal, task.specJson());
+            authorization.require(action, principal.scope());
         });
     }
 }

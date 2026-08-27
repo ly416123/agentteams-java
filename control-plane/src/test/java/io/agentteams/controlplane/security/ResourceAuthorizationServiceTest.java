@@ -80,4 +80,17 @@ class ResourceAuthorizationServiceTest {
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a")))
                 .doesNotThrowAnyException();
     }
+
+    @Test
+    void developerCannotOperateTasks() {
+        when(repository.findProjectByName("tenant-a", "project-a")).thenReturn(Optional.of(
+                ProjectRecord.create(PROJECT_ID, "tenant-a", "project-a", "alice", Instant.EPOCH)));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "alice")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "alice", ProjectRole.DEVELOPER,
+                        Instant.EPOCH)));
+
+        assertThatThrownBy(() -> authorization.require(ResourceAction.TASK_OPERATE,
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a")))
+                .isInstanceOf(AuthorizationException.class);
+    }
 }

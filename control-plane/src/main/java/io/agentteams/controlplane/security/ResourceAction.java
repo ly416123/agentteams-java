@@ -12,6 +12,8 @@ public enum ResourceAction {
     TEAM_WRITE,
     TASK_READ,
     TASK_CREATE,
+    TASK_OPERATE,
+    TASK_APPROVE,
     TASK_CANCEL,
     WORKER_OPERATE
 }
