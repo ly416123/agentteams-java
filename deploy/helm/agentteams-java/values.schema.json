@@ -122,6 +122,16 @@
           "additionalProperties": false,
           "properties": {
             "apiEnabled": { "type": "boolean" },
+            "secretResolver": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "backend": {
+                  "type": "string",
+                  "enum": ["VALIDATION_ONLY", "KUBERNETES", "EXTERNAL_SECRETS"]
+                }
+              }
+            },
             "oidc": {
               "type": "object",
               "additionalProperties": false,

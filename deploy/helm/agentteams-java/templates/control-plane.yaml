@@ -60,6 +60,8 @@ spec:
               value: {{ .Values.controlPlane.scheduler.batchSize | quote }}
             - name: AGENTTEAMS_SECURITY_API_ENABLED
               value: {{ .Values.controlPlane.security.apiEnabled | quote }}
+            - name: AGENTTEAMS_SECURITY_SECRET_RESOLVER_BACKEND
+              value: {{ .Values.controlPlane.security.secretResolver.backend | quote }}
             - name: AGENTTEAMS_SECURITY_OIDC_ENABLED
               value: {{ .Values.controlPlane.security.oidc.enabled | quote }}
             - name: AGENTTEAMS_SECURITY_OIDC_ISSUER_URI

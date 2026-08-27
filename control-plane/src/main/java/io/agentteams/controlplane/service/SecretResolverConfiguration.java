@@ -1,6 +1,8 @@
 package io.agentteams.controlplane.service;
 
 import io.agentteams.controlplane.security.ExternalSecretsSecretResolver;
+import io.agentteams.controlplane.security.ExternalSecretStatusReader;
+import io.agentteams.controlplane.security.KubernetesSecretMetadataReader;
 import io.agentteams.controlplane.security.KubernetesSecretResolver;
 import io.agentteams.controlplane.security.SecretResolverProperties;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -26,6 +28,12 @@ public class SecretResolverConfiguration {
         return new KubernetesClientBuilder().build();
     }
 
+    @Bean(name = "externalSecretsKubernetesClient", destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.security.secret-resolver.backend", havingValue = "external-secrets")
+    KubernetesClient externalSecretsKubernetesClient() {
+        return new KubernetesClientBuilder().build();
+    }
+
     @Bean
     @Primary
     @ConditionalOnProperty(name = "agentteams.security.secret-resolver.backend", havingValue = "kubernetes")
@@ -37,7 +45,9 @@ public class SecretResolverConfiguration {
     @Bean
     @Primary
     @ConditionalOnProperty(name = "agentteams.security.secret-resolver.backend", havingValue = "external-secrets")
-    ExternalSecretsSecretResolver externalSecretsSecretResolver() {
-        return new ExternalSecretsSecretResolver();
+    ExternalSecretsSecretResolver externalSecretsSecretResolver(
+            @Qualifier("externalSecretsKubernetesClient") KubernetesClient client) {
+        return new ExternalSecretsSecretResolver(ExternalSecretStatusReader.kubernetes(client),
+                KubernetesSecretMetadataReader.kubernetes(client));
     }
 }

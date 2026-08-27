@@ -38,6 +38,8 @@ controlPlane:
     batchSize: 16
   security:
     apiEnabled: false
+    secretResolver:
+      backend: VALIDATION_ONLY
     oidc:
       enabled: false
       issuerUri: ""

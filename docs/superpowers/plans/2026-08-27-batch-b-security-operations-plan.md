@@ -157,6 +157,8 @@ git commit -m "feat(权限): 完善资源授权与成员生命周期"
 
 **目标：** 只读取 ExternalSecret 状态和目标 Secret metadata，不读取 Secret value，并返回稳定的 `MISSING/UNAVAILABLE/RESOLVED` 分类。
 
+**当前增量进度（2026-08-27）：** 已完成 ExternalSecret 状态与 observed generation 读取、目标 Secret key/metadata 读取、`externalsecret://namespace/name#key` 引用解析和稳定状态分类；ExternalSecret 未 Ready、generation 落后、目标 Secret/key 缺失及 API 异常均 fail-closed。Helm 已通过显式后端配置为 Control Plane 注入配置，并将 ExternalSecret/Secret `get` 权限绑定到 Control Plane 的 namespace Role，未授予 list/watch 或写权限；Java 单测、Python 契约测试、Helm lint 和本机 Colima Docker 全量 Gate 已通过。任务仍保留未完成，待后续补充真实 Kubernetes fake reader/External Secrets 控制器收敛验收。
+
 - [ ] **步骤 1：编写失败测试**
 
 覆盖非法引用、ExternalSecret 不存在、Condition 非 Ready、目标 Secret/key 缺失、generation 落后、Kubernetes API 异常和 Ready metadata 存在；使用 fake reader 证明 resolver 没有调用 Secret value 读取方法。

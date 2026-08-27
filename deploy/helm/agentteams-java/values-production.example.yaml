@@ -27,6 +27,8 @@ controlPlane:
   replicas: 3
   security:
     apiEnabled: true
+    secretResolver:
+      backend: VALIDATION_ONLY
     oidc:
       enabled: true
       issuerUri: https://idp.example.com/realms/agentteams

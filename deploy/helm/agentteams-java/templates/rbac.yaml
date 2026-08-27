@@ -42,7 +42,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "agentteams-java.operatorServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
-{{- if .Values.controlPlane.teamSync.enabled }}
+{{- if or .Values.controlPlane.teamSync.enabled (eq .Values.controlPlane.security.secretResolver.backend "EXTERNAL_SECRETS") }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -50,9 +50,21 @@ metadata:
   name: {{ include "agentteams-java.fullname" . }}-control-plane-team-sync
   namespace: {{ .Release.Namespace }}
 rules:
+{{- if .Values.controlPlane.teamSync.enabled }}
   - apiGroups: ["agentteams.io"]
     resources: ["teams"]
     verbs: ["get", "list", "watch"]
+{{- end }}
+{{- if eq .Values.controlPlane.security.secretResolver.backend "EXTERNAL_SECRETS" }}
+  # Keep External Secrets reads namespace-scoped and metadata-only. The
+  # resolver never needs Secret list/watch or data mutation permissions.
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets", "externalsecrets/status"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
