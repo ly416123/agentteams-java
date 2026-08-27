@@ -23,6 +23,7 @@ import io.agentteams.controlplane.worker.WorkerOperation;
 import io.agentteams.controlplane.worker.WorkerOperationService;
 import io.agentteams.controlplane.worker.WorkerOperationStatus;
 import io.agentteams.controlplane.worker.WorkerOperationType;
+import io.agentteams.controlplane.worker.WorkerRolloutRequest;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -124,6 +125,30 @@ class ControlPlaneControllerTest {
                 .andExpect(jsonPath("$.status").value(WorkerOperationStatus.PENDING.name()))
                 .andExpect(jsonPath("$.previousStableSpec").doesNotExist());
         verify(workerOperations).terminate(id, 1L, "terminate-operation-1");
+    }
+
+    @Test
+    void requestsADurableWorkerRolloutOperation() throws Exception {
+        UUID id = UUID.randomUUID();
+        WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), id, WorkerOperationType.ROLLOUT,
+                "sha256:new", "qwenpaw", "config-2", "secret-2", "{\"image\":\"old\"}",
+                "rollout-operation-1", 3, "alice", Instant.parse("2026-08-23T00:02:00Z"),
+                "correlation-3", Instant.parse("2026-08-23T00:00:00Z"));
+        when(workerOperations.rollout(eq(id), any(WorkerRolloutRequest.class))).thenReturn(operation);
+
+        mockMvc.perform(post("/api/v1/agents/{id}/operations/rollout", id)
+                        .header("Idempotency-Key", "rollout-operation-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":3,\"imageDigest\":\"sha256:new\","
+                                + "\"runtime\":\"qwenpaw\",\"configRevision\":\"config-2\","
+                                + "\"secretGeneration\":\"secret-2\",\"previousStableSpec\":"
+                                + "\"{\\\"image\\\":\\\"old\\\"}\",\"owner\":\"alice\","
+                                + "\"correlationId\":\"correlation-3\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(operation.id().toString()))
+                .andExpect(jsonPath("$.type").value(WorkerOperationType.ROLLOUT.name()))
+                .andExpect(jsonPath("$.requestedSpecDigest").value("sha256:new"));
+        verify(workerOperations).rollout(eq(id), any(WorkerRolloutRequest.class));
     }
 
     @Test

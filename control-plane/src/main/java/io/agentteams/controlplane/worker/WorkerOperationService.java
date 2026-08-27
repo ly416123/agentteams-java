@@ -89,6 +89,51 @@ public final class WorkerOperationService {
         });
     }
 
+    /**
+     * Advances a rollout only from independently observed Operator and Gateway
+     * facts. A partial or stale observation keeps the durable operation RUNNING.
+     */
+    public WorkerOperation confirmRollout(UUID operationId, long expectedVersion,
+            WorkerRolloutConfirmation confirmation) {
+        Objects.requireNonNull(operationId, "operationId");
+        Objects.requireNonNull(confirmation, "confirmation");
+        Instant now = clock.instant();
+        return persistence.inTransaction(tx -> {
+            WorkerOperation current = tx.workerOperations().findByIdForUpdate(operationId)
+                    .orElseThrow(() -> new IllegalArgumentException("worker operation does not exist: " + operationId));
+            requireVisible(current.agentId());
+            if (current.version() != expectedVersion) {
+                throw new io.agentteams.controlplane.persistence.OptimisticLockFailure(
+                        "worker_operation", operationId, expectedVersion, current.version());
+            }
+            if (current.type() != WorkerOperationType.ROLLOUT
+                    || (current.status() != WorkerOperationStatus.PENDING
+                    && current.status() != WorkerOperationStatus.RUNNING)) {
+                throw new WorkerLifecycleConflictException("WORKER_ROLLOUT_CONFIRMATION_NOT_ALLOWED");
+            }
+            if (current.leaseExpiresAt() != null && !now.isBefore(current.leaseExpiresAt())) {
+                WorkerOperation failed = tx.workerOperations().updateStatus(operationId,
+                        WorkerOperationStatus.FAILED, "OPERATION_LEASE_EXPIRED", expectedVersion, now);
+                FoundationPersistenceService.appendEvent(tx, "worker_operation", operationId,
+                        "WorkerOperationLeaseExpired", "{\"operationId\":\"" + operationId + "\"}", now,
+                        failed.version());
+                return failed;
+            }
+            WorkerOperationStatus next = confirmation.matches(current)
+                    ? WorkerOperationStatus.SUCCEEDED : WorkerOperationStatus.RUNNING;
+            if (current.status() == next) {
+                return current;
+            }
+            WorkerOperation updated = tx.workerOperations().updateStatus(operationId, next, null,
+                    expectedVersion, now);
+            FoundationPersistenceService.appendEvent(tx, "worker_operation", operationId,
+                    next == WorkerOperationStatus.SUCCEEDED ? "WorkerOperationSucceeded" : "WorkerOperationStarted",
+                    "{\"operationId\":\"" + operationId + "\",\"type\":\"ROLLOUT\"}", now,
+                    updated.version());
+            return updated;
+        });
+    }
+
     private WorkerOperation request(UUID agentId, WorkerOperationType type, long expectedAgentVersion,
             String idempotencyKey, String requestedSpecDigest, String requestedRuntime,
             String requestedConfigRevision, String requestedSecretGeneration, String previousStableSpec,

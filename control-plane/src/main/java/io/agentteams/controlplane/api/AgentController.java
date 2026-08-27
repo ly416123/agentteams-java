@@ -6,6 +6,7 @@ import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.worker.WorkerOperation;
 import io.agentteams.controlplane.worker.WorkerOperationService;
+import io.agentteams.controlplane.worker.WorkerRolloutRequest;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,7 +72,36 @@ public final class AgentController {
         return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
     }
 
+    @PostMapping("/{id}/operations/rollout")
+    public ResponseEntity<WorkerOperationResponse> requestRollout(
+            @PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody RolloutRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        if (request == null) {
+            throw new IllegalArgumentException("request body is required");
+        }
+        WorkerOperation operation = operations().rollout(id, request.toServiceRequest(idempotencyKey));
+        return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
+    }
+
     public record LifecycleRequest(Long expectedVersion) {
+    }
+
+    public record RolloutRequest(Long expectedVersion, String imageDigest, String runtime,
+            String configRevision, String secretGeneration, String previousStableSpec,
+            String owner, String correlationId) {
+
+        WorkerRolloutRequest toServiceRequest(String idempotencyKey) {
+            if (expectedVersion == null || expectedVersion < 0) {
+                throw new IllegalArgumentException("expectedVersion is required");
+            }
+            return new WorkerRolloutRequest(expectedVersion, idempotencyKey, imageDigest, runtime,
+                    configRevision, secretGeneration,
+                    previousStableSpec == null || previousStableSpec.isBlank() ? "{}" : previousStableSpec,
+                    owner == null || owner.isBlank() ? PrincipalContext.actorOr("control-plane") : owner,
+                    correlationId == null || correlationId.isBlank() ? UUID.randomUUID().toString() : correlationId);
+        }
     }
 
     public record CreateAgentRequest(String name, String runtime, JsonNode capabilities, JsonNode metadata) {

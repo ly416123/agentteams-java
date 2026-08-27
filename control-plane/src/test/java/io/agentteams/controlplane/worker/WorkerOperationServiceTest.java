@@ -245,6 +245,48 @@ class WorkerOperationServiceTest {
         }
     }
 
+    @Test
+    void movesRolloutToRunningWhenOnlyOperatorConfirmsTheRequestedVersion() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+        WorkerOperation operation = operations.rollout(agentId, new WorkerRolloutRequest(0, "dual-confirm-1",
+                "sha256:image", "qwenpaw", "config-1", "secret-1"));
+
+        WorkerOperation observed = operations.confirmRollout(operation.id(), operation.version(),
+                new WorkerRolloutConfirmation(true, "sha256:image", "qwenpaw", "config-1", "secret-1",
+                        false, "", "", "", "", NOW));
+
+        assertThat(observed.status()).isEqualTo(WorkerOperationStatus.RUNNING);
+    }
+
+    @Test
+    void succeedsRolloutOnlyAfterOperatorAndGatewayConfirmTheSameVersion() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+        WorkerOperation operation = operations.rollout(agentId, new WorkerRolloutRequest(0, "dual-confirm-2",
+                "sha256:image", "qwenpaw", "config-1", "secret-1"));
+
+        WorkerOperation observed = operations.confirmRollout(operation.id(), operation.version(),
+                new WorkerRolloutConfirmation(true, "sha256:image", "qwenpaw", "config-1", "secret-1",
+                        true, "sha256:image", "qwenpaw", "config-1", "secret-1", NOW));
+
+        assertThat(observed.status()).isEqualTo(WorkerOperationStatus.SUCCEEDED);
+    }
+
+    @Test
+    void keepsRolloutRunningWhenGatewayReportsAStaleVersion() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+        WorkerOperation operation = operations.rollout(agentId, new WorkerRolloutRequest(0, "dual-confirm-3",
+                "sha256:image", "qwenpaw", "config-1", "secret-1"));
+
+        WorkerOperation observed = operations.confirmRollout(operation.id(), operation.version(),
+                new WorkerRolloutConfirmation(true, "sha256:image", "qwenpaw", "config-1", "secret-1",
+                        true, "sha256:old", "qwenpaw", "config-1", "secret-1", NOW));
+
+        assertThat(observed.status()).isEqualTo(WorkerOperationStatus.RUNNING);
+    }
+
     private void insertAgent(UUID id, AgentPhase phase) {
         persistence.inTransaction(tx -> {
             tx.agents().insert(AgentRecord.create(id, "worker-" + id, phase, "qwenpaw",
