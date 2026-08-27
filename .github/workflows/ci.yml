@@ -284,6 +284,44 @@ jobs:
           set -euo pipefail
           test -n "$AGENTTEAMS_AGENT_ID"
           python scripts/run-kind-quota-recovery.py
+      - name: Run Kind quota load test
+        run: |
+          set -euo pipefail
+          control_plane_port_forward_log=/tmp/quota-load-control-plane-port-forward.log
+          gateway_port_forward_log=/tmp/quota-load-gateway-port-forward.log
+          kubectl -n agentteams port-forward service/agentteams-agentteams-java-control-plane \
+            18082:8080 >"$control_plane_port_forward_log" 2>&1 &
+          control_plane_port_forward_pid=$!
+          kubectl -n agentteams port-forward service/agentteams-agentteams-java-gateway \
+            19091:9090 >"$gateway_port_forward_log" 2>&1 &
+          gateway_port_forward_pid=$!
+          cleanup() {
+            kill "$control_plane_port_forward_pid" "$gateway_port_forward_pid" >/dev/null 2>&1 || true
+            wait "$control_plane_port_forward_pid" "$gateway_port_forward_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          deadline=$((SECONDS + 120))
+          until curl -fsS http://127.0.0.1:18082/actuator/health >/dev/null; do
+            if ! kill -0 "$control_plane_port_forward_pid" >/dev/null 2>&1 || \
+               ! kill -0 "$gateway_port_forward_pid" >/dev/null 2>&1; then
+              echo "quota load port-forward exited before readiness" >&2
+              exit 1
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "quota load Control Plane readiness timed out" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          python scripts/run-quota-load.py \
+            --gateway-address 127.0.0.1:19091 \
+            --control-plane-url http://127.0.0.1:18082 \
+            --grpcurl "$GRPCURL_BIN" \
+            --concurrency 4 \
+            --requests 200 \
+            --projects 4 \
+            --timeout 5 \
+            --seed 20260828
       - name: Run Kind resource binding ACK acceptance
         env:
           AGENTTEAMS_CONTROL_PLANE_URL: http://127.0.0.1:18080
