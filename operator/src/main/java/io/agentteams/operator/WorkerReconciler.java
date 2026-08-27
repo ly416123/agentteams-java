@@ -8,14 +8,21 @@ import io.javaoperatorsdk.operator.api.reconciler.Context;
 import io.javaoperatorsdk.operator.api.reconciler.Reconciler;
 import io.javaoperatorsdk.operator.api.reconciler.UpdateControl;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 
 @ControllerConfiguration
 public final class WorkerReconciler implements Reconciler<Worker> {
     private final KubernetesClient client;
+    private final WorkerOperationObservationReporter observations;
 
     public WorkerReconciler(KubernetesClient client) {
+        this(client, WorkerOperationObservationReporter.noop());
+    }
+
+    public WorkerReconciler(KubernetesClient client, WorkerOperationObservationReporter observations) {
         this.client = java.util.Objects.requireNonNull(client, "client");
+        this.observations = java.util.Objects.requireNonNull(observations, "observations");
     }
 
     @Override
@@ -31,6 +38,7 @@ public final class WorkerReconciler implements Reconciler<Worker> {
         Deployment deployment = client.apps().deployments().inNamespace(namespace).withName(name).get();
         WorkerStatus status = statusFor(resource, deployment);
         resource.setStatus(status);
+        observations.report(resource, status, Instant.now());
         UpdateControl<Worker> update = UpdateControl.updateStatus(resource);
         // A deleted or externally mutated Deployment does not necessarily
         // enqueue its Worker owner. Keep a bounded repair loop so the CR

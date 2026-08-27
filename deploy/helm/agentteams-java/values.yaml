@@ -102,6 +102,12 @@ gateway:
     requestTimeout: 3s
 operator:
   replicas: 1
+  # Operator reports Worker rollout facts to the Control Plane when an
+  # internal token is configured. The URL defaults to the release Service.
+  controlPlaneUrl: ""
+  internalToken: ""
+  internalTokenSecret: ""
+  internalTokenKey: internal-token
   serviceAccount:
     create: true
     name: agentteams-operator

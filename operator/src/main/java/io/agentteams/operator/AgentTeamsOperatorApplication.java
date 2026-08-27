@@ -3,6 +3,9 @@ package io.agentteams.operator;
 import io.javaoperatorsdk.operator.Operator;
 import io.javaoperatorsdk.operator.api.config.LeaderElectionConfiguration;
 import io.javaoperatorsdk.operator.api.config.LeaderElectionConfigurationBuilder;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
+import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -11,25 +14,37 @@ public final class AgentTeamsOperatorApplication {
 
     public static void main(String[] args) {
         Operator operator = operatorFromEnvironment();
-        registerControllers(operator);
+        registerControllers(operator, observationReporterFromEnvironment());
         operator.installShutdownHook();
         operator.start();
     }
 
-    private static void registerControllers(Operator operator) {
+    private static void registerControllers(Operator operator, WorkerOperationObservationReporter observations) {
         String namespace = System.getenv("AGENTTEAMS_OPERATOR_NAMESPACE");
         if (namespace == null || namespace.isBlank()) {
-            operator.register(new WorkerReconciler(operator.getKubernetesClient()));
+            operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations));
             operator.register(new TeamReconciler(operator.getKubernetesClient()));
             operator.register(new TaskSandboxReconciler(operator.getKubernetesClient()));
             return;
         }
-        operator.register(new WorkerReconciler(operator.getKubernetesClient()),
+        operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations),
                 configuration -> configuration.settingNamespace(namespace));
         operator.register(new TeamReconciler(operator.getKubernetesClient()),
                 configuration -> configuration.settingNamespace(namespace));
         operator.register(new TaskSandboxReconciler(operator.getKubernetesClient()),
                 configuration -> configuration.settingNamespace(namespace));
+    }
+
+    static WorkerOperationObservationReporter observationReporterFromEnvironment() {
+        String endpoint = System.getenv("AGENTTEAMS_CONTROL_PLANE_URL");
+        String token = System.getenv("AGENTTEAMS_OPERATOR_INTERNAL_TOKEN");
+        if (endpoint == null || endpoint.isBlank() || token == null || token.isBlank()) {
+            return WorkerOperationObservationReporter.noop();
+        }
+        return new HttpWorkerOperationObservationReporter(HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NEVER).build(), new ObjectMapper(),
+                URI.create(endpoint.trim()), token);
     }
 
     static Operator operatorFromEnvironment() {

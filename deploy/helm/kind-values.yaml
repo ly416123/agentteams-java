@@ -23,6 +23,7 @@ observability:
     enabled: false
 operator:
   replicas: 2
+  internalToken: kind-quota-internal
 sandbox:
   enabled: false
   provider: fake

@@ -39,6 +39,17 @@ spec:
             - name: AGENTTEAMS_OPERATOR_NAMESPACE
               valueFrom:
                 fieldRef: { fieldPath: metadata.namespace }
+            - name: AGENTTEAMS_CONTROL_PLANE_URL
+              value: {{ default (printf "http://%s-control-plane:%d" (include "agentteams-java.fullname" .) (int .Values.controlPlane.port)) .Values.operator.controlPlaneUrl | quote }}
+            - name: AGENTTEAMS_OPERATOR_INTERNAL_TOKEN
+{{- if .Values.operator.internalTokenSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.operator.internalTokenSecret | quote }}
+                  key: {{ .Values.operator.internalTokenKey | quote }}
+{{- else }}
+              value: {{ .Values.operator.internalToken | quote }}
+{{- end }}
             - name: AGENTTEAMS_SANDBOX_RUNTIMECLASS_ISOLATED
               value: {{ .Values.sandbox.runtimeClasses.isolated | quote }}
             - name: AGENTTEAMS_SANDBOX_RUNTIMECLASS_HARDENED

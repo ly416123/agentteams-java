@@ -265,6 +265,10 @@
       "additionalProperties": false,
       "properties": {
         "replicas": { "type": "integer", "minimum": 1 },
+        "controlPlaneUrl": { "type": "string" },
+        "internalToken": { "type": "string" },
+        "internalTokenSecret": { "type": "string" },
+        "internalTokenKey": { "type": "string", "minLength": 1 },
         "serviceAccount": {
           "type": "object",
           "additionalProperties": false,
