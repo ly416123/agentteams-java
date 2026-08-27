@@ -3,6 +3,8 @@ package io.agentteams.manager.session;
 import io.agentteams.manager.ManagerToolConflictException;
 import io.agentteams.manager.ManagerSessionService;
 import io.agentteams.manager.ManagerToolRegistry;
+import io.agentteams.manager.security.ManagerPrincipal;
+import io.agentteams.manager.security.ManagerRequestContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -31,6 +33,14 @@ public class ManagerSessionServiceFacade {
     public ManagerSessionRecord createSession(CreateSessionCommand command, String idempotencyKey) {
         requireKey(idempotencyKey);
         Objects.requireNonNull(command, "command");
+        ManagerRequestContext.current().ifPresent(principal -> {
+            if (!principal.tenantId().equals(command.tenantId())
+                    || !principal.projectId().equals(command.projectId())
+                    || !principal.subject().equals(command.actor())) {
+                throw new io.agentteams.manager.security.ManagerAuthorizationException(
+                        "manager session is outside the caller scope");
+            }
+        });
         Instant now = clock.instant();
         ManagerSessionRecord requested = ManagerSessionRecord.newSession(UUID.randomUUID(), command.tenantId(),
                 command.projectId(), command.actor(), now);
@@ -46,8 +56,10 @@ public class ManagerSessionServiceFacade {
     }
 
     public ManagerSessionRecord getSession(UUID sessionId) {
-        return repository.findSession(Objects.requireNonNull(sessionId, "sessionId"))
+        ManagerSessionRecord session = repository.findSession(Objects.requireNonNull(sessionId, "sessionId"))
                 .orElseThrow(() -> new ManagerSessionNotFoundException(sessionId));
+        ManagerRequestContext.current().ifPresent(principal -> requireScope(principal, session));
+        return session;
     }
 
     public MessageResult appendMessage(UUID sessionId, long expectedVersion, String idempotencyKey,
@@ -67,6 +79,16 @@ public class ManagerSessionServiceFacade {
             return new MessageResult(getSession(sessionId), message, toolCall);
         }
         if (session.status() == ManagerSessionRecord.Status.CANCELLED) throw new SessionCancelledException();
+        ManagerRequestContext.current().ifPresent(principal -> {
+            if (approved && !principal.permissions().contains("manager:approve")) {
+                throw new io.agentteams.manager.security.ManagerAuthorizationException(
+                        "approval permission is required");
+            }
+            if (teamId != null && !teamId.equals(principal.teamId())) {
+                throw new io.agentteams.manager.security.ManagerAuthorizationException(
+                        "team scope does not match authenticated principal");
+            }
+        });
         ManagerMessageRecord requested = ManagerMessageRecord.processing(UUID.randomUUID(), sessionId,
                 idempotencyKey, actor, sha256(content), clock.instant());
         ManagerSessionRepository.MessageReservation reservation = repository.reserveMessage(sessionId,
@@ -81,7 +103,9 @@ public class ManagerSessionServiceFacade {
         }
         if (modelService == null) throw new IllegalStateException("manager model service is not configured");
 
-        ManagerToolRegistry.ToolContext context = new ManagerToolRegistry.ToolContext(permissions, approved,
+        Set<String> verifiedPermissions = ManagerRequestContext.current()
+                .map(ManagerPrincipal::permissions).orElse(permissions);
+        ManagerToolRegistry.ToolContext context = new ManagerToolRegistry.ToolContext(verifiedPermissions, approved,
                 session.tenantId(), session.projectId(), null, taskId, teamId, "create_task", null, null);
         Object result;
         try {
@@ -136,6 +160,15 @@ public class ManagerSessionServiceFacade {
             ManagerToolCallRecord toolCall) { }
 
     private static void requireKey(String value) { requireText(value, "idempotencyKey"); }
+
+    private static void requireScope(ManagerPrincipal principal, ManagerSessionRecord session) {
+        if (!principal.tenantId().equals(session.tenantId())
+                || !principal.projectId().equals(session.projectId())
+                || !principal.subject().equals(session.actor())) {
+            throw new io.agentteams.manager.security.ManagerAuthorizationException(
+                    "manager session is outside the caller scope");
+        }
+    }
     private static void requireText(String value, String field) {
         if (value == null || value.isBlank() || value.length() > 255) {
             throw new IllegalArgumentException(field + " must be non-blank and at most 255 characters");

@@ -77,6 +77,23 @@ class NatsExecutionEventConsumerTest {
     }
 
     @Test
+    void acknowledgesUnauthorizedExecutionEventsInsteadOfRedeliveringThem() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(taskEventJson().getBytes(StandardCharsets.UTF_8));
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        doThrow(new io.agentteams.controlplane.security.AuthorizationException("agent mismatch"))
+                .when(executionEvents).apply(any(), any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        verify(message).ack();
+        verify(message, never()).nakWithDelay(any(Duration.class));
+    }
+
+    @Test
     void backsOffOutOfOrderRedeliveryAfterRepeatedDeliveryAttempts() {
         Message message = mock(Message.class);
         when(message.getData()).thenReturn(taskEventJson().getBytes(StandardCharsets.UTF_8));

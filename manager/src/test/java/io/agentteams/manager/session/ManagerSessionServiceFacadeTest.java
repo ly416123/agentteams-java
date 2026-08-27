@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.manager.ManagerSessionService;
 import io.agentteams.manager.ManagerToolRegistry;
 import io.agentteams.manager.ModelProvider;
+import io.agentteams.manager.security.ManagerPrincipal;
+import io.agentteams.manager.security.ManagerRequestContext;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -23,6 +25,51 @@ import org.junit.jupiter.api.Test;
 
 class ManagerSessionServiceFacadeTest {
     private static final Instant NOW = Instant.parse("2026-08-26T00:00:00Z");
+
+    @org.junit.jupiter.api.AfterEach
+    void clearRequestContext() {
+        ManagerRequestContext.clear();
+    }
+
+    @Test
+    void rejectsAccessToSessionOutsideAuthenticatedScope() {
+        InMemoryManagerSessionRepository repository = new InMemoryManagerSessionRepository();
+        ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, null,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        ManagerSessionRecord session = facade.createSession(
+                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "actor-a"),
+                "session-key");
+        ManagerRequestContext.set(new ManagerPrincipal("actor-b", "tenant-b", "project-b", "team-b",
+                Set.of("task:create")));
+
+        assertThatThrownBy(() -> facade.getSession(session.id()))
+                .isInstanceOf(io.agentteams.manager.security.ManagerAuthorizationException.class);
+        assertThatThrownBy(() -> facade.events(session.id(), 0))
+                .isInstanceOf(io.agentteams.manager.security.ManagerAuthorizationException.class);
+    }
+
+    @Test
+    void usesVerifiedPrincipalPermissionsWhenAppendingManagerMessage() {
+        ModelProvider provider = request -> new ModelProvider.ModelResponse(
+                "{\"intent\":\"CREATE_TASK\",\"title\":\"Task\",\"description\":\"body\"}",
+                "test-model", 0, 0);
+        ManagerSessionService model = new ManagerSessionService(provider, new ObjectMapper(),
+                new ManagerToolRegistry(Map.of("create_task", new ManagerToolRegistry.Tool(
+                        "task:create", false, input -> "task-created"))));
+        InMemoryManagerSessionRepository repository = new InMemoryManagerSessionRepository();
+        ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, model,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        ManagerSessionRecord session = facade.createSession(
+                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "actor-a"),
+                "session-key");
+        ManagerRequestContext.set(new ManagerPrincipal("actor-a", "tenant-a", "project-a", "team-a",
+                Set.of("task:create", "task:read")));
+
+        facade.appendMessage(session.id(), 0, "message-key", "actor-a", "create",
+                Set.of(), false, null, null);
+
+        assertThat(repository.toolCalls()).hasSize(1);
+    }
 
     @Test
     void createsSessionAndReplaysDuplicateMessageWithoutCallingModelTwice() {

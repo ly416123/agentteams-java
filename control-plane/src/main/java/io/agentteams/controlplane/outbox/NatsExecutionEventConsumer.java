@@ -11,6 +11,7 @@ import io.agentteams.controlplane.observability.AsyncConsumerTracing;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
+import io.agentteams.controlplane.security.AuthorizationException;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamSubscription;
@@ -220,6 +221,16 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             // historical bad event cannot poison the durable consumer.
             LOGGER.log(Level.WARNING, "Acknowledging impossible Agent task transition: {0}", terminal.getMessage());
             message.ack();
+        } catch (AuthorizationException unauthorized) {
+            // Identity/scope violations are terminal for this envelope. Redelivery
+            // would only poison the durable consumer and cannot make an invalid
+            // agent/lease pairing valid.
+            LOGGER.log(Level.WARNING, "Acknowledging unauthorized Agent execution event: {0}",
+                    unauthorized.getMessage());
+            message.ack();
+            if (span != null) {
+                span.tag("agentteams.consumer.result", "unauthorized");
+            }
         } catch (IOException | RuntimeException error) {
             if (span != null) {
                 span.error(error).tag("agentteams.consumer.result", "redeliver");

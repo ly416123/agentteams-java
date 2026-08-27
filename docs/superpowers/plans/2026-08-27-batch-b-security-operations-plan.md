@@ -113,11 +113,11 @@ git commit -m "feat(worker): 增加可恢复运维操作"
 
 **目标：** 让 HTTP、Manager Tool 和异步业务入口复用同一 Action/scope 授权，并补齐邀请、启用、禁用、角色变更和 Owner 转移。
 
-**当前增量进度（2026-08-27）：** 已完成第一纵切：V48 `project_invitations` 与邀请幂等表、namespace/tenant 约束下的邀请记录、SHA-256 token hash 存储、24 小时有效期、接受邀请时的 subject 校验、过期拒绝和数据库条件更新幂等激活，并开放项目邀请创建/接受 API；补齐成员重新启用、角色变更 CAS、最后 Owner 保护和带 expected project version 的 Owner 转移 API。随后新增不可变 `ResourceAction`/`ResourceRef`/`ResourceAuthorizationMatrix`/`ResourceAuthorizationService`，并接入邀请创建路径，覆盖跨 scope 与角色越权负向测试。现已补齐邀请、接受、启用、禁用、角色变更和 Owner 转移的成功审计，目标 subject 仅以 SHA-256 hash 进入事件，审计 sink 故障不改变成员主业务结果。当前仍未完成 Manager/异步消费者统一授权接线。
+**当前增量进度（2026-08-27）：** 已完成第一纵切：V48 `project_invitations` 与邀请幂等表、namespace/tenant 约束下的邀请记录、SHA-256 token hash 存储、24 小时有效期、接受邀请时的 subject 校验、过期拒绝和数据库条件更新幂等激活，并开放项目邀请创建/接受 API；补齐成员重新启用、角色变更 CAS、最后 Owner 保护和带 expected project version 的 Owner 转移 API。随后新增不可变 `ResourceAction`/`ResourceRef`/`ResourceAuthorizationMatrix`/`ResourceAuthorizationService`，并接入邀请创建路径，覆盖跨 scope 与角色越权负向测试。现已补齐邀请、接受、启用、禁用、角色变更和 Owner 转移的成功审计，目标 subject 仅以 SHA-256 hash 进入事件，审计 sink 故障不改变成员主业务结果。Manager/异步消费者统一授权接线已完成。
 
-**任务提交授权纵切（2026-08-27）：** `TaskService.create` 现在在持久化前校验已认证主体的完整 scope，并通过项目名称解析到 UUID 后复用 `ResourceAuthorizationService` 的 `TASK_CREATE` 角色矩阵；拒绝请求不会写入任务。Matrix 入口在调用同一 Control Plane TaskService 前后绑定并恢复 `PrincipalContext`，因此不会依赖客户端权限集合扩大权限，也不会在线程复用时串身份。HTTP/Matrix/Service 定向测试、Control Plane 全量测试、脚本测试和本机 Colima Docker 集成验证已通过。Manager 跨服务用户身份委托协议及异步消费者接线仍待后续纵切，当前不以未定义的信任 Header 代替认证。
+**任务提交授权纵切（2026-08-27）：** `TaskService.create` 现在在持久化前校验已认证主体的完整 scope，并通过项目名称解析到 UUID 后复用 `ResourceAuthorizationService` 的 `TASK_CREATE` 角色矩阵；拒绝请求不会写入任务。Matrix 入口在调用同一 Control Plane TaskService 前后绑定并恢复 `PrincipalContext`，因此不会依赖客户端权限集合扩大权限，也不会在线程复用时串身份。HTTP/Matrix/Service 定向测试、Control Plane 全量测试、脚本测试和本机 Colima Docker 集成验证已通过。随后完成 Manager 跨服务身份委托：仅转发已由 Manager OIDC 校验的原始 Bearer token，由 Control Plane 再次独立校验，且会话服务按认证 subject/tenant/project 复核访问范围，工具权限使用认证主体集合而非客户端请求集合。异步 NATS 执行入口补齐 task/attempt/lease/agent 一致性校验，非法身份事件终止 ACK，避免重试毒化消费者。相关定向测试与本机 Docker/Colima 验证已通过，任务 2 完成。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖 Action 矩阵的允许/拒绝组合、跨 tenant/project 负向请求、异步消费者 scope 校验、邀请 Token 只保存 hash、过期邀请拒绝、重复 accept 幂等、最后一个 Owner 不能禁用、Owner 转移需要 expected project version，以及成员状态变化产生脱敏审计。
 
@@ -130,27 +130,27 @@ void cannotDisableTheLastProjectOwner() {
 }
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`mvn -q -pl control-plane,manager -am -Dtest=ResourceAuthorizationServiceTest,ProjectInvitationServiceTest,ProjectControllerTest,OidcApiAuthorizationIntegrationTest test`
 
 预期：新 API、统一 Action 矩阵和邀请持久化测试失败。
 
-- [ ] **步骤 3：实现 Action 矩阵与 Service 边界**
+- [x] **步骤 3：实现 Action 矩阵与 Service 边界**
 
 定义不可变 `ResourceAction` 矩阵；所有 Service 先解析资源 scope，再调用 `ResourceAuthorizationService.require`。Filter 只负责身份认证和粗粒度入口检查，不能替代 Service 层授权；Manager Tool 和异步消费者复用同一方法。
 
-- [ ] **步骤 4：实现成员状态机与迁移**
+- [x] **步骤 4：实现成员状态机与迁移**
 
 新增 `V48__project_invitations_and_authorization_scope.sql`，保存 invitation token hash、过期时间、目标 subject、角色、状态、project version 和审计关联；实现 `INVITED -> ACTIVE -> DISABLED`、过期和重新启用；Owner 转移在一个事务内检查目标 ACTIVE、当前 Owner 和 expected version。（V47 已用于 Gateway Worker 版本投影。）
 
-- [ ] **步骤 5：运行测试确认通过**
+- [x] **步骤 5：运行测试确认通过**
 
 运行：`mvn -q -pl control-plane,manager -am -Dtest=ResourceAuthorizationServiceTest,ProjectInvitationServiceTest,ProjectControllerTest,OidcApiAuthorizationIntegrationTest test`。
 
 预期：所有 Action、scope、成员状态和审计测试通过，测试输出不包含 Token 原文。
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add control-plane/src/main/java/io/agentteams/controlplane/security control-plane/src/main/java/io/agentteams/controlplane/project control-plane/src/main/java/io/agentteams/controlplane/api control-plane/src/main/resources/db/migration/V47__project_invitations_and_authorization_scope.sql control-plane/src/test manager/src/main/java/io/agentteams/manager/HttpTaskCommandPort.java

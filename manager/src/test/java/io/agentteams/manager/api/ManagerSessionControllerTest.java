@@ -1,5 +1,6 @@
 package io.agentteams.manager.api;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -83,6 +84,41 @@ class ManagerSessionControllerTest {
                 .contentType("application/json")
                 .content("{\"expectedVersion\":0,\"actor\":\"actor-a\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
+    void doesNotDelegateClientPermissionSubsetAsTheVerifiedPermissionSet() throws Exception {
+        ManagerSessionRecord session = ManagerSessionRecord.newSession(sessionId, "tenant-a", "project-a",
+                "actor-a", Instant.parse("2026-08-26T00:00:00Z"));
+        when(facade.createSession(any(), org.mockito.ArgumentMatchers.eq("session-key"))).thenReturn(session);
+        ManagerSessionServiceFacade.MessageResult message = new ManagerSessionServiceFacade.MessageResult(session,
+                new io.agentteams.manager.session.ManagerMessageRecord(UUID.randomUUID(), sessionId, "message-key",
+                        "actor-a", "user", "hash", "message accepted", "created", session.createdAt()), null);
+        when(facade.appendMessage(org.mockito.ArgumentMatchers.eq(sessionId), org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq("message-key"), org.mockito.ArgumentMatchers.eq("actor-a"),
+                org.mockito.ArgumentMatchers.eq("create"), org.mockito.ArgumentMatchers.anySet(),
+                org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull())).thenReturn(message);
+
+        mvc.perform(post("/api/v1/manager/sessions")
+                .header("Idempotency-Key", "session-key")
+                .contentType("application/json")
+                .content("{\"tenantId\":\"tenant-a\",\"projectId\":\"project-a\",\"actor\":\"actor-a\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/v1/manager/sessions/" + sessionId + "/messages")
+                .header("Idempotency-Key", "message-key")
+                .contentType("application/json")
+                .content("{\"content\":\"create\",\"expectedVersion\":0,\"actor\":\"actor-a\","
+                        + "\"permissions\":[],\"approved\":false}"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<Set<String>> permissions = org.mockito.ArgumentCaptor.forClass(Set.class);
+        org.mockito.Mockito.verify(facade).appendMessage(org.mockito.ArgumentMatchers.eq(sessionId),
+                org.mockito.ArgumentMatchers.eq(0L), org.mockito.ArgumentMatchers.eq("message-key"),
+                org.mockito.ArgumentMatchers.eq("actor-a"), org.mockito.ArgumentMatchers.eq("create"),
+                permissions.capture(), org.mockito.ArgumentMatchers.eq(false),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull());
+        assertThat(permissions.getValue()).containsExactlyInAnyOrder("task:create");
     }
 
     @Test

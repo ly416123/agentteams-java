@@ -13,6 +13,17 @@ public final class ManagerRequestContext {
         return principal;
     }
 
+    public static java.util.Optional<ManagerPrincipal> current() {
+        return java.util.Optional.ofNullable(CURRENT.get());
+    }
+
+    public static void requireScope(String tenantId, String projectId) {
+        ManagerPrincipal principal = require();
+        if (!principal.tenantId().equals(tenantId) || !principal.projectId().equals(projectId)) {
+            throw new ManagerAuthorizationException("resource is outside the caller scope");
+        }
+    }
+
     public static void set(ManagerPrincipal principal) {
         CURRENT.set(java.util.Objects.requireNonNull(principal, "principal"));
         BEARER_TOKEN.remove();

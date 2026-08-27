@@ -6,6 +6,7 @@ import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.domain.task.AppliedTransition;
 import io.agentteams.domain.task.DuplicateTransition;
@@ -86,10 +87,15 @@ public final class ExecutionEventService {
             if (!lease.taskAttemptId().equals(command.attemptId())) {
                 throw new IllegalArgumentException("lease does not belong to attempt: " + command.attemptId());
             }
+            TaskAttemptRecord attempt = tx.taskAttempts().findById(command.attemptId()).orElseThrow();
+            requireExecutionIdentity(taskId, command.actor(), attempt, lease);
             FoundationTransaction.ReclaimOutcome outcome = tx.reclaimAttempt(command.leaseId(),
                     command.occurredAt(), "ACCEPTANCE_REJECTED", "TaskAssignmentRejected", command.eventId());
             if (!outcome.reclaimed()) {
                 return null;
+            }
+            if (!taskId.equals(outcome.taskId())) {
+                throw new AuthorizationException("execution event task does not match lease task");
             }
             TaskRecord task = tx.tasks().findById(outcome.taskId()).orElseThrow();
             teamId(task).ifPresent(team -> tx.teams().releaseTaskAssignment(team, task.id(), command.occurredAt()));
@@ -105,6 +111,7 @@ public final class ExecutionEventService {
                     .orElseThrow(() -> new IllegalArgumentException("task does not exist: " + taskId));
             TaskAttemptRecord currentAttempt = tx.taskAttempts().findById(command.attemptId()).orElseThrow();
             var currentLease = tx.agentLeases().findById(command.leaseId()).orElseThrow();
+            requireExecutionIdentity(taskId, command.actor(), currentAttempt, currentLease);
             Task domain = toDomain(current, currentAttempt, Set.of());
             if (tx.domainEvents().findByEventId(command.eventId()).isPresent()) {
                 return new DuplicateTransition(command.eventId(), domain);
@@ -137,6 +144,11 @@ public final class ExecutionEventService {
                 .orElseThrow(() -> new IllegalArgumentException("task does not exist: " + taskId));
         TaskAttemptRecord currentAttempt = command.attemptId() == null ? null
                 : tx.taskAttempts().findById(command.attemptId()).orElseThrow();
+        var currentLease = command.leaseId() == null ? null
+                : tx.agentLeases().findById(command.leaseId()).orElseThrow();
+        if (currentAttempt != null && currentLease != null) {
+            requireExecutionIdentity(taskId, command.actor(), currentAttempt, currentLease);
+        }
         Task domain = toDomain(current, currentAttempt, Set.of());
 
         if (tx.domainEvents().findByEventId(command.eventId()).isPresent()) {
@@ -219,6 +231,23 @@ public final class ExecutionEventService {
                 attempt.failureCode(), attempt.redactedFailureMessage(), attempt.version());
         return new Task(task.id(), task.phase(), task.version(), domainAttempt, task.createdAt(), task.updatedAt(),
                 task.actor(), task.source(), task.failureCode(), task.redactedFailureMessage(), processedEvents);
+    }
+
+    private static void requireExecutionIdentity(UUID taskId, String agentId,
+            TaskAttemptRecord attempt, io.agentteams.controlplane.persistence.AgentLeaseRecord lease) {
+        if (!taskId.equals(attempt.taskId()) || !attempt.leaseId().equals(lease.id())
+                || !lease.taskAttemptId().equals(attempt.id())) {
+            throw new AuthorizationException("execution event does not match the active attempt");
+        }
+        final UUID claimedAgent;
+        try {
+            claimedAgent = UUID.fromString(agentId);
+        } catch (IllegalArgumentException error) {
+            throw new AuthorizationException("execution event agent identity is invalid");
+        }
+        if (!claimedAgent.equals(lease.agentId())) {
+            throw new AuthorizationException("execution event agent does not own the lease");
+        }
     }
 
     private static String transitionPayload(TaskTransitionCommand command, AppliedTransition transition) {

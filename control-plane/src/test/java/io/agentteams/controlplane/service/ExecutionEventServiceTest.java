@@ -1,11 +1,13 @@
 package io.agentteams.controlplane.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.persistence.ArtifactRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.domain.agent.AgentPhase;
 import io.agentteams.domain.task.AppliedTransition;
 import io.agentteams.domain.task.DuplicateTransition;
@@ -72,20 +74,28 @@ class ExecutionEventServiceTest {
                 new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, START);
         ExecutionEventService service = new ExecutionEventService(persistence);
 
+        assertThatThrownBy(() -> service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), assignment.task().version(), TaskPhase.ACCEPTED,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(1),
+                UUID.randomUUID().toString(), "fake"), List.of()))
+                .isInstanceOf(AuthorizationException.class);
+
         TaskTransitionResult accepted = service.apply(taskId, TaskTransitionCommand.forAttempt(
                 UUID.randomUUID(), assignment.task().version(), TaskPhase.ACCEPTED,
-                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(1), "agent", "fake"),
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(1),
+                agent.id().toString(), "fake"),
                 List.of());
         TaskTransitionResult running = service.apply(taskId, TaskTransitionCommand.forAttempt(
                 UUID.randomUUID(), accepted.task().version(), TaskPhase.RUNNING,
-                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(2), "agent", "fake"),
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(2),
+                agent.id().toString(), "fake"),
                 List.of());
 
         UUID completionEventId = UUID.randomUUID();
         Instant completedAt = START.plusSeconds(3);
         TaskTransitionCommand completion = TaskTransitionCommand.forAttempt(
                 completionEventId, running.task().version(), TaskPhase.SUCCEEDED,
-                assignment.attempt().id(), assignment.lease().id(), completedAt, "agent", "fake");
+                assignment.attempt().id(), assignment.lease().id(), completedAt, agent.id().toString(), "fake");
         ArtifactRecord artifact = new ArtifactRecord(UUID.randomUUID(), taskId, assignment.attempt().id(),
                 "result.txt", "tasks/" + taskId + "/result.txt", "text/plain", 7,
                 "sha256-result", "AVAILABLE", "{}", completedAt, completedAt, 0);
