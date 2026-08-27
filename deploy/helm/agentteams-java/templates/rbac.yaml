@@ -59,10 +59,13 @@ rules:
   # Keep External Secrets reads namespace-scoped and metadata-only. The
   # resolver never needs Secret list/watch or data mutation permissions.
   - apiGroups: ["external-secrets.io"]
-    resources: ["externalsecrets", "externalsecrets/status"]
+    resources:
+      - externalsecrets
+      - externalsecrets/status
     verbs: ["get"]
   - apiGroups: [""]
-    resources: ["secrets"]
+    resources:
+      - secrets
     verbs: ["get"]
 {{- end }}
 ---

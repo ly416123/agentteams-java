@@ -52,10 +52,11 @@ class BatchBSecretContractTest(unittest.TestCase):
     def test_external_secrets_rbac_is_namespace_scoped_and_read_only(self):
         rbac = read(CHART / "templates/rbac.yaml")
         self.assertIn('apiGroups: ["external-secrets.io"]', rbac)
-        self.assertIn('resources: ["externalsecrets", "externalsecrets/status"]', rbac)
-        self.assertIn('resources: ["secrets"]', rbac)
+        self.assertIn("- externalsecrets", rbac)
+        self.assertIn("- externalsecrets/status", rbac)
+        self.assertIn("- secrets", rbac)
         self.assertIn('verbs: ["get"]', rbac)
-        secret_block = rbac.split('resources: ["secrets"]', 1)[1].split("{{- end }}", 1)[0]
+        secret_block = rbac.split("- secrets", 1)[1].split("{{- end }}", 1)[0]
         self.assertNotIn('verbs: ["list", "watch"]', secret_block)
         self.assertNotIn("ClusterRole", rbac)
 
