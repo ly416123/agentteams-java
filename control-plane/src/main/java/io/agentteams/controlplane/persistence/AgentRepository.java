@@ -40,12 +40,19 @@ public final class AgentRepository {
                 """, this::map, id).stream().findFirst();
     }
 
-    public Optional<AgentRecord> findReadyMatching(String taskSpecJson) {
+    public Optional<AgentRecord> findReadyMatching(String taskSpecJson, Instant now) {
         return jdbc.query("""
                 SELECT id, name, phase, runtime, capabilities::text, metadata::text,
                        created_at, updated_at, version
-                  FROM agents
+                 FROM agents
                  WHERE phase = 'READY'
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM worker_operations operation
+                        WHERE operation.agent_id = agents.id
+                          AND operation.status IN ('PENDING', 'RUNNING')
+                          AND operation.lease_expires_at > ?
+                   )
                    AND NOT EXISTS (
                        SELECT 1
                          FROM jsonb_array_elements_text(
@@ -59,11 +66,12 @@ public final class AgentRepository {
                  ORDER BY id
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
-                """, this::map, JdbcSupport.json(taskSpecJson), JdbcSupport.json(taskSpecJson))
+                """, this::map, JdbcSupport.timestamp(now), JdbcSupport.json(taskSpecJson),
+                JdbcSupport.json(taskSpecJson))
                 .stream().findFirst();
     }
 
-    public Optional<AgentRecord> findReadyMatchingForTeam(String taskSpecJson, UUID teamId) {
+    public Optional<AgentRecord> findReadyMatchingForTeam(String taskSpecJson, UUID teamId, Instant now) {
         return jdbc.query("""
                 SELECT agents.id, agents.name, agents.phase, agents.runtime,
                        agents.capabilities::text, agents.metadata::text,
@@ -72,6 +80,13 @@ public final class AgentRepository {
                   JOIN team_memberships membership ON membership.agent_id = agents.id
                  WHERE membership.team_id = ? AND membership.status = 'ACTIVE'
                    AND agents.phase = 'READY'
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM worker_operations operation
+                        WHERE operation.agent_id = agents.id
+                          AND operation.status IN ('PENDING', 'RUNNING')
+                          AND operation.lease_expires_at > ?
+                   )
                    AND NOT EXISTS (
                        SELECT 1
                          FROM jsonb_array_elements_text(
@@ -85,7 +100,8 @@ public final class AgentRepository {
                  ORDER BY agents.id
                  LIMIT 1
                  FOR UPDATE OF agents SKIP LOCKED
-                """, this::map, teamId, JdbcSupport.json(taskSpecJson), JdbcSupport.json(taskSpecJson))
+                """, this::map, teamId, JdbcSupport.timestamp(now), JdbcSupport.json(taskSpecJson),
+                JdbcSupport.json(taskSpecJson))
                 .stream().findFirst();
     }
 

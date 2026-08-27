@@ -19,6 +19,10 @@ import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.service.UnavailableDependencyException;
+import io.agentteams.controlplane.worker.WorkerOperation;
+import io.agentteams.controlplane.worker.WorkerOperationService;
+import io.agentteams.controlplane.worker.WorkerOperationStatus;
+import io.agentteams.controlplane.worker.WorkerOperationType;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -45,11 +49,15 @@ class ControlPlaneControllerTest {
     @Mock
     private TaskService tasks;
 
+    @Mock
+    private WorkerOperationService workerOperations;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new AgentController(agents), new TaskController(tasks))
+        mockMvc = MockMvcBuilders.standaloneSetup(new AgentController(agents, workerOperations),
+                new TaskController(tasks))
                 .setControllerAdvice(new ApiErrorHandler())
                 .build();
     }
@@ -81,28 +89,41 @@ class ControlPlaneControllerTest {
     }
 
     @Test
-    void drainsAndTerminatesAgentWithOptimisticVersion() throws Exception {
+    void requestsADurableWorkerDrainOperation() throws Exception {
         UUID id = UUID.randomUUID();
-        Instant now = Instant.parse("2026-08-23T00:00:00Z");
-        AgentRecord draining = new AgentRecord(id, "worker-1", AgentPhase.DRAINING, "qwenpaw", "{}", "{}",
-                now, now, 1);
-        AgentRecord terminated = new AgentRecord(id, "worker-1", AgentPhase.TERMINATED, "qwenpaw", "{}", "{}",
-                now, now, 2);
-        when(agents.drain(id, 0L)).thenReturn(draining);
-        when(agents.terminate(id, 1L)).thenReturn(terminated);
+        WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), id, WorkerOperationType.DRAIN,
+                null, "{}", "drain-operation-1", 0, "control-plane", Instant.parse("2026-08-23T00:02:00Z"),
+                "correlation-1", Instant.parse("2026-08-23T00:00:00Z"));
+        when(workerOperations.drain(id, 0L, "drain-operation-1")).thenReturn(operation);
 
-        mockMvc.perform(post("/api/v1/agents/{id}/drain", id)
+        mockMvc.perform(post("/api/v1/agents/{id}/operations/drain", id)
+                        .header("Idempotency-Key", "drain-operation-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedVersion\":0}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.phase").value("DRAINING"));
-        mockMvc.perform(post("/api/v1/agents/{id}/terminate", id)
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(operation.id().toString()))
+                .andExpect(jsonPath("$.type").value(WorkerOperationType.DRAIN.name()))
+                .andExpect(jsonPath("$.status").value(WorkerOperationStatus.PENDING.name()));
+        verify(workerOperations).drain(id, 0L, "drain-operation-1");
+    }
+
+    @Test
+    void requestsADurableWorkerTerminateOperation() throws Exception {
+        UUID id = UUID.randomUUID();
+        WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), id, WorkerOperationType.TERMINATE,
+                null, "{}", "terminate-operation-1", 1, "control-plane",
+                Instant.parse("2026-08-23T00:02:00Z"), "correlation-2", Instant.parse("2026-08-23T00:00:00Z"));
+        when(workerOperations.terminate(id, 1L, "terminate-operation-1")).thenReturn(operation);
+
+        mockMvc.perform(post("/api/v1/agents/{id}/operations/terminate", id)
+                        .header("Idempotency-Key", "terminate-operation-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedVersion\":1}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.phase").value("TERMINATED"));
-        verify(agents).drain(id, 0L);
-        verify(agents).terminate(id, 1L);
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.type").value(WorkerOperationType.TERMINATE.name()))
+                .andExpect(jsonPath("$.status").value(WorkerOperationStatus.PENDING.name()))
+                .andExpect(jsonPath("$.previousStableSpec").doesNotExist());
+        verify(workerOperations).terminate(id, 1L, "terminate-operation-1");
     }
 
     @Test

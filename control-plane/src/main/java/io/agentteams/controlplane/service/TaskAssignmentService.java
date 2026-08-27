@@ -54,12 +54,13 @@ public final class TaskAssignmentService {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(now, "now");
         AssignmentResult result = persistence.inTransaction(tx -> {
+            io.agentteams.controlplane.worker.WorkerOperationService.recoverExpiredOperations(tx, now);
             TaskRecord queued = tx.tasks().findByIdForUpdate(taskId)
                     .orElseThrow(() -> new IllegalArgumentException("task does not exist: " + taskId));
             if (queued.phase() != TaskPhase.QUEUED) {
                 throw new IllegalStateException("task must be QUEUED: " + taskId);
             }
-            AgentRecord agent = matchingAgent(tx, queued)
+            AgentRecord agent = matchingAgent(tx, queued, now)
                     .orElseThrow(() -> new IllegalStateException("no READY agent matches task capabilities"));
 
             UUID attemptId = UUID.randomUUID();
@@ -99,7 +100,8 @@ public final class TaskAssignmentService {
         return result;
     }
 
-    private static java.util.Optional<AgentRecord> matchingAgent(FoundationTransaction tx, TaskRecord task) {
+    private static java.util.Optional<AgentRecord> matchingAgent(FoundationTransaction tx, TaskRecord task,
+            Instant now) {
         try {
             JsonNode spec = OBJECT_MAPPER.readTree(task.specJson());
             JsonNode team = spec == null ? null : spec.get("teamId");
@@ -117,6 +119,9 @@ public final class TaskAssignmentService {
                 TeamSchedulingPolicy schedulingPolicy = new TeamSchedulingPolicy();
                 for (TeamMemberRecord member : tx.teams().activeMembers(teamId)) {
                     AgentRecord agent = tx.agents().findByIdForUpdate(member.agentId()).orElse(null);
+                    if (agent != null && tx.workerOperations().findActiveByAgentForUpdate(agent.id(), now).isPresent()) {
+                        continue;
+                    }
                     TeamSchedulingPolicy.Decision decision = schedulingPolicy.evaluate(policy, member, agent,
                             request, activeAssignments);
                     if (decision.allowed()) {
@@ -125,7 +130,7 @@ public final class TaskAssignmentService {
                 }
                 return java.util.Optional.empty();
             }
-            return tx.agents().findReadyMatching(task.specJson());
+            return tx.agents().findReadyMatching(task.specJson(), now);
         } catch (java.io.IOException | IllegalArgumentException error) {
             throw new IllegalArgumentException("task spec cannot be parsed for assignment", error);
         }

@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.worker.WorkerOperation;
+import io.agentteams.controlplane.worker.WorkerOperationService;
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,9 +25,12 @@ public final class AgentController {
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
 
     private final AgentService service;
+    private final WorkerOperationService workerOperations;
 
-    public AgentController(AgentService service) {
+    @Autowired
+    public AgentController(AgentService service, WorkerOperationService workerOperations) {
         this.service = service;
+        this.workerOperations = workerOperations;
     }
 
     @PostMapping
@@ -45,14 +51,24 @@ public final class AgentController {
         return AgentResponse.from(agent);
     }
 
-    @PostMapping("/{id}/drain")
-    public AgentResponse drain(@PathVariable UUID id, @RequestBody LifecycleRequest request) {
-        return AgentResponse.from(service.drain(id, expectedVersion(request)));
+    @PostMapping("/{id}/operations/drain")
+    public ResponseEntity<WorkerOperationResponse> requestDrain(
+            @PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody LifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        WorkerOperation operation = operations().drain(id, expectedVersion(request), idempotencyKey);
+        return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
     }
 
-    @PostMapping("/{id}/terminate")
-    public AgentResponse terminate(@PathVariable UUID id, @RequestBody LifecycleRequest request) {
-        return AgentResponse.from(service.terminate(id, expectedVersion(request)));
+    @PostMapping("/{id}/operations/terminate")
+    public ResponseEntity<WorkerOperationResponse> requestTerminate(
+            @PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody LifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        WorkerOperation operation = operations().terminate(id, expectedVersion(request), idempotencyKey);
+        return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
     }
 
     public record LifecycleRequest(Long expectedVersion) {
@@ -84,6 +100,16 @@ public final class AgentController {
         }
     }
 
+    public record WorkerOperationResponse(UUID id, UUID agentId, String type, String status,
+            String requestedSpecDigest, String correlationId, Instant createdAt, Instant updatedAt, long version) {
+
+        static WorkerOperationResponse from(WorkerOperation operation) {
+            return new WorkerOperationResponse(operation.id(), operation.agentId(), operation.type().name(),
+                    operation.status().name(), operation.requestedSpecDigest(), operation.correlationId(),
+                    operation.createdAt(), operation.updatedAt(), operation.version());
+        }
+    }
+
     private static void requireRequest(CreateAgentRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("request body is required");
@@ -104,5 +130,12 @@ public final class AgentController {
             throw new IllegalArgumentException("expectedVersion is required");
         }
         return request.expectedVersion();
+    }
+
+    private WorkerOperationService operations() {
+        if (workerOperations == null) {
+            throw new IllegalStateException("worker operation service is not configured");
+        }
+        return workerOperations;
     }
 }

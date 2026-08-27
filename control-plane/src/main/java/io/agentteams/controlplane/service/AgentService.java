@@ -68,46 +68,6 @@ public final class AgentService {
         return agent;
     }
 
-    public AgentRecord drain(UUID id, long expectedVersion) {
-        return changeLifecycle(id, AgentPhase.DRAINING, expectedVersion, false);
-    }
-
-    public AgentRecord terminate(UUID id, long expectedVersion) {
-        return changeLifecycle(id, AgentPhase.TERMINATED, expectedVersion, true);
-    }
-
-    private AgentRecord changeLifecycle(UUID id, AgentPhase target, long expectedVersion, boolean requireDraining) {
-        Objects.requireNonNull(id, "id");
-        requireVisible(id);
-        Instant now = clock.instant();
-        return persistence.inTransaction(tx -> {
-            AgentRecord current = tx.agents().findByIdForUpdate(id)
-                    .orElseThrow(() -> new ResourceNotFoundException("agent", id));
-            if (current.phase() == target) return current;
-            if (current.version() != expectedVersion) {
-                throw new io.agentteams.controlplane.persistence.OptimisticLockFailure(
-                        "agent", id, expectedVersion, current.version());
-            }
-            if (target == AgentPhase.DRAINING
-                    && current.phase() != AgentPhase.READY
-                    && current.phase() != AgentPhase.BUSY
-                    && current.phase() != AgentPhase.PROVISIONING) {
-                throw new WorkerLifecycleConflictException("WORKER_NOT_DRAINABLE");
-            }
-            if (requireDraining && current.phase() != AgentPhase.DRAINING) {
-                throw new WorkerLifecycleConflictException("WORKER_MUST_BE_DRAINING");
-            }
-            if (target == AgentPhase.TERMINATED && tx.agentLeases().countActiveForAgent(id) > 0) {
-                throw new WorkerLifecycleConflictException("WORKER_HAS_ACTIVE_TASKS");
-            }
-            AgentRecord updated = tx.agents().updatePhase(id, target, expectedVersion, now);
-            FoundationPersistenceService.appendEvent(tx, "agent", id, "AgentPhaseChanged",
-                    "{\"agentId\":\"" + id + "\",\"phase\":\"" + target.name() + "\"}", now,
-                    updated.version());
-            return updated;
-        });
-    }
-
     public record AgentInput(String name, String runtime, String capabilitiesJson, String metadataJson) {
     }
 

@@ -18,6 +18,7 @@ public final class FoundationTransaction {
     private final ModelRepository models;
     private final ModelPriceRepository modelPrices;
     private final TaskSandboxRepository taskSandboxes;
+    private final io.agentteams.controlplane.worker.WorkerOperationRepository workerOperations;
 
     FoundationTransaction(org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -36,6 +37,7 @@ public final class FoundationTransaction {
         models = new ModelRepository(jdbc);
         modelPrices = new ModelPriceRepository(jdbc);
         taskSandboxes = new TaskSandboxRepository(jdbc);
+        workerOperations = new io.agentteams.controlplane.worker.WorkerOperationRepository(jdbc);
     }
 
     public AgentRepository agents() {
@@ -96,6 +98,10 @@ public final class FoundationTransaction {
 
     public TaskSandboxRepository taskSandboxes() {
         return taskSandboxes;
+    }
+
+    public io.agentteams.controlplane.worker.WorkerOperationRepository workerOperations() {
+        return workerOperations;
     }
 
     public java.util.List<java.util.UUID> expiredActiveLeaseIds(java.time.Instant now) {

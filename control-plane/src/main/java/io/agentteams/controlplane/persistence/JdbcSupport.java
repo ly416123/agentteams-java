@@ -9,11 +9,14 @@ import java.util.Objects;
 import java.util.List;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.SqlParameterValue;
+import java.util.Iterator;
+import java.util.Locale;
 
-final class JdbcSupport {
+public final class JdbcSupport {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -27,8 +30,53 @@ final class JdbcSupport {
     private JdbcSupport() {
     }
 
-    static SqlParameterValue json(String value) {
+    public static SqlParameterValue json(String value) {
         return new SqlParameterValue(Types.OTHER, redactJsonFields(Objects.requireNonNull(value, "json")));
+    }
+
+    /** Stores a rollback snapshot only when it contains no secret-bearing fields. */
+    public static SqlParameterValue jsonSnapshot(String value) {
+        String required = Objects.requireNonNull(value, "json");
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(required);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("rollback snapshot must be a safe JSON object");
+            }
+            if (containsSensitiveField(root)) {
+                throw new IllegalArgumentException("rollback snapshot must not contain secret material");
+            }
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("rollback snapshot must be valid JSON", error);
+        }
+        return new SqlParameterValue(Types.OTHER, required);
+    }
+
+    private static boolean containsSensitiveField(JsonNode node) {
+        if (node.isObject()) {
+            Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                java.util.Map.Entry<String, JsonNode> field = fields.next();
+                if (isSensitiveField(field.getKey()) || containsSensitiveField(field.getValue())) {
+                    return true;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                if (containsSensitiveField(child)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isSensitiveField(String field) {
+        String normalized = field.toLowerCase(Locale.ROOT).replaceAll("[\\s_-]", "");
+        return normalized.equals("token") || normalized.equals("apikey")
+                || normalized.equals("accesstoken") || normalized.equals("password")
+                || normalized.equals("secret") || normalized.equals("credential")
+                || normalized.equals("authorization") || normalized.equals("deepseekapikey")
+                || normalized.equals("deepseekaccesstoken");
     }
 
     static String jsonArray(List<String> values) {
@@ -76,11 +124,11 @@ final class JdbcSupport {
         return redacted.toString();
     }
 
-    static Timestamp timestamp(Instant instant) {
+    public static Timestamp timestamp(Instant instant) {
         return Timestamp.from(Objects.requireNonNull(instant, "instant"));
     }
 
-    static Instant instant(ResultSet resultSet, String column) throws SQLException {
+    public static Instant instant(ResultSet resultSet, String column) throws SQLException {
         Timestamp value = resultSet.getTimestamp(column);
         return Objects.requireNonNull(value, column + " must not be null").toInstant();
     }
