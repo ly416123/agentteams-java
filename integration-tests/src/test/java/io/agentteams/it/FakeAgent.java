@@ -106,7 +106,7 @@ final class FakeAgent implements AutoCloseable {
     void applyConfig(ConfigChanged changed) {
         requests.onNext(AgentMessage.newBuilder().setConfigApplied(ConfigApplied.newBuilder()
                 .setMetadata(EventMetadata.newBuilder()
-                        .setEventId(UUID.randomUUID().toString())
+                        .setEventId(changed.getMetadata().getEventId())
                         .setAgentId(agentId)
                         .setOccurredAt(com.google.protobuf.Timestamp.newBuilder()
                                 .setSeconds(System.currentTimeMillis() / 1000).build())

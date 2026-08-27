@@ -298,15 +298,14 @@ public final class QwenPawWorker implements AutoCloseable {
     /**
      * Builds the wire-compatible configuration ACK. Resource binding details
      * stay in the bounded error_message because ConfigApplied has no repeated
-     * per-binding result field.
+     * per-binding result field. The original event ID is echoed so the Control
+     * Plane can correlate the acknowledgement with its pending apply record.
      */
     static ConfigApplied configApplied(ConfigChanged changed, boolean applied, String errorMessage, Clock clock) {
         Objects.requireNonNull(changed, "changed");
         Objects.requireNonNull(clock, "clock");
         EventMetadata input = changed.getMetadata();
         EventMetadata metadata = input.toBuilder()
-                .setEventId(UUID.nameUUIDFromBytes(("config-applied:" + input.getEventId() + ":" + applied)
-                        .getBytes(StandardCharsets.UTF_8)).toString())
                 .setOccurredAt(timestamp(clock.instant()))
                 .build();
         return ConfigApplied.newBuilder()

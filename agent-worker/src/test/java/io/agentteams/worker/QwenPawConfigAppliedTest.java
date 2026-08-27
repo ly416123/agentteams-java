@@ -36,6 +36,7 @@ class QwenPawConfigAppliedTest {
         assertThat(result.getConfigVersion()).isEqualTo(7);
         assertThat(result.getBindingId()).isEqualTo(changed.getBindingId());
         assertThat(result.getSnapshotId()).isEqualTo(changed.getSnapshotId());
+        assertThat(result.getMetadata().getEventId()).isEqualTo(changed.getMetadata().getEventId());
         assertThat(result.getMetadata().getAgentId()).isEqualTo("agent-1");
         assertThat(result.getMetadata().getOccurredAt().getSeconds())
                 .isEqualTo(Instant.parse("2026-08-23T00:00:00Z").getEpochSecond());

@@ -38,7 +38,7 @@ public final class TaskSandboxRepository {
                     provider, provider_resource_id, provider_resource_uid, observed_generation, workload_uid,
                     desired_state, operation_owner, operation_expires_at, operation_kind, retry_count,
                     next_attempt_at, last_dispatched_at, dispatch_event_id, details)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, sandbox.id(), sandbox.taskId(), sandbox.attemptId(), sandbox.idempotencyKey(),
                 sandbox.providerSandboxId(), sandbox.profile().name(), sandbox.status().name(), sandbox.template(),
                 sandbox.endpointRef(), JdbcSupport.timestamp(sandbox.requestedAt()),
@@ -62,7 +62,7 @@ public final class TaskSandboxRepository {
                     provider, provider_resource_id, provider_resource_uid, observed_generation, workload_uid,
                     desired_state, operation_owner, operation_expires_at, operation_kind, retry_count,
                     next_attempt_at, last_dispatched_at, dispatch_event_id, details)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (attempt_id) DO NOTHING
                 """, sandbox.id(), sandbox.taskId(), sandbox.attemptId(), sandbox.idempotencyKey(),
                 sandbox.providerSandboxId(), sandbox.profile().name(), sandbox.status().name(), sandbox.template(),

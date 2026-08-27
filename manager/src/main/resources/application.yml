@@ -3,6 +3,7 @@ spring:
     name: agentteams-manager
   flyway:
     enabled: true
+    locations: classpath:db/manager-migration
 management:
   endpoints:
     web:
