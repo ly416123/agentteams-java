@@ -1,9 +1,9 @@
 # AgentTeams Java 生产交付与可靠性闭环设计
 
 **日期：** 2026-08-26
-**状态：** 等待书面规格审查
+**状态：** 批次 A 已完成 Helm/NetworkPolicy 基础；镜像发布、生产恢复和外部平台门禁进入批次 B
 **优先级：** P0/P1
-**代码基线：** `b927a09`
+**代码基线：** `fd721d3`
 
 ## 1. 目标
 
@@ -11,14 +11,14 @@
 
 本规格不在仓库内安装托管 PostgreSQL、NATS、S3、企业 IdP、Vault 或生产 Matrix Homeserver，而是定义它们必须满足的契约、预检、监控和演练入口。
 
-## 2. 当前断点
+## 2. 当前断点（基于 `fd721d3`）
 
-- 生产 values 指向外部 PostgreSQL、NATS、S3 和 OTLP，但当前 NetworkPolicy 主要放行同命名空间 Pod；
+- 生产 values 已声明外部 PostgreSQL、NATS、S3、OIDC、Matrix、模型和 OTLP 的 CIDR 入口，仍缺 PROXY/PLATFORM 模式的完整运行时接线；
 - 标准 Kubernetes NetworkPolicy 不能按域名放行，当前生产配置没有 CIDR/端口或统一 Egress Proxy 契约；
-- External Secrets、cert-manager 和 Reloader 主要是文档约定，没有统一 Ready/轮换门禁；
-- 当前 GitHub Actions 只做 CI 和 Kind，镜像由本地脚本构建为 `latest`；
+- External Secrets、cert-manager 和 Reloader 仍主要是文档约定，没有统一 Ready/轮换门禁；
+- 当前 GitHub Actions 仍以 CI 和 Kind 为主，缺少签名镜像、SBOM、provenance 和环境晋级流程；
 - 生产 values 使用人工替换的 release tag，没有镜像 digest、SBOM、签名、provenance 和环境晋级；
-- PostgreSQL/MinIO 恢复脚本明确面向 Kind，生产 RPO/RTO、PITR 和恢复演练没有自动化证据；
+- PostgreSQL/MinIO 恢复脚本已覆盖 Kind 验收，生产 RPO/RTO、PITR 和恢复演练没有自动化证据；
 - Chart 只创建 ClusterIP Service，Ingress/Gateway API、TLS 终止、DNS、WAF 和入口限流由环境隐式承担；
 - mTLS、OIDC 和 Matrix 已有开发验收，但生产证书轮换、外部 IdP 和 Homeserver 恢复仍缺少发布门禁。
 

@@ -30,13 +30,26 @@ git worktree add ../agentteams-java-<task-name> -b codex/<task-name> origin/main
 
 ## 合并与同步
 
+提交会触发 GitHub Actions 前，必须先在本机 Docker 环境完成与项目范围匹配的验证。当前项目背景是 macOS + Colima，统一通过 `deploy/dev-env.sh` 配置 Docker context 和 Testcontainers endpoint：
+
+```bash
+source deploy/dev-env.sh
+docker info
+mvn -q -Pintegration-tests verify
+```
+
+上述 Docker 验证未通过时，不得把变更标记为本地验证完成，也不得为普通开发变更推送到 GitHub CI；应先修复本地环境或测试失败原因。纯 Java 测试可以用于定位问题，但不能替代 Docker-backed 验证。
+
 合并前至少检查以下内容：
 
 ```bash
 git fetch origin
 git diff --stat origin/main...HEAD
 git diff --check
-mvn -q test
+source deploy/dev-env.sh
+docker info
+mvn -q -Pintegration-tests verify
+python3 -m unittest discover -s scripts -p 'test_*.py'
 ```
 
 合并后立即验证并同步远程主线：

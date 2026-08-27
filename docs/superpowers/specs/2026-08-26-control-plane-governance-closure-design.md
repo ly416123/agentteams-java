@@ -1,9 +1,9 @@
 # AgentTeams Java 控制面治理闭环设计
 
 **日期：** 2026-08-26
-**状态：** 等待书面规格审查
+**状态：** Team Revision/Effective Config 已随批次 A 完成；Worker 运维、统一 RBAC、成员生命周期和 Secret Resolver 进入批次 B
 **优先级：** P0/P1
-**代码基线：** `b927a09`
+**代码基线：** `fd721d3`
 
 ## 1. 目标
 
@@ -28,15 +28,12 @@
 - OIDC、权限枚举、项目角色、`resource_scopes` 和部分 Service 级可见性校验；
 - `credentialRef` 校验、Kubernetes Secret 状态解析和 External Secrets Adapter 边界。
 
-缺口：
+当前缺口：
 
-- Team API 没有不可变 revision、发布状态、Team 级资源绑定和批量成员部署状态；
-- Team CR 中的 Leader 没有形成完整、可查询、可版本化的业务模型；
-- Effective Config 没有统一 provenance 和确定性合成规则；
-- Agent 下线未自动联动 Operator rollout、配置版本和活动 Assignment 排空；
-- `ApiAuthorizationPolicy` 主要按 HTTP 路径映射权限，项目 API 还存在绕过统一映射的特殊分支；
-- 成员缺少邀请、重新启用、角色变更、Owner 转移和完整审计；
-- `ExternalSecretsSecretResolver` 对合法引用固定返回 `UNAVAILABLE`。
+- Agent 下线尚未自动联动持久化 Worker rollout、配置版本和活动 Assignment 排空；
+- `ApiAuthorizationPolicy` 尚未由统一的 Service 层 Action 矩阵完全收敛，异步消费者和 Manager Tool 仍需复用同一授权边界；
+- 项目成员尚缺邀请、重新启用、角色变更、Owner 转移和完整审计生命周期；
+- `ExternalSecretsSecretResolver` 对合法引用仍固定返回 `UNAVAILABLE`，尚未读取 ExternalSecret Ready 与目标 Secret metadata。
 
 ## 3. Team Revision
 

@@ -131,9 +131,27 @@ existing authorization boundary. JWKS caching and key refresh are delegated
 to Spring Security's Nimbus decoder; no OIDC client secret is stored in the
 application configuration.
 
-Without Docker/WSL, all pure-Java tests still run. Testcontainers-based
-PostgreSQL/NATS/MinIO tests are marked `disabledWithoutDocker` and are skipped
-until a container engine is available.
+## Project environment and validation gate
+
+The primary local development environment is macOS with Colima and a working
+Docker daemon. `deploy/dev-env.sh` selects the `colima` Docker context and
+exports the Docker endpoint used by Testcontainers. Docker-backed tests are
+therefore part of the normal local verification path, not an optional CI-only
+substitute.
+
+Before pushing a code or deployment change to GitHub Actions, load the local
+environment and complete the Docker-backed verification successfully:
+
+```bash
+source deploy/dev-env.sh
+docker info
+mvn -q -Pintegration-tests verify
+```
+
+If the local Docker daemon or Testcontainers endpoint is unavailable, pure
+Java tests may still be useful for diagnosis, but the change must not be
+submitted to GitHub CI as locally verified until the Docker-backed command has
+passed.
 
 ## Local infrastructure
 

@@ -1,9 +1,9 @@
 # AgentTeams Java 运行时生产闭环设计
 
 **日期：** 2026-08-26
-**状态：** 等待书面规格审查
+**状态：** 批次 A L1-L4 已完成；L5/L6 受控环境验收独立管理
 **优先级：** P0
-**代码基线：** `b927a09`
+**代码基线：** `fd721d3`
 
 ## 1. 目标
 
@@ -21,24 +21,24 @@
 
 - `SandboxRuntimePort`、`task_sandboxes`、Assignment/Lease 生命周期和 `SandboxLifecycleService` 已存在；
 - `TaskSandbox` CRD、Operator Reconciler 和受限 Job 渲染已存在；
-- Control Plane 只在 `agentteams.sandbox.provider=fake` 时注册 `FakeSandboxRuntime`；
-- Helm 只把 Sandbox Provider 配置注入 Operator，没有把启用状态和 Provider 注入 Control Plane；
-- 没有生产 `KubernetesSandboxRuntime`，也没有周期调用 `provisionRequested`、`renewRunning`、`terminateStopping` 的调度器；
-- Reconciler 目前缺少 finalizer、删除流程和旧 generation 状态保护的完整行为验收。
+- Control Plane 已支持 `fake` 与 Kubernetes Sandbox Provider，生命周期由带数据库租约的 Scheduler 驱动；
+- `KubernetesSandboxRuntime`、Provider 状态迁移、幂等 provision/renew/terminate 和观察逻辑已实现；
+- Operator 已具备 finalizer、删除收敛、Service/Job 资源管理和旧 generation 状态保护；
+- gVisor/Kata 真实 RuntimeClass、节点故障和生产外部依赖的 L5/L6 验收尚未在本仓库 CI 中执行。
 
 ### 2.2 AgentScope
 
 - `AgentScopeRuntime`、Harness Factory、事件翻译、Workspace Factory 和模型适配器已存在；
 - `AgentScopeRolloutPolicy` 和 Helm ConfigMap 已存在；
-- `QwenPawWorker` 构造时主动拒绝 `ExecutionRuntime.AGENTSCOPE`；
-- Worker CR 的 `spec.runtime` 只成为标签，没有写入 `AGENTTEAMS_RUNTIME`；
-- Worker Runtime 字段类型固定为 `QwenPawRuntime`，不能承载统一路由。
+- Worker 已通过 `WorkerRuntimeFactory` 和 `WorkerRuntimeRouter` 支持 QwenPaw/AgentScope 灰度路由；
+- Worker CR 的 runtime 已注入 `AGENTTEAMS_RUNTIME`，并通过配置工厂构造 AgentScope Harness；
+- Sandbox 访问收敛为只读 `SandboxStateProbePort`，不向 Worker 暴露 Kubernetes 写权限。
 
 ### 2.3 Manager
 
 - DeepSeek/OpenAI Compatible Provider、结构化输出、工具注册、Quota、价格和审计已存在；
-- `ManagerSmokeApplication` 只验证本地连接，没有 HTTP 服务、Helm Deployment、生产认证和会话持久化；
-- Manager 的真实 Task/Team/Worker 维度依赖调用方传入，尚无正式业务入口提供这些上下文。
+- Manager 已提供 Spring Boot HTTP 入口、OIDC 鉴权、JDBC 会话/事件持久化、幂等 cursor 和 Helm Deployment；
+- Manager 仍需在生产交付批次中接入签名镜像、外部 Secret/证书轮换和预发布发布门禁。
 
 ## 3. 总体架构
 

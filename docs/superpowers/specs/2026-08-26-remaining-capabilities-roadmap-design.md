@@ -1,8 +1,8 @@
 # AgentTeams Java 剩余能力总体路线图设计
 
 **日期：** 2026-08-26
-**状态：** 已获用户确认，等待书面规格审查
-**代码基线：** `b927a09`
+**状态：** 已获用户确认；批次 A 已完成，批次 B 进入计划
+**代码基线：** `fd721d3`
 **目标版本：** 生产可用基线后继续演进商业化能力
 
 ## 1. 文档目标
@@ -49,11 +49,18 @@
 
 | 工作流 | 优先级 | 包含能力 | 子规格 |
 |---|---|---|---|
-| W1 运行时生产闭环 | P0 | Kubernetes Sandbox、生命周期调度、gVisor/Kata、AgentScope Worker 路由、正式 Manager 服务 | `2026-08-26-runtime-production-closure-design.md` |
+| W1 运行时生产闭环 | P0 | Kubernetes Sandbox、生命周期调度、gVisor/Kata、AgentScope Worker 路由、正式 Manager 服务 | `2026-08-26-runtime-production-closure-design.md`（L1-L4 已完成；L5/L6 待受控环境） |
 | W2 控制面治理闭环 | P0/P1 | Team 版本化绑定、Effective Config、Worker 运维、全资源 RBAC、成员生命周期、Secret 解析 | `2026-08-26-control-plane-governance-closure-design.md` |
 | W3 生产交付与可靠性 | P0/P1 | 外部依赖网络、镜像晋级、供应链、Ingress、证书、备份恢复和发布回滚 | `2026-08-26-production-delivery-reliability-design.md` |
 | W4 可观测与规模化 | P1 | Skill/MCP 生效闭环、预算预测、审计对账、配额压测、Operator/HPA/SLO | `2026-08-26-observability-scale-closure-design.md` |
 | W5 产品生态扩展 | P2/P3 | Worker Template、Console、SDK、Channel SPI、Sandbox Pool、Cube、多区域和账单扩展 | `2026-08-26-product-ecosystem-expansion-design.md` |
+
+### 4.1 当前进度（2026-08-27）
+
+- W1 的批次 A 代码已进入 `main`，包括 Sandbox Provider、Operator 生命周期保护、AgentScope 路由、Manager 服务、Team Revision/Effective Config 和 Helm 安全契约。
+- 批次 A 的本地 Java/脚本/Helm 验证及 GitHub Actions `verify`、`kind-recovery`、`kind-oidc` 已通过。
+- W1 的 gVisor/Kata、外部 Secret Manager、外部 IdP、生产镜像签名和预发布环境恢复演练仍属于 L5/L6，不以 Kind 结果替代。
+- 下一批次为 W2/W3 的安全与运维闭环，实施计划见 `docs/superpowers/plans/2026-08-27-batch-b-security-operations-plan.md`。
 
 ## 5. 统一架构决策
 
