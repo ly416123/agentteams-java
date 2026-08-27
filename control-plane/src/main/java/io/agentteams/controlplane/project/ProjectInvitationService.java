@@ -54,12 +54,33 @@ public class ProjectInvitationService {
             throw new AuthorizationException("project membership management denied");
         }
 
+        String requestHash = hash("INVITE\u0000" + target + "\u0000" + role.name());
+        var existing = repository.findInvitationIdempotency(project.tenantId(), project.id(), idempotencyKey.trim());
+        if (existing.isPresent()) {
+            assertSame(existing.get().requestHash(), requestHash, idempotencyKey, "project invitation");
+            ProjectInvitationRecord invitation = repository.findInvitation(existing.get().invitationId())
+                    .orElseThrow(() -> new IllegalStateException("invitation idempotency record disappeared"));
+            return new InvitationResult(invitation, "");
+        }
+
         byte[] tokenBytes = new byte[32];
         random.nextBytes(tokenBytes);
         String token = HexFormat.of().formatHex(tokenBytes);
         Instant now = clock.instant();
         ProjectInvitationRecord invitation = ProjectInvitationRecord.invited(UUID.randomUUID(), project.tenantId(),
                 project.id(), target, role, hash(token), now.plus(INVITATION_TTL), principal.subject(), now);
+        ProjectInvitationRepository.InvitationIdempotency idempotency =
+                new ProjectInvitationRepository.InvitationIdempotency(project.tenantId(), project.id(),
+                        idempotencyKey.trim(), requestHash, invitation.id(), now);
+        if (!repository.insertInvitationIdempotency(idempotency)) {
+            ProjectInvitationRepository.InvitationIdempotency winner = repository
+                    .findInvitationIdempotency(project.tenantId(), project.id(), idempotencyKey.trim())
+                    .orElseThrow(() -> new IllegalStateException("invitation idempotency record disappeared"));
+            assertSame(winner.requestHash(), requestHash, idempotencyKey, "project invitation");
+            ProjectInvitationRecord existingInvitation = repository.findInvitation(winner.invitationId())
+                    .orElseThrow(() -> new IllegalStateException("invitation idempotency target disappeared"));
+            return new InvitationResult(existingInvitation, "");
+        }
         repository.insertInvitation(invitation);
         return new InvitationResult(invitation, token);
     }
@@ -125,6 +146,12 @@ public class ProjectInvitationService {
     private static String required(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
         return value.trim();
+    }
+
+    private static void assertSame(String actual, String expected, String key, String operation) {
+        if (!actual.equals(expected)) {
+            throw new io.agentteams.controlplane.persistence.IdempotencyConflictException(key, operation);
+        }
     }
 
     private static String hash(String value) {

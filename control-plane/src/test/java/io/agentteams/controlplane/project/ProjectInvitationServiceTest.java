@@ -42,6 +42,7 @@ class ProjectInvitationServiceTest {
                 ProjectRecord.create(PROJECT_ID, "tenant-a", "project-a", "owner", NOW)));
         when(repository.findMembership("tenant-a", PROJECT_ID, "owner")).thenReturn(Optional.of(
                 ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "owner", ProjectRole.OWNER, NOW)));
+        when(repository.insertInvitationIdempotency(any())).thenReturn(true);
     }
 
     @AfterEach
@@ -91,6 +92,25 @@ class ProjectInvitationServiceTest {
         verify(repository, never()).upsertMembership(any());
     }
 
+    @Test
+    void duplicateInvitationKeyReusesInvitationWithoutReturningASecondToken() {
+        ProjectInvitationRecord existing = ProjectInvitationRecord.invited(UUID.randomUUID(), "tenant-a", PROJECT_ID,
+                "developer", ProjectRole.DEVELOPER, "hash", NOW.plusSeconds(60), "owner", NOW);
+        when(repository.findInvitationIdempotency("tenant-a", PROJECT_ID, "invite-1"))
+                .thenReturn(Optional.of(new ProjectInvitationRepository.InvitationIdempotency(
+                        "tenant-a", PROJECT_ID, "invite-1", hash("INVITE\u0000developer\u0000DEVELOPER"),
+                        existing.id(), NOW)));
+        when(repository.findInvitation(existing.id()))
+                .thenReturn(Optional.of(existing));
+
+        ProjectInvitationService.InvitationResult result = service.invite(
+                PROJECT_ID, "invite-1", "developer", ProjectRole.DEVELOPER);
+
+        assertThat(result.record()).isEqualTo(existing);
+        assertThat(result.token()).isEmpty();
+        verify(repository, never()).insertInvitation(any());
+    }
+
     private static String hash(String value) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
@@ -99,4 +119,5 @@ class ProjectInvitationServiceTest {
             throw new AssertionError(error);
         }
     }
+
 }

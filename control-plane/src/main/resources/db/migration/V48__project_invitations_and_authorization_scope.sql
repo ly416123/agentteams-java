@@ -26,3 +26,17 @@ CREATE UNIQUE INDEX project_invitations_token_hash_idx
 
 CREATE INDEX project_invitations_pending_idx
     ON project_invitations (tenant_id, project_id, status, expires_at);
+
+CREATE TABLE project_invitation_idempotency (
+    tenant_id TEXT NOT NULL,
+    project_id UUID NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    invitation_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (tenant_id, project_id, idempotency_key),
+    CONSTRAINT project_invitation_idempotency_project_fk
+        FOREIGN KEY (tenant_id, project_id) REFERENCES projects (tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT project_invitation_idempotency_key_not_blank CHECK (length(btrim(idempotency_key)) > 0),
+    CONSTRAINT project_invitation_idempotency_hash_not_blank CHECK (length(btrim(request_hash)) > 0)
+);

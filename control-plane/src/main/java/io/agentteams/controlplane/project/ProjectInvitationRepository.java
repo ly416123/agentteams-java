@@ -11,9 +11,18 @@ public interface ProjectInvitationRepository {
 
     void insertInvitation(ProjectInvitationRecord invitation);
 
+    Optional<InvitationIdempotency> findInvitationIdempotency(String tenantId, UUID projectId, String key);
+
+    Optional<ProjectInvitationRecord> findInvitation(UUID invitationId);
+
+    boolean insertInvitationIdempotency(InvitationIdempotency record);
+
     Optional<ProjectInvitationRecord> findInvitationByTokenHash(String tenantId, String tokenHash);
 
     boolean acceptInvitation(UUID invitationId, Instant acceptedAt);
 
     void upsertMembership(ProjectMembershipRecord membership);
+
+    record InvitationIdempotency(String tenantId, UUID projectId, String key, String requestHash,
+            UUID invitationId, Instant createdAt) { }
 }

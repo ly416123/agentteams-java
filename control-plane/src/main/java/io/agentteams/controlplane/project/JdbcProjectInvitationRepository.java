@@ -56,6 +56,40 @@ public class JdbcProjectInvitationRepository implements ProjectInvitationReposit
     }
 
     @Override
+    public Optional<ProjectInvitationRepository.InvitationIdempotency> findInvitationIdempotency(
+            String tenantId, UUID projectId, String key) {
+        return jdbc.query("""
+                SELECT tenant_id, project_id, idempotency_key, request_hash, invitation_id, created_at
+                  FROM project_invitation_idempotency
+                 WHERE tenant_id = ? AND project_id = ? AND idempotency_key = ?
+                """, (rs, row) -> new ProjectInvitationRepository.InvitationIdempotency(
+                rs.getString("tenant_id"), rs.getObject("project_id", UUID.class),
+                rs.getString("idempotency_key"), rs.getString("request_hash"),
+                rs.getObject("invitation_id", UUID.class), instant(rs, "created_at")),
+                tenantId, projectId, key).stream().findFirst();
+    }
+
+    @Override
+    public Optional<ProjectInvitationRecord> findInvitation(UUID invitationId) {
+        return jdbc.query("""
+                SELECT id, tenant_id, project_id, subject, role, token_hash, expires_at, created_by,
+                       created_at, status, accepted_at
+                  FROM project_invitations WHERE id = ?
+                """, (rs, row) -> invitation(rs), invitationId).stream().findFirst();
+    }
+
+    @Override
+    public boolean insertInvitationIdempotency(ProjectInvitationRepository.InvitationIdempotency record) {
+        return jdbc.update("""
+                INSERT INTO project_invitation_idempotency
+                    (tenant_id, project_id, idempotency_key, request_hash, invitation_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (tenant_id, project_id, idempotency_key) DO NOTHING
+                """, record.tenantId(), record.projectId(), record.key(), record.requestHash(),
+                record.invitationId(), timestamp(record.createdAt())) == 1;
+    }
+
+    @Override
     public Optional<ProjectInvitationRecord> findInvitationByTokenHash(String tenantId, String tokenHash) {
         return jdbc.query("""
                 SELECT id, tenant_id, project_id, subject, role, token_hash, expires_at, created_by,
