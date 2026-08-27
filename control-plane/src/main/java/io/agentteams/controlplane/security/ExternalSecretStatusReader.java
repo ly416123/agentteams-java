@@ -21,7 +21,7 @@ public interface ExternalSecretStatusReader {
         Objects.requireNonNull(client, "client");
         return (namespace, name) -> {
             ResourceDefinitionContext context = new ResourceDefinitionContext.Builder()
-                    .withGroup("external-secrets.io").withVersion("v1beta1")
+                    .withGroup("external-secrets.io").withVersion("v1")
                     .withPlural("externalsecrets").withNamespaced(true).build();
             MixedOperation<GenericKubernetesResource, GenericKubernetesResourceList,
                     Resource<GenericKubernetesResource>> operation = client.genericKubernetesResources(context);

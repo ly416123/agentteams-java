@@ -161,33 +161,33 @@ git commit -m "feat(权限): 完善资源授权与成员生命周期"
 
 **目标：** 只读取 ExternalSecret 状态和目标 Secret metadata，不读取 Secret value，并返回稳定的 `MISSING/UNAVAILABLE/RESOLVED` 分类。
 
-**当前增量进度（2026-08-27）：** 已完成 ExternalSecret 状态与 observed generation 读取、目标 Secret key/metadata 读取、`externalsecret://namespace/name#key` 引用解析和稳定状态分类；ExternalSecret 未 Ready、generation 落后、目标 Secret/key 缺失及 API 异常均 fail-closed。Helm 已通过显式后端配置为 Control Plane 注入配置，并将 ExternalSecret/Secret `get` 权限绑定到 Control Plane 的 namespace Role，未授予 list/watch 或写权限；Java 单测、Python 契约测试、Helm lint 和本机 Colima Docker 全量 Gate 已通过。任务仍保留未完成，待后续补充真实 Kubernetes fake reader/External Secrets 控制器收敛验收。
+**当前增量进度（2026-08-28）：** 已完成 ExternalSecret 状态与 observed generation 读取、目标 Secret key/metadata 读取、`externalsecret://namespace/name#key` 引用解析和稳定状态分类；ExternalSecret 未 Ready、generation 落后、目标 Secret/key 缺失及 API 异常均 fail-closed。Helm 已通过显式后端配置为 Control Plane 注入配置，并将 ExternalSecret/Secret `get` 权限绑定到 Control Plane 的 namespace Role，未授予 list/watch 或写权限；Reader 已切换到当前 ESO v1 CRD API，Kind CI 安装固定版本 ESO 2.9.0 并执行真实 Kubernetes Provider 收敛验收，验证 Ready、同步标记、目标 Secret key 和 resourceVersion，且验收资源使用最小 namespace RBAC 并自动清理。Java 单测、Python 87 项脚本测试、Helm lint、本机 Colima Docker 全量 Gate 和真实 Kind 收敛验收均已通过。任务 3 的仓库侧实现与 L4 验收完成；真实生产 Secret Manager、外部集群和 L5/L6 仍需受控环境验收。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖非法引用、ExternalSecret 不存在、Condition 非 Ready、目标 Secret/key 缺失、generation 落后、Kubernetes API 异常和 Ready metadata 存在；使用 fake reader 证明 resolver 没有调用 Secret value 读取方法。
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`mvn -q -pl control-plane -am -Dtest=ExternalSecretsSecretResolverTest,SecretResolverFactoryTest,ExternalSecretStatusReaderTest test`
 
 预期：合法引用仍得到 `UNAVAILABLE`，Ready 状态和 metadata 读取测试失败。
 
-- [ ] **步骤 3：实现只读 Reader 与稳定分类**
+- [x] **步骤 3：实现只读 Reader 与稳定分类**
 
 `ExternalSecretStatusReader` 只读取指定 namespace 的 ExternalSecret status；`KubernetesSecretMetadataReader` 只读取指定 Secret metadata 和 key 列表；Resolver 按规格映射状态，诊断只保存固定错误分类和长度受限原因，不保存引用 key、Token 或 Secret 内容。
 
-- [ ] **步骤 4：收紧 Helm RBAC 与配置**
+- [x] **步骤 4：收紧 Helm RBAC 与配置**
 
 为 Control Plane 增加指定 namespace 的 `externalsecrets/status` 和单个稳定 Secret `get` 权限；禁止 `list/watch` 所有 Secret；Resolver 未配置 reader 时保持安全的 `UNAVAILABLE` 行为，启用后缺少依赖立即 fail-closed。
 
-- [ ] **步骤 5：运行测试确认通过**
+- [x] **步骤 5：运行测试确认通过**
 
 运行：`mvn -q -pl control-plane -am -Dtest=ExternalSecretsSecretResolverTest,SecretResolverFactoryTest,ExternalSecretStatusReaderTest test`，再运行 `python3 -m unittest scripts/test_batch_b_secret_contract.py`。
 
 预期：状态分类、无明文读取和最小 RBAC 契约全部通过。
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add control-plane/src/main/java/io/agentteams/controlplane/security control-plane/src/main/java/io/agentteams/controlplane/ControlPlaneConfiguration.java control-plane/src/test deploy/helm/agentteams-java/templates/rbac.yaml scripts/test_batch_b_secret_contract.py

@@ -32,6 +32,35 @@ def render_chart(*args):
 
 
 class BatchBSecretContractTest(unittest.TestCase):
+    def test_kind_acceptance_exercises_real_external_secrets_convergence(self):
+        script_path = ROOT / "scripts/run-kind-external-secrets.py"
+        self.assertTrue(script_path.is_file())
+        script = read(script_path)
+        for required in (
+            "external-secrets.io/v1",
+            "kind: SecretStore",
+            "kind: ExternalSecret",
+            "observedGeneration",
+            "Ready",
+            "KIND_EXTERNAL_SECRETS_OK",
+        ):
+            self.assertIn(required, script)
+
+        workflow = read(ROOT / ".github/workflows/ci.yml")
+        self.assertRegex(
+            workflow,
+            r"external-secrets/external-secrets[\s\S]*--version [0-9]+\.[0-9]+\.[0-9]+",
+        )
+        self.assertIn("run-kind-external-secrets.py", workflow)
+
+    def test_external_secret_reader_uses_current_crd_api_version(self):
+        reader = read(
+            ROOT
+            / "control-plane/src/main/java/io/agentteams/controlplane/security/ExternalSecretStatusReader.java"
+        )
+        self.assertIn('withVersion("v1")', reader)
+        self.assertNotIn('withVersion("v1beta1")', reader)
+
     def test_backend_is_explicit_and_secret_free_by_default(self):
         values = yaml.safe_load(read(CHART / "values.yaml"))
         self.assertEqual(

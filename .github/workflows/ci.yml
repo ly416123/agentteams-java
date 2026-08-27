@@ -180,6 +180,16 @@ jobs:
           kubectl -n agentteams rollout status deployment/dashboard-alert-receiver --timeout=180s
       - name: Build and load service images
         run: ./deploy/build-images.sh
+      - name: Install External Secrets Operator
+        run: |
+          set -euo pipefail
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --version 2.9.0 \
+            --namespace external-secrets --create-namespace \
+            --set installCRDs=true --wait --timeout 5m
+          kubectl -n external-secrets wait --for=condition=Available deployment --all --timeout=180s
       - name: Install AgentTeams chart
         run: |
           helm lint deploy/helm/agentteams-java
@@ -208,6 +218,8 @@ jobs:
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-operator --timeout=300s
+      - name: Run Kind External Secrets convergence acceptance
+        run: python scripts/run-kind-external-secrets.py --namespace agentteams --run-id "$GITHUB_RUN_ID"
       - name: Create real QwenPaw worker
         run: |
           set -euo pipefail
