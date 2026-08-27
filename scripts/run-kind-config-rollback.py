@@ -22,9 +22,12 @@ def fail(message: str) -> None:
     raise SmokeFailure(message)
 
 
-def api_request(base_url: str, path: str, method: str = "GET", body: dict | None = None) -> dict:
+def api_request(base_url: str, path: str, method: str = "GET", body: dict | None = None,
+                idempotency_key: str | None = None) -> dict:
     payload = None if body is None else json.dumps(body).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     bearer = os.environ.get("AGENTTEAMS_API_BEARER_TOKEN", "").strip()
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
@@ -109,31 +112,36 @@ def main() -> int:
         }
         old_snapshot = api_request(
             base_url, "/api/v1/config/snapshots", "POST",
-            {"subject": subject, "manifest": old_manifest, "actor": "kind-recovery"})
+            {"subject": subject, "manifest": old_manifest, "actor": "kind-recovery"},
+            f"kind-config-rollback-old-snapshot-{uuid.uuid4()}")
         new_snapshot = api_request(
             base_url, "/api/v1/config/snapshots", "POST",
-            {"subject": subject, "manifest": new_manifest, "actor": "kind-recovery"})
+            {"subject": subject, "manifest": new_manifest, "actor": "kind-recovery"},
+            f"kind-config-rollback-new-snapshot-{uuid.uuid4()}")
         if old_snapshot.get("id") == new_snapshot.get("id"):
             fail("config revisions unexpectedly share a snapshot id")
         if old_snapshot.get("version") == new_snapshot.get("version"):
             fail("config revisions unexpectedly share a version")
 
         old_deployment = api_request(
-            base_url, f"/api/v1/config/snapshots/{old_snapshot['id']}/agents/{agent_id}", "POST", {})
+            base_url, f"/api/v1/config/snapshots/{old_snapshot['id']}/agents/{agent_id}", "POST", {},
+            f"kind-config-rollback-old-deploy-{uuid.uuid4()}")
         binding_id = old_deployment["bindingId"]
         # Establish a stable APPLIED revision before introducing the candidate.
         last_status = wait_for_binding(base_url, binding_id, old_snapshot["id"],
                                        old_snapshot["version"], args.timeout, args.poll_interval)
 
         new_deployment = api_request(
-            base_url, f"/api/v1/config/snapshots/{new_snapshot['id']}/agents/{agent_id}", "POST", {})
+            base_url, f"/api/v1/config/snapshots/{new_snapshot['id']}/agents/{agent_id}", "POST", {},
+            f"kind-config-rollback-new-deploy-{uuid.uuid4()}")
         if new_deployment.get("bindingId") != binding_id:
             fail(f"new revision changed binding id: {new_deployment}")
         last_status = wait_for_binding(base_url, binding_id, new_snapshot["id"],
                                        new_snapshot["version"], args.timeout, args.poll_interval)
 
         rollback = api_request(
-            base_url, f"/api/v1/config/bindings/{binding_id}/rollback", "POST", {})
+            base_url, f"/api/v1/config/bindings/{binding_id}/rollback", "POST", {},
+            f"kind-config-rollback-rollback-{uuid.uuid4()}")
         if rollback.get("bindingId") != binding_id:
             fail(f"rollback returned an unexpected binding id: {rollback}")
         last_status = wait_for_binding(base_url, binding_id, old_snapshot["id"],

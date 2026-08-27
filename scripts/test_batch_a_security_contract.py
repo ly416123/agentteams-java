@@ -143,6 +143,39 @@ class BatchASecurityContractTest(unittest.TestCase):
                         if "namespaceSelector" in peer:
                             self.assertTrue(peer["namespaceSelector"].get("matchLabels"))
 
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_matrix_appservice_can_reach_control_plane_when_enabled(self):
+        docs = render_chart("-f", str(CHART / "../kind-matrix-values.yaml"))
+        control_plane = next(
+            policy for policy in docs
+            if policy.get("kind") == "NetworkPolicy"
+            and policy["metadata"]["name"].endswith("-control-plane")
+        )
+
+        allowed = [
+            peer
+            for rule in control_plane["spec"]["ingress"]
+            for peer in rule.get("from", [])
+            if peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+            == "tuwunel"
+        ]
+        self.assertEqual(1, len(allowed))
+
+        default_docs = render_chart()
+        default_control_plane = next(
+            policy for policy in default_docs
+            if policy.get("kind") == "NetworkPolicy"
+            and policy["metadata"]["name"].endswith("-control-plane")
+        )
+        default_matrix_peers = [
+            peer
+            for rule in default_control_plane["spec"]["ingress"]
+            for peer in rule.get("from", [])
+            if peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+            == "tuwunel"
+        ]
+        self.assertEqual([], default_matrix_peers)
+
     def test_oidc_default_is_fail_closed(self):
         values = yaml.safe_load(read_chart("values.yaml"))
         policy = values["networkPolicy"]

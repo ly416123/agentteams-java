@@ -29,9 +29,11 @@ def fail(message: str) -> None:
 
 
 def api_request(base_url: str, path: str, method: str = "GET",
-                body: dict | None = None) -> dict:
+                body: dict | None = None, idempotency_key: str | None = None) -> dict:
     payload = None if body is None else json.dumps(body).encode("utf-8")
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     bearer = os.environ.get("AGENTTEAMS_API_BEARER_TOKEN", "").strip()
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
@@ -55,7 +57,7 @@ def create_snapshot(base_url: str, subject: str, manifest: dict) -> dict:
         "subject": subject,
         "manifest": manifest,
         "actor": "kind-resource-binding-ack",
-    })
+    }, f"kind-resource-binding-snapshot-{uuid.uuid4()}")
     if not snapshot.get("id") or not snapshot.get("version"):
         fail(f"snapshot response is missing id/version: {snapshot}")
     return snapshot
@@ -175,7 +177,7 @@ def main() -> int:
         snapshots["legacy"] = create_snapshot(args.base_url, subject, legacy)
         deployment = api_request(
             args.base_url, f"/api/v1/config/snapshots/{snapshots['legacy']['id']}/agents/{args.agent_id}",
-            "POST", {})
+            "POST", {}, f"kind-resource-binding-deploy-legacy-{uuid.uuid4()}")
         binding_id = str(deployment.get("bindingId", ""))
         if not binding_id:
             fail(f"legacy deployment did not return bindingId: {deployment}")
@@ -188,7 +190,7 @@ def main() -> int:
         snapshots["valid"] = create_snapshot(args.base_url, subject, valid)
         deployment = api_request(
             args.base_url, f"/api/v1/config/snapshots/{snapshots['valid']['id']}/agents/{args.agent_id}",
-            "POST", {})
+            "POST", {}, f"kind-resource-binding-deploy-valid-{uuid.uuid4()}")
         require_same_binding(deployment, binding_id, "valid resource-binding deployment")
         statuses["valid"] = wait_for_phase(
             args.base_url, binding_id, snapshots["valid"]["id"], snapshots["valid"]["version"],
@@ -202,7 +204,7 @@ def main() -> int:
         snapshots["invalid"] = create_snapshot(args.base_url, subject, invalid)
         deployment = api_request(
             args.base_url, f"/api/v1/config/snapshots/{snapshots['invalid']['id']}/agents/{args.agent_id}",
-            "POST", {})
+            "POST", {}, f"kind-resource-binding-deploy-invalid-{uuid.uuid4()}")
         require_same_binding(deployment, binding_id, "invalid resource-binding deployment")
         statuses["invalid"] = wait_for_phase(
             args.base_url, binding_id, snapshots["invalid"]["id"], snapshots["invalid"]["version"],
