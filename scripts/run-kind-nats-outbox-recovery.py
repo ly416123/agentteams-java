@@ -104,6 +104,17 @@ def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> boo
     return int(rows or "0") > 0
 
 
+def gateway_agent_online(namespace: str, postgres_pod: str, agent_id: str) -> bool:
+    rows = sql(namespace, postgres_pod, """
+        select count(*)
+          from gateway_agent_state
+         where agent_id = '{agent_id}'
+           and connection_id is not null
+           and presence = 'ONLINE';
+    """.format(agent_id=agent_id))
+    return int(rows or "0") > 0
+
+
 def outbox_state(namespace: str, postgres_pod: str, task_id: str) -> str:
     return sql(namespace, postgres_pod, f"""
         select status || '|' || attempts || '|' || coalesce(last_error, '')
@@ -154,6 +165,11 @@ def main() -> int:
     wait_until(
         f"QwenPaw Agent registration for {args.agent_id}",
         lambda: qwenpaw_agent_ready(args.namespace, args.postgres_pod, args.agent_id),
+        args.timeout,
+    )
+    wait_until(
+        f"QwenPaw Gateway connection for {args.agent_id}",
+        lambda: gateway_agent_online(args.namespace, args.postgres_pod, args.agent_id),
         args.timeout,
     )
 
