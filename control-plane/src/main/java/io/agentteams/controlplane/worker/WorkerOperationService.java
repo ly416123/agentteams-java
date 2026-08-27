@@ -118,6 +118,13 @@ public final class WorkerOperationService {
         return persistence.inTransaction(tx -> tx.workerOperations().findActiveByAgent(agentId, now));
     }
 
+    /** Returns the oldest failed rollout that has not yet been confirmed rolled back. */
+    public java.util.Optional<WorkerOperation> failed(UUID agentId, Instant now) {
+        Objects.requireNonNull(agentId, "agentId");
+        Objects.requireNonNull(now, "now");
+        return persistence.inTransaction(tx -> tx.workerOperations().findFailedRolloutByAgent(agentId, now));
+    }
+
     /**
      * Advances a rollout only from independently observed Operator and Gateway
      * facts. A partial or stale observation keeps the durable operation RUNNING.

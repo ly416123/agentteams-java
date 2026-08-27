@@ -257,6 +257,16 @@
             "internalToken": { "type": "string" },
             "requestTimeout": { "type": "string", "minLength": 1 }
           }
+        },
+        "workerOperations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "remoteEnabled": { "type": "boolean" },
+            "controlPlaneUrl": { "type": "string" },
+            "internalToken": { "type": "string" },
+            "requestTimeout": { "type": "string", "minLength": 1 }
+          }
         }
       }
     },

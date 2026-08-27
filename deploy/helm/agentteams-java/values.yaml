@@ -100,6 +100,13 @@ gateway:
     controlPlaneUrl: ""
     internalToken: ""
     requestTimeout: 3s
+  workerOperations:
+    # Gateway reports its live Worker Hello facts to the Control Plane only
+    # when this explicitly configured bridge is enabled.
+    remoteEnabled: false
+    controlPlaneUrl: ""
+    internalToken: ""
+    requestTimeout: 3s
 operator:
   replicas: 1
   # Operator reports Worker rollout facts to the Control Plane when an

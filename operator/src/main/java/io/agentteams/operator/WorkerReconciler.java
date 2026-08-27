@@ -7,22 +7,34 @@ import io.javaoperatorsdk.operator.api.reconciler.ControllerConfiguration;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
 import io.javaoperatorsdk.operator.api.reconciler.Reconciler;
 import io.javaoperatorsdk.operator.api.reconciler.UpdateControl;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 @ControllerConfiguration
 public final class WorkerReconciler implements Reconciler<Worker> {
     private final KubernetesClient client;
     private final WorkerOperationObservationReporter observations;
+    private final WorkerOperationRecovery recovery;
+    private final ObjectMapper objectMapper;
 
     public WorkerReconciler(KubernetesClient client) {
-        this(client, WorkerOperationObservationReporter.noop());
+        this(client, WorkerOperationObservationReporter.noop(), WorkerOperationRecovery.noop(), new ObjectMapper());
     }
 
     public WorkerReconciler(KubernetesClient client, WorkerOperationObservationReporter observations) {
+        this(client, observations, WorkerOperationRecovery.noop(), new ObjectMapper());
+    }
+
+    public WorkerReconciler(KubernetesClient client, WorkerOperationObservationReporter observations,
+            WorkerOperationRecovery recovery, ObjectMapper objectMapper) {
         this.client = java.util.Objects.requireNonNull(client, "client");
         this.observations = java.util.Objects.requireNonNull(observations, "observations");
+        this.recovery = java.util.Objects.requireNonNull(recovery, "recovery");
+        this.objectMapper = java.util.Objects.requireNonNull(objectMapper, "objectMapper");
     }
 
     @Override
@@ -30,6 +42,7 @@ public final class WorkerReconciler implements Reconciler<Worker> {
         String namespace = resource.getMetadata().getNamespace() == null
                 ? "default" : resource.getMetadata().getNamespace();
         String name = resource.getMetadata().getName();
+        restoreFailedRollout(resource, namespace, name);
         client.apps().deployments().inNamespace(namespace)
                 .resource(WorkerResourceFactory.deployment(resource)).createOrReplace();
         client.services().inNamespace(namespace)
@@ -44,6 +57,30 @@ public final class WorkerReconciler implements Reconciler<Worker> {
         // enqueue its Worker owner. Keep a bounded repair loop so the CR
         // cannot remain Ready while its child Deployment is missing.
         return update.rescheduleAfter(Duration.ofSeconds(30));
+    }
+
+    private void restoreFailedRollout(Worker resource, String namespace, String name) {
+        UUID agentId;
+        try {
+            agentId = UUID.fromString(resource.getSpec().agentId());
+        } catch (IllegalArgumentException error) {
+            return;
+        }
+        Optional<WorkerOperationRecovery.FailedWorkerOperation> failed = recovery.failed(agentId);
+        if (failed.isEmpty() || !agentId.equals(failed.get().agentId())) {
+            return;
+        }
+        WorkerSpec stable;
+        try {
+            stable = WorkerStableSpec.parse(failed.get().previousStableSpec(), resource.getSpec().agentId(), objectMapper);
+        } catch (IllegalArgumentException error) {
+            // A malformed snapshot is intentionally left for manual recovery;
+            // never replace a live Worker with a partially decoded spec.
+            return;
+        }
+        resource.setSpec(stable);
+        client.resources(Worker.class).inNamespace(namespace).withName(name).replace(resource);
+        recovery.rollback(failed.get().id(), failed.get().version());
     }
 
     static WorkerStatus statusFor(Worker resource, Deployment deployment) {

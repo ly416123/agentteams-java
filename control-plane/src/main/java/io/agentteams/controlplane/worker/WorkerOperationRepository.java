@@ -66,6 +66,12 @@ public final class WorkerOperationRepository {
                 this::map, agentId, JdbcSupport.timestamp(now)).stream().findFirst();
     }
 
+    public Optional<WorkerOperation> findFailedRolloutByAgent(UUID agentId, Instant now) {
+        return jdbc.query(select() + " WHERE agent_id = ? AND type = 'ROLLOUT'"
+                        + " AND status = 'FAILED' ORDER BY updated_at, id LIMIT 1",
+                this::map, agentId).stream().findFirst();
+    }
+
     public List<WorkerOperation> findExpiredForUpdate(Instant now) {
         return jdbc.query(select() + " WHERE status IN ('PENDING', 'RUNNING')"
                         + " AND lease_expires_at <= ? ORDER BY lease_expires_at, id FOR UPDATE SKIP LOCKED",

@@ -14,20 +14,23 @@ public final class AgentTeamsOperatorApplication {
 
     public static void main(String[] args) {
         Operator operator = operatorFromEnvironment();
-        registerControllers(operator, observationReporterFromEnvironment());
+        registerControllers(operator, observationReporterFromEnvironment(), recoveryFromEnvironment());
         operator.installShutdownHook();
         operator.start();
     }
 
-    private static void registerControllers(Operator operator, WorkerOperationObservationReporter observations) {
+    private static void registerControllers(Operator operator, WorkerOperationObservationReporter observations,
+            WorkerOperationRecovery recovery) {
         String namespace = System.getenv("AGENTTEAMS_OPERATOR_NAMESPACE");
         if (namespace == null || namespace.isBlank()) {
-            operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations));
+            operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations, recovery,
+                    new ObjectMapper()));
             operator.register(new TeamReconciler(operator.getKubernetesClient()));
             operator.register(new TaskSandboxReconciler(operator.getKubernetesClient()));
             return;
         }
-        operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations),
+        operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations, recovery,
+                        new ObjectMapper()),
                 configuration -> configuration.settingNamespace(namespace));
         operator.register(new TeamReconciler(operator.getKubernetesClient()),
                 configuration -> configuration.settingNamespace(namespace));
@@ -45,6 +48,18 @@ public final class AgentTeamsOperatorApplication {
                 .connectTimeout(Duration.ofSeconds(3))
                 .followRedirects(HttpClient.Redirect.NEVER).build(), new ObjectMapper(),
                 URI.create(endpoint.trim()), token);
+    }
+
+    static WorkerOperationRecovery recoveryFromEnvironment() {
+        String endpoint = System.getenv("AGENTTEAMS_CONTROL_PLANE_URL");
+        String token = System.getenv("AGENTTEAMS_OPERATOR_INTERNAL_TOKEN");
+        if (endpoint == null || endpoint.isBlank() || token == null || token.isBlank()) {
+            return WorkerOperationRecovery.noop();
+        }
+        return new HttpWorkerOperationRecovery(HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NEVER).build(), new ObjectMapper(),
+                URI.create(endpoint.trim()), token, Duration.ofSeconds(3));
     }
 
     static Operator operatorFromEnvironment() {

@@ -57,6 +57,29 @@ public final class InternalWorkerOperationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/failed/{agentId}")
+    public ResponseEntity<FailedOperationResponse> failed(
+            @PathVariable UUID agentId,
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token) {
+        authorize(token);
+        return operations.failed(agentId, Instant.now())
+                .map(operation -> ResponseEntity.ok(FailedOperationResponse.from(operation)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/{operationId}/rollback")
+    public ResponseEntity<WorkerOperationResponse> rollback(
+            @PathVariable UUID operationId,
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token,
+            @RequestBody RollbackRequest request) {
+        authorize(token);
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new IllegalArgumentException("expectedVersion is required");
+        }
+        return ResponseEntity.ok(WorkerOperationResponse.from(
+                operations.rollback(operationId, request.expectedVersion())));
+    }
+
     @PostMapping("/{operationId}/operator")
     public ResponseEntity<WorkerOperationResponse> confirmOperator(
             @PathVariable UUID operationId,
@@ -139,4 +162,15 @@ public final class InternalWorkerOperationController {
                     operation.updatedAt(), operation.version());
         }
     }
+
+    public record FailedOperationResponse(UUID id, UUID agentId, String type, String status,
+            String previousStableSpec, String failureCategory, long version) {
+        static FailedOperationResponse from(WorkerOperation operation) {
+            return new FailedOperationResponse(operation.id(), operation.agentId(), operation.type().name(),
+                    operation.status().name(), operation.previousStableSpec(), operation.failureCategory(),
+                    operation.version());
+        }
+    }
+
+    public record RollbackRequest(Long expectedVersion) { }
 }

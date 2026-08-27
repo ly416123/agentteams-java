@@ -38,8 +38,17 @@ import io.opentelemetry.context.propagation.TextMapPropagator;
 /** Default process wiring; production deployments can replace each port adapter with a durable bean. */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({GrpcServerProperties.class, GrpcTlsProperties.class, NatsGatewayProperties.class,
-        GatewayQuotaProperties.class})
+        GatewayQuotaProperties.class, GatewayOperationProperties.class})
 public class AgentGatewayGrpcConfiguration {
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.gateway.worker-operations.remote-enabled", havingValue = "true")
+    @ConditionalOnMissingBean(GatewayWorkerOperationObservationReporter.class)
+    public GatewayWorkerOperationObservationReporter gatewayWorkerOperationObservationReporter(
+            GatewayOperationProperties properties, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new HttpGatewayWorkerOperationObservationReporter(HttpClient.newBuilder()
+                .connectTimeout(properties.getRequestTimeout()).build(), objectMapper, properties);
+    }
 
     @Bean
     @ConditionalOnProperty(name = "agentteams.gateway.quota.remote-enabled", havingValue = "true")
@@ -83,9 +92,12 @@ public class AgentGatewayGrpcConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(AgentStatePort.class)
-    public AgentStatePort agentStatePort(ObjectProvider<DataSource> dataSources) {
+    public AgentStatePort agentStatePort(ObjectProvider<DataSource> dataSources,
+            ObjectProvider<GatewayWorkerOperationObservationReporter> operationObservations) {
         DataSource dataSource = dataSources.getIfAvailable();
-        return dataSource == null ? new NoopAgentStatePort() : new JdbcAgentStateStore(dataSource);
+        return dataSource == null ? new NoopAgentStatePort()
+                : new JdbcAgentStateStore(dataSource,
+                        operationObservations.getIfAvailable(GatewayWorkerOperationObservationReporter::noop));
     }
 
     @Bean

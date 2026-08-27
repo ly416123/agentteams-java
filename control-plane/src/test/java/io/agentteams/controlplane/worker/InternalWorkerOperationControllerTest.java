@@ -139,4 +139,47 @@ class InternalWorkerOperationControllerTest {
                         .header(InternalWorkerOperationController.TOKEN_HEADER, "secret"))
                 .andExpect(status().is(HttpStatus.NOT_FOUND.value()));
     }
+
+    @Test
+    void exposesFailedRolloutForAutomaticStableSpecRecovery() throws Exception {
+        UUID agentId = UUID.randomUUID();
+        WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), agentId, WorkerOperationType.ROLLOUT,
+                "sha256:new", "qwenpaw", "config-2", "secret-2",
+                "{\"agentId\":\"" + agentId + "\",\"runtime\":\"qwenpaw\","
+                        + "\"image\":\"example/worker@sha256:old\",\"replicas\":1,\"env\":{}}",
+                "rollout-1", 1, "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
+                Instant.parse("2030-01-01T00:00:00Z"));
+        operation = new WorkerOperation(operation.id(), operation.agentId(), operation.type(),
+                WorkerOperationStatus.FAILED, operation.requestedSpecDigest(), operation.requestedRuntime(),
+                operation.requestedConfigRevision(), operation.requestedSecretGeneration(), operation.previousStableSpec(),
+                operation.idempotencyKey(), operation.expectedAgentVersion(), operation.owner(), operation.leaseExpiresAt(),
+                "OPERATION_LEASE_EXPIRED", operation.correlationId(), operation.createdAt(), operation.updatedAt(), 3);
+        when(operations.failed(eq(agentId), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.of(operation));
+
+        mockMvc.perform(get("/internal/v1/worker-operations/failed/{agentId}", agentId)
+                        .header(InternalWorkerOperationController.TOKEN_HEADER, "secret"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(operation.id().toString()))
+                .andExpect(jsonPath("$.version").value(3))
+                .andExpect(jsonPath("$.previousStableSpec").value(operation.previousStableSpec()));
+    }
+
+    @Test
+    void confirmsAutomaticRollbackThroughTheInternalBoundary() throws Exception {
+        UUID operationId = UUID.randomUUID();
+        WorkerOperation operation = WorkerOperation.pending(operationId, UUID.randomUUID(), WorkerOperationType.ROLLOUT,
+                "sha256:new", "qwenpaw", "config-2", "secret-2", "{}", "rollout-1", 1,
+                "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
+                Instant.parse("2030-01-01T00:00:00Z"));
+        when(operations.rollback(operationId, 3L)).thenReturn(operation);
+
+        mockMvc.perform(post("/internal/v1/worker-operations/{id}/rollback", operationId)
+                        .header(InternalWorkerOperationController.TOKEN_HEADER, "secret")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(operationId.toString()));
+
+        verify(operations).rollback(operationId, 3L);
+    }
 }

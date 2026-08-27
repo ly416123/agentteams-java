@@ -31,6 +31,9 @@ gateway:
   quota:
     remoteEnabled: true
     internalToken: kind-quota-internal
+  workerOperations:
+    remoteEnabled: true
+    internalToken: kind-quota-internal
 networkPolicy:
   dashboardAlertReceiver:
     enabled: true

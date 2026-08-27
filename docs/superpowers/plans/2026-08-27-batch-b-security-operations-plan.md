@@ -66,9 +66,9 @@
 
 **目标：** 把 drain、rollout、rollback、terminate 从瞬时 API 变成数据库驱动、可重试、可审计的 Operation。
 
-**当前增量进度（2026-08-28）：** 已完成第一纵切：V46 `worker_operations` 表、JDBC Repository、Operation 类型/记录、DRAIN/TERMINATE 服务入口和 HTTP `202 Accepted` 入口；已验证幂等复用、幂等键请求变更拒绝、活动 Lease 终止保护、活动 Operation 唯一约束、过期 lease 回收、rollout 调度 fencing、DRAIN 后新任务排除和资源范围校验。随后补齐 Worker CR 的 rollout 版本期望字段（spec digest/runtime/config revision/Secret generation）、Deployment Pod template 版本 annotations 和 Reconciler 的就绪版本状态投影，旧 CR 兼容且已通过本地 Docker/Colima 全量 Gate。当前又完成 Gateway Hello 版本事实纵切：协议新增可选版本字段，Operator 将 CR 期望值注入 Worker 环境，Worker Hello 回传并由 Gateway 连接快照/JDBC 投影保存，旧 Worker 仍兼容；本地单测、集成测试和重跑的 `TaskPushInfrastructureIT` 已通过，首次全量 Gate 的 PostgreSQL SSL 握手失败为瞬态环境问题。随后新增带数据库 leader lease 的 Worker Operation 独立恢复调度器，过期 `PENDING/RUNNING` Operation 可在进程重启后脱离任务流量被回收；已通过本地全量单测和第二轮 Docker/Colima Gate。随后增加了 `WorkerRolloutConfirmation` 和 `confirmRollout`：Operator、Gateway 必须同时报告完全一致的 digest/runtime/config revision/Secret generation 才能进入 `SUCCEEDED`，部分或过期观察保持 `RUNNING/FAILED`；并补齐 Operation 查询、按 Agent 资源边界回滚，以及由 `X-AgentTeams-Internal-Token` 保护的 rollout 确认入口。当前新增 V49 `worker_operation_observations` 独立保存 Operator/Gateway 两方事实，并提供两个分别受内部 Token 保护的确认入口；部分事实可独立到达、幂等更新，只有两方事实同时匹配请求版本才进入 `SUCCEEDED`；同时增加仅返回未过期 ROLLOUT 的 Token 保护发现入口，返回 Operation version 与目标版本事实，供后续真实 Operator/Gateway 适配器使用。本地 Docker/Colima 定向测试、Maven 集成门禁、脚本和 Helm 校验均已通过。当前已接入真实 Operator 读取适配器：Worker reconcile 根据 Kubernetes Deployment/CR 状态查询活动 rollout，并在 canonical UUID/Token 配置具备时回传 Operator 事实；HTTP 失败不会阻断 Kubernetes 子资源 reconcile，Helm/NetworkPolicy 已提供对应配置。Gateway 读取适配器以及失败 rollout 自动恢复稳定资源仍未完成，不能将任务 1 标记为整体完成。
+**当前增量进度（2026-08-28）：** 已完成第一纵切：V46 `worker_operations` 表、JDBC Repository、Operation 类型/记录、DRAIN/TERMINATE 服务入口和 HTTP `202 Accepted` 入口；已验证幂等复用、幂等键请求变更拒绝、活动 Lease 终止保护、活动 Operation 唯一约束、过期 lease 回收、rollout 调度 fencing、DRAIN 后新任务排除和资源范围校验。随后补齐 Worker CR 的 rollout 版本期望字段（spec digest/runtime/config revision/Secret generation）、Deployment Pod template 版本 annotations 和 Reconciler 的就绪版本状态投影，旧 CR 兼容且已通过本地 Docker/Colima 全量 Gate。当前又完成 Gateway Hello 版本事实纵切：协议新增可选版本字段，Operator 将 CR 期望值注入 Worker 环境，Worker Hello 回传并由 Gateway 连接快照/JDBC 投影保存，旧 Worker 仍兼容；本地单测、集成测试和重跑的 `TaskPushInfrastructureIT` 已通过，首次全量 Gate 的 PostgreSQL SSL 握手失败为瞬态环境问题。随后新增带数据库 leader lease 的 Worker Operation 独立恢复调度器，过期 `PENDING/RUNNING` Operation 可在进程重启后脱离任务流量被回收；已通过本地全量单测和第二轮 Docker/Colima Gate。随后增加了 `WorkerRolloutConfirmation` 和 `confirmRollout`：Operator、Gateway 必须同时报告完全一致的 digest/runtime/config revision/Secret generation 才能进入 `SUCCEEDED`，部分或过期观察保持 `RUNNING/FAILED`；并补齐 Operation 查询、按 Agent 资源边界回滚，以及由 `X-AgentTeams-Internal-Token` 保护的 rollout 确认入口。当前新增 V49 `worker_operation_observations` 独立保存 Operator/Gateway 两方事实，并提供两个分别受内部 Token 保护的确认入口；部分事实可独立到达、幂等更新，只有两方事实同时匹配请求版本才进入 `SUCCEEDED`；同时增加仅返回未过期 ROLLOUT 的 Token 保护发现入口，返回 Operation version 与目标版本事实，供后续真实 Operator/Gateway 适配器使用。本地 Docker/Colima 定向测试、Maven 集成门禁、脚本和 Helm 校验均已通过。当前已接入真实 Operator 读取适配器：Worker reconcile 根据 Kubernetes Deployment/CR 状态查询活动 rollout，并在 canonical UUID/Token 配置具备时回传 Operator 事实；HTTP 失败不会阻断 Kubernetes 子资源 reconcile，Helm/NetworkPolicy 已提供对应配置。现已接入真实 Gateway 读取适配器：Gateway 在注册、心跳和断连状态成功投影后，按活动 Operation version 上报 Hello 事实；适配器默认关闭、Token 保护且失败不阻断连接状态。另已补齐失败 rollout 的稳定 spec 严格恢复：Operator 读取未回滚的失败 Operation，校验 agentId/必需字段后恢复 Worker CR，再以 expected version 确认 Operation 为 `ROLLED_BACK`；快照非法时 fail-closed 保持人工处理。本地 Docker/Colima 全量 Gate、88 项脚本测试和 Helm/manifest 校验均已通过。Task 1 当前实现完成，待 GitHub Actions 远程验收。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖以下不变量：重复 `Idempotency-Key` 返回同一 Operation；DRAINING Worker 不再被 `TaskAssignmentService` 选中；活动 Lease 不为零时不能 rollout/terminate；进程重启后可从 `PENDING/RUNNING` Operation 继续；Worker CR 与 Gateway Hello 未同时确认新 digest 时不能标记成功；失败 rollout 自动回滚上一稳定 spec。
 
@@ -82,7 +82,7 @@ void drainingWorkerIsExcludedFromNewAssignments() {
 }
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`mvn -q -pl control-plane,operator -am -Dtest=WorkerOperationServiceTest,WorkerOperationRepositoryTest,WorkerReconcilerTest test`
 
@@ -92,11 +92,11 @@ void drainingWorkerIsExcludedFromNewAssignments() {
 
 新增 `V46__worker_operations.sql`，保存 agent、type、status、requested spec digest、previous stable spec、idempotency key、expected version、owner、lease expiry、failure category、correlation ID 和审计时间；为 `(agent_id, idempotency_key)`、活动 Operation 和版本建立唯一约束。Repository 使用 `SELECT ... FOR UPDATE` 和 expected version。
 
-- [ ] **步骤 4：实现服务与 Worker/Operator 接线**
+- [x] **步骤 4：实现服务与 Worker/Operator 接线**
 
 `WorkerOperationService` 提供 `drain`、`rollout`、`rollback`、`terminate`；Scheduler 只在 Operation lease 有效时推进；`TaskAssignmentService` 过滤 DRAINING/活动 rollout Worker；Operator 将目标 image digest/runtime/config/Secret generation 写入 CR；Gateway Hello 和 Operator status 均确认后进入 `SUCCEEDED`，超时进入回滚。
 
-- [ ] **步骤 5：运行测试确认通过**
+- [x] **步骤 5：运行测试确认通过**
 
 运行：`mvn -q -pl control-plane,operator -am -Dtest=WorkerOperationServiceTest,WorkerOperationRepositoryTest,WorkerReconcilerTest,TaskAssignmentServiceTest test`。
 

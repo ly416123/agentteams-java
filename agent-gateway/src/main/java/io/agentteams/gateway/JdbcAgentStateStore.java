@@ -12,13 +12,24 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public class JdbcAgentStateStore implements GatewayStateStore {
 
     private final JdbcTemplate jdbc;
+    private final GatewayWorkerOperationObservationReporter operationObservations;
 
     public JdbcAgentStateStore(DataSource dataSource) {
-        this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")));
+        this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")),
+                GatewayWorkerOperationObservationReporter.noop());
+    }
+
+    public JdbcAgentStateStore(DataSource dataSource, GatewayWorkerOperationObservationReporter operationObservations) {
+        this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")), operationObservations);
     }
 
     public JdbcAgentStateStore(JdbcTemplate jdbc) {
+        this(jdbc, GatewayWorkerOperationObservationReporter.noop());
+    }
+
+    public JdbcAgentStateStore(JdbcTemplate jdbc, GatewayWorkerOperationObservationReporter operationObservations) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
+        this.operationObservations = Objects.requireNonNull(operationObservations, "operationObservations");
     }
 
     @Override
@@ -31,6 +42,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
                 connection.runtime(), connection.runtimeVersion(), capabilitiesJson(connection.capabilities()),
                 connection.specDigest(), connection.configRevision(), connection.secretGeneration(),
                 Timestamp.from(at), Timestamp.from(at), Timestamp.from(at), Timestamp.from(at));
+        reportOperation(connection, true, at);
     }
 
     @Override
@@ -51,6 +63,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         }
         refreshCanonicalAgent(canonicalAgentId(connection.agentId()), connection.runtime(),
                 connection.capabilities(), at);
+        reportOperation(connection, true, at);
         return true;
     }
 
@@ -68,7 +81,17 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         }
         updateCanonicalAgentOnDisconnect(canonicalAgentId(connection.agentId()), connection.runtime(),
                 connection.capabilities(), at);
+        reportOperation(connection, false, at);
         return true;
+    }
+
+    private void reportOperation(ConnectionRegistry.ConnectionSnapshot connection, boolean online, Instant at) {
+        try {
+            operationObservations.report(connection, online, at);
+        } catch (RuntimeException ignored) {
+            // Observation is auxiliary; a reporter failure must never break
+            // the durable connection projection or gRPC lifecycle.
+        }
     }
 
     private void updateCanonicalAgentOnDisconnect(UUID agentId, String runtime,
