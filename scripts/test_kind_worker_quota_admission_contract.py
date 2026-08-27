@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import unittest
 
@@ -38,6 +39,23 @@ class KindWorkerQuotaAdmissionContractTest(unittest.TestCase):
         self.assertIn('f"kind-worker-quota-team-{uuid.uuid4()}"', script)
         self.assertIn('"teamId"', script)
         self.assertIn("/members", script)
+
+        tree = ast.parse(script)
+        member_calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "api_request"
+            and node.args
+            and isinstance(node.args[0], ast.JoinedStr)
+            and any(
+                isinstance(value, ast.Constant) and "/members" in value.value
+                for value in node.args[0].values
+            )
+        ]
+        self.assertEqual(1, len(member_calls))
+        self.assertGreaterEqual(len(member_calls[0].args), 4)
+        self.assertIsInstance(member_calls[0].args[3], ast.JoinedStr)
 
 
 if __name__ == "__main__":
