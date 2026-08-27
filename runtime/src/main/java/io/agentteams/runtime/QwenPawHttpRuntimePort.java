@@ -367,7 +367,12 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         ObjectNode message = input.addObject();
         message.put("role", "user");
         message.putArray("content").addObject().put("type", "text").put("text", task.inputJson());
-        body.put("session_id", task.id().toString());
+        // A task may be retried with the same task ID after its Worker dies.
+        // QwenPaw keeps session state by session_id, so reusing the task ID
+        // would let the new attempt collide with the abandoned request.
+        String sessionId = task.metadata().get("attemptId");
+        body.put("session_id", sessionId == null || sessionId.isBlank()
+                ? task.id().toString() : sessionId);
         body.put("user_id", task.metadata().getOrDefault("userId", configuration.userId()));
         body.put("channel", task.metadata().getOrDefault("channel", configuration.channel()));
         return objectMapper.writeValueAsString(body);

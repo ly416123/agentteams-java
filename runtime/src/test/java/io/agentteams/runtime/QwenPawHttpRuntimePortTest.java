@@ -20,6 +20,7 @@ import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -212,6 +213,37 @@ class QwenPawHttpRuntimePortTest {
     }
 
     @Test
+    void isolatesQwenPawSessionAcrossRetriedAttempts() throws Exception {
+        var sessions = new CopyOnWriteArrayList<String>();
+        server.createContext("/api/console/chat", exchange -> {
+            JsonNode request = MAPPER.readTree(exchange.getRequestBody().readAllBytes());
+            sessions.add(request.path("session_id").asText());
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"status\":\"completed\",\"output\":[]}\n\n");
+        });
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch firstCompleted = new CountDownLatch(1);
+        CountDownLatch completed = new CountDownLatch(2);
+        UUID taskId = UUID.randomUUID();
+        AtomicInteger resultCount = new AtomicInteger();
+        port.start(context(), ignored -> {
+            if (resultCount.getAndIncrement() == 0) {
+                firstCompleted.countDown();
+            }
+            completed.countDown();
+        });
+        port.submit(task(taskId, "attempt-1"));
+        assertThat(firstCompleted.await(5, TimeUnit.SECONDS)).isTrue();
+        port.submit(task(taskId, "attempt-2"));
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(sessions).containsExactly("attempt-1", "attempt-2");
+        port.stop();
+    }
+
+    @Test
     void cancellationSuppressesLateSseCompletion() throws Exception {
         CountDownLatch responseReady = new CountDownLatch(1);
         CountDownLatch releaseResponse = new CountDownLatch(1);
@@ -278,6 +310,10 @@ class QwenPawHttpRuntimePortTest {
 
     private static RuntimeTask task() {
         return new RuntimeTask(UUID.randomUUID(), "chat", "hello", Map.of());
+    }
+
+    private static RuntimeTask task(UUID taskId, String attemptId) {
+        return new RuntimeTask(taskId, "chat", "hello", Map.of("attemptId", attemptId));
     }
 
     private void captureRequest(HttpExchange exchange) throws IOException {
