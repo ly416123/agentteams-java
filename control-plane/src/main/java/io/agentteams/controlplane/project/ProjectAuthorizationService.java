@@ -131,10 +131,35 @@ public class ProjectAuthorizationService {
         String memberSubject = required(subject, "subject");
         ProjectMembershipRecord target = repository.findMembership(project.tenantId(), project.id(), memberSubject)
                 .orElseThrow(() -> new ResourceNotFoundException("project member", projectId));
-        if (target.role() == ProjectRole.OWNER) {
-            throw new AuthorizationException("project owner cannot be disabled");
+        if (target.role() == ProjectRole.OWNER && repository.countActiveOwners(project.tenantId(), project.id()) <= 1) {
+            throw new ProjectMembershipConflictException("MEMBERSHIP_LAST_OWNER");
         }
         repository.deactivateMembership(project.tenantId(), project.id(), memberSubject, clock.instant());
+    }
+
+    @Transactional
+    public void transferOwner(UUID projectId, String newOwner, long expectedProjectVersion) {
+        Principal principal = principal();
+        ProjectRecord project = project(principal.scope().tenant(), projectId);
+        if (project.version() != expectedProjectVersion) {
+            throw new ProjectMembershipConflictException("PROJECT_VERSION_CONFLICT");
+        }
+        ProjectMembershipRecord actor = membership(project.tenantId(), project.id(), principal.subject());
+        if (actor.role() != ProjectRole.OWNER) {
+            throw new AuthorizationException("owner transfer denied");
+        }
+        String target = required(newOwner, "newOwner");
+        if (principal.subject().equals(target)) {
+            throw new ProjectMembershipConflictException("OWNER_TRANSFER_TARGET_INVALID");
+        }
+        ProjectMembershipRecord targetMember = membership(project.tenantId(), project.id(), target);
+        if (targetMember.role() == ProjectRole.OWNER) {
+            throw new ProjectMembershipConflictException("OWNER_TRANSFER_TARGET_INVALID");
+        }
+        if (!repository.transferOwnership(project.tenantId(), project.id(), principal.subject(), target,
+                expectedProjectVersion, clock.instant())) {
+            throw new ProjectMembershipConflictException("PROJECT_VERSION_CONFLICT");
+        }
     }
 
     public record RoleCheck(UUID projectId, String subject, ProjectRole role, boolean allowed) { }

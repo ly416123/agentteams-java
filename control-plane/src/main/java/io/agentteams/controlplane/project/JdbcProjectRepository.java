@@ -79,6 +79,41 @@ public class JdbcProjectRepository implements ProjectRepository {
     }
 
     @Override
+    public int countActiveOwners(String tenantId, UUID projectId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM project_memberships
+                 WHERE tenant_id = ? AND project_id = ? AND status = 'ACTIVE' AND role = 'OWNER'
+                """, Integer.class, tenantId, projectId);
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public boolean transferOwnership(String tenantId, UUID projectId, String currentOwner, String newOwner,
+            long expectedProjectVersion, java.time.Instant updatedAt) {
+        int projectUpdated = jdbc.update("""
+                UPDATE projects SET version = version + 1, updated_at = ?
+                 WHERE tenant_id = ? AND id = ? AND version = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships
+                                WHERE tenant_id = ? AND project_id = ? AND subject = ?
+                                  AND status = 'ACTIVE' AND role = 'OWNER')
+                   AND EXISTS (SELECT 1 FROM project_memberships
+                                WHERE tenant_id = ? AND project_id = ? AND subject = ?
+                                  AND status = 'ACTIVE')
+                """, timestamp(updatedAt), tenantId, projectId, expectedProjectVersion,
+                tenantId, projectId, currentOwner, tenantId, projectId, newOwner);
+        if (projectUpdated != 1) return false;
+        int demoted = jdbc.update("""
+                UPDATE project_memberships SET role = 'ADMIN', updated_at = ?, version = version + 1
+                 WHERE tenant_id = ? AND project_id = ? AND subject = ? AND status = 'ACTIVE' AND role = 'OWNER'
+                """, timestamp(updatedAt), tenantId, projectId, currentOwner);
+        int promoted = jdbc.update("""
+                UPDATE project_memberships SET role = 'OWNER', updated_at = ?, version = version + 1
+                 WHERE tenant_id = ? AND project_id = ? AND subject = ? AND status = 'ACTIVE' AND role <> 'OWNER'
+                """, timestamp(updatedAt), tenantId, projectId, newOwner);
+        return demoted == 1 && promoted == 1;
+    }
+
+    @Override
     public Optional<ProjectCreateIdempotency> findProjectCreateIdempotency(String tenantId, String key) {
         return jdbc.query("""
                 SELECT tenant_id, idempotency_key, request_hash, project_id, created_at

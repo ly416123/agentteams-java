@@ -18,6 +18,11 @@ public interface ProjectRepository {
 
     void deactivateMembership(String tenantId, UUID projectId, String subject, Instant updatedAt);
 
+    int countActiveOwners(String tenantId, UUID projectId);
+
+    boolean transferOwnership(String tenantId, UUID projectId, String currentOwner, String newOwner,
+            long expectedProjectVersion, Instant updatedAt);
+
     Optional<ProjectCreateIdempotency> findProjectCreateIdempotency(String tenantId, String key);
 
     boolean insertProjectCreateIdempotency(ProjectCreateIdempotency record);

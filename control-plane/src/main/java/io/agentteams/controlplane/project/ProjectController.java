@@ -60,6 +60,14 @@ public final class ProjectController {
         return MemberResponse.from(invitations.accept(projectId, request.token()));
     }
 
+    @PostMapping("/{projectId}/owner/transfer")
+    public ResponseEntity<Void> transferOwner(@PathVariable UUID projectId,
+            @RequestBody TransferOwnerRequest request) {
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        service.transferOwner(projectId, request.newOwner(), request.expectedProjectVersion());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{projectId}/members")
     public List<MemberResponse> members(@PathVariable UUID projectId) {
         return service.listMembers(projectId).stream().map(MemberResponse::from).toList();
@@ -84,6 +92,8 @@ public final class ProjectController {
     public record InviteRequest(String subject, ProjectRole role) { }
 
     public record AcceptInvitationRequest(String token) { }
+
+    public record TransferOwnerRequest(String newOwner, long expectedProjectVersion) { }
 
     public record ProjectResponse(UUID id, String tenantId, String name, String status, String createdBy) {
         static ProjectResponse from(ProjectRecord project) {
