@@ -6,6 +6,7 @@ import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.controlplane.service.WorkerLifecycleConflictException;
+import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.domain.agent.AgentPhase;
 import java.time.Clock;
 import java.time.Duration;
@@ -67,11 +68,19 @@ public final class WorkerOperationService {
     }
 
     public WorkerOperation rollback(UUID operationId, long expectedVersion) {
+        return rollback(null, operationId, expectedVersion);
+    }
+
+    /** Rolls back an operation while optionally enforcing the agent path scope. */
+    public WorkerOperation rollback(UUID agentId, UUID operationId, long expectedVersion) {
         Objects.requireNonNull(operationId, "operationId");
         Instant now = clock.instant();
         return persistence.inTransaction(tx -> {
             WorkerOperation current = tx.workerOperations().findByIdForUpdate(operationId)
-                    .orElseThrow(() -> new IllegalArgumentException("worker operation does not exist: " + operationId));
+                    .orElseThrow(() -> new ResourceNotFoundException("worker operation", operationId));
+            if (agentId != null && !agentId.equals(current.agentId())) {
+                throw new ResourceNotFoundException("worker operation", operationId);
+            }
             requireVisible(current.agentId());
             if (current.version() != expectedVersion) {
                 throw new io.agentteams.controlplane.persistence.OptimisticLockFailure(
@@ -86,6 +95,19 @@ public final class WorkerOperationService {
             FoundationPersistenceService.appendEvent(tx, "worker_operation", operationId, "WorkerOperationRolledBack",
                     "{\"operationId\":\"" + operationId + "\"}", now, updated.version());
             return updated;
+        });
+    }
+
+    /** Reads an operation through its owning agent resource boundary. */
+    public WorkerOperation get(UUID agentId, UUID operationId) {
+        Objects.requireNonNull(agentId, "agentId");
+        Objects.requireNonNull(operationId, "operationId");
+        return persistence.inTransaction(tx -> {
+            WorkerOperation operation = tx.workerOperations().findById(operationId)
+                    .filter(candidate -> agentId.equals(candidate.agentId()))
+                    .orElseThrow(() -> new ResourceNotFoundException("worker operation", operationId));
+            requireVisible(agentId);
+            return operation;
         });
     }
 

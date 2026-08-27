@@ -24,6 +24,7 @@ import io.agentteams.controlplane.worker.WorkerOperationService;
 import io.agentteams.controlplane.worker.WorkerOperationStatus;
 import io.agentteams.controlplane.worker.WorkerOperationType;
 import io.agentteams.controlplane.worker.WorkerRolloutRequest;
+import io.agentteams.controlplane.worker.WorkerRolloutConfirmation;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -149,6 +150,31 @@ class ControlPlaneControllerTest {
                 .andExpect(jsonPath("$.type").value(WorkerOperationType.ROLLOUT.name()))
                 .andExpect(jsonPath("$.requestedSpecDigest").value("sha256:new"));
         verify(workerOperations).rollout(eq(id), any(WorkerRolloutRequest.class));
+    }
+
+    @Test
+    void readsAndRollsBackAnOperationOnlyThroughItsAgentResource() throws Exception {
+        UUID agentId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        WorkerOperation operation = WorkerOperation.pending(operationId, agentId, WorkerOperationType.ROLLOUT,
+                "sha256:new", "qwenpaw", "config-2", "secret-2", "{\"image\":\"old\"}",
+                "rollout-operation-2", 3, "alice", Instant.parse("2026-08-23T00:02:00Z"),
+                "correlation-4", Instant.parse("2026-08-23T00:00:00Z"));
+        when(workerOperations.get(agentId, operationId)).thenReturn(operation);
+        when(workerOperations.rollback(agentId, operationId, 4L)).thenReturn(operation);
+
+        mockMvc.perform(get("/api/v1/agents/{agentId}/operations/{operationId}", agentId, operationId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(operationId.toString()))
+                .andExpect(jsonPath("$.agentId").value(agentId.toString()));
+
+        mockMvc.perform(post("/api/v1/agents/{agentId}/operations/{operationId}/rollback", agentId, operationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":4}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(operationId.toString()));
+        verify(workerOperations).get(agentId, operationId);
+        verify(workerOperations).rollback(agentId, operationId, 4L);
     }
 
     @Test

@@ -85,7 +85,22 @@ public final class AgentController {
         return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
     }
 
+    @GetMapping("/{agentId}/operations/{operationId}")
+    public WorkerOperationResponse getOperation(@PathVariable UUID agentId, @PathVariable UUID operationId) {
+        return WorkerOperationResponse.from(operations().get(agentId, operationId));
+    }
+
+    @PostMapping("/{agentId}/operations/{operationId}/rollback")
+    public WorkerOperationResponse rollback(@PathVariable UUID agentId, @PathVariable UUID operationId,
+            @RequestBody OperationVersionRequest request) {
+        return WorkerOperationResponse.from(operations().rollback(agentId, operationId,
+                expectedVersion(request)));
+    }
+
     public record LifecycleRequest(Long expectedVersion) {
+    }
+
+    public record OperationVersionRequest(Long expectedVersion) {
     }
 
     public record RolloutRequest(Long expectedVersion, String imageDigest, String runtime,
@@ -133,7 +148,7 @@ public final class AgentController {
     public record WorkerOperationResponse(UUID id, UUID agentId, String type, String status,
             String requestedSpecDigest, String correlationId, Instant createdAt, Instant updatedAt, long version) {
 
-        static WorkerOperationResponse from(WorkerOperation operation) {
+        public static WorkerOperationResponse from(WorkerOperation operation) {
             return new WorkerOperationResponse(operation.id(), operation.agentId(), operation.type().name(),
                     operation.status().name(), operation.requestedSpecDigest(), operation.correlationId(),
                     operation.createdAt(), operation.updatedAt(), operation.version());
@@ -156,6 +171,13 @@ public final class AgentController {
     }
 
     private static long expectedVersion(LifecycleRequest request) {
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new IllegalArgumentException("expectedVersion is required");
+        }
+        return request.expectedVersion();
+    }
+
+    private static long expectedVersion(OperationVersionRequest request) {
         if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
             throw new IllegalArgumentException("expectedVersion is required");
         }
