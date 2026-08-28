@@ -342,10 +342,21 @@ def main():
                      "KIND_RESOURCE_BINDING_FAILURE_OK"):
         if required not in resource_binding_text:
             fail(f"Kind resource binding ACK script missing {required}")
+    mcp_discovery_script = ROOT / "scripts/run-kind-mcp-discovery.py"
+    if not mcp_discovery_script.exists():
+        fail("Kind MCP discovery aggregation script does not exist")
+    mcp_discovery_text = mcp_discovery_script.read_text(encoding="utf-8")
+    for required in ("mcp_discovery_snapshots", "/discovery", "AVAILABLE", "UNKNOWN",
+                     "KIND_MCP_DISCOVERY_OK"):
+        if required not in mcp_discovery_text:
+            fail(f"Kind MCP discovery script missing {required}")
     quota_step = oidc_workflow.find("python scripts/run-kind-quota-recovery.py")
     ack_step = oidc_workflow.find("python scripts/run-kind-resource-binding-ack.py")
+    mcp_step = oidc_workflow.find("python scripts/run-kind-mcp-discovery.py")
     if quota_step < 0 or ack_step < 0 or quota_step >= ack_step:
         fail("Kind recovery must run quota recovery before resource binding ACK")
+    if mcp_step < 0 or ack_step >= mcp_step:
+        fail("Kind recovery must run MCP discovery aggregation after resource binding ACK")
     ack_step_start = oidc_workflow.rfind("- name:", 0, ack_step)
     ack_step_end = oidc_workflow.find("\n      - name:", ack_step)
     ack_block = oidc_workflow[ack_step_start:ack_step_end if ack_step_end >= 0 else None]

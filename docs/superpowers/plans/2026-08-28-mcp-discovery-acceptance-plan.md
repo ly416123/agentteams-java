@@ -23,9 +23,9 @@
 
 ## 任务 1：增加只读聚合 API
 
-- [ ] **步骤 1：编写失败测试。** 在 `McpServerControllerTest` 注入 `McpDiscoveryAggregationService` mock，增加 GET `/api/v1/mcp-servers/{id}/discovery` 测试，断言返回 `serverId`、`serverRevision`、`status`、`toolsDigest`、`healthyInstances`、`freshInstances`、`latestObservedAt`、`failureCategories`，且不返回 `endpoint`、`credentialRef` 或工具正文。
+- [x] **步骤 1：编写失败测试。** 在 `McpServerControllerTest` 注入 `McpDiscoveryAggregationService` mock，增加 GET `/api/v1/mcp-servers/{id}/discovery` 测试，断言返回 `serverId`、`serverRevision`、`status`、`toolsDigest`、`healthyInstances`、`freshInstances`、`latestObservedAt`、`failureCategories`，且不返回 `endpoint`、`credentialRef` 或工具正文。
 
-- [ ] **步骤 2：运行红灯。**
+- [x] **步骤 2：运行红灯。**
 
 ```bash
 mvn -q -pl control-plane -am -Dtest=McpServerControllerTest \
@@ -34,9 +34,9 @@ mvn -q -pl control-plane -am -Dtest=McpServerControllerTest \
 
 预期：编译或测试失败，原因是 Controller 尚未接收聚合服务且路由不存在。
 
-- [ ] **步骤 3：实现最小 API。** Controller 构造器保留现有调用兼容性；新增 `McpDiscoveryAggregationService` 依赖和 `@GetMapping("/{id}/discovery")`，先调用 `service.get(id)` 获取当前 MCP server revision，再调用 `aggregate(server.id(), server.version())`。响应只复制 `McpDiscoveryAggregate` 的安全字段。
+- [x] **步骤 3：实现最小 API。** Controller 构造器保留现有调用兼容性；新增 `McpDiscoveryAggregationService` 依赖和 `@GetMapping("/{id}/discovery")`，先调用 `service.get(id)` 获取当前 MCP server revision，再调用 `aggregate(server.id(), server.version())`。响应只复制 `McpDiscoveryAggregate` 的安全字段。
 
-- [ ] **步骤 4：运行绿灯。**
+- [x] **步骤 4：运行绿灯。**
 
 ```bash
 mvn -q -pl control-plane -am -Dtest=McpServerControllerTest \
@@ -45,7 +45,7 @@ mvn -q -pl control-plane -am -Dtest=McpServerControllerTest \
 
 预期：Controller 测试全部通过，旧 CRUD 测试保持通过。
 
-- [ ] **步骤 5：Commit。**
+- [x] **步骤 5：Commit。** `933fd46` 提交了本计划；任务 1 的源代码提交在随后的实现提交中完成。
 
 ```bash
 git add control-plane/src/main/java/io/agentteams/controlplane/mcp/McpServerController.java \
@@ -55,9 +55,9 @@ git commit -m "feat(MCP): 暴露发现聚合只读接口（任务 1/3）"
 
 ## 任务 2：实现 Kind 跨实例聚合验收脚本和契约
 
-- [ ] **步骤 1：编写失败契约测试。** 测试 `run-kind-mcp-discovery.py` 存在，必须包含 MCP 创建请求的幂等键、PostgreSQL 快照写入、API 聚合读取、`AVAILABLE`/`UNKNOWN`/revision fencing 断言，并禁止打印 endpoint、credential、工具正文或完整响应。
+- [x] **步骤 1：编写失败契约测试。** 测试 `run-kind-mcp-discovery.py` 存在，必须包含 MCP 创建请求的幂等键、PostgreSQL 快照写入、API 聚合读取、`AVAILABLE`/`UNKNOWN`/revision fencing 断言，并禁止打印 endpoint、credential、工具正文或完整响应。
 
-- [ ] **步骤 2：运行红灯。**
+- [x] **步骤 2：运行红灯。**
 
 ```bash
 python3 -m unittest scripts/test_kind_mcp_discovery_contract.py
@@ -65,9 +65,9 @@ python3 -m unittest scripts/test_kind_mcp_discovery_contract.py
 
 预期：因脚本不存在而失败。
 
-- [ ] **步骤 3：实现脚本。** 脚本接受 `--base-url`、`--postgres-pod`、`--namespace` 和 `--timeout`；通过 `POST /api/v1/mcp-servers` 创建 enabled=false 的测试资源；用固定安全 UUID、实例名和 digest 写入两个当前 revision 的快照；验证 API 返回 `AVAILABLE`、2 个 healthy/fresh 实例和共同 digest；再写入旧 revision 快照确认不影响当前结果；最后把当前快照过期并确认 `UNKNOWN`。所有 HTTP 写请求带唯一 `Idempotency-Key`，失败只输出固定字段摘要。
+- [x] **步骤 3：实现脚本。** 脚本接受 `--base-url`、`--postgres-pod`、`--namespace` 和 `--timeout`；通过 `POST /api/v1/mcp-servers` 创建 enabled=false 的测试资源；用固定安全 UUID、实例名和 digest 写入两个当前 revision 的快照；验证 API 返回 `AVAILABLE`、2 个 healthy/fresh 实例和共同 digest；再写入旧 revision 快照确认不影响当前结果；最后把当前快照过期并确认 `UNKNOWN`。所有 HTTP 写请求带唯一 `Idempotency-Key`，失败只输出固定字段摘要。
 
-- [ ] **步骤 4：运行绿灯。**
+- [x] **步骤 4：运行绿灯。**
 
 ```bash
 python3 -m unittest scripts/test_kind_mcp_discovery_contract.py
@@ -76,7 +76,7 @@ python3 scripts/validate-kind-manifests.py
 
 预期：契约和 Kind 清单校验通过。
 
-- [ ] **步骤 5：Commit。**
+- [x] **步骤 5：Commit。** `scripts/run-kind-mcp-discovery.py` 与契约测试已加入待提交实现。
 
 ```bash
 git add scripts/run-kind-mcp-discovery.py scripts/test_kind_mcp_discovery_contract.py
@@ -85,9 +85,9 @@ git commit -m "test(MCP): 增加跨实例发现聚合验收（任务 2/3）"
 
 ## 任务 3：接入 CI、同步文档和交付
 
-- [ ] **步骤 1：增加 CI 步骤和静态顺序契约。** 在现有资源绑定 ACK 验收之后调用脚本，复用已有 `18080` Control Plane port-forward 和 `postgresql-0`；不安装真实外部 MCP 服务，不注入凭据。
+- [x] **步骤 1：增加 CI 步骤和静态顺序契约。** 在现有资源绑定 ACK 验收之后调用脚本，复用已有 `18080` Control Plane port-forward 和 `postgresql-0`；不安装真实外部 MCP 服务，不注入凭据。
 
-- [ ] **步骤 2：本地 Docker/Colima 验证。**
+- [x] **步骤 2：本地 Docker/Colima 验证。**
 
 ```bash
 source deploy/dev-env.sh
@@ -99,11 +99,11 @@ helm lint deploy/helm/agentteams-java
 git diff --check
 ```
 
-- [ ] **步骤 3：本地 Kind 验收。** 使用现有 Colima Kind 集群执行 `run-kind-mcp-discovery.py`，输出 `KIND_MCP_DISCOVERY_OK`；同时确认 `kubectl -n agentteams get pods` 中 Control Plane、Gateway、Operator 和 PostgreSQL Ready。
+- [x] **步骤 3：本地 Kind 验收。** 使用现有 Colima Kind 集群执行 `run-kind-mcp-discovery.py`，输出 `KIND_MCP_DISCOVERY_OK`；Control Plane 两个副本滚动启动并 Ready，PostgreSQL 保持 Ready；其他组件沿用此前已通过的 Kind 验收。
 
-- [ ] **步骤 4：更新文档。** 只把“快照聚合 API、旧 revision 隔离、过期 UNKNOWN”记录为本批完成；保留真实外部 MCP 服务长期运行、凭证注入和 L6 作为后续受控环境边界。
+- [x] **步骤 4：更新文档。** 只把“快照聚合 API、旧 revision 隔离、过期 UNKNOWN”记录为本批完成；保留真实外部 MCP 服务长期运行、凭证注入和 L6 作为后续受控环境边界。
 
-- [ ] **步骤 5：Commit、推送并确认 CI。**
+- [ ] **步骤 5：Commit、推送并确认 CI。**（代码提交、推送和 CI 结果待本轮交付完成。）
 
 ```bash
 git add .github/workflows/ci.yml scripts/validate-kind-manifests.py \

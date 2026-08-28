@@ -20,7 +20,7 @@
 - [x] 数据库写入使用当前 revision 条件和版本保护；
 - [x] 本机 Colima Docker 相关 Maven 测试通过，迁移验证到 V50；
 - [ ] Skill 包下载、digest 校验和 MCP 工具发现的真实运行时实现；
-- [ ] Kind 端到端资源 ACK 与 MCP 跨实例聚合验收。
+- [x] Kind 端到端资源 ACK 与 MCP 跨实例聚合验收（快照聚合、旧 revision 隔离、过期 `UNKNOWN`）。
 
 ## 边界
 

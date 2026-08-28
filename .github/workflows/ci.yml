@@ -332,6 +332,15 @@ jobs:
           python scripts/run-kind-resource-binding-ack.py \
             --base-url "$AGENTTEAMS_CONTROL_PLANE_URL" \
             --agent-id "$AGENTTEAMS_AGENT_ID"
+      - name: Run Kind MCP discovery aggregation acceptance
+        env:
+          AGENTTEAMS_CONTROL_PLANE_URL: http://127.0.0.1:18080
+        run: |
+          set -euo pipefail
+          python scripts/run-kind-mcp-discovery.py \
+            --base-url "$AGENTTEAMS_CONTROL_PLANE_URL" \
+            --namespace agentteams \
+            --postgres-pod postgresql-0
       - name: Run Kind config rollback acceptance
         env:
           AGENTTEAMS_CONTROL_PLANE_URL: http://127.0.0.1:18080

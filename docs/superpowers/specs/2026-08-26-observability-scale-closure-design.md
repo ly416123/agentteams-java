@@ -11,6 +11,8 @@
 
 **Skill Loader 进度（2026-08-28）：** Worker 已支持 manifest 显式提供 `artifactRef` 和 `sizeBytes` 时的 HTTP(S) Skill 包下载、大小/SHA-256 校验、受限解包、`SKILL.md` 运行时解析复核和原子物化；Control Plane 已为已发布且上传完成的 Skill 版本生成 15 分钟短期预签名 `artifactRef`，并随 AgentSpec manifest 传递包大小/SHA-256；AgentScope 仅在配置激活后注册物化目录中的只读 Skill 仓库，旧 manifest 保持兼容。MCP 真实外部服务长期运行、外部 Skill 运行时策略、集中告警和预算预测仍待后续任务。
 
+**MCP 聚合验收进度（2026-08-28）：** 已通过本机 Colima Kind 验收脚本创建临时 MCP 资源，写入两个当前 revision 的实例快照和一条旧 revision 快照，并通过只读发现聚合 API 验证 `AVAILABLE`、实例计数、共同工具 digest 与 revision fence；当前快照过期后聚合正确降级为 `UNKNOWN`，测试资源自动清理。HTTP 响应仅包含状态、digest、实例计数、时间和固定失败分类，不返回 endpoint、凭据引用或工具正文。真实外部 MCP 服务长期运行、凭证注入和 Linux/KVM L6 仍是后续受控环境边界。
+
 ## 1. 目标
 
 本规格把已经存在的 Registry、Usage、Dashboard、Quota、Operator 和告警基础推进为多副本、长时间运行条件下可验证的生产能力。重点不是增加更多指标，而是保证业务维度完整、状态跨实例一致、告警能够送达、配额不会超发，并为运行时绑定提供可恢复事实。
