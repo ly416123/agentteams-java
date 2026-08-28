@@ -12,7 +12,8 @@
 
 ## 文件清单与职责
 
-- 创建：`control-plane/src/main/resources/db/migration/V52__usage_budget_forecast.sql` —— 创建预算策略、评估和评估事件表及约束、索引、唯一键。
+- 创建：`control-plane/src/main/resources/db/migration/V52__model_call_audit_cost_status.sql` —— 持久化 `ESTIMATED/UNPRICED/NOT_APPLICABLE` 成本状态，区分零价格和未计价。
+- 创建：`control-plane/src/main/resources/db/migration/V53__usage_budget_forecast.sql` —— 创建预算策略、评估和评估事件表及约束、索引、唯一键。
 - 创建：`control-plane/src/main/java/io/agentteams/controlplane/usage/UsageBudgetPolicy.java` —— 预算策略、评估状态和值对象。
 - 创建：`control-plane/src/main/java/io/agentteams/controlplane/usage/UsageBudgetRepository.java` —— 预算策略和评估持久化端口。
 - 创建：`control-plane/src/main/java/io/agentteams/controlplane/usage/JdbcUsageBudgetRepository.java` —— PostgreSQL 映射、expectedVersion 更新和窗口事件去重。
@@ -22,6 +23,9 @@
 - 创建：`control-plane/src/test/java/io/agentteams/controlplane/usage/JdbcUsageBudgetRepositoryTest.java` —— SQL 字段、唯一指纹、版本条件和脱敏字段约束。
 - 创建：`control-plane/src/test/java/io/agentteams/controlplane/usage/UsageBudgetControllerTest.java` —— scope API、expectedVersion、响应字段和评估分页参数。
 - 修改：`control-plane/src/test/java/io/agentteams/controlplane/persistence/FoundationRepositoryIT.java` —— 验证最新 Flyway 迁移从空库升级后可写入预算表。
+- 修改：`manager/src/main/java/io/agentteams/manager/JdbcModelCallAuditor.java` —— 将模型调用的成本状态写入审计表。
+- 修改：`control-plane/src/main/java/io/agentteams/controlplane/audit/JdbcModelCallAuditRecorder.java` —— 将 Worker 运行时审计的成本状态写入审计表。
+- 修改：`control-plane/src/main/java/io/agentteams/controlplane/usage/UsageQueryService.java` —— 查询计价/未计价观测计数，供预算状态判断。
 - 修改：`docs/superpowers/specs/2026-08-26-observability-scale-closure-design.md` —— 记录预算第一纵切完成边界。
 - 修改：`docs/superpowers/specs/2026-08-26-remaining-capabilities-roadmap-design.md` —— 更新 W4 进度，保留完整维度审计、通知事件和 L6 边界。
 
@@ -38,7 +42,7 @@ mvn -q -pl control-plane -am -Dtest=UsageBudgetServiceTest \
 
 预期：编译失败，原因是 `UsageBudgetService`、策略和值对象尚不存在。
 
-- [ ] **步骤 3：实现最少领域代码。** 新增 `UsageBudgetPolicy`、`UsageBudgetEvaluation` 和 `UsageBudgetService`；服务只接受已解析的 `AuthorizationService.Scope`，窗口按 UTC `period` 对齐，成本使用 `BigDecimal`，有效观测小于 3600 秒时禁止生成预测，所有无价格输入保持 `null` 金额和 `UNPRICED` 状态。
+- [ ] **步骤 3：实现最少领域代码。** 新增 `UsageBudgetPolicy`、`UsageBudgetEvaluation` 和 `UsageBudgetService`；服务只接受已解析的 `AuthorizationService.Scope`，窗口按 UTC `period` 对齐，成本使用 `BigDecimal`，有效观测小于 3600 秒时禁止生成预测，所有无价格输入保持 `null` 金额和 `UNPRICED` 状态。成本状态先由独立 `CostObservation` 值对象表达，避免把数据库中的零金额当成无价格。
 
 - [ ] **步骤 4：运行绿灯。**
 
@@ -60,7 +64,7 @@ git commit -m "feat(usage): 增加预算预测领域规则（任务 1/3）"
 
 ## 任务 2：预算 PostgreSQL 持久化
 
-- [ ] **步骤 1：编写失败 SQL 测试。** 在 `JdbcUsageBudgetRepositoryTest` 锁定策略插入字段、`UPDATE ... WHERE version = ?`、评估事件 `(policy_id, window_start, threshold)` 唯一指纹和查询不得包含 prompt/response/token 等敏感正文；在迁移测试中断言 V52 创建三张表。
+- [ ] **步骤 1：编写失败 SQL 测试。** 在 `JdbcUsageBudgetRepositoryTest` 锁定策略插入字段、`UPDATE ... WHERE version = ?`、评估事件 `(policy_id, window_start, threshold)` 唯一指纹和查询不得包含 prompt/response/token 等敏感正文；在迁移测试中断言 V52 持久化 `cost_status`、V53 创建三张预算表。
 
 - [ ] **步骤 2：运行红灯。**
 
@@ -71,7 +75,7 @@ mvn -q -pl control-plane -am -Dtest=JdbcUsageBudgetRepositoryTest,FoundationRepo
 
 预期：编译失败，原因是 JDBC Repository 和 V52 迁移尚不存在。
 
-- [ ] **步骤 3：实现最少持久化。** 创建 V52：策略保存 tenant/project、币种、周期秒数、软/硬阈值、forecast window、状态、version 和时间；评估保存窗口、实际/预测金额、状态和评估时间；事件表使用稳定 fingerprint 唯一约束。Repository 的更新必须返回新版本，expectedVersion 不匹配抛出现有 `OptimisticLockFailure`，金额列使用 `NUMERIC`，不保存供应商正文。
+- [ ] **步骤 3：实现最少持久化。** 创建 V52 为审计表增加 `cost_status` 并回填旧数据为 `ESTIMATED`（仅对非零成本）或 `UNPRICED`（零成本成功调用）；创建 V53：策略保存 tenant/project、币种、周期秒数、软/硬阈值、forecast window、状态、version 和时间；评估保存窗口、实际/预测金额、状态和评估时间；事件表使用稳定 fingerprint 唯一约束。Repository 的更新必须返回新版本，expectedVersion 不匹配抛出现有 `OptimisticLockFailure`，金额列使用 `NUMERIC`，不保存供应商正文。
 
 - [ ] **步骤 4：运行绿灯。**
 
