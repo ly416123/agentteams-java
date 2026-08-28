@@ -68,6 +68,28 @@ spec:
               value: {{ .Values.controlPlane.usageBudget.scheduler.maxPoliciesPerRun | quote }}
             - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_RETRY_DELAY
               value: {{ .Values.controlPlane.usageBudget.scheduler.retryDelay | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_ENABLED
+              value: {{ .Values.controlPlane.usagePriceSync.enabled | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_ENDPOINT
+              value: {{ .Values.controlPlane.usagePriceSync.endpoint | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_CONNECT_TIMEOUT
+              value: {{ .Values.controlPlane.usagePriceSync.connectTimeout | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_REQUEST_TIMEOUT
+              value: {{ .Values.controlPlane.usagePriceSync.requestTimeout | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_POLL_INTERVAL_MS
+              value: {{ .Values.controlPlane.usagePriceSync.pollIntervalMs | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_LEASE_DURATION
+              value: {{ .Values.controlPlane.usagePriceSync.leaseDuration | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_MAX_RESPONSE_BYTES
+              value: {{ .Values.controlPlane.usagePriceSync.maxResponseBytes | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_MAX_QUOTES
+              value: {{ .Values.controlPlane.usagePriceSync.maxQuotes | quote }}
+{{- range $index, $target := .Values.controlPlane.usagePriceSync.targets }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_TARGETS_{{ $index }}_TENANT
+              value: {{ $target.tenant | quote }}
+            - name: AGENTTEAMS_USAGE_PRICE_SYNC_TARGETS_{{ $index }}_PROJECT
+              value: {{ $target.project | quote }}
+{{- end }}
             - name: AGENTTEAMS_SECURITY_API_ENABLED
               value: {{ .Values.controlPlane.security.apiEnabled | quote }}
             - name: AGENTTEAMS_SECURITY_SECRET_RESOLVER_BACKEND

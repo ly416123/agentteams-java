@@ -90,6 +90,16 @@ agentteams:
         lease-duration: 30s
         max-policies-per-run: 100
         retry-delay: 1m
+    price-sync:
+      enabled: false
+      endpoint:
+      connect-timeout: 2s
+      request-timeout: 10s
+      poll-interval-ms: 3600000
+      lease-duration: 30s
+      max-response-bytes: 262144
+      max-quotes: 1000
+      targets: []
   security:
     api:
       enabled: false

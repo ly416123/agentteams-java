@@ -232,6 +232,12 @@ public final class FoundationPersistenceService {
                 currency, at));
     }
 
+    public Optional<ModelPriceRecord> findModelPriceByNaturalKey(String tenantId, String projectId,
+            String provider, String model, String currency, Instant effectiveFrom) {
+        return inTransaction(tx -> tx.modelPrices().findByNaturalKey(tenantId, projectId, provider, model,
+                currency, effectiveFrom));
+    }
+
     public ModelPriceRecord updateModelPriceLifecycle(UUID id, String tenantId, String projectId,
             String lifecycleStatus, Instant at, String updatedBy) {
         return inTransaction(tx -> {

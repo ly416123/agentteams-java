@@ -54,6 +54,14 @@ public final class ModelPriceRepository {
                 JdbcSupport.timestamp(at), JdbcSupport.timestamp(at)).stream().findFirst();
     }
 
+    public Optional<ModelPriceRecord> findByNaturalKey(String tenantId, String projectId, String provider,
+            String model, String currency, Instant effectiveFrom) {
+        return jdbc.query(selectSql() + " WHERE tenant_id = ? AND project_id = ? AND provider = ? AND model = ?"
+                        + " AND currency = ? AND effective_from = ? LIMIT 1",
+                this::map, tenantId, projectId, provider, model, currency, JdbcSupport.timestamp(effectiveFrom))
+                .stream().findFirst();
+    }
+
     public Optional<PriceIdempotency> findIdempotency(String tenantId, String projectId, String key) {
         return jdbc.query("""
                 SELECT request_hash, price_id

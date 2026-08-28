@@ -147,6 +147,32 @@
             }
           }
         },
+        "usagePriceSync": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "endpoint": { "type": "string", "format": "uri-reference" },
+            "connectTimeout": { "type": "string", "minLength": 1 },
+            "requestTimeout": { "type": "string", "minLength": 1 },
+            "pollIntervalMs": { "type": "integer", "minimum": 1 },
+            "leaseDuration": { "type": "string", "minLength": 1 },
+            "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+            "maxQuotes": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "targets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["tenant", "project"],
+                "properties": {
+                  "tenant": { "type": "string", "minLength": 1 },
+                  "project": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
         "security": {
           "type": "object",
           "additionalProperties": false,

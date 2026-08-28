@@ -53,6 +53,16 @@ controlPlane:
       leaseDuration: 30s
       maxPoliciesPerRun: 100
       retryDelay: 1m
+  usagePriceSync:
+    enabled: false
+    endpoint: ""
+    connectTimeout: 2s
+    requestTimeout: 10s
+    pollIntervalMs: 3600000
+    leaseDuration: 30s
+    maxResponseBytes: 262144
+    maxQuotes: 1000
+    targets: []
   security:
     apiEnabled: false
     secretResolver:

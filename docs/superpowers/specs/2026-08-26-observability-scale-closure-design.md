@@ -13,7 +13,7 @@
 
 **MCP 聚合验收进度（2026-08-28）：** 已通过本机 Colima Kind 验收脚本创建临时 MCP 资源，写入两个当前 revision 的实例快照和一条旧 revision 快照，并通过只读发现聚合 API 验证 `AVAILABLE`、实例计数、共同工具 digest 与 revision fence；当前快照过期后聚合正确降级为 `UNKNOWN`，测试资源自动清理。HTTP 响应仅包含状态、digest、实例计数、时间和固定失败分类，不返回 endpoint、凭据引用或工具正文。真实外部 MCP 服务长期运行、凭证注入和 Linux/KVM L6 仍是后续受控环境边界。
 
-**预算预测进度（2026-08-28）：** 已完成 V52 成本状态迁移、V53 项目预算策略/评估/去重事件表、V54 通知投递状态迁移和 V55 可恢复历史维度回填；模型调用审计分别持久化 `ESTIMATED`、`UNPRICED` 和 `NOT_APPLICABLE`，避免把未计价误判为零成本。Control Plane 已提供 expectedVersion 保护的策略 PUT、当前项目策略查询、评估分页查询、维度完整性查询，以及默认关闭的周期预算评估/集中通知/失败重试调度，线性预测只在达到策略 forecast window 的有效观测后生成。价格目录自动同步和 L6 长压测仍待后续批次。
+**预算预测进度（2026-08-28）：** 已完成 V52 成本状态迁移、V53 项目预算策略/评估/去重事件表、V54 通知投递状态迁移和 V55 可恢复历史维度回填；模型调用审计分别持久化 `ESTIMATED`、`UNPRICED` 和 `NOT_APPLICABLE`，避免把未计价误判为零成本。Control Plane 已提供 expectedVersion 保护的策略 PUT、当前项目策略查询、评估分页查询、维度完整性查询，以及默认关闭的周期预算评估/集中通知/失败重试调度，线性预测只在达到策略 forecast window 的有效观测后生成。模型价格目录自动同步第一纵切已完成：通过显式配置目标项目拉取受限 HTTP JSON 快照，使用数据库租约、自然键和幂等事件安全导入，不覆盖已有价格；L6 长压测仍待后续批次。
 
 ## 1. 目标
 
@@ -143,6 +143,31 @@ forecast = elapsedCost / elapsedSeconds * periodSeconds
 - `GET /api/v1/usage/budgets`：按当前 scope 查询；
 - `GET /api/v1/usage/budgets/{policyId}/evaluations`：分页查询；
 - `GET /api/v1/usage/dimensions/completeness`：返回各维度覆盖率。
+
+### 5.4 价格目录同步契约
+
+价格源由部署配置提供，默认关闭。启用时必须显式配置至少一个租户/项目目标；价格源响应不携带作用域，Control Plane 将同一快照应用到这些目标，避免外部 payload 越权写入其他项目。
+
+响应格式为受限 JSON：
+
+```json
+{
+  "sourceVersion": "catalog-2026-08-28",
+  "prices": [
+    {
+      "provider": "openai",
+      "model": "gpt-5",
+      "currency": "USD",
+      "inputPricePerMillionTokens": "1.25",
+      "outputPricePerMillionTokens": "10",
+      "effectiveFrom": "2026-08-28T00:00:00Z",
+      "effectiveTo": null
+    }
+  ]
+}
+```
+
+客户端禁止 HTTP 重定向，限制响应字节数和报价条数，仅接受 2xx；金额使用 `BigDecimal`，价格快照写入复用 `model_price_catalog` 的自然键、幂等键、审计事件和数据库 scheduler lease。已有相同自然键的人工或同步价格只跳过，不覆盖、不删除。
 
 ## 6. 配额规模验证
 

@@ -78,6 +78,11 @@ import io.agentteams.controlplane.usage.UsageBudgetNotificationPort;
 import io.agentteams.controlplane.usage.LoggingUsageBudgetNotificationPort;
 import io.agentteams.controlplane.usage.UsageBudgetDeliveryService;
 import io.agentteams.controlplane.usage.UsageBudgetScheduler;
+import io.agentteams.controlplane.service.HttpModelPriceSyncClient;
+import io.agentteams.controlplane.service.ModelPriceSyncPort;
+import io.agentteams.controlplane.service.ModelPriceSyncProperties;
+import io.agentteams.controlplane.service.ModelPriceSyncScheduler;
+import io.agentteams.controlplane.service.ModelPriceSyncService;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -111,7 +116,8 @@ import io.opentelemetry.context.propagation.TextMapPropagator;
 
 @Configuration
 @EnableScheduling
-@EnableConfigurationProperties({OidcSecurityProperties.class, SandboxRuntimeProperties.class})
+@EnableConfigurationProperties({OidcSecurityProperties.class, SandboxRuntimeProperties.class,
+        ModelPriceSyncProperties.class})
 public class ControlPlaneConfiguration {
 
     @Bean
@@ -315,6 +321,34 @@ public class ControlPlaneConfiguration {
         return new UsageBudgetScheduler(delivery, schedulerLease, clock,
                 podName == null || podName.isBlank() ? "usage-budget" : podName,
                 leaseDuration, maxPoliciesPerRun);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.usage.price-sync.enabled", havingValue = "true")
+    ModelPriceSyncPort modelPriceSyncPort(ModelPriceSyncProperties properties, ObjectMapper objectMapper) {
+        properties.validate();
+        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(properties.getConnectTimeout())
+                .followRedirects(java.net.http.HttpClient.Redirect.NEVER)
+                .build();
+        return new HttpModelPriceSyncClient(client, objectMapper, properties);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.usage.price-sync.enabled", havingValue = "true")
+    ModelPriceSyncService modelPriceSyncService(ModelPriceSyncPort source,
+            FoundationPersistenceService persistence, ModelPriceSyncProperties properties) {
+        return new ModelPriceSyncService(source, persistence, properties.getTargets(), properties.getMaxQuotes());
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.usage.price-sync.enabled", havingValue = "true")
+    ModelPriceSyncScheduler modelPriceSyncScheduler(ModelPriceSyncService sync,
+            SchedulerLeaseService schedulerLease, Clock clock, ModelPriceSyncProperties properties,
+            @Value("${POD_NAME:}") String podName) {
+        return new ModelPriceSyncScheduler(sync, schedulerLease, clock,
+                podName == null || podName.isBlank() ? "model-price-sync" : podName,
+                properties.getLeaseDuration());
     }
 
     @Bean
