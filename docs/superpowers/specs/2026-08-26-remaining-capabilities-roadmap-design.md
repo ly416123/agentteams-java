@@ -1,8 +1,8 @@
 # AgentTeams Java 剩余能力总体路线图设计
 
 **日期：** 2026-08-26
-**状态：** 已获用户确认；批次 A/B 第一纵切已完成，批次 C 的 HPA 仓库纵切已完成，外部平台验收仍待受控环境
-**代码基线：** `9393bf0`
+**状态：** 已获用户确认；批次 A/B 第一纵切已完成，批次 C 的 HPA 与 Operator 行为测试仓库纵切已完成，外部平台验收仍待受控环境
+**代码基线：** `2a9b553`
 **目标版本：** 生产可用基线后继续演进商业化能力
 
 ## 1. 文档目标
@@ -55,7 +55,7 @@
 | W4 可观测与规模化 | P1 | Skill/MCP 生效闭环、预算预测、审计对账、配额压测、Operator/HPA/SLO | `2026-08-26-observability-scale-closure-design.md` |
 | W5 产品生态扩展 | P2/P3 | Worker Template、Console、SDK、Channel SPI、Sandbox Pool、Cube、多区域和账单扩展 | `2026-08-26-product-ecosystem-expansion-design.md` |
 
-### 4.1 当前进度（2026-08-27）
+### 4.1 当前进度（2026-08-28）
 
 - W1 的批次 A 代码已进入 `main`，包括 Sandbox Provider、Operator 生命周期保护、AgentScope 路由、Manager 服务、Team Revision/Effective Config 和 Helm 安全契约。
 - 批次 A 的本地 Java/脚本/Helm 验证及 GitHub Actions `verify`、`kind-recovery`、`kind-oidc` 已通过。
@@ -66,6 +66,7 @@
 - 批次 C 的 Skill 制品运行时纵切已进入 `main`：Control Plane 会为已发布且上传完成的 Skill 版本生成 15 分钟短期 `artifactRef`，并随 AgentSpec manifest 下发包大小/SHA-256；Worker 已完成归档下载校验、受限解包、`SKILL.md` 复核和 AgentScope 只读仓库注册。真实外部 Skill 运行时策略与 MCP 工具发现仍待后续批次。
 - 批次 C 的 MCP 发现与运行时纵切已进入 `main`：Control Plane 按 server revision 和实例写入快照，聚合新鲜观测为 `AVAILABLE`、`UNAVAILABLE` 或 `UNKNOWN`，健康探测只持久化工具摘要和固定失败分类；AgentSpec manifest 下发非敏感 MCP 运行元数据，Worker 通过 AgentScope runtime Port 注册 HTTP/SSE 工具并按 credentialRef 动态取凭证。预算策略、线性预测、成本状态区分、项目作用域评估查询、使用量维度完整性审计、可恢复历史维度回填，以及预算周期评估/集中通知/失败重试第一纵切已进入 `main`；真实外部 MCP 长期运行和 L6 长压测仍未完成。
 - 批次 C 的 HPA 仓库纵切已进入 `main`：Control Plane、Gateway 和可选 Manager 提供默认关闭的 `autoscaling/v2` CPU HPA，启用时 Helm 强制校验 `resources.requests.cpu` 和副本范围，并配套 schema、生产 values 示例与契约测试；Metrics Server/Prometheus Adapter、实际扩缩容、拓扑故障和 L6 长压测仍待受控环境。
+- 批次 C 的 Operator 行为测试仓库纵切已进入 `main`：Worker/Team 覆盖首次创建、重复 reconcile、子资源篡改恢复、OwnerReference、状态投影和 generation 不变；TaskSandbox 已覆盖生命周期、删除、缺失子资源和旧 generation。真实 Mock Server/Kind 故障注入、status conflict、429/500、短暂不可用和 Leader Election 验收仍待后续批次。
 - 模型价格目录自动同步第一纵切已进入 `main`：Control Plane 通过默认关闭的受限 HTTP 客户端拉取不含作用域的价格快照，仅写入部署显式配置的租户/项目，使用数据库租约、自然键和现有幂等审计链路去重，既不接受 payload 传入作用域，也不覆盖已有人工价格；真实价格源兼容性和 L6 长压测仍需在受控环境验证。
 
 ## 5. 统一架构决策

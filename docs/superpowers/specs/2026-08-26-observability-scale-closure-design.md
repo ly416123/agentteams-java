@@ -17,6 +17,8 @@
 
 **HPA 进度（2026-08-28）：** 已完成仓库侧可选 HPA 第一纵切：Control Plane、Gateway 和可选 Manager 使用 `autoscaling/v2` CPU 利用率指标，默认关闭并绑定各自 Deployment；启用时 Helm 渲染强制要求全局 `resources.requests.cpu`，并校验 `maxReplicas >= minReplicas`。已增加 Helm schema、生产 values 示例和确定性契约测试；Metrics Server/Prometheus Adapter、实际扩缩容、拓扑故障和 L6 长压测仍需受控 Kubernetes 环境验收。
 
+**Operator 行为测试进度（2026-08-28）：** 已补充 Worker/Team Reconciler 的首次创建、重复 reconcile、子资源篡改恢复、OwnerReference、状态投影和 generation 不变契约测试；TaskSandbox 已有生命周期、删除、缺失子资源和旧 generation 测试。当前测试使用确定性的 Fabric8 DSL 内存假客户端，真实 Mock Server/Kind 故障注入、status conflict、429/500/短暂不可用和 Leader Election 仍属于后续验收项。
+
 ## 1. 目标
 
 本规格把已经存在的 Registry、Usage、Dashboard、Quota、Operator 和告警基础推进为多副本、长时间运行条件下可验证的生产能力。重点不是增加更多指标，而是保证业务维度完整、状态跨实例一致、告警能够送达、配额不会超发，并为运行时绑定提供可恢复事实。
