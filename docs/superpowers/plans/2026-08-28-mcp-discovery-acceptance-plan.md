@@ -103,7 +103,7 @@ git diff --check
 
 - [x] **步骤 4：更新文档。** 只把“快照聚合 API、旧 revision 隔离、过期 UNKNOWN”记录为本批完成；保留真实外部 MCP 服务长期运行、凭证注入和 L6 作为后续受控环境边界。
 
-- [ ] **步骤 5：Commit、推送并确认 CI。**（代码提交、推送和 CI 结果待本轮交付完成。）
+- [x] **步骤 5：Commit、推送并确认 CI。** 代码提交 `b84982d` 已存在并已推送；当前分支与 `origin/main` 同步，契约测试、Kind 清单校验、Python 语法检查、Helm lint/template、Control Plane 定向回归和脚本全量回归均通过。
 
 ```bash
 git add .github/workflows/ci.yml scripts/validate-kind-manifests.py \
