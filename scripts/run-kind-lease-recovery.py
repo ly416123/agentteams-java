@@ -15,6 +15,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+DEFAULT_LOCAL_PORT = 18083
+
 
 def fail(message: str) -> None:
     raise RuntimeError(message)
@@ -197,7 +199,10 @@ def main() -> int:
     parser.add_argument("--operator-deployment", default="agentteams-agentteams-java-operator")
     parser.add_argument("--postgres-pod", default="postgresql-0")
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
-    parser.add_argument("--local-port", type=int, default=18080)
+    # The workflow keeps a shared Control Plane port-forward on 18080 for
+    # adjacent acceptance steps. Use a dedicated port so this test can restart
+    # its own forward without racing the shared process.
+    parser.add_argument("--local-port", type=int, default=DEFAULT_LOCAL_PORT)
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--completion-timeout", type=float, default=300.0,
                         help="maximum time to wait for the recovered Worker task to finish")

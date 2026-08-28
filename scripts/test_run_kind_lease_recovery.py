@@ -12,6 +12,9 @@ SPEC.loader.exec_module(MODULE)
 
 
 class LeaseRecoveryScriptTest(TestCase):
+    def test_uses_a_dedicated_port_away_from_the_workflow_forward(self):
+        self.assertNotEqual(18080, MODULE.DEFAULT_LOCAL_PORT)
+
     @patch.object(MODULE.time, "sleep")
     @patch.object(MODULE, "qwenpaw_agent_phases", return_value={"agent-1": "READY"})
     @patch.object(MODULE, "gateway_connection_state",
