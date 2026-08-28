@@ -137,7 +137,7 @@ git add docs/superpowers/plans/2026-08-28-usage-budget-forecast-plan.md \
 git commit -m "feat(usage): 完成预算预测与项目评估纵切"
 ```
 
-- [ ] **步骤 7：推送并确认 CI。**
+- [x] **步骤 7：推送并确认 CI。** 提交 `b3a11e2` 已推送 `main`；GitHub Actions run `33149516478` 的 `verify`、`kind-oidc`、`kind-recovery` 全部通过。
 
 ```bash
 git push origin main
