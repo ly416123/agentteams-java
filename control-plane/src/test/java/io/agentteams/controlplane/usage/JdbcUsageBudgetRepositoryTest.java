@@ -59,11 +59,13 @@ class JdbcUsageBudgetRepositoryTest {
     void migrationSeparatesCostStatusFromBudgetTables() throws Exception {
         String costMigration = Files.readString(Path.of("src/main/resources/db/migration/V52__model_call_audit_cost_status.sql"));
         String budgetMigration = Files.readString(Path.of("src/main/resources/db/migration/V53__usage_budget_forecast.sql"));
+        String deliveryMigration = Files.readString(Path.of("src/main/resources/db/migration/V54__usage_budget_event_delivery.sql"));
 
         assertThat(costMigration).contains("cost_status", "ESTIMATED", "UNPRICED");
         assertThat(budgetMigration).contains("usage_budget_policies", "usage_budget_evaluations",
                 "usage_budget_events", "NUMERIC", "fingerprint");
         assertThat(budgetMigration).doesNotContain("prompt", "response", "authorization");
+        assertThat(deliveryMigration).contains("attempts", "next_attempt_at", "last_error", "delivered_at", "updated_at");
     }
 
     private static UsageBudgetPolicy policy() {

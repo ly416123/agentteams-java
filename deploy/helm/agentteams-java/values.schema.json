@@ -130,6 +130,23 @@
             "batchSize": { "type": "integer", "minimum": 1 }
           }
         },
+        "usageBudget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scheduler": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "pollIntervalMs": { "type": "integer", "minimum": 1 },
+                "leaseDuration": { "type": "string", "minLength": 1 },
+                "maxPoliciesPerRun": { "type": "integer", "minimum": 1, "maximum": 1000 },
+                "retryDelay": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
         "security": {
           "type": "object",
           "additionalProperties": false,

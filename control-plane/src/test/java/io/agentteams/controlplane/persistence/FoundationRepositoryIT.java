@@ -16,6 +16,7 @@ import io.agentteams.controlplane.config.ResourceApplyRecord;
 import io.agentteams.controlplane.usage.JdbcUsageBudgetRepository;
 import io.agentteams.controlplane.usage.UsageQueryService;
 import io.agentteams.controlplane.usage.UsageBudgetEvaluation;
+import io.agentteams.controlplane.usage.UsageBudgetEvent;
 import io.agentteams.controlplane.usage.UsageBudgetPolicy;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
@@ -104,6 +105,21 @@ class FoundationRepositoryIT {
                     assertThat(actual.actualCost()).isEqualByComparingTo("6");
                     assertThat(actual.forecastCost()).isEqualByComparingTo("72");
                 });
+
+        UsageBudgetEvent event = UsageBudgetEvent.pending("migration-it-event", policy, evaluation, now);
+        assertThat(budgets.insertEventIfAbsent(event)).isTrue();
+        assertThat(budgets.findPending(10)).filteredOn(actual -> actual.fingerprint().equals("migration-it-event"))
+                .singleElement();
+        budgets.markFailed(event.id(), now.plusSeconds(30), "receiver unavailable", now);
+        assertThat(budgets.findDue(now.plusSeconds(30), 10)).singleElement()
+                .extracting(UsageBudgetEvent::lastError).isEqualTo("receiver unavailable");
+        assertThat(budgets.claim(event, now.plusSeconds(30))).hasValueSatisfying(retried -> {
+            assertThat(retried.attempts()).isEqualTo(2);
+            assertThat(retried.status()).isEqualTo(UsageBudgetEvent.Status.PENDING);
+        });
+        budgets.markSent(event.id(), now.plusSeconds(31));
+        assertThat(budgets.findPending(10)).filteredOn(actual -> actual.fingerprint().equals("migration-it-event"))
+                .isEmpty();
     }
 
     @Test

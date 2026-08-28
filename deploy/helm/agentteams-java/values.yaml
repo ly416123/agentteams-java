@@ -46,6 +46,13 @@ controlPlane:
     pollIntervalMs: 1000
     leaseDuration: 30s
     batchSize: 16
+  usageBudget:
+    scheduler:
+      enabled: false
+      pollIntervalMs: 60000
+      leaseDuration: 30s
+      maxPoliciesPerRun: 100
+      retryDelay: 1m
   security:
     apiEnabled: false
     secretResolver:

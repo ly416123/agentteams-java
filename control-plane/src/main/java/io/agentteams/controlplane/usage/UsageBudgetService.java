@@ -102,7 +102,13 @@ public final class UsageBudgetService {
     /** Computes and persists one current-window evaluation for an existing policy. */
     public UsageBudgetEvaluation evaluateCurrent(UUID policyId, AuthorizationService.Scope scope) {
         requirePersistence();
-        UsageBudgetPolicy policy = requirePolicy(policyId, scope);
+        return evaluateCurrent(requirePolicy(policyId, scope));
+    }
+
+    /** Computes and persists one current-window evaluation for a scheduler-owned policy. */
+    public UsageBudgetEvaluation evaluateCurrent(UsageBudgetPolicy policy) {
+        requirePersistence();
+        Objects.requireNonNull(policy, "policy");
         Instant now = clock.instant();
         Instant windowStart = alignedWindowStart(now, policy.period().toSeconds());
         UsageQueryService.UsageSummary summary = usage.summarizeForScope(policy.tenantId(), policy.projectId(),
@@ -112,7 +118,10 @@ public final class UsageBudgetService {
         CostObservation observation = new CostObservation(BigDecimal.valueOf(totals.costUsd()), totals.pricedCalls(),
                 totals.unpricedCalls(), Duration.ofSeconds(observedSeconds));
         UsageBudgetEvaluation evaluation = evaluate(policy, observation, now);
-        repository.insertEvaluationIfAbsent(policy, evaluation, fingerprint(policy, evaluation));
+        repository.upsertEvaluation(policy, evaluation);
+        if (isNotifiable(evaluation.status())) {
+            repository.insertEventIfAbsent(UsageBudgetEvent.pending(fingerprint(policy, evaluation), policy, evaluation, now));
+        }
         return evaluation;
     }
 
@@ -133,13 +142,18 @@ public final class UsageBudgetService {
     }
 
     private static String fingerprint(UsageBudgetPolicy policy, UsageBudgetEvaluation evaluation) {
-        String input = policy.id() + "|" + policy.version() + "|" + evaluation.windowStart();
+        String input = policy.id() + "|" + policy.version() + "|" + evaluation.windowStart() + "|"
+                + evaluation.status();
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(input.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
+    }
+
+    private static boolean isNotifiable(UsageBudgetEvaluation.Status status) {
+        return status == UsageBudgetEvaluation.Status.SOFT_LIMIT || status == UsageBudgetEvaluation.Status.HARD_LIMIT;
     }
 
     public record PolicyInput(String currency, Duration period, BigDecimal softThreshold, BigDecimal hardThreshold,

@@ -82,6 +82,14 @@ agentteams:
         window: 24h
         max-projects-per-run: 100
         retry-delay: 1m
+  usage:
+    budget:
+      scheduler:
+        enabled: false
+        poll-interval-ms: 60000
+        lease-duration: 30s
+        max-policies-per-run: 100
+        retry-delay: 1m
   security:
     api:
       enabled: false

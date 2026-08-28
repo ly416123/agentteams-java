@@ -58,6 +58,16 @@ spec:
               value: {{ .Values.controlPlane.scheduler.leaseDuration | quote }}
             - name: AGENTTEAMS_SCHEDULER_BATCH_SIZE
               value: {{ .Values.controlPlane.scheduler.batchSize | quote }}
+            - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_ENABLED
+              value: {{ .Values.controlPlane.usageBudget.scheduler.enabled | quote }}
+            - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_POLL_INTERVAL_MS
+              value: {{ .Values.controlPlane.usageBudget.scheduler.pollIntervalMs | quote }}
+            - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_LEASE_DURATION
+              value: {{ .Values.controlPlane.usageBudget.scheduler.leaseDuration | quote }}
+            - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_MAX_POLICIES_PER_RUN
+              value: {{ .Values.controlPlane.usageBudget.scheduler.maxPoliciesPerRun | quote }}
+            - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_RETRY_DELAY
+              value: {{ .Values.controlPlane.usageBudget.scheduler.retryDelay | quote }}
             - name: AGENTTEAMS_SECURITY_API_ENABLED
               value: {{ .Values.controlPlane.security.apiEnabled | quote }}
             - name: AGENTTEAMS_SECURITY_SECRET_RESOLVER_BACKEND

@@ -72,6 +72,12 @@ import io.agentteams.controlplane.dashboard.DashboardAlertScheduler;
 import io.agentteams.controlplane.dashboard.DashboardAlertService;
 import io.agentteams.controlplane.dashboard.DashboardAlertNotificationPort;
 import io.agentteams.controlplane.usage.UsageQueryService;
+import io.agentteams.controlplane.usage.UsageBudgetRepository;
+import io.agentteams.controlplane.usage.UsageBudgetService;
+import io.agentteams.controlplane.usage.UsageBudgetNotificationPort;
+import io.agentteams.controlplane.usage.LoggingUsageBudgetNotificationPort;
+import io.agentteams.controlplane.usage.UsageBudgetDeliveryService;
+import io.agentteams.controlplane.usage.UsageBudgetScheduler;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -285,6 +291,30 @@ public class ControlPlaneConfiguration {
         return new DashboardAlertScheduler(delivery, events, schedulerLease, clock,
                 podName == null || podName.isBlank() ? "dashboard-alert" : podName,
                 leaseDuration, window, maxProjectsPerRun);
+    }
+
+    @Bean
+    UsageBudgetNotificationPort usageBudgetNotificationPort() {
+        return new LoggingUsageBudgetNotificationPort();
+    }
+
+    @Bean
+    UsageBudgetDeliveryService usageBudgetDeliveryService(UsageBudgetRepository events, UsageBudgetService budgets,
+            UsageBudgetNotificationPort notifications, Clock clock,
+            @Value("${agentteams.usage.budget.scheduler.retry-delay:1m}") java.time.Duration retryDelay) {
+        return new UsageBudgetDeliveryService(events, budgets, notifications, clock, retryDelay);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "agentteams.usage.budget.scheduler.enabled", havingValue = "true")
+    UsageBudgetScheduler usageBudgetScheduler(UsageBudgetDeliveryService delivery, SchedulerLeaseService schedulerLease,
+            Clock clock, @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.usage.budget.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.usage.budget.scheduler.max-policies-per-run:100}") int maxPoliciesPerRun) {
+        return new UsageBudgetScheduler(delivery, schedulerLease, clock,
+                podName == null || podName.isBlank() ? "usage-budget" : podName,
+                leaseDuration, maxPoliciesPerRun);
     }
 
     @Bean
