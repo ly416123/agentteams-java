@@ -32,7 +32,25 @@ class ResourceBindingLoaderTest {
                 .containsExactly("SKILL", "MCP");
         assertThat(result.acknowledgements()).extracting(ResourceBindingLoader.BindingAck::status)
                 .containsOnly(ResourceBindingLoader.AckStatus.SUCCESS);
+        assertThat(result.bindings().get(1).transport()).isNull();
         assertThat(result.failureMessage()).isEmpty();
+    }
+
+    @Test
+    void loadsMcpRuntimeMetadataWithoutTreatingItAsASecret() throws Exception {
+        ResourceBindingLoader.LoadResult result = ResourceBindingLoader.load(mapper.readTree("""
+                {"resourceBindings":[{"type":"MCP","reference":"search",
+                  "revision":"7","digest":"sha256:mcp","serverId":"server-7",
+                  "transport":"STREAMABLE_HTTP","endpoint":"https://mcp.example.test/http",
+                  "credentialRef":"MCP_SERVER_TOKEN"}]}
+                """));
+
+        assertThat(result.successful()).isTrue();
+        ResourceBindingLoader.ResourceBinding binding = result.bindings().get(0);
+        assertThat(binding.serverId()).isEqualTo("server-7");
+        assertThat(binding.transport()).isEqualTo("STREAMABLE_HTTP");
+        assertThat(binding.endpoint()).isEqualTo("https://mcp.example.test/http");
+        assertThat(binding.credentialRef()).isEqualTo("MCP_SERVER_TOKEN");
     }
 
     @Test

@@ -106,4 +106,42 @@ class QwenPawConfigSnapshotTest {
 
         assertThat(snapshot.skillDirectories()).containsEntry("SKILL|skill-a|1|sha256:abc", expectedSkill);
     }
+
+    @Test
+    void includesMcpRuntimeBindingsSeparatelyFromGenericConfigurationValues(@TempDir Path directory) throws Exception {
+        String manifest = "{\"model\":\"deepseek\",\"resourceBindings\":[{\"type\":\"MCP\","
+                + "\"reference\":\"search\",\"revision\":\"7\",\"digest\":\"sha256:mcp\","
+                + "\"serverId\":\"server-7\",\"transport\":\"STREAMABLE_HTTP\","
+                + "\"endpoint\":\"https://mcp.example.test/http\",\"credentialRef\":\"MCP_SERVER_TOKEN\"}]}";
+        String manifestSha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(manifest.getBytes(StandardCharsets.UTF_8)));
+        ConfigChanged changed = ConfigChanged.newBuilder()
+                .setMetadata(EventMetadata.newBuilder().setAgentId("agent-1").build())
+                .setConfigVersion(2).setManifestSha256(manifestSha)
+                .setSizeBytes(manifest.getBytes(StandardCharsets.UTF_8).length).build();
+
+        var snapshot = QwenPawWorker.buildConfigSnapshot(changed, manifest,
+                new ConfigFileFetcher(null, Duration.ofSeconds(2), 1024), directory);
+
+        assertThat(snapshot.mcpServers()).containsKey("MCP|search|7|sha256:mcp");
+        assertThat(snapshot.mcpServers().get("MCP|search|7|sha256:mcp").endpoint())
+                .isEqualTo("https://mcp.example.test/http");
+        assertThat(snapshot.values()).doesNotContainKey("resourceBindings");
+    }
+
+    @Test
+    void rejectsMcpBindingWithoutRuntimeMetadata(@TempDir Path directory) throws Exception {
+        String manifest = "{\"resourceBindings\":[{\"type\":\"MCP\",\"reference\":\"search\","
+                + "\"revision\":\"7\",\"digest\":\"sha256:mcp\"}]}";
+        String manifestSha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(manifest.getBytes(StandardCharsets.UTF_8)));
+        ConfigChanged changed = ConfigChanged.newBuilder()
+                .setMetadata(EventMetadata.newBuilder().setAgentId("agent-1").build())
+                .setConfigVersion(2).setManifestSha256(manifestSha)
+                .setSizeBytes(manifest.getBytes(StandardCharsets.UTF_8).length).build();
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> QwenPawWorker.buildConfigSnapshot(changed,
+                manifest, new ConfigFileFetcher(null, Duration.ofSeconds(2), 1024), directory)))
+                .hasMessage("RUNTIME_UNSUPPORTED: MCP binding requires runtime metadata");
+    }
 }

@@ -61,11 +61,11 @@
 
 ## 任务 3：Worker 解析并装配 MCP binding
 
-- [ ] **步骤 1：编写失败测试**：验证 ResourceBindingLoader 能读取 MCP 元数据，拒绝缺 endpoint/不支持 transport/URL userinfo/不安全 credentialRef；验证 `buildConfigSnapshot` 生成按 binding key 隔离的 MCP map。
-- [ ] **步骤 2：运行红灯**：执行 `mvn -q -pl agent-worker -am -Dtest=ResourceBindingLoaderTest,QwenPawConfigSnapshotTest -Dsurefire.failIfNoSpecifiedTests=false test`，预期因字段和装配逻辑不存在而失败。
-- [ ] **步骤 3：实现最小装配**：扩展 `ResourceBindingLoader.ResourceBinding` 的可选 MCP 字段；仅 MCP 类型转换为 `RuntimeMcpServer`；缺失 runtime metadata 时返回稳定 `RUNTIME_UNSUPPORTED`，不把端点或 credentialRef 写进普通 values。
-- [ ] **步骤 4：运行绿灯**：目标测试通过，旧无 metadata manifest 仍能被解析但激活 MCP 时 fail-closed。
-- [ ] **步骤 5：提交**：`git add agent-worker && git commit -m "feat(MCP): Worker 装配 runtime binding"`。
+- [x] **步骤 1：编写失败的测试**：验证 ResourceBindingLoader 能读取 MCP 元数据，旧 manifest 保持兼容；验证 `buildConfigSnapshot` 生成按 binding key 隔离的 MCP map，缺失元数据时 fail-closed。
+- [x] **步骤 2：运行红灯**：执行 `mvn -q -pl agent-worker -am -Dtest=ResourceBindingLoaderTest,QwenPawConfigSnapshotTest -Dsurefire.failIfNoSpecifiedTests=false test`，确认因字段和装配逻辑不存在而失败。
+- [x] **步骤 3：实现最小装配**：扩展 `ResourceBindingLoader.ResourceBinding` 的可选 MCP 字段；仅 MCP 类型转换为 `RuntimeMcpServer`；缺失 runtime metadata 或非数字 revision 时返回稳定 `RUNTIME_UNSUPPORTED`，不把资源绑定 JSON 写进普通 values。
+- [x] **步骤 4：运行绿灯**：目标测试通过，旧无 metadata manifest 仍能被解析但激活 MCP 时 fail-closed。
+- [x] **步骤 5：提交**：`git add agent-worker && git commit -m "feat(MCP): Worker 装配 runtime binding"`。
 
 ## 任务 4：AgentScope MCP Runtime Port
 

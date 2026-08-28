@@ -36,6 +36,7 @@ import io.agentteams.runtime.SemaphoreRuntimeModelCallAdmission;
 import io.agentteams.runtime.RuntimeConfigCoordinator;
 import io.agentteams.runtime.RuntimeConfigPrepared;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
+import io.agentteams.runtime.RuntimeMcpServer;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
@@ -395,21 +396,39 @@ public final class QwenPawWorker implements AutoCloseable {
                 throw new IllegalArgumentException(resourceBindings.failureMessage());
             }
             Map<String, Path> skillDirectories = new LinkedHashMap<>();
+            Map<String, RuntimeMcpServer> mcpServers = new LinkedHashMap<>();
             for (ResourceBindingLoader.ResourceBinding binding : resourceBindings.bindings()) {
                 if (binding.artifactRef() != null) {
                     if (skills == null) throw new IllegalArgumentException("Skill artifact fetcher is required");
                     skillDirectories.put(binding.key(), skills.materialize(binding, versionDirectory));
                 }
+                if ("MCP".equals(binding.type())) {
+                    if (binding.serverId() == null || binding.transport() == null || binding.endpoint() == null) {
+                        throw new IllegalArgumentException("RUNTIME_UNSUPPORTED: MCP binding requires runtime metadata");
+                    }
+                    long revision;
+                    try {
+                        revision = Long.parseLong(binding.revision());
+                    } catch (NumberFormatException error) {
+                        throw new IllegalArgumentException("RUNTIME_UNSUPPORTED: MCP revision must be numeric");
+                    }
+                    mcpServers.put(binding.key(), new RuntimeMcpServer(binding.serverId(), revision,
+                            binding.transport(), binding.endpoint(), binding.credentialRef(), binding.digest()));
+                }
             }
             Map<String, String> values = new LinkedHashMap<>();
-            root.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().isTextual()
-                    ? entry.getValue().asText() : entry.getValue().toString()));
+            root.fields().forEachRemaining(entry -> {
+                if (!"resourceBindings".equals(entry.getKey())) {
+                    values.put(entry.getKey(), entry.getValue().isTextual()
+                            ? entry.getValue().asText() : entry.getValue().toString());
+                }
+            });
             Map<String, Path> stagedFiles = new LinkedHashMap<>();
             for (ConfigFile file : changed.getFilesList()) {
                 stagedFiles.put(file.getPath(), files.fetch(file, versionDirectory));
             }
             return new RuntimeConfigSnapshot(changed.getConfigVersion(), changed.getManifestSha256(), values,
-                    stagedFiles, skillDirectories);
+                    stagedFiles, skillDirectories, mcpServers);
         } catch (IOException error) {
             throw new IllegalArgumentException("configuration manifest must be valid JSON", error);
         }

@@ -57,6 +57,10 @@ public final class ResourceBindingLoader {
             String digest = text(node, "digest", failures);
             String artifactRef = optionalText(node, "artifactRef", failures);
             long sizeBytes = optionalSize(node, artifactRef, failures);
+            String serverId = optionalText(node, "serverId", failures);
+            String transport = optionalText(node, "transport", failures);
+            String endpoint = optionalText(node, "endpoint", failures);
+            String credentialRef = optionalText(node, "credentialRef", failures);
             if (type != null) {
                 type = type.toUpperCase(Locale.ROOT);
                 if (!SUPPORTED_TYPES.contains(type)) {
@@ -64,7 +68,8 @@ public final class ResourceBindingLoader {
                 }
             }
             if (failures.isEmpty()) {
-                ResourceBinding binding = new ResourceBinding(type, reference, revision, digest, artifactRef, sizeBytes);
+                ResourceBinding binding = new ResourceBinding(type, reference, revision, digest, artifactRef, sizeBytes,
+                        serverId, transport, endpoint, credentialRef);
                 bindings.add(binding);
                 acknowledgements.add(BindingAck.success(binding));
             } else {
@@ -107,9 +112,15 @@ public final class ResourceBindingLoader {
     }
 
     public record ResourceBinding(String type, String reference, String revision, String digest,
-            String artifactRef, long sizeBytes) {
+            String artifactRef, long sizeBytes, String serverId, String transport, String endpoint,
+            String credentialRef) {
         public ResourceBinding(String type, String reference, String revision, String digest) {
-            this(type, reference, revision, digest, null, -1);
+            this(type, reference, revision, digest, null, -1, null, null, null, null);
+        }
+
+        public ResourceBinding(String type, String reference, String revision, String digest,
+                String artifactRef, long sizeBytes) {
+            this(type, reference, revision, digest, artifactRef, sizeBytes, null, null, null, null);
         }
 
         public ResourceBinding {
@@ -122,6 +133,10 @@ public final class ResourceBindingLoader {
             revision = revision.trim();
             digest = digest.trim();
             artifactRef = artifactRef == null || artifactRef.isBlank() ? null : artifactRef.trim();
+            serverId = serverId == null || serverId.isBlank() ? null : serverId.trim();
+            transport = transport == null || transport.isBlank() ? null : transport.trim();
+            endpoint = endpoint == null || endpoint.isBlank() ? null : endpoint.trim();
+            credentialRef = credentialRef == null || credentialRef.isBlank() ? null : credentialRef.trim();
             if (artifactRef != null && sizeBytes < 0) throw new IllegalArgumentException("sizeBytes must be non-negative");
             if (sizeBytes < -1) throw new IllegalArgumentException("sizeBytes must be -1 or non-negative");
         }
