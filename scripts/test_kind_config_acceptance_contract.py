@@ -29,3 +29,8 @@ class KindConfigAcceptanceContractTest(unittest.TestCase):
             ]
             self.assertTrue(writes, filename)
             self.assertTrue(all(len(call.args) >= 5 for call in writes), filename)
+
+    def test_resource_binding_ack_fixture_does_not_activate_unbacked_mcp_runtime(self):
+        source = (ROOT / "scripts/run-kind-resource-binding-ack.py").read_text(encoding="utf-8")
+        self.assertNotIn('"reference": "kind-mcp"', source)
+        self.assertIn('"type": "SKILL"', source)

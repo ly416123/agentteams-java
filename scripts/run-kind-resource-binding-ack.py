@@ -154,13 +154,16 @@ def main() -> int:
             "revision": "resource-bindings-valid",
             "model": smoke_model,
             "marker": str(uuid.uuid4()),
+            # This acceptance fixture intentionally exercises bindings that
+            # can be applied without an external service. MCP runtime
+            # activation requires serverId/transport/endpoint metadata and a
+            # reachable MCP server; that path is covered by Worker tests and
+            # must not be faked as a generic ACK success here.
             "resourceBindings": [
                 {"type": "MODEL", "reference": "kind-model", "revision": "model-1",
                  "digest": "sha256:" + "1" * 64},
                 {"type": "SKILL", "reference": "kind-skill", "revision": "skill-1",
                  "digest": "sha256:" + "2" * 64},
-                {"type": "MCP", "reference": "kind-mcp", "revision": "mcp-1",
-                 "digest": "sha256:" + "3" * 64},
             ],
         }
         invalid = {
