@@ -33,6 +33,11 @@ topologySpreadConstraints:
 
 controlPlane:
   replicas: 3
+  autoscaling:
+    enabled: false
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
   security:
     apiEnabled: true
     secretResolver:
@@ -58,6 +63,11 @@ controlPlane:
 
 gateway:
   replicas: 3
+  autoscaling:
+    enabled: false
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
   tls:
     enabled: true
     secretName: agentteams-gateway-mtls
@@ -75,6 +85,14 @@ operator:
   leaderElection:
     enabled: true
     leaseName: agentteams-operator
+
+manager:
+  enabled: false
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 2
+    targetCPUUtilizationPercentage: 70
 
 database:
   jdbcUrl: jdbc:postgresql://postgresql.example.internal:5432/agentteams

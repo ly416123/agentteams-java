@@ -15,6 +15,8 @@
 
 **预算预测进度（2026-08-28）：** 已完成 V52 成本状态迁移、V53 项目预算策略/评估/去重事件表、V54 通知投递状态迁移和 V55 可恢复历史维度回填；模型调用审计分别持久化 `ESTIMATED`、`UNPRICED` 和 `NOT_APPLICABLE`，避免把未计价误判为零成本。Control Plane 已提供 expectedVersion 保护的策略 PUT、当前项目策略查询、评估分页查询、维度完整性查询，以及默认关闭的周期预算评估/集中通知/失败重试调度，线性预测只在达到策略 forecast window 的有效观测后生成。模型价格目录自动同步第一纵切已完成：通过显式配置目标项目拉取受限 HTTP JSON 快照，使用数据库租约、自然键和幂等事件安全导入，不覆盖已有价格；L6 长压测仍待后续批次。
 
+**HPA 进度（2026-08-28）：** 已完成仓库侧可选 HPA 第一纵切：Control Plane、Gateway 和可选 Manager 使用 `autoscaling/v2` CPU 利用率指标，默认关闭并绑定各自 Deployment；启用时 Helm 渲染强制要求全局 `resources.requests.cpu`，并校验 `maxReplicas >= minReplicas`。已增加 Helm schema、生产 values 示例和确定性契约测试；Metrics Server/Prometheus Adapter、实际扩缩容、拓扑故障和 L6 长压测仍需受控 Kubernetes 环境验收。
+
 ## 1. 目标
 
 本规格把已经存在的 Registry、Usage、Dashboard、Quota、Operator 和告警基础推进为多副本、长时间运行条件下可验证的生产能力。重点不是增加更多指标，而是保证业务维度完整、状态跨实例一致、告警能够送达、配额不会超发，并为运行时绑定提供可恢复事实。
@@ -211,7 +213,7 @@ Control Plane、Gateway、Operator 分别配置：
 - 独立 PDB；
 - 可选 HPA，默认关闭。
 
-HPA 首期只使用 CPU 和内存；队列深度扩缩容在暴露稳定的外部指标后另行启用。Operator 使用 Leader Election 时可多副本，但 PDB 不得设置为与副本数相同的 `minAvailable`。
+HPA 仓库首期使用 CPU 利用率；内存和队列深度扩缩容待资源 request 基线及稳定外部指标完成后另行启用。Operator 使用 Leader Election 时可多副本，但 PDB 不得设置为与副本数相同的 `minAvailable`。
 
 ## 8. SLO、健康和通知
 

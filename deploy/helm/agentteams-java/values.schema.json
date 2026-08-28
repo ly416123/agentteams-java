@@ -103,6 +103,18 @@
       "additionalProperties": false,
       "properties": {
         "replicas": { "type": "integer", "minimum": 1 },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer", "minimum": 1, "maximum": 100
+            }
+          }
+        },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "serviceAccount": {
           "type": "object",
@@ -233,6 +245,18 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": { "type": "integer", "minimum": 1 },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer", "minimum": 1, "maximum": 100
+            }
+          }
+        },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "image": { "type": "string", "minLength": 1 },
         "existingSecret": { "type": "string", "minLength": 1 },
@@ -272,6 +296,18 @@
       "additionalProperties": false,
       "properties": {
         "replicas": { "type": "integer", "minimum": 1 },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer", "minimum": 1, "maximum": 100
+            }
+          }
+        },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "httpPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "serviceAccount": {

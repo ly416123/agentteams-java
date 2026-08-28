@@ -32,6 +32,11 @@ topologySpreadConstraints:
         app.kubernetes.io/part-of: agentteams
 controlPlane:
   replicas: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
   port: 8080
   serviceAccount:
     create: true
@@ -92,6 +97,11 @@ controlPlane:
     AGENTTEAMS_CONFIG_SNAPSHOT_CLEANUP_INTERVAL_MS: "300000"
 gateway:
   replicas: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
   port: 9090
   httpPort: 8080
   serviceAccount:
@@ -126,6 +136,13 @@ gateway:
     controlPlaneUrl: ""
     internalToken: ""
     requestTimeout: 3s
+manager:
+  enabled: false
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 2
+    targetCPUUtilizationPercentage: 70
 operator:
   replicas: 1
   # Operator reports Worker rollout facts to the Control Plane when an

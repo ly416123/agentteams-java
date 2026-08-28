@@ -1,0 +1,93 @@
+{{- $controlPlaneAutoscaling := .Values.controlPlane.autoscaling | default dict -}}
+{{- $gatewayAutoscaling := .Values.gateway.autoscaling | default dict -}}
+{{- $manager := .Values.manager | default dict -}}
+{{- $managerAutoscaling := $manager.autoscaling | default dict -}}
+{{- $managerHpaEnabled := and $manager.enabled $managerAutoscaling.enabled -}}
+{{- $anyHpaEnabled := or $controlPlaneAutoscaling.enabled $gatewayAutoscaling.enabled $managerHpaEnabled -}}
+{{- $resources := .Values.resources | default dict -}}
+{{- $requests := $resources.requests | default dict -}}
+{{- if $anyHpaEnabled -}}
+{{- if not (hasKey $requests "cpu") -}}
+{{- fail "CPU request is required when autoscaling is enabled" -}}
+{{- end -}}
+{{- if and $controlPlaneAutoscaling.enabled (lt (int $controlPlaneAutoscaling.maxReplicas) (int $controlPlaneAutoscaling.minReplicas)) -}}
+{{- fail "controlPlane.autoscaling.maxReplicas must be greater than or equal to minReplicas" -}}
+{{- end -}}
+{{- if and $gatewayAutoscaling.enabled (lt (int $gatewayAutoscaling.maxReplicas) (int $gatewayAutoscaling.minReplicas)) -}}
+{{- fail "gateway.autoscaling.maxReplicas must be greater than or equal to minReplicas" -}}
+{{- end -}}
+{{- if and $managerHpaEnabled (lt (int $managerAutoscaling.maxReplicas) (int $managerAutoscaling.minReplicas)) -}}
+{{- fail "manager.autoscaling.maxReplicas must be greater than or equal to minReplicas" -}}
+{{- end -}}
+{{- end -}}
+{{- if $controlPlaneAutoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-hpa
+  labels:
+    app.kubernetes.io/name: agentteams-control-plane
+    app.kubernetes.io/part-of: agentteams
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "agentteams-java.fullname" . }}-control-plane
+  minReplicas: {{ $controlPlaneAutoscaling.minReplicas }}
+  maxReplicas: {{ $controlPlaneAutoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $controlPlaneAutoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- if $gatewayAutoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-gateway-hpa
+  labels:
+    app.kubernetes.io/name: agentteams-gateway
+    app.kubernetes.io/part-of: agentteams
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "agentteams-java.fullname" . }}-gateway
+  minReplicas: {{ $gatewayAutoscaling.minReplicas }}
+  maxReplicas: {{ $gatewayAutoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $gatewayAutoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- if $managerHpaEnabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-manager-hpa
+  labels:
+    app.kubernetes.io/name: agentteams-manager
+    app.kubernetes.io/part-of: agentteams
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "agentteams-java.fullname" . }}-manager
+  minReplicas: {{ $managerAutoscaling.minReplicas }}
+  maxReplicas: {{ $managerAutoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $managerAutoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
