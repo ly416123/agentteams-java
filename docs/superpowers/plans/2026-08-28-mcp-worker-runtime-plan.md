@@ -82,8 +82,8 @@
 - [x] **步骤 2：运行模块验证**：`source deploy/dev-env.sh && mvn -q test`、`python3 -m unittest discover -s scripts -p 'test_*.py'`、`python3 -m py_compile scripts/*.py`、`bash scripts/validate-backup-scripts.sh`、`python3 scripts/validate-production-values.py`、`python3 scripts/validate-production-network.py`、`python3 scripts/validate-architecture-map.py`、`helm lint deploy/helm/agentteams-java`、`git diff --check`。
 - [x] **步骤 3：运行本地 Docker 验证**：`source deploy/dev-env.sh && mvn -q -Pintegration-tests verify`，确认 Flyway/Control Plane/Agent Worker 集成启动成功。
 - [x] **步骤 4：检查敏感信息与范围**：确认 diff 不含 token、Authorization、完整 MCP 响应、endpoint 标签或新分支/worktree。
-- [ ] **步骤 5：提交文档并推送**：`git add docs && git commit -m "docs(MCP): 更新运行时接入进度" && git push origin main`。
-- [ ] **步骤 6：确认 CI**：执行 `gh run watch <run-id> --interval 15 --exit-status`，确认 `verify`、`kind-recovery`、`kind-oidc` 全部成功后核对 `HEAD` 与 `origin/main`。
+- [x] **步骤 5：提交文档并推送**：`git add docs && git commit -m "docs(MCP): 更新运行时接入进度" && git push origin main`；因旧 Kind ACK 夹具包含无运行时元数据的伪 MCP 绑定，额外提交 `test(Kind): 修正资源绑定 ACK 烟测夹具` 并再次推送。
+- [x] **步骤 6：确认 CI**：运行 `gh run watch 33139027751 --interval 15 --exit-status`，`verify`、`kind-recovery`、`kind-oidc` 全部成功，且 `HEAD` 与 `origin/main` 一致。
 
 ## 完成边界
 
