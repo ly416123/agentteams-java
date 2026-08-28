@@ -12,7 +12,8 @@ public record AgentSpecReferenceBinding(
         String revision,
         String digest,
         String artifactRef,
-        Long sizeBytes) {
+        Long sizeBytes,
+        McpRuntimeMetadata mcpRuntime) {
 
     public AgentSpecReferenceBinding {
         Objects.requireNonNull(type, "type");
@@ -45,7 +46,13 @@ public record AgentSpecReferenceBinding(
                 ? AgentSpecReferenceDigest.derived(reference, metadata.revision()) : metadata.digest();
         return new AgentSpecReferenceBinding(reference.type(), reference.value(), metadata.tenantId(),
                 metadata.projectId(), metadata.teamId(), metadata.revision(), digest,
-                metadata.artifactRef(), metadata.sizeBytes());
+                metadata.artifactRef(), metadata.sizeBytes(), metadata.mcpRuntime());
+    }
+
+    /** Compatibility constructor for bindings that carry artifact metadata only. */
+    public AgentSpecReferenceBinding(AgentSpecReferenceType type, String reference, String tenantId,
+            String projectId, String teamId, String revision, String digest, String artifactRef, Long sizeBytes) {
+        this(type, reference, tenantId, projectId, teamId, revision, digest, artifactRef, sizeBytes, null);
     }
 
     /** Compatibility constructor for bindings that predate artifact delivery metadata. */

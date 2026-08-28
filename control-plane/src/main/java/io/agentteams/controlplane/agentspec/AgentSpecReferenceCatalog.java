@@ -38,7 +38,8 @@ public interface AgentSpecReferenceCatalog {
     }
 
     record ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
-            String lifecycle, String revision, String digest, String artifactRef, Long sizeBytes) {
+            String lifecycle, String revision, String digest, String artifactRef, Long sizeBytes,
+            McpRuntimeMetadata mcpRuntime) {
         /** Compatibility constructor for catalogs that do not expose a digest yet. */
         public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
                 String lifecycle, String revision) {
@@ -48,7 +49,13 @@ public interface AgentSpecReferenceCatalog {
         /** Compatibility constructor for catalogs that expose a digest but no artifact. */
         public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
                 String lifecycle, String revision, String digest) {
-            this(tenantId, projectId, teamId, visibility, lifecycle, revision, digest, null, null);
+            this(tenantId, projectId, teamId, visibility, lifecycle, revision, digest, null, null, null);
+        }
+
+        /** Compatibility constructor for catalogs that expose artifact metadata only. */
+        public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
+                String lifecycle, String revision, String digest, String artifactRef, Long sizeBytes) {
+            this(tenantId, projectId, teamId, visibility, lifecycle, revision, digest, artifactRef, sizeBytes, null);
         }
 
         /** Compatibility constructor for catalogs that predate team scope. */

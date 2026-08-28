@@ -116,7 +116,11 @@ class AgentSpecDeploymentServiceTest {
                         reference.type() == AgentSpecReferenceType.SKILL ? "skill-2" : "mcp-7",
                         reference.type() == AgentSpecReferenceType.SKILL ? "sha256:skill" : "sha256:mcp",
                         reference.type() == AgentSpecReferenceType.SKILL ? "https://objects.example.test/skill.tar.gz" : null,
-                        reference.type() == AgentSpecReferenceType.SKILL ? 12L : null));
+                        reference.type() == AgentSpecReferenceType.SKILL ? 12L : null,
+                        reference.type() == AgentSpecReferenceType.MCP
+                                ? new McpRuntimeMetadata("2d85e034-1486-4df0-b4b9-6d8e622ace61",
+                                        "STREAMABLE_HTTP", "https://mcp.example.test/http", "MCP_SERVER_TOKEN")
+                                : null));
         AgentSpecDeploymentService service = new AgentSpecDeploymentService(specs, snapshots, deployments,
                 new ObjectMapper(), null, new CatalogAgentSpecReferenceValidator(catalog));
 
@@ -138,6 +142,16 @@ class AgentSpecDeploymentServiceTest {
         assertThat(root.path("resourceBindings").get(2).path("type").asText()).isEqualTo("MCP");
         assertThat(root.path("resourceBindings").get(2).path("revision").asText()).isEqualTo("mcp-7");
         assertThat(root.path("resourceBindings").get(2).path("digest").asText()).isEqualTo("sha256:mcp");
+        assertThat(root.path("resourceBindings").get(2).path("serverId").asText())
+                .isEqualTo("2d85e034-1486-4df0-b4b9-6d8e622ace61");
+        assertThat(root.path("resourceBindings").get(2).path("transport").asText())
+                .isEqualTo("STREAMABLE_HTTP");
+        assertThat(root.path("resourceBindings").get(2).path("endpoint").asText())
+                .isEqualTo("https://mcp.example.test/http");
+        assertThat(root.path("resourceBindings").get(2).path("credentialRef").asText())
+                .isEqualTo("MCP_SERVER_TOKEN");
+        assertThat(root.path("resourceBindings").get(2).toString())
+                .doesNotContain("Authorization", "token", "secret");
     }
 
     @Test

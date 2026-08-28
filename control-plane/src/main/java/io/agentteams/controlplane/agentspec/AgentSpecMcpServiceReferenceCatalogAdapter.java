@@ -50,6 +50,8 @@ public final class AgentSpecMcpServiceReferenceCatalogAdapter implements AgentSp
         return new AgentSpecReferenceCatalog.ReferenceMetadata(scope.tenantId(), scope.projectId(), scope.teamId(),
                 AgentSpecReferenceCatalog.Visibility.PROJECT,
                 server.enabled() ? "PUBLISHED" : "DISABLED", revision,
-                AgentSpecReferenceDigest.derived(reference, revision));
+                AgentSpecReferenceDigest.derived(reference, revision), null, null,
+                new McpRuntimeMetadata(server.id().toString(), server.transport().name(), server.endpoint(),
+                        server.credentialRef()));
     }
 }

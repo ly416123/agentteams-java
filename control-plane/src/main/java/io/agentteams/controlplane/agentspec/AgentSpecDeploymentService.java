@@ -122,6 +122,14 @@ public final class AgentSpecDeploymentService {
                     node.put("digest", binding.digest());
                     if (binding.artifactRef() != null) node.put("artifactRef", binding.artifactRef());
                     if (binding.sizeBytes() != null) node.put("sizeBytes", binding.sizeBytes());
+                    if (binding.mcpRuntime() != null) {
+                        node.put("serverId", binding.mcpRuntime().serverId());
+                        node.put("transport", binding.mcpRuntime().transport());
+                        node.put("endpoint", binding.mcpRuntime().endpoint());
+                        if (binding.mcpRuntime().credentialRef() != null) {
+                            node.put("credentialRef", binding.mcpRuntime().credentialRef());
+                        }
+                    }
                     node.put("workerId", workerId.toString());
                     node.put("teamRef", teamRef);
                     ObjectNode bindingScope = node.putObject("scope");

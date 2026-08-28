@@ -53,11 +53,11 @@
 
 ## 任务 2：下发 Control Plane MCP runtime 元数据
 
-- [ ] **步骤 1：编写失败测试**：增加 metadata 边界测试，并在部署测试中断言 MCP manifest 包含 serverId/transport/endpoint/credentialRef，同时不包含 Authorization/token/header。
-- [ ] **步骤 2：运行红灯**：执行 `mvn -q -pl control-plane -am -Dtest=McpRuntimeMetadataTest,AgentSpecDeploymentServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`，预期新类型和 manifest 字段断言失败。
-- [ ] **步骤 3：实现最小传递链**：新增 `McpRuntimeMetadata`；扩展 `ReferenceMetadata`、`AgentSpecReferenceBinding` 的兼容字段；MCP catalog 从 `McpServerRecord` 提供元数据；manifest 仅写入非敏感字段。
-- [ ] **步骤 4：运行绿灯**：目标测试通过，并确认旧 model/skill metadata JSON 不发生变化。
-- [ ] **步骤 5：提交**：`git add control-plane && git commit -m "feat(MCP): 下发安全运行元数据"`。
+- [x] **步骤 1：编写失败的测试**：增加 metadata 边界测试，并在部署测试中断言 MCP manifest 包含 serverId/transport/endpoint/credentialRef，同时不包含 Authorization/token/header。
+- [x] **步骤 2：运行红灯**：执行 `mvn -q -pl control-plane -am -Dtest=McpRuntimeMetadataTest,AgentSpecDeploymentServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`，确认新类型和 manifest 字段断言失败。
+- [x] **步骤 3：实现最小传递链**：新增 `McpRuntimeMetadata`；扩展 `ReferenceMetadata`、`AgentSpecReferenceBinding` 的兼容字段；MCP catalog 从 `McpServerRecord` 提供元数据；manifest 仅写入非敏感字段。
+- [x] **步骤 4：运行绿灯**：目标测试通过，并确认旧 model/skill metadata JSON 不发生变化。
+- [x] **步骤 5：提交**：`git add control-plane && git commit -m "feat(MCP): 下发安全运行元数据"`。
 
 ## 任务 3：Worker 解析并装配 MCP binding
 
