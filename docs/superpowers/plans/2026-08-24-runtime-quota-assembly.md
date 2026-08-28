@@ -42,7 +42,7 @@
 
 - [x] 步骤 1：运行 Maven `integration-tests verify`、Manager 定向回归、Python 脚本全量测试、Kind/API validator，并完成本地 Kind 真实 Worker 验收。
 - [x] 步骤 2：更新本设计规格和商业差距规格中的远程配额接线状态，不改变未实现能力的状态。
-- [x] 步骤 3：执行敏感扫描、`git diff --check`、提交中文 Conventional Commit 并推送当前分支。本轮敏感契约、配额契约、脚本全量测试、Manager 定向回归和 `mvn -q -Pintegration-tests verify` 均通过；变更提交并推送至自动执行功能分支。
+- [x] 步骤 3：执行敏感扫描、`git diff --check`、提交中文 Conventional Commit 并推送当前分支。本轮敏感契约、配额契约、脚本全量测试、Manager 定向回归和 `mvn -q -Pintegration-tests verify` 均通过；变更提交并推送至自动执行功能分支。GitHub Actions `33173229336` 的 `verify` 成功，`kind-recovery`/`kind-oidc` 因功能分支条件跳过。
 
 ### 2026-08-24 本地验收补充
 
@@ -50,4 +50,4 @@
 - 真实 Worker 配额验收通过：`daily_calls_delta=1`、`daily_tokens_delta=1024`、`current_concurrent_calls=0`。
 - `run-kind-quota-recovery.py --restart-control-plane` 通过 acquire/release 幂等、并发拒绝、超时、跨 tenant/project 隔离和 Control Plane 重启恢复检查。
 - 修复 Windows 本地 Python 默认 GBK 导致的 UTF-8 Shell 契约测试失败：`test_kind_mtls_bootstrap_contract.py` 现在显式使用 UTF-8 读取脚本。
-- 本轮已完成本地交付收口；远程 CI 结果由功能分支推送后单独确认。
+- 本轮已完成本地交付收口；远程 `verify` 已成功，Kind 作业保持“分支条件跳过”状态。
