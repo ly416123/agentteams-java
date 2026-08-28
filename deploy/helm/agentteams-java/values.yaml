@@ -58,7 +58,9 @@ controlPlane:
     endpoint: ""
     connectTimeout: 2s
     requestTimeout: 10s
-    pollIntervalMs: 3600000
+    # Keep this as a decimal string: Helm can render large YAML numbers in
+    # scientific notation, while Spring binds this environment variable to a long.
+    pollIntervalMs: "3600000"
     leaseDuration: 30s
     maxResponseBytes: 262144
     maxQuotes: 1000

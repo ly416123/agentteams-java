@@ -155,7 +155,12 @@
             "endpoint": { "type": "string", "format": "uri-reference" },
             "connectTimeout": { "type": "string", "minLength": 1 },
             "requestTimeout": { "type": "string", "minLength": 1 },
-            "pollIntervalMs": { "type": "integer", "minimum": 1 },
+            "pollIntervalMs": {
+              "anyOf": [
+                { "type": "integer", "minimum": 1 },
+                { "type": "string", "pattern": "^[0-9]+$", "minLength": 1 }
+              ]
+            },
             "leaseDuration": { "type": "string", "minLength": 1 },
             "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 10485760 },
             "maxQuotes": { "type": "integer", "minimum": 1, "maximum": 10000 },
