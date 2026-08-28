@@ -36,16 +36,20 @@ kubectl -n "$NAMESPACE" rollout restart deployment/prometheus
 kubectl -n "$NAMESPACE" rollout status deployment/prometheus --timeout=180s
 kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=180s
 
-helm upgrade --install ingress-nginx ingress-nginx \
-  --repo https://kubernetes.github.io/ingress-nginx \
-  --version "$INGRESS_CHART_VERSION" \
-  --namespace ingress-nginx --create-namespace --wait --timeout 5m \
-  --set controller.service.type=NodePort \
-  --set controller.service.nodePorts.http=30080 \
-  --set controller.service.nodePorts.https=30443 \
-  --set controller.ingressClassResource.default=true \
-  --set controller.admissionWebhooks.enabled=false \
-  --set controller.image.digest=""
+if helm status ingress-nginx --namespace ingress-nginx >/dev/null 2>&1; then
+  echo "复用现有 ingress-nginx Helm release，跳过远程仓库刷新。"
+else
+  helm upgrade --install ingress-nginx ingress-nginx \
+    --repo https://kubernetes.github.io/ingress-nginx \
+    --version "$INGRESS_CHART_VERSION" \
+    --namespace ingress-nginx --create-namespace --wait --timeout 5m \
+    --set controller.service.type=NodePort \
+    --set controller.service.nodePorts.http=30080 \
+    --set controller.service.nodePorts.https=30443 \
+    --set controller.ingressClassResource.default=true \
+    --set controller.admissionWebhooks.enabled=false \
+    --set controller.image.digest=""
+fi
 kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
 
 "$ROOT/deploy/build-images.sh"
@@ -54,6 +58,15 @@ kubectl apply -f "$ROOT/deploy/helm/agentteams-java/crds/workers.yaml"
 helm lint "$ROOT/deploy/helm/agentteams-java"
 helm upgrade --install agentteams "$ROOT/deploy/helm/agentteams-java" \
   --namespace "$NAMESPACE" --create-namespace --wait --timeout 5m \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_ENABLED=true \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_POLL_INTERVAL_MS=1000 \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_LEASE_DURATION=30s \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_WINDOW=24h \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_MAX_PROJECTS_PER_RUN=100 \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_RETRY_DELAY=2s \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_ENABLED=true \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL=http://dashboard-alert-receiver:8080/alerts \
+  --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_TIMEOUT=3s \
   -f "$ROOT/deploy/helm/kind-values.yaml"
 # Kind intentionally reuses stable :latest tags. Helm cannot detect a rebuilt
 # image when the tag is unchanged, so force a safe application rollout.

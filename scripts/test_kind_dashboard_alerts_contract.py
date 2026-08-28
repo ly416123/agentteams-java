@@ -42,6 +42,25 @@ class KindDashboardAlertsContractTest(unittest.TestCase):
         alert_step = next(step for step in steps if step.get("name") == "Run Kind Dashboard alert acceptance")
         self.assertIn("scripts/run-kind-dashboard-alerts.py", alert_step["run"])
 
+    def test_local_kind_install_enables_the_same_alert_runtime(self):
+        install = (ROOT / "deploy/install-kind-dev.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            "--set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_ENABLED=true",
+            install,
+        )
+        self.assertIn(
+            "--set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL=http://dashboard-alert-receiver:8080/alerts",
+            install,
+        )
+
+    def test_local_kind_install_reuses_an_existing_ingress_release(self):
+        install = (ROOT / "deploy/install-kind-dev.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'if helm status ingress-nginx --namespace ingress-nginx >/dev/null 2>&1; then',
+            install,
+        )
+        self.assertIn('else\n  helm upgrade --install ingress-nginx ingress-nginx', install)
+
     def test_recovery_workflow_passes_tracing_sampling_as_json_number(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
         steps = workflow["jobs"]["kind-recovery"]["steps"]

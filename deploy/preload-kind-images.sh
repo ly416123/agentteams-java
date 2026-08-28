@@ -4,6 +4,7 @@ set -euo pipefail
 # 将 Kind 开发清单所需镜像注入 agentteams 集群节点。
 # kind load（docker save → ctr import）在 Colima containerd-snapshotter 存储下会丢层失败，
 # 因此改为直接在节点内 ctr pull 代理镜像并 tag 回官方镜像名，K8s 按官方名引用时本地命中。
+# 对 digest 引用必须保留 docker.io registry 前缀；CRI 会将无前缀引用规范化为该名称。
 # Docker Hub 镜像依次尝试多个代理源（网络抖动时回退）；registry.k8s.io 镜像走阿里云同步源。
 # 注意：macOS 自带 bash 3.2 不支持关联数组，镜像对用 | 分隔，候选源用 ; 分隔。
 # 用法：./deploy/preload-kind-images.sh
@@ -14,8 +15,8 @@ IMAGES=(
   "docker.io/natsio/nats-box:0.14.0|dockerproxy.net/natsio/nats-box:0.14.0;docker.m.daocloud.io/natsio/nats-box:0.14.0"
   "docker.io/minio/minio:RELEASE.2024-11-07T00-52-20Z|dockerproxy.net/minio/minio:RELEASE.2024-11-07T00-52-20Z;docker.m.daocloud.io/minio/minio:RELEASE.2024-11-07T00-52-20Z"
   "docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z|dockerproxy.net/minio/mc:RELEASE.2025-07-21T05-28-08Z;docker.m.daocloud.io/minio/mc:RELEASE.2025-07-21T05-28-08Z"
-  # 清单 kind-dev-infra.yaml 用 digest sha256:1132da... 固定版本，与 latest 为同一版本
-  "docker.io/agentscope/qwenpaw:latest|dockerproxy.net/agentscope/qwenpaw:latest;docker.m.daocloud.io/agentscope/qwenpaw:latest"
+  # 清单 kind-dev-infra.yaml 使用同一个 digest；必须预加载 CRI 规范化后的完整引用
+  "docker.io/agentscope/qwenpaw@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd|dockerproxy.net/agentscope/qwenpaw:latest;docker.m.daocloud.io/agentscope/qwenpaw:latest"
   "docker.io/prom/prometheus:v2.55.1|dockerproxy.net/prom/prometheus:v2.55.1;docker.m.daocloud.io/prom/prometheus:v2.55.1"
   "docker.io/grafana/grafana:11.3.0|dockerproxy.net/grafana/grafana:11.3.0;docker.m.daocloud.io/grafana/grafana:11.3.0"
   "registry.k8s.io/ingress-nginx/controller:v1.11.3|registry.aliyuncs.com/google_containers/nginx-ingress-controller:v1.11.3"
