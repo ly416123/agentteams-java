@@ -26,7 +26,9 @@ public final class UsageQueryService {
                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
-                   COALESCE(AVG(latency_millis), 0) AS average_latency_millis
+                   COALESCE(AVG(latency_millis), 0) AS average_latency_millis,
+                   COUNT(*) FILTER (WHERE cost_status = 'ESTIMATED') AS priced_calls,
+                   COUNT(*) FILTER (WHERE cost_status = 'UNPRICED') AS unpriced_calls
               FROM model_call_audits
              WHERE occurred_at >= ? AND occurred_at < ?
             """;
@@ -89,7 +91,8 @@ public final class UsageQueryService {
                 resultSet.getLong("prompt_tokens"),
                 resultSet.getLong("completion_tokens"),
                 resultSet.getDouble("cost_usd"),
-                resultSet.getDouble("average_latency_millis")), scope.arguments(start, end));
+                resultSet.getDouble("average_latency_millis"),
+                resultSet.getLong("priced_calls"), resultSet.getLong("unpriced_calls")), scope.arguments(start, end));
         if (totals == null) {
             throw new IllegalStateException("usage totals query returned no row");
         }
@@ -266,10 +269,15 @@ public final class UsageQueryService {
     }
 
     public record UsageTotals(long calls, long failures, long promptTokens, long completionTokens,
-            double costUsd, double averageLatencyMillis) {
+            double costUsd, double averageLatencyMillis, long pricedCalls, long unpricedCalls) {
         public UsageTotals(long calls, long failures, long promptTokens, long completionTokens,
                 double averageLatencyMillis) {
-            this(calls, failures, promptTokens, completionTokens, 0, averageLatencyMillis);
+            this(calls, failures, promptTokens, completionTokens, 0, averageLatencyMillis, 0, 0);
+        }
+
+        public UsageTotals(long calls, long failures, long promptTokens, long completionTokens,
+                double costUsd, double averageLatencyMillis) {
+            this(calls, failures, promptTokens, completionTokens, costUsd, averageLatencyMillis, 0, 0);
         }
     }
 

@@ -13,8 +13,12 @@ import io.agentteams.controlplane.config.ConfigLifecycleRepository;
 import io.agentteams.controlplane.config.ConfigSnapshot;
 import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ResourceApplyRecord;
+import io.agentteams.controlplane.usage.JdbcUsageBudgetRepository;
+import io.agentteams.controlplane.usage.UsageBudgetEvaluation;
+import io.agentteams.controlplane.usage.UsageBudgetPolicy;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -62,6 +66,38 @@ class FoundationRepositoryIT {
         dataSource.setPassword(POSTGRES.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         persistence = new FoundationPersistenceService(dataSource);
+    }
+
+    @Test
+    void writesProjectBudgetPolicyAndEvaluationAfterLatestMigration() {
+        Instant now = Instant.parse("2026-08-28T08:00:00Z");
+        UUID policyId = UUID.randomUUID();
+        UsageBudgetPolicy policy = new UsageBudgetPolicy(policyId, "tenant-a", "project-a", "USD",
+                Duration.ofDays(1), new BigDecimal("10"), new BigDecimal("20"), Duration.ofHours(1),
+                UsageBudgetPolicy.Status.ACTIVE, now, now, 0);
+        JdbcUsageBudgetRepository budgets = new JdbcUsageBudgetRepository(jdbc);
+
+        assertThat(budgets.insert(policy)).isEqualTo(policy);
+        assertThat(budgets.findById(policyId, "tenant-a", "project-a")).hasValueSatisfying(actual -> {
+            assertThat(actual.id()).isEqualTo(policyId);
+            assertThat(actual.tenantId()).isEqualTo("tenant-a");
+            assertThat(actual.projectId()).isEqualTo("project-a");
+            assertThat(actual.softThreshold()).isEqualByComparingTo("10");
+            assertThat(actual.hardThreshold()).isEqualByComparingTo("20");
+        });
+
+        UsageBudgetEvaluation evaluation = new UsageBudgetEvaluation(UUID.randomUUID(), policyId,
+                now.minus(Duration.ofDays(1)), now, new BigDecimal("6"), new BigDecimal("72"),
+                UsageBudgetEvaluation.Status.HARD_LIMIT, now);
+        assertThat(budgets.insertEvaluationIfAbsent(policy, evaluation, "migration-it-fingerprint")).isTrue();
+        assertThat(budgets.insertEvaluationIfAbsent(policy, evaluation, "migration-it-fingerprint")).isFalse();
+        assertThat(budgets.findEvaluations(policyId, "tenant-a", "project-a", 10)).singleElement()
+                .satisfies(actual -> {
+                    assertThat(actual.id()).isEqualTo(evaluation.id());
+                    assertThat(actual.status()).isEqualTo(UsageBudgetEvaluation.Status.HARD_LIMIT);
+                    assertThat(actual.actualCost()).isEqualByComparingTo("6");
+                    assertThat(actual.forecastCost()).isEqualByComparingTo("72");
+                });
     }
 
     @Test

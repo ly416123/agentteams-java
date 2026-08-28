@@ -27,18 +27,19 @@ public final class JdbcModelCallAuditRecorder implements ModelCallAuditRecorder 
         jdbc.update("""
                 INSERT INTO model_call_audits(id, source_event_id, provider, model, latency_millis,
                     prompt_tokens, completion_tokens, request_hash, response_hash, outcome, error_category,
-                    occurred_at, tenant_id, project_id, cost_usd, worker_id, task_id, team_id, tool_id,
-                    quota_id, quota_dimension)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+                    occurred_at, tenant_id, project_id, cost_usd, cost_status, worker_id, task_id, team_id,
+                    tool_id, quota_id, quota_dimension)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source_event_id) DO NOTHING
                 """, command.eventId(), command.eventId(), usage.provider(), usage.model(), usage.latencyMillis(),
                 usage.promptTokens(), usage.completionTokens(), requestHash(taskId, command),
                 command.phase() == io.agentteams.application.api.ExecutionEventPort.ExecutionPhase.SUCCEEDED
                         ? "SUCCESS" : "FAILURE",
                 command.phase() == io.agentteams.application.api.ExecutionEventPort.ExecutionPhase.SUCCEEDED
-                        ? null : command.failureCode(), Timestamp.from(command.occurredAt()), usage.tenantId(),
-                usage.projectId(), usage.workerId(), usage.taskId(), usage.teamId(), usage.toolId(), usage.quotaId(),
-                usage.quotaDimension());
+                ? null : command.failureCode(), Timestamp.from(command.occurredAt()), usage.tenantId(),
+                usage.projectId(), command.phase() == io.agentteams.application.api.ExecutionEventPort.ExecutionPhase.SUCCEEDED
+                        ? "UNPRICED" : "NOT_APPLICABLE", usage.workerId(), usage.taskId(), usage.teamId(),
+                usage.toolId(), usage.quotaId(), usage.quotaDimension());
     }
 
     private static String requestHash(UUID taskId, TaskExecutionCommand command) {

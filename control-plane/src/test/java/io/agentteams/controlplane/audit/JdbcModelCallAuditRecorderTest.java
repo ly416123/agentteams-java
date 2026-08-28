@@ -37,9 +37,9 @@ class JdbcModelCallAuditRecorderTest {
         verify(jdbc).update(eq("""
                 INSERT INTO model_call_audits(id, source_event_id, provider, model, latency_millis,
                     prompt_tokens, completion_tokens, request_hash, response_hash, outcome, error_category,
-                    occurred_at, tenant_id, project_id, cost_usd, worker_id, task_id, team_id, tool_id,
-                    quota_id, quota_dimension)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+                    occurred_at, tenant_id, project_id, cost_usd, cost_status, worker_id, task_id, team_id,
+                    tool_id, quota_id, quota_dimension)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source_event_id) DO NOTHING
                 """), values.capture());
         assertThat(values.getValue()[0]).isEqualTo(eventId);
@@ -47,6 +47,6 @@ class JdbcModelCallAuditRecorderTest {
         assertThat(values.getValue()[2]).isEqualTo("qwen");
         assertThat(values.getValue()[11]).isEqualTo("tenant-a");
         assertThat(values.getValue()[12]).isEqualTo("project-a");
-        assertThat(values.getValue()[17]).isEqualTo("quota-1");
+        assertThat(values.getValue()[18]).isEqualTo("quota-1");
     }
 }

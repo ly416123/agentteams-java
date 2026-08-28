@@ -40,10 +40,11 @@ class JdbcModelCallAuditorTest {
         Assertions.assertThat(sql.getValue()).contains(
                 "worker_id, task_id, team_id, tool_id, quota_id, quota_dimension");
         Object[] values = args.getValue();
-        Assertions.assertThat(values).hasSize(20);
+        Assertions.assertThat(values).hasSize(21);
         Assertions.assertThat(values[0]).isInstanceOf(java.util.UUID.class);
         Assertions.assertThat(values).containsExactly(values[0], "deepseek", "deepseek-chat", 12L, 4L, 6L,
                 "a".repeat(64), "b".repeat(64), "SUCCESS", null, java.sql.Timestamp.from(Instant.EPOCH),
-                "tenant-a", "project-a", 0.12, "worker-1", "task-1", "team-1", "tool-1", "quota-1", "tokens");
+                "tenant-a", "project-a", 0.12, "ESTIMATED", "worker-1", "task-1", "team-1", "tool-1",
+                "quota-1", "tokens");
     }
 }
