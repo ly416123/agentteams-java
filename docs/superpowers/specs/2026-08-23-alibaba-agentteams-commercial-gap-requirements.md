@@ -808,8 +808,9 @@ Control Plane 定向测试（Usage 显式作用域、告警去重/重试、sched
 已完成 Task-Sandbox 分层的第一版实现：SandboxRuntimePort、Attempt 绑定的
 `task_sandboxes` V41、事务外 Provider 生命周期、TaskSandbox CRD/Operator、Helm
 安全边界和默认关闭的 Kind 契约均已落地。该能力不把 Team/Worker 绑定到 Kubernetes
-Node，真实 gVisor/Kata 运行时仍需独立 Linux/KVM 验收；本地没有 Docker Socket，
-因此不把静态校验或 Fake Provider 结果写成真实隔离验收结果。
+Node，真实 gVisor/Kata 运行时仍需独立 Linux/KVM 验收。本机通过 Colima 提供 Docker
+daemon，已执行本地 Kind 默认路径、Task API、Dashboard 告警和 QwenPaw Worker 验收；
+这些结果只证明默认 `NONE` 路径不回归，不写成真实 gVisor/Kata 隔离验收结果。
 
 ### 2026-08-25 CI Dashboard 告警验收稳定性修复
 

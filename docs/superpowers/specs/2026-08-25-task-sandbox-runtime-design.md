@@ -33,6 +33,13 @@
 - 本阶段不实现 CubeSandbox 专用 API、AgentHub、快照迁移或跨节点恢复；
 - 本阶段不把 Team 或 Worker 绑定到 Kubernetes Node。
 
+### 2.3 本地验收边界（2026-08-28）
+
+本机通过 Colima 提供 Docker daemon（Docker Server 29.5.2），已在现有 Kind 集群执行默认
+部署路径验收：安装脚本、Task API 生命周期与拒绝路径、Dashboard 告警投递、QwenPaw
+Worker 链路均通过。该验收只证明默认 `NONE` 路径不回归，不代表 gVisor/Kata 已在本机可用；
+真实 `RuntimeClass` 仍需具备对应运行时的独立 Linux/KVM 集群验证。
+
 ## 3. 方案决策
 
 ### 3.1 采用 Provider 端口，不绑定具体产品

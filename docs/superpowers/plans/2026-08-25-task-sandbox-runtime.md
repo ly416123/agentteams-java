@@ -443,15 +443,16 @@ git diff --check
 
 预期：所有命令退出码为 0。
 
-- [ ] **步骤 3：执行本地 Kind 默认路径验收。**
+- [x] **步骤 3：执行本地 Kind 默认路径验收。**
 
 ```bash
 ./deploy/install-kind-dev.sh
-python3 scripts/smoke-kind-task-api.py
+./scripts/smoke-kind-task-api.sh
 python3 scripts/run-kind-dashboard-alerts.py --timeout 180
 ```
 
-预期：现有 Task API、Dashboard 告警和 QwenPaw Worker 链路保持通过；Sandbox 默认不创建外部隔离运行时。
+实际在 macOS/Colima Docker 环境执行通过：安装脚本退出码为 0，Task API 输出
+`KIND_TASK_API_OK`，Dashboard 告警输出 `KIND_DASHBOARD_ALERTS_OK`；Sandbox 默认仍不创建外部隔离运行时。
 
 - [ ] **步骤 4：执行独立 Linux/KVM RuntimeClass 验收。**
 
@@ -474,9 +475,9 @@ kubectl get pod -o custom-columns=NAME:.metadata.name,RUNTIME:.spec.runtimeClass
 
 文档只记录实际运行过的命令和结果，不把 Fake Provider 结果写成真实 gVisor/Kata 验收结果。
 
-- [ ] **步骤 6：提交任务 6。**
+- [x] **步骤 6：提交任务 6。**
 
-> 当前验收状态：模块回归、Operator 测试、Helm lint、模板渲染、Kind 清单校验和 Sandbox 安全契约已通过。当前 macOS 环境没有 Docker Socket，无法执行本地 Kind；真实 gVisor/Kata RuntimeClass 需要独立 Linux/KVM 集群，尚未执行。上述两项不能用 Fake Provider 或静态渲染结果替代。
+> 当前验收状态：Colima 提供可用 Docker daemon，本地 Kind 默认路径、Task API、Dashboard 告警、QwenPaw Worker 和默认 Sandbox 关闭边界均已验证；真实 gVisor/Kata RuntimeClass 仍需要独立 Linux/KVM 集群，尚未执行，不能用 Fake Provider 或静态渲染结果替代。
 
 ```bash
 git add docs/superpowers/specs/2026-08-25-task-sandbox-runtime-design.md \
