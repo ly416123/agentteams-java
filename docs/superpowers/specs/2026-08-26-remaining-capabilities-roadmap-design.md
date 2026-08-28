@@ -64,7 +64,7 @@
 - `main` 的 GitHub Actions CI `33124422786` 已通过 `verify`、`kind-oidc` 和 `kind-recovery`；本机 Colima Docker-backed Maven、脚本全量和 Helm 验证也已通过。生产 Canary、自动回滚、真实外部 Secret/IdP 和 L5/L6 恢复演练仍未完成，不以静态契约或 Kind 结果替代。
 - 批次 B 后续实施计划见 `docs/superpowers/plans/2026-08-27-batch-b-security-operations-plan.md`。
 - 批次 C 的 Skill 制品运行时纵切已进入 `main`：Control Plane 会为已发布且上传完成的 Skill 版本生成 15 分钟短期 `artifactRef`，并随 AgentSpec manifest 下发包大小/SHA-256；Worker 已完成归档下载校验、受限解包、`SKILL.md` 复核和 AgentScope 只读仓库注册。真实外部 Skill 运行时策略与 MCP 工具发现仍待后续批次。
-- 批次 C 的 MCP 发现与运行时纵切已进入 `main`：Control Plane 按 server revision 和实例写入快照，聚合新鲜观测为 `AVAILABLE`、`UNAVAILABLE` 或 `UNKNOWN`，健康探测只持久化工具摘要和固定失败分类；AgentSpec manifest 下发非敏感 MCP 运行元数据，Worker 通过 AgentScope runtime Port 注册 HTTP/SSE 工具并按 credentialRef 动态取凭证。预算策略、线性预测、成本状态区分、项目作用域评估查询、使用量维度完整性审计，以及预算周期评估/集中通知/失败重试第一纵切已进入 `main`；历史数据回填、真实外部 MCP 长期运行和 L6 长压测仍未完成。
+- 批次 C 的 MCP 发现与运行时纵切已进入 `main`：Control Plane 按 server revision 和实例写入快照，聚合新鲜观测为 `AVAILABLE`、`UNAVAILABLE` 或 `UNKNOWN`，健康探测只持久化工具摘要和固定失败分类；AgentSpec manifest 下发非敏感 MCP 运行元数据，Worker 通过 AgentScope runtime Port 注册 HTTP/SSE 工具并按 credentialRef 动态取凭证。预算策略、线性预测、成本状态区分、项目作用域评估查询、使用量维度完整性审计、可恢复历史维度回填，以及预算周期评估/集中通知/失败重试第一纵切已进入 `main`；真实外部 MCP 长期运行和 L6 长压测仍未完成。
 
 ## 5. 统一架构决策
 

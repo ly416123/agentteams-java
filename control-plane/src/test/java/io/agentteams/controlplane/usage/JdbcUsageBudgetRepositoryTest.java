@@ -60,12 +60,17 @@ class JdbcUsageBudgetRepositoryTest {
         String costMigration = Files.readString(Path.of("src/main/resources/db/migration/V52__model_call_audit_cost_status.sql"));
         String budgetMigration = Files.readString(Path.of("src/main/resources/db/migration/V53__usage_budget_forecast.sql"));
         String deliveryMigration = Files.readString(Path.of("src/main/resources/db/migration/V54__usage_budget_event_delivery.sql"));
+        String backfillMigration = Files.readString(Path.of("src/main/resources/db/migration/V55__usage_dimension_backfill.sql"));
 
         assertThat(costMigration).contains("cost_status", "ESTIMATED", "UNPRICED");
         assertThat(budgetMigration).contains("usage_budget_policies", "usage_budget_evaluations",
                 "usage_budget_events", "NUMERIC", "fingerprint");
         assertThat(budgetMigration).doesNotContain("prompt", "response", "authorization");
         assertThat(deliveryMigration).contains("attempts", "next_attempt_at", "last_error", "delivered_at", "updated_at");
+        assertThat(backfillMigration).contains("model_call_audits", "tasks", "task_assignments", "team_tasks",
+                "scope", "teamId", "candidate_count");
+        assertThat(backfillMigration).contains("NULLIF(BTRIM", "HAVING COUNT(*) = 1")
+                .doesNotContain("SET tenant_id = 'default'", "SET project_id = 'default'");
     }
 
     private static UsageBudgetPolicy policy() {

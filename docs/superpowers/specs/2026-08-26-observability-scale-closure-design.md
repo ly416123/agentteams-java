@@ -7,13 +7,13 @@
 
 **当前进度（2026-08-28）：** 已增加确定性配额并发压测脚本和 CI 短压测入口，覆盖 acquire/release 幂等、拒绝/超时分类、最大观察并发和 reservation 泄漏汇总；预算评估已接入数据库 lease，阈值事件使用状态指纹幂等并具备通知失败退避重试。脚本只输出固定 JSON 字段，不输出请求、响应、scope claim 或凭据。4 客户端/200 请求是 L4 短压测；50 客户端/30 分钟并穿插 Gateway、Control Plane 重启仍需 L6 受控环境真实报告。
 
-**资源 ACK 进度（2026-08-28）：** `ConfigApplied` 已增加资源级结构化结果，Gateway/NATS/Control Plane 完成透传，Control Plane 以 V50 表持久化并按 binding/snapshot/config version 栅栏拒绝旧结果。Worker 已完成绑定字段校验、Skill 下载/digest 校验和配置应用流程报告；MCP 发现观测已增加按 server revision/实例隔离的 PostgreSQL 快照、过期聚合、健康探测写入和 Worker AgentScope runtime Port 注册。预算策略、线性预测、`UNPRICED`/`INSUFFICIENT_DATA` 状态、项目作用域评估查询、完整性审计和集中预算通知第一纵切已完成；历史数据回填和 L6 长压测仍未完成。
+**资源 ACK 进度（2026-08-28）：** `ConfigApplied` 已增加资源级结构化结果，Gateway/NATS/Control Plane 完成透传，Control Plane 以 V50 表持久化并按 binding/snapshot/config version 栅栏拒绝旧结果。Worker 已完成绑定字段校验、Skill 下载/digest 校验和配置应用流程报告；MCP 发现观测已增加按 server revision/实例隔离的 PostgreSQL 快照、过期聚合、健康探测写入和 Worker AgentScope runtime Port 注册。预算策略、线性预测、`UNPRICED`/`INSUFFICIENT_DATA` 状态、项目作用域评估查询、完整性审计、可恢复历史维度回填和集中预算通知第一纵切已完成；L6 长压测仍未完成。
 
 **Skill Loader 进度（2026-08-28）：** Worker 已支持 manifest 显式提供 `artifactRef` 和 `sizeBytes` 时的 HTTP(S) Skill 包下载、大小/SHA-256 校验、受限解包、`SKILL.md` 运行时解析复核和原子物化；Control Plane 已为已发布且上传完成的 Skill 版本生成 15 分钟短期预签名 `artifactRef`，并随 AgentSpec manifest 传递包大小/SHA-256；AgentScope 仅在配置激活后注册物化目录中的只读 Skill 仓库，旧 manifest 保持兼容。MCP 真实外部服务长期运行、外部 Skill 运行时策略、集中告警和预算预测仍待后续任务。
 
 **MCP 聚合验收进度（2026-08-28）：** 已通过本机 Colima Kind 验收脚本创建临时 MCP 资源，写入两个当前 revision 的实例快照和一条旧 revision 快照，并通过只读发现聚合 API 验证 `AVAILABLE`、实例计数、共同工具 digest 与 revision fence；当前快照过期后聚合正确降级为 `UNKNOWN`，测试资源自动清理。HTTP 响应仅包含状态、digest、实例计数、时间和固定失败分类，不返回 endpoint、凭据引用或工具正文。真实外部 MCP 服务长期运行、凭证注入和 Linux/KVM L6 仍是后续受控环境边界。
 
-**预算预测进度（2026-08-28）：** 已完成 V52 成本状态迁移、V53 项目预算策略/评估/去重事件表和 V54 通知投递状态迁移；模型调用审计分别持久化 `ESTIMATED`、`UNPRICED` 和 `NOT_APPLICABLE`，避免把未计价误判为零成本。Control Plane 已提供 expectedVersion 保护的策略 PUT、当前项目策略查询、评估分页查询、维度完整性查询，以及默认关闭的周期预算评估/集中通知/失败重试调度，线性预测只在达到策略 forecast window 的有效观测后生成。价格目录自动同步、历史数据回填和 L6 长压测仍待后续批次。
+**预算预测进度（2026-08-28）：** 已完成 V52 成本状态迁移、V53 项目预算策略/评估/去重事件表、V54 通知投递状态迁移和 V55 可恢复历史维度回填；模型调用审计分别持久化 `ESTIMATED`、`UNPRICED` 和 `NOT_APPLICABLE`，避免把未计价误判为零成本。Control Plane 已提供 expectedVersion 保护的策略 PUT、当前项目策略查询、评估分页查询、维度完整性查询，以及默认关闭的周期预算评估/集中通知/失败重试调度，线性预测只在达到策略 forecast window 的有效观测后生成。价格目录自动同步和 L6 长压测仍待后续批次。
 
 ## 1. 目标
 

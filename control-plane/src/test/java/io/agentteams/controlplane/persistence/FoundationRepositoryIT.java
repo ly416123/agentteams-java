@@ -42,6 +42,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -157,6 +159,100 @@ class FoundationRepositoryIT {
         } finally {
             PrincipalContext.clear();
         }
+    }
+
+    @Test
+    void backfillsOnlyRecoverableHistoricalUsageDimensions() {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .cleanDisabled(false)
+                .load()
+                .clean();
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .target("54")
+                .load()
+                .migrate();
+
+        Instant assignedAt = Instant.parse("2026-08-28T08:00:00Z");
+        Instant occurredAt = assignedAt.plusSeconds(5);
+        UUID agentId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+        UUID leaseId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID recoverableAuditId = UUID.randomUUID();
+        UUID unknownAuditId = UUID.randomUUID();
+        UUID teamId = UUID.randomUUID();
+        String spec = "{\"scope\":{\"tenant\":\"tenant-backfill\",\"project\":\"project-backfill\","
+                + "\"team\":\"team-backfill\"},\"teamId\":\"" + teamId + "\"}";
+
+        jdbc.update("""
+                INSERT INTO agents(id, name, phase, runtime, capabilities, metadata, created_at, updated_at, version)
+                VALUES (?, 'backfill-agent', 'READY', 'fake', '{}'::jsonb, '{}'::jsonb, ?, ?, 0)
+                """, agentId, Timestamp.from(assignedAt), Timestamp.from(assignedAt));
+        jdbc.update("""
+                INSERT INTO tasks(id, title, description, phase, priority, spec, actor, source,
+                                  created_at, updated_at, version)
+                VALUES (?, 'historical task', '', 'ASSIGNED', 0, ?::jsonb, 'test', 'test', ?, ?, 0)
+                """, taskId, spec, Timestamp.from(assignedAt), Timestamp.from(assignedAt));
+        new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()))
+                .executeWithoutResult(status -> {
+                    jdbc.update("""
+                            INSERT INTO task_attempts(id, task_id, lease_id, phase, lease_expires_at, completed_at,
+                                                      actor, source, created_at, updated_at, version)
+                            VALUES (?, ?, ?, 'SUCCEEDED', ?, ?, 'test', 'test', ?, ?, 0)
+                            """, attemptId, taskId, leaseId, Timestamp.from(assignedAt.plusSeconds(60)),
+                            Timestamp.from(occurredAt), Timestamp.from(assignedAt), Timestamp.from(occurredAt));
+                    jdbc.update("""
+                            INSERT INTO agent_leases(id, agent_id, task_attempt_id, acquired_at, expires_at, released_at,
+                                                     status, created_at, updated_at, version)
+                            VALUES (?, ?, ?, ?, ?, ?, 'RELEASED', ?, ?, 0)
+                            """, leaseId, agentId, attemptId, Timestamp.from(assignedAt),
+                            Timestamp.from(assignedAt.plusSeconds(60)), Timestamp.from(occurredAt),
+                            Timestamp.from(assignedAt), Timestamp.from(occurredAt));
+                });
+        jdbc.update("""
+                INSERT INTO task_assignments(id, task_id, attempt_id, agent_id, phase, assigned_at,
+                                             accepted_at, released_at, details, created_at, updated_at, version)
+                VALUES (?, ?, ?, ?, 'ASSIGNED', ?, ?, ?, '{}'::jsonb, ?, ?, 0)
+                """, assignmentId, taskId, attemptId, agentId, Timestamp.from(assignedAt),
+                Timestamp.from(assignedAt), Timestamp.from(occurredAt), Timestamp.from(assignedAt),
+                Timestamp.from(occurredAt));
+        insertLegacyAudit(recoverableAuditId, taskId.toString(), occurredAt, "a");
+        insertLegacyAudit(unknownAuditId, "not-a-task-id", occurredAt, "b");
+
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .load()
+                .migrate();
+
+        assertThat(jdbc.queryForMap("""
+                SELECT tenant_id, project_id, team_id, worker_id
+                  FROM model_call_audits WHERE id = ?
+                """, recoverableAuditId))
+                .containsEntry("tenant_id", "tenant-backfill")
+                .containsEntry("project_id", "project-backfill")
+                .containsEntry("team_id", teamId.toString())
+                .containsEntry("worker_id", agentId.toString());
+        assertThat(jdbc.queryForMap("""
+                SELECT tenant_id, project_id, team_id, worker_id
+                  FROM model_call_audits WHERE id = ?
+                """, unknownAuditId))
+                .containsEntry("tenant_id", null)
+                .containsEntry("project_id", null)
+                .containsEntry("team_id", null)
+                .containsEntry("worker_id", null);
+    }
+
+    private void insertLegacyAudit(UUID id, String taskId, Instant occurredAt, String hashPrefix) {
+        jdbc.update("""
+                INSERT INTO model_call_audits
+                    (id, provider, model, latency_millis, prompt_tokens, completion_tokens, request_hash,
+                     outcome, occurred_at, tenant_id, project_id, cost_usd, cost_status, task_id)
+                VALUES (?, 'openai', 'gpt-4o', 10, 1, 2, repeat(?, 64), 'SUCCESS', ?, NULL, NULL, 0,
+                        'UNPRICED', ?)
+                """, id, hashPrefix, Timestamp.from(occurredAt), taskId);
     }
 
     @Test
