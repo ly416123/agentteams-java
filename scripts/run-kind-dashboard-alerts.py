@@ -42,13 +42,17 @@ def insert_audit(namespace: str, postgres_pod: str, tenant: str, project: str,
         insert into model_call_audits
             (id, provider, model, latency_millis, prompt_tokens, completion_tokens,
              request_hash, response_hash, outcome, error_category, occurred_at,
-             tenant_id, project_id, cost_usd, worker_id, task_id, team_id,
+             tenant_id, project_id, cost_usd, cost_status, worker_id, task_id, team_id,
              tool_id, quota_id, quota_dimension, source_event_id)
         values
             ({sql_literal(audit_id)}::uuid, 'kind', 'dashboard-alert-kind', 100, 1, 1,
              repeat('a', 64), repeat('b', 64), {sql_literal(outcome)}, null,
              date_trunc('minute', clock_timestamp()) - interval '1 second',
-             {sql_literal(tenant)}, {sql_literal(project)}, {cost_usd}, null, null, null,
+             {sql_literal(tenant)}, {sql_literal(project)}, {cost_usd},
+             CASE WHEN {sql_literal(outcome)} = 'SUCCESS' AND {cost_usd} <> 0 THEN 'ESTIMATED'
+                  WHEN {sql_literal(outcome)} = 'FAILURE' THEN 'NOT_APPLICABLE'
+                  ELSE 'UNPRICED' END,
+             null, null, null,
              null, null, null, null)
     """
     sql(namespace, postgres_pod, statement)

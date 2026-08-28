@@ -25,6 +25,7 @@ class KindDashboardAlertsContractTest(unittest.TestCase):
         for required in (
                 "dashboard_alert_rules", "model_call_audits", "dashboard_alert_events",
                 "FAILED", "SENT", "KIND_DASHBOARD_ALERTS_OK", "/api/v1/dashboard/alerts/events",
+                "cost_status",
                 "date_trunc('minute', clock_timestamp()) - interval '1 second'",
                 "from_at", "to_at", "cost_windows"):
             self.assertIn(required, script_text)
