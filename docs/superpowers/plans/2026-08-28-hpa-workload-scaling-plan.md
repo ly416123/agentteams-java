@@ -120,7 +120,7 @@ HPA 不携带镜像、Secret、endpoint 或业务标签；Manager HPA 只在 Man
 **文件：**
 - 修改：本计划文件及任务 2/3 列出的文件
 
-- [ ] **步骤 1：提交单一职责变更**
+- [x] **步骤 1：提交单一职责变更**
 
 运行：
 
@@ -130,9 +130,11 @@ git diff --cached --check
 git commit -m "feat(扩缩容): 增加工作负载 HPA 契约"
 ```
 
-- [ ] **步骤 2：推送 main 并确认 CI**
+- [x] **步骤 2：推送 main 并确认 CI**
 
 运行：`git push origin main`、`gh run list --branch main --limit 1`，再跟踪该提交对应的 `verify`、`kind-oidc` 和 `kind-recovery`。只有三个作业均为 success 才将本计划标记完成。
+
+验证结果（2026-08-28）：提交 `9393bf0` 已推送到 `main`；GitHub Actions 运行 `33161634266` 的 `verify`、`kind-oidc`、`kind-recovery` 三个作业均为 `success`。
 
 ## 完成边界
 
