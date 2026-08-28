@@ -61,6 +61,55 @@ class McpHealthProbeServiceTest {
     }
 
     @Test
+    void successfulProbeRecordsRevisionInstanceAndSafeToolDigest() {
+        UUID id = UUID.randomUUID();
+        when(serverService.get(id)).thenReturn(server(id, true, 7));
+        when(connector.transport()).thenReturn(McpTransport.SSE);
+        when(connector.supports(McpTransport.SSE)).thenReturn(true);
+        when(connector.discoverTools(any(), any())).thenReturn(List.of(
+                new McpToolDescriptor("search", "Search", "{\"type\":\"object\"}")));
+        RecordingObservationPort observations = new RecordingObservationPort();
+        McpDiscoveryInstanceProperties properties = new McpDiscoveryInstanceProperties();
+        properties.setInstanceId("control-plane-a");
+        properties.setObservationTtl(Duration.ofSeconds(30));
+
+        McpHealthProbeResult result = new McpHealthProbeService(discoveryService(), serverService,
+                Clock.fixed(NOW, ZoneId.of("UTC")), observations, properties).probe(id, Duration.ofSeconds(1));
+
+        assertThat(result.status()).isEqualTo(McpHealthStatus.HEALTHY);
+        assertThat(observations.value).isNotNull();
+        assertThat(observations.value.serverRevision()).isEqualTo(7);
+        assertThat(observations.value.instanceId()).isEqualTo("control-plane-a");
+        assertThat(observations.value.toolsDigest()).startsWith("sha256:");
+        assertThat(observations.value.expiresAt()).isEqualTo(NOW.plusSeconds(30));
+        assertThat(observations.value.failureCategory()).isEqualTo("SUCCESS");
+        assertThat(observations.value.toString()).doesNotContain("secret", "mcp.example");
+    }
+
+    @Test
+    void failedProbeRecordsOnlyStableFailureCategory() {
+        UUID id = UUID.randomUUID();
+        when(serverService.get(id)).thenReturn(server(id, true, 4));
+        when(connector.transport()).thenReturn(McpTransport.SSE);
+        when(connector.supports(McpTransport.SSE)).thenReturn(true);
+        doThrow(new McpHttpConnectorException(McpHttpFailureCategory.TIMEOUT,
+                "endpoint=https://secret.example/mcp payload=secret"))
+                .when(connector).discoverTools(any(), any());
+        RecordingObservationPort observations = new RecordingObservationPort();
+        McpDiscoveryInstanceProperties properties = new McpDiscoveryInstanceProperties();
+        properties.setInstanceId("control-plane-b");
+
+        McpHealthProbeResult result = new McpHealthProbeService(discoveryService(), serverService,
+                Clock.fixed(NOW, ZoneId.of("UTC")), observations, properties).probe(id, Duration.ofSeconds(1));
+
+        assertThat(result.status()).isEqualTo(McpHealthStatus.UNHEALTHY);
+        assertThat(observations.value.healthy()).isFalse();
+        assertThat(observations.value.failureCategory()).isEqualTo("TIMEOUT");
+        assertThat(observations.value.toolsDigest()).isEmpty();
+        assertThat(observations.value.toString()).doesNotContain("secret", "example", "payload");
+    }
+
+    @Test
     void connectorTimeoutIsDownWithStableCategoryAndNoExceptionMessage() {
         UUID id = UUID.randomUUID();
         when(serverService.get(id)).thenReturn(server(id, true));
@@ -100,8 +149,26 @@ class McpHealthProbeServiceTest {
     }
 
     private static McpServerRecord server(UUID id, boolean enabled) {
+        return server(id, enabled, 0);
+    }
+
+    private static McpServerRecord server(UUID id, boolean enabled, long version) {
         return new McpServerRecord(id, "weather", McpTransport.SSE, "https://mcp.example.test/sse", "secret/mcp",
-                enabled, McpHealthStatus.HEALTHY, NOW, NOW, NOW, 0,
+                enabled, McpHealthStatus.HEALTHY, NOW, NOW, NOW, version,
                 new OutboundPolicy(Set.of("https"), Set.of("mcp.example.test"), Duration.ofSeconds(5), Set.of()));
+    }
+
+    private static final class RecordingObservationPort implements McpDiscoveryObservationPort {
+        private McpDiscoveryObservation value;
+
+        @Override
+        public void record(McpDiscoveryObservation observation) {
+            value = observation;
+        }
+
+        @Override
+        public List<McpDiscoveryObservation> find(UUID serverId, long serverRevision) {
+            return value == null ? List.of() : List.of(value);
+        }
     }
 }

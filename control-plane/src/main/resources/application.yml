@@ -94,6 +94,10 @@ agentteams:
       project-claim: project
       team-claim: team
       permissions-claim: permissions
+  mcp:
+    discovery:
+      instance-id: ${AGENTTEAMS_MCP_DISCOVERY_INSTANCE_ID:${HOSTNAME:control-plane}}
+      observation-ttl: ${AGENTTEAMS_MCP_DISCOVERY_OBSERVATION_TTL:2m}
   matrix:
     appservice:
       auth-enabled: false
