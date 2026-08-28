@@ -25,6 +25,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Flux;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -177,6 +178,25 @@ class ConfiguredAgentScopeHarnessFactoryTest {
         assertThat(harness.getSkillRepositories()).hasSize(1);
         assertThat(harness.getSkillRepositories().get(0).getSkill("demo")).isNotNull();
         assertThat(harness.getSkillRepositories().get(0).isWriteable()).isFalse();
+        harness.close();
+    }
+
+    @Test
+    void passesActivatedMcpBindingsToRuntimePortBeforeCreatingHarness() throws Exception {
+        AtomicReference<List<io.agentteams.runtime.RuntimeMcpServer>> received = new AtomicReference<>();
+        McpRuntimePort port = (toolkit, servers) -> received.set(List.copyOf(servers));
+        ConfiguredAgentScopeHarnessFactory factory = new ConfiguredAgentScopeHarnessFactory(
+                new TestModel(), AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(),
+                        Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC), root), root, port);
+        io.agentteams.runtime.RuntimeMcpServer server = new io.agentteams.runtime.RuntimeMcpServer(
+                "server-7", 7, "STREAMABLE_HTTP", "https://mcp.example.test/http",
+                "MCP_SERVER_TOKEN", "sha256:policy");
+        factory.applyConfig(new RuntimeConfigSnapshot(2, "sha-2", Map.of(), Map.of(), Map.of(),
+                Map.of("MCP|server-7|7|sha256:policy", server)));
+
+        var harness = factory.create(task("attempt-mcp", "lease-mcp"), context());
+
+        assertThat(received.get()).containsExactly(server);
         harness.close();
     }
 

@@ -9,6 +9,7 @@ import io.agentteams.application.api.SandboxProfile;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
+import io.agentteams.runtime.RuntimeMcpServer;
 import io.agentteams.runtime.RuntimeTask;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,11 +17,13 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import io.agentscope.core.tool.Toolkit;
 
 /** Production AgentScope Harness factory with bounded workspace and sandbox observation. */
 public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarnessFactory {
@@ -32,6 +35,9 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
     private final Map<UUID, AgentScopeWorkspaceFactory.WorkspaceBinding> bindings =
             new ConcurrentHashMap<>();
     private final AtomicReference<Path> activeSkillRoot = new AtomicReference<>();
+    private final AtomicReference<List<RuntimeMcpServer>> activeMcpServers =
+            new AtomicReference<>(List.of());
+    private final McpRuntimePort mcpRuntime;
 
     public ConfiguredAgentScopeHarnessFactory(String modelId, Path workspaceRoot) {
         this(resolveModel(modelId), workspaceRoot, unavailableProbe());
@@ -60,9 +66,16 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
 
     public ConfiguredAgentScopeHarnessFactory(Model model, AgentScopeWorkspaceFactory workspaceFactory,
             Path workspaceRoot) {
+        this(model, workspaceFactory, workspaceRoot,
+                new AgentScopeMcpRuntimePort(new EnvironmentMcpCredentialProvider()));
+    }
+
+    ConfiguredAgentScopeHarnessFactory(Model model, AgentScopeWorkspaceFactory workspaceFactory,
+            Path workspaceRoot, McpRuntimePort mcpRuntime) {
         this.model = Objects.requireNonNull(model, "model");
         this.workspaceFactory = Objects.requireNonNull(workspaceFactory, "workspaceFactory");
         this.workspaceRoot = normalizeRoot(workspaceRoot);
+        this.mcpRuntime = Objects.requireNonNull(mcpRuntime, "mcpRuntime");
     }
 
     public WorkspaceActiveGuard activeGuard() {
@@ -98,6 +111,7 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
             else if (!root.equals(parent)) throw new IllegalArgumentException("Skill directories must share one runtime root");
         }
         activeSkillRoot.set(root);
+        activeMcpServers.set(snapshot.mcpServers().values().stream().toList());
     }
 
     int bindingCount() {
@@ -132,6 +146,12 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
                     .disableSubagents()
                     .disableSessionPersistence()
                     .maxIters(10);
+            List<RuntimeMcpServer> mcpServers = activeMcpServers.get();
+            if (!mcpServers.isEmpty()) {
+                Toolkit toolkit = new Toolkit();
+                mcpRuntime.configure(toolkit, mcpServers);
+                builder.toolkit(toolkit);
+            }
             Path skillRoot = activeSkillRoot.get();
             if (skillRoot != null) {
                 builder.skillRepository(new FileSystemSkillRepository(skillRoot, false, "agentteams", true))

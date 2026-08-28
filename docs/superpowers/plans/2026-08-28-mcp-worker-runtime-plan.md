@@ -69,12 +69,12 @@
 
 ## 任务 4：AgentScope MCP Runtime Port
 
-- [ ] **步骤 1：编写失败测试**：验证 Port 只注册 MCP binding、只支持允许的 HTTP transport、请求时按 credentialRef 动态取值、缺凭证时不发送空 Authorization，并且异常只返回固定分类不泄露 endpoint/secret。
-- [ ] **步骤 2：运行红灯**：执行 `mvn -q -pl agent-worker -am -Dtest=EnvironmentMcpCredentialProviderTest,AgentScopeMcpRuntimePortTest -Dsurefire.failIfNoSpecifiedTests=false test`，预期因 Port、provider 和 adapter 不存在而失败。
-- [ ] **步骤 3：实现最小适配**：定义 `McpCredentialProvider` 和 `McpRuntimePort`；用 AgentScope `McpClientBuilder` 的 SSE/Streamable HTTP transport 注册 toolkit；凭证通过 `httpRequestCustomizer` 动态注入；禁止 stdio、静态 secret 和日志输出；单个 binding 失败抛出固定 `MCP_RUNTIME_UNAVAILABLE`。
-- [ ] **步骤 4：接入 Harness**：`ConfiguredAgentScopeHarnessFactory.applyConfig` 保存当前 MCP snapshot，`create` 为每个新 Harness builder 调用 Port；无 MCP binding 时保持原有行为。
-- [ ] **步骤 5：运行绿灯**：目标测试和 agent-worker 全量测试通过。
-- [ ] **步骤 6：提交**：`git add agent-worker && git commit -m "feat(MCP): 接入 AgentScope runtime Port"`。
+- [x] **步骤 1：编写失败的测试**：验证 Port 只注册 MCP binding、只支持允许的 HTTP transport、请求时按 credentialRef 动态取值、缺凭证时不发送空 Authorization，并且异常只返回固定分类不泄露 endpoint/secret。
+- [x] **步骤 2：运行红灯**：执行 `mvn -q -pl agent-worker -am -Dtest=EnvironmentMcpCredentialProviderTest,AgentScopeMcpRuntimePortTest -Dsurefire.failIfNoSpecifiedTests=false test`，确认因 Port、provider 和 adapter 不存在而失败。
+- [x] **步骤 3：实现最小适配**：定义 `McpCredentialProvider` 和 `McpRuntimePort`；用 AgentScope `McpClientBuilder` 的 SSE/Streamable HTTP transport 注册 toolkit；凭证通过 `httpRequestCustomizer` 动态注入；禁止 stdio、静态 secret 和日志输出；单个 binding 失败抛出固定 `MCP_RUNTIME_UNAVAILABLE`。
+- [x] **步骤 4：接入 Harness**：`ConfiguredAgentScopeHarnessFactory.applyConfig` 保存当前 MCP snapshot，`create` 为每个新 Harness builder 调用 Port；无 MCP binding 时保持原有行为。
+- [x] **步骤 5：运行绿灯**：目标测试和 agent-worker 全量测试通过。
+- [x] **步骤 6：提交**：`git add agent-worker && git commit -m "feat(MCP): 接入 AgentScope runtime Port"`。
 
 ## 任务 5：完整验证、文档和远程同步
 
