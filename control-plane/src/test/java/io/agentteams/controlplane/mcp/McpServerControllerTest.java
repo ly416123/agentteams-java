@@ -31,11 +31,14 @@ class McpServerControllerTest {
     @Mock
     private McpServerService service;
 
+    @Mock
+    private McpDiscoveryAggregationService aggregationService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new McpServerController(service))
+        mockMvc = MockMvcBuilders.standaloneSetup(new McpServerController(service, aggregationService))
                 .setControllerAdvice(new ApiErrorHandler())
                 .build();
     }
@@ -92,6 +95,32 @@ class McpServerControllerTest {
                                 + "\"endpoint\":\"https://mcp.example.test/sse\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void exposesSafeRevisionFencedDiscoveryAggregate() throws Exception {
+        UUID id = UUID.randomUUID();
+        McpServerRecord server = record(id, "weather", McpHealthStatus.HEALTHY, 7);
+        Instant observedAt = Instant.parse("2026-08-28T00:00:00Z");
+        McpDiscoveryAggregate aggregate = new McpDiscoveryAggregate(id, 7,
+                McpDiscoveryStatus.AVAILABLE, "sha256:tools", 2, 3, observedAt,
+                List.of("TIMEOUT"));
+        when(service.get(id)).thenReturn(server);
+        when(aggregationService.aggregate(id, 7)).thenReturn(aggregate);
+
+        mockMvc.perform(get("/api/v1/mcp-servers/{id}/discovery", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serverId").value(id.toString()))
+                .andExpect(jsonPath("$.serverRevision").value(7))
+                .andExpect(jsonPath("$.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.toolsDigest").value("sha256:tools"))
+                .andExpect(jsonPath("$.healthyInstances").value(2))
+                .andExpect(jsonPath("$.freshInstances").value(3))
+                .andExpect(jsonPath("$.latestObservedAt").isNumber())
+                .andExpect(jsonPath("$.failureCategories[0]").value("TIMEOUT"))
+                .andExpect(jsonPath("$.endpoint").doesNotExist())
+                .andExpect(jsonPath("$.credentialRef").doesNotExist())
+                .andExpect(jsonPath("$.tools").doesNotExist());
     }
 
     private static McpServerRecord record(UUID id, String name, McpHealthStatus status, long version) {

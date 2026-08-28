@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import io.agentteams.controlplane.security.OutboundPolicy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,9 +23,16 @@ public final class McpServerController {
 
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final McpServerService service;
+    private final McpDiscoveryAggregationService discoveryAggregation;
 
     public McpServerController(McpServerService service) {
+        this(service, null);
+    }
+
+    @Autowired
+    public McpServerController(McpServerService service, McpDiscoveryAggregationService discoveryAggregation) {
         this.service = service;
+        this.discoveryAggregation = discoveryAggregation;
     }
 
     @PostMapping
@@ -45,6 +53,15 @@ public final class McpServerController {
     @GetMapping("/{id}")
     public McpServerResponse get(@PathVariable UUID id) {
         return McpServerResponse.from(service.get(id));
+    }
+
+    @GetMapping("/{id}/discovery")
+    public DiscoveryResponse discovery(@PathVariable UUID id) {
+        McpServerRecord server = service.get(id);
+        if (discoveryAggregation == null) {
+            throw new IllegalStateException("MCP discovery aggregation is not configured");
+        }
+        return DiscoveryResponse.from(discoveryAggregation.aggregate(server.id(), server.version()));
     }
 
     @PutMapping("/{id}")
@@ -107,6 +124,17 @@ public final class McpServerController {
                     server.credentialRef() != null && !server.credentialRef().isBlank(), server.enabled(),
                     server.healthStatus(), server.lastCheckedAt(), server.createdAt(), server.updatedAt(),
                     server.version(), server.outboundPolicy());
+        }
+    }
+
+    public record DiscoveryResponse(UUID serverId, long serverRevision, McpDiscoveryStatus status,
+            String toolsDigest, int healthyInstances, int freshInstances, Instant latestObservedAt,
+            List<String> failureCategories) {
+
+        static DiscoveryResponse from(McpDiscoveryAggregate aggregate) {
+            return new DiscoveryResponse(aggregate.serverId(), aggregate.serverRevision(), aggregate.status(),
+                    aggregate.toolsDigest(), aggregate.healthyInstances(), aggregate.freshInstances(),
+                    aggregate.latestObservedAt(), aggregate.failureCategories());
         }
     }
 
