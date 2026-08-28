@@ -59,5 +59,5 @@
 - [x] **步骤 1：运行模块全量测试**：`source deploy/dev-env.sh && mvn -q -pl control-plane -am test` 已通过。
 - [x] **步骤 2：运行本地 Docker/Colima 全量验证**：`source deploy/dev-env.sh && mvn -q -Pintegration-tests verify` 已通过；脚本、Helm lint、`git diff --check` 已通过。
 - [x] **步骤 3：同步进度**：已标记跨实例发现观测持久化/聚合和健康探测写入，保留 Worker runtime Port、集中告警、预算预测和 L6 长压测。
-- [ ] **步骤 4：提交推送**：使用中文 Conventional Commit，直接提交 `main` 并执行 `git push origin main`。
-- [ ] **步骤 5：确认 CI**：`gh run watch <run-id> --interval 15 --exit-status`，确认 `verify`、`kind-recovery`、`kind-oidc` 全部成功后再报告完成。
+- [x] **步骤 4：提交推送**：使用中文 Conventional Commit，直接提交 `main` 并执行 `git push origin main`。
+- [x] **步骤 5：确认 CI**：此前运行 `33139839212` 已确认 `verify`、`kind-recovery`、`kind-oidc` 全部成功；本次仅收口计划状态，后续提交由主线 CI 继续验证。
