@@ -91,7 +91,7 @@ public final class QwenPawWorker implements AutoCloseable {
     private final AssignmentSandboxStateProbePort sandboxStateProbe;
     private final ConfigManifestFetcher manifestFetcher;
     private final ConfigFileFetcher configFileFetcher;
-    private final SkillArtifactFetcher skillArtifactFetcher;
+    private final SkillArtifactMaterializer skillArtifactMaterializer;
     private final Path configDirectory;
     /** Configuration versions are scoped to a Control Plane binding. */
     private final Map<UUID, RuntimeConfigCoordinator> configCoordinators = new ConcurrentHashMap<>();
@@ -128,8 +128,9 @@ public final class QwenPawWorker implements AutoCloseable {
                 configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
         this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigFileBytes());
-        this.skillArtifactFetcher = new SkillArtifactFetcher(configuration.configFetchTimeout(),
-                configuration.maxConfigFileBytes());
+        this.skillArtifactMaterializer = new SkillArtifactMaterializer(
+                new SkillArtifactFetcher(configuration.configFetchTimeout(), configuration.maxArtifactBytes()),
+                configuration.maxArtifactBytes());
         this.configDirectory = configuration.configDirectory();
         this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock);
         RuntimeResultSink resultSink = this::onRuntimeResult;
@@ -271,7 +272,7 @@ public final class QwenPawWorker implements AutoCloseable {
             UUID bindingId = UUID.fromString(changed.getBindingId());
             RuntimeConfigSnapshot snapshot = buildConfigSnapshot(changed, manifestJson, configFileFetcher,
                     configDirectory.resolve(changed.getSnapshotId() + "-" + changed.getConfigVersion()),
-                    skillArtifactFetcher);
+                    skillArtifactMaterializer);
             synchronized (configApplyLock) {
                 configCoordinators.computeIfAbsent(bindingId, ignored -> newConfigCoordinator())
                         .apply(snapshot, changed.getRollback());
@@ -360,11 +361,18 @@ public final class QwenPawWorker implements AutoCloseable {
 
     static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,
             ConfigFileFetcher files, Path versionDirectory) {
-        return buildConfigSnapshot(changed, manifestJson, files, versionDirectory, null);
+        return buildConfigSnapshot(changed, manifestJson, files, versionDirectory,
+                (SkillArtifactMaterializer) null);
     }
 
     static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,
             ConfigFileFetcher files, Path versionDirectory, SkillArtifactFetcher skills) {
+        return buildConfigSnapshot(changed, manifestJson, files, versionDirectory,
+                skills == null ? null : new SkillArtifactMaterializer(skills, 50L * 1024 * 1024));
+    }
+
+    static RuntimeConfigSnapshot buildConfigSnapshot(ConfigChanged changed, String manifestJson,
+            ConfigFileFetcher files, Path versionDirectory, SkillArtifactMaterializer skills) {
         Objects.requireNonNull(changed, "changed");
         Objects.requireNonNull(manifestJson, "manifestJson");
         Objects.requireNonNull(files, "files");
@@ -386,10 +394,11 @@ public final class QwenPawWorker implements AutoCloseable {
             if (!resourceBindings.successful()) {
                 throw new IllegalArgumentException(resourceBindings.failureMessage());
             }
+            Map<String, Path> skillDirectories = new LinkedHashMap<>();
             for (ResourceBindingLoader.ResourceBinding binding : resourceBindings.bindings()) {
                 if (binding.artifactRef() != null) {
                     if (skills == null) throw new IllegalArgumentException("Skill artifact fetcher is required");
-                    skills.fetch(binding, versionDirectory);
+                    skillDirectories.put(binding.key(), skills.materialize(binding, versionDirectory));
                 }
             }
             Map<String, String> values = new LinkedHashMap<>();
@@ -400,7 +409,7 @@ public final class QwenPawWorker implements AutoCloseable {
                 stagedFiles.put(file.getPath(), files.fetch(file, versionDirectory));
             }
             return new RuntimeConfigSnapshot(changed.getConfigVersion(), changed.getManifestSha256(), values,
-                    stagedFiles);
+                    stagedFiles, skillDirectories);
         } catch (IOException error) {
             throw new IllegalArgumentException("configuration manifest must be valid JSON", error);
         }

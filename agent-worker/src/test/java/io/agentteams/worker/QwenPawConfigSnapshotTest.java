@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -79,5 +80,30 @@ class QwenPawConfigSnapshotTest {
         try (var files = java.nio.file.Files.list(directory)) {
             assertThat(files.toList()).isEmpty();
         }
+    }
+
+    @Test
+    void includesMaterializedSkillDirectoriesInTheRuntimeSnapshot(@TempDir Path directory) throws Exception {
+        String manifest = "{\"resourceBindings\":[{\"type\":\"SKILL\",\"reference\":\"skill-a\","
+                + "\"revision\":\"1\",\"digest\":\"sha256:abc\","
+                + "\"artifactRef\":\"https://example.test/skill.zip\",\"sizeBytes\":12}]}";
+        String manifestSha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(manifest.getBytes(StandardCharsets.UTF_8)));
+        ConfigChanged changed = ConfigChanged.newBuilder()
+                .setMetadata(EventMetadata.newBuilder().setAgentId("agent-1").build())
+                .setConfigVersion(2).setManifestSha256(manifestSha)
+                .setSizeBytes(manifest.getBytes(StandardCharsets.UTF_8).length).build();
+        Path expectedSkill = directory.resolve("skills").resolve("skill-a");
+        SkillArtifactMaterializer materializer = new SkillArtifactMaterializer(null, 1024) {
+            @Override
+            Path materialize(ResourceBindingLoader.ResourceBinding binding, Path versionDirectory) {
+                return expectedSkill;
+            }
+        };
+
+        var snapshot = QwenPawWorker.buildConfigSnapshot(changed, manifest,
+                new ConfigFileFetcher(null, Duration.ofSeconds(2), 1024), directory, materializer);
+
+        assertThat(snapshot.skillDirectories()).containsEntry("SKILL|skill-a|1|sha256:abc", expectedSkill);
     }
 }

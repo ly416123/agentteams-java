@@ -49,7 +49,7 @@ final class SkillArtifactFetcher {
             throw new IllegalArgumentException("Skill artifact exceeds the configured size limit");
         }
         Path directory = versionDirectory.toAbsolutePath().normalize();
-        Path target = directory.resolve("skills").resolve(safeName(binding)).normalize();
+        Path target = directory.resolve("skills").resolve(artifactFileName(binding)).normalize();
         if (!target.startsWith(directory)) throw new IllegalArgumentException("Skill artifact path is unsafe");
         Path temporary;
         try {
@@ -102,6 +102,14 @@ final class SkillArtifactFetcher {
 
     private static String safeName(ResourceBindingLoader.ResourceBinding binding) {
         return sha256Hex(binding.reference() + "\u0000" + binding.revision()) + ".tar.gz";
+    }
+
+    static String artifactFileName(ResourceBindingLoader.ResourceBinding binding) {
+        return safeName(binding);
+    }
+
+    static String artifactDirectoryName(ResourceBindingLoader.ResourceBinding binding) {
+        return sha256Hex(binding.reference() + "\u0000" + binding.revision());
     }
 
     private static String normalizeDigest(String digest) {

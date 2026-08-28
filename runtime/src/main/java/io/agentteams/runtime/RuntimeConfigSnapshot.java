@@ -6,9 +6,14 @@ import java.nio.file.Path;
 
 /** Immutable, versioned configuration data supplied to a runtime. */
 public record RuntimeConfigSnapshot(long version, String checksum, Map<String, String> values,
-        Map<String, Path> files) {
+        Map<String, Path> files, Map<String, Path> skillDirectories) {
     public RuntimeConfigSnapshot(long version, String checksum, Map<String, String> values) {
-        this(version, checksum, values, Map.of());
+        this(version, checksum, values, Map.of(), Map.of());
+    }
+
+    public RuntimeConfigSnapshot(long version, String checksum, Map<String, String> values,
+            Map<String, Path> files) {
+        this(version, checksum, values, files, Map.of());
     }
 
     public RuntimeConfigSnapshot {
@@ -20,9 +25,14 @@ public record RuntimeConfigSnapshot(long version, String checksum, Map<String, S
         }
         values = Map.copyOf(Objects.requireNonNull(values, "values"));
         files = Map.copyOf(Objects.requireNonNull(files, "files"));
+        skillDirectories = Map.copyOf(Objects.requireNonNull(skillDirectories, "skillDirectories"));
         files.forEach((path, file) -> {
             if (path == null || path.isBlank()) throw new IllegalArgumentException("file path must not be blank");
             Objects.requireNonNull(file, "file");
+        });
+        skillDirectories.forEach((key, directory) -> {
+            if (key == null || key.isBlank()) throw new IllegalArgumentException("skill directory key must not be blank");
+            Objects.requireNonNull(directory, "skill directory");
         });
     }
 }

@@ -9,7 +9,7 @@
 
 **资源 ACK 进度（2026-08-28）：** `ConfigApplied` 已增加资源级结构化结果，Gateway/NATS/Control Plane 完成透传，Control Plane 以 V50 表持久化并按 binding/snapshot/config version 栅栏拒绝旧结果。Worker 已完成绑定字段校验、Skill 下载/digest 校验和配置应用流程报告；MCP 工具发现及跨实例聚合仍待后续运行时 Port 接入。
 
-**Skill Loader 进度（2026-08-28）：** Worker 已支持 manifest 显式提供 `artifactRef` 和 `sizeBytes` 时的 HTTP(S) Skill 包下载、大小/SHA-256 校验和原子落盘；Control Plane 已为已发布且上传完成的 Skill 版本生成 15 分钟短期预签名 `artifactRef`，并随 AgentSpec manifest 传递包大小/SHA-256；旧 manifest 保持兼容。Skill 包解压、扫描复核和真实运行时注册仍待后续任务。
+**Skill Loader 进度（2026-08-28）：** Worker 已支持 manifest 显式提供 `artifactRef` 和 `sizeBytes` 时的 HTTP(S) Skill 包下载、大小/SHA-256 校验、受限解包、`SKILL.md` 运行时解析复核和原子物化；Control Plane 已为已发布且上传完成的 Skill 版本生成 15 分钟短期预签名 `artifactRef`，并随 AgentSpec manifest 传递包大小/SHA-256；AgentScope 仅在配置激活后注册物化目录中的只读 Skill 仓库，旧 manifest 保持兼容。真实外部 Skill 运行时策略与 MCP 工具发现仍待后续任务。
 
 ## 1. 目标
 

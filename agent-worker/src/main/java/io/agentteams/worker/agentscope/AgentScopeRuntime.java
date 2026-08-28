@@ -354,6 +354,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     @Override
     public void applyConfig(RuntimeConfigSnapshot snapshot) {
         synchronized (lifecycleLock) {
+            harnessFactory.applyConfig(Objects.requireNonNull(snapshot, "snapshot"));
             state.applyConfig(snapshot);
         }
     }

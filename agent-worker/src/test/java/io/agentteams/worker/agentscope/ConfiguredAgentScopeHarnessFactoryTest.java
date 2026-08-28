@@ -13,6 +13,7 @@ import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeTask;
+import io.agentteams.runtime.RuntimeConfigSnapshot;
 import io.agentteams.worker.SandboxStateProbePort;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -157,6 +158,25 @@ class ConfiguredAgentScopeHarnessFactoryTest {
                 Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC), ignored -> { }, Map.of()));
 
         assertThat(inspected).isTrue();
+        harness.close();
+    }
+
+    @Test
+    void registersActivatedSkillDirectoryAsReadOnlyRuntimeRepository() throws Exception {
+        Path skills = Files.createDirectories(root.resolve("skills"));
+        Path skill = Files.createDirectories(skills.resolve("demo"));
+        Files.writeString(skill.resolve("SKILL.md"),
+                "---\nname: demo\ndescription: Demo skill\n---\nUse demo.");
+        ConfiguredAgentScopeHarnessFactory factory = new ConfiguredAgentScopeHarnessFactory(
+                new TestModel(), AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(),
+                        Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC), root), root);
+        factory.applyConfig(new RuntimeConfigSnapshot(2, "sha-2", Map.of(), Map.of(),
+                Map.of("skill-a", skill)));
+
+        var harness = factory.create(task("attempt-skills", "lease-skills"), context());
+        assertThat(harness.getSkillRepositories()).hasSize(1);
+        assertThat(harness.getSkillRepositories().get(0).getSkill("demo")).isNotNull();
+        assertThat(harness.getSkillRepositories().get(0).isWriteable()).isFalse();
         harness.close();
     }
 

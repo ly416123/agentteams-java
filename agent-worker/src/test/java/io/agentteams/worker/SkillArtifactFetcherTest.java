@@ -12,6 +12,10 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import java.io.ByteArrayOutputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -99,6 +103,69 @@ class SkillArtifactFetcherTest {
                 .isEqualTo("DOWNLOAD_FAILED");
         assertThat(QwenPawWorker.resourceApplyResults(manifest, true).get(0).getStatus())
                 .isEqualTo(io.agentteams.contracts.v1.ResourceApplyResult.Status.APPLIED);
+    }
+
+    @Test
+    void materializesVerifiedArchiveAsRuntimeSkillDirectory(@TempDir Path directory) throws Exception {
+        byte[] archive = zip(Map.of(
+                "SKILL.md", "---\nname: demo\ndescription: Demo skill\n---\nUse the demo skill.",
+                "references/guide.md", "reference"));
+        String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(archive));
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/skill.zip", exchange -> {
+            exchange.sendResponseHeaders(200, archive.length);
+            exchange.getResponseBody().write(archive);
+            exchange.close();
+        });
+        server.start();
+
+        var binding = binding("http://127.0.0.1:" + server.getAddress().getPort() + "/skill.zip",
+                digest, archive.length);
+        Path skillDirectory = new SkillArtifactMaterializer(
+                new SkillArtifactFetcher(Duration.ofSeconds(2), 1024), 1024)
+                .materialize(binding, directory);
+
+        assertThat(Files.readString(skillDirectory.resolve("SKILL.md"))).contains("name: demo");
+        assertThat(Files.readString(skillDirectory.resolve("references/guide.md"))).isEqualTo("reference");
+        assertThat(Files.isDirectory(skillDirectory)).isTrue();
+    }
+
+    @Test
+    void rejectsArchiveTraversalBeforePublishingAnySkillDirectory(@TempDir Path directory) throws Exception {
+        byte[] archive = zip(Map.of("../escape.txt", "nope", "SKILL.md",
+                "---\nname: demo\ndescription: Demo skill\n---\ncontent"));
+        String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(archive));
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/skill.zip", exchange -> {
+            exchange.sendResponseHeaders(200, archive.length);
+            exchange.getResponseBody().write(archive);
+            exchange.close();
+        });
+        server.start();
+
+        assertThatThrownBy(() -> new SkillArtifactMaterializer(
+                new SkillArtifactFetcher(Duration.ofSeconds(2), 1024), 1024)
+                .materialize(binding("http://127.0.0.1:" + server.getAddress().getPort() + "/skill.zip",
+                        digest, archive.length), directory))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsafe archive path");
+        try (var files = Files.walk(directory)) {
+            assertThat(files.filter(Files::isDirectory)
+                    .map(Path::getFileName).map(Object::toString)
+                    .noneMatch(name -> name.startsWith("skill-"))).isTrue();
+        }
+    }
+
+    private static byte[] zip(Map<String, String> entries) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            for (var entry : entries.entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
     }
 
     private static ResourceBindingLoader.ResourceBinding binding(String uri, String digest, long size) {

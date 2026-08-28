@@ -3,10 +3,12 @@ package io.agentteams.worker.agentscope;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ModelRegistry;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentteams.application.api.SandboxHandle;
 import io.agentteams.application.api.SandboxProfile;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.runtime.AgentRuntimeContext;
+import io.agentteams.runtime.RuntimeConfigSnapshot;
 import io.agentteams.runtime.RuntimeTask;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Production AgentScope Harness factory with bounded workspace and sandbox observation. */
 public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarnessFactory {
@@ -28,6 +31,7 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
     private final AgentScopeWorkspaceFactory workspaceFactory;
     private final Map<UUID, AgentScopeWorkspaceFactory.WorkspaceBinding> bindings =
             new ConcurrentHashMap<>();
+    private final AtomicReference<Path> activeSkillRoot = new AtomicReference<>();
 
     public ConfiguredAgentScopeHarnessFactory(String modelId, Path workspaceRoot) {
         this(resolveModel(modelId), workspaceRoot, unavailableProbe());
@@ -80,6 +84,22 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
         bindings.clear();
     }
 
+    @Override
+    public void applyConfig(RuntimeConfigSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        Path root = null;
+        for (Path directory : snapshot.skillDirectories().values()) {
+            Path normalized = directory.toAbsolutePath().normalize();
+            if (!Files.isDirectory(normalized) || Files.isSymbolicLink(normalized)) {
+                throw new IllegalArgumentException("activated Skill directory is unavailable");
+            }
+            Path parent = normalized.getParent();
+            if (root == null) root = parent;
+            else if (!root.equals(parent)) throw new IllegalArgumentException("Skill directories must share one runtime root");
+        }
+        activeSkillRoot.set(root);
+    }
+
     int bindingCount() {
         return bindings.size();
     }
@@ -102,7 +122,7 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
             Files.createDirectories(workspace);
             String agentId = context.configuration().getOrDefault("worker_id",
                     task.metadata().getOrDefault("agentId", "agent-worker"));
-            return HarnessAgent.builder()
+            HarnessAgent.Builder builder = HarnessAgent.builder()
                     .name("agentteams-worker")
                     .agentId(agentId)
                     .defaultSessionId(required(task, "attemptId"))
@@ -111,8 +131,14 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
                     .disableShellTool()
                     .disableSubagents()
                     .disableSessionPersistence()
-                    .maxIters(10)
-                    .build();
+                    .maxIters(10);
+            Path skillRoot = activeSkillRoot.get();
+            if (skillRoot != null) {
+                builder.skillRepository(new FileSystemSkillRepository(skillRoot, false, "agentteams", true))
+                        .disableDefaultWorkspaceSkills()
+                        .disableDynamicSkills();
+            }
+            return builder.build();
         } catch (IOException error) {
             release(task.id());
             throw new IllegalStateException("unable to create AgentScope workspace", error);
