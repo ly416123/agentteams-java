@@ -1,6 +1,8 @@
 package io.agentteams.controlplane.usage;
 
 import java.sql.Timestamp;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -45,6 +47,21 @@ public final class UsageQueryService {
              WHERE occurred_at >= ? AND occurred_at < ?
              GROUP BY %s
              ORDER BY %s
+            """;
+
+    private static final String COMPLETENESS_SQL = """
+            SELECT COUNT(*) AS total_calls,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(tenant_id AS text)), '') IS NOT NULL) AS tenant_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(project_id AS text)), '') IS NOT NULL) AS project_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(team_id AS text)), '') IS NOT NULL) AS team_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(worker_id AS text)), '') IS NOT NULL) AS worker_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(task_id AS text)), '') IS NOT NULL) AS task_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(provider AS text)), '') IS NOT NULL) AS provider_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(model AS text)), '') IS NOT NULL) AS model_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(tool_id AS text)), '') IS NOT NULL) AS tool_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(quota_dimension AS text)), '') IS NOT NULL) AS quota_dimension_present
+              FROM model_call_audits
+             WHERE occurred_at >= ? AND occurred_at < ?
             """;
 
     private final JdbcTemplate jdbc;
@@ -146,6 +163,20 @@ public final class UsageQueryService {
                 resultSet.getLong("prompt_tokens"), resultSet.getLong("completion_tokens"),
                 resultSet.getDouble("cost_usd"), resultSet.getDouble("average_latency_millis")),
                 scope.arguments(start, end));
+    }
+
+    /** Audits the presence of stable usage dimensions without returning their values. */
+    public UsageCompleteness completeness(Instant from, Instant to) {
+        UsageRange range = UsageRange.resolve(from, to, clock.instant());
+        ScopeFilter scope = ScopeFilter.current();
+        Timestamp start = Timestamp.from(range.from());
+        Timestamp end = Timestamp.from(range.to());
+        UsageCompleteness raw = jdbc.queryForObject(COMPLETENESS_SQL + scope.whereClause(),
+                (resultSet, rowNum) -> UsageCompleteness.from(resultSet), scope.arguments(start, end));
+        if (raw == null) {
+            throw new IllegalStateException("usage completeness query returned no row");
+        }
+        return raw.withRange(range.from(), range.to());
     }
 
     private static int validateLimit(Integer limit) {
@@ -309,6 +340,42 @@ public final class UsageQueryService {
 
     public record UsageBucket(Instant bucket, long calls, long failures, long promptTokens,
             long completionTokens, double costUsd, double averageLatencyMillis) { }
+
+    public record UsageDimensionCompleteness(String name, long present, long missing, BigDecimal coverage) {
+        static UsageDimensionCompleteness of(String name, long present, long totalCalls) {
+            long missing = totalCalls - present;
+            BigDecimal coverage = totalCalls == 0 ? null
+                    : BigDecimal.valueOf(present)
+                            .divide(BigDecimal.valueOf(totalCalls), 6, RoundingMode.HALF_UP);
+            return new UsageDimensionCompleteness(name, present, missing, coverage);
+        }
+    }
+
+    public record UsageCompleteness(Instant from, Instant to, long totalCalls,
+            List<UsageDimensionCompleteness> dimensions) {
+        public UsageCompleteness {
+            dimensions = List.copyOf(dimensions);
+        }
+
+        private static UsageCompleteness from(java.sql.ResultSet resultSet) throws java.sql.SQLException {
+            long totalCalls = resultSet.getLong("total_calls");
+            return new UsageCompleteness(null, null, totalCalls, List.of(
+                    UsageDimensionCompleteness.of("tenantId", resultSet.getLong("tenant_present"), totalCalls),
+                    UsageDimensionCompleteness.of("projectId", resultSet.getLong("project_present"), totalCalls),
+                    UsageDimensionCompleteness.of("teamId", resultSet.getLong("team_present"), totalCalls),
+                    UsageDimensionCompleteness.of("workerId", resultSet.getLong("worker_present"), totalCalls),
+                    UsageDimensionCompleteness.of("taskId", resultSet.getLong("task_present"), totalCalls),
+                    UsageDimensionCompleteness.of("provider", resultSet.getLong("provider_present"), totalCalls),
+                    UsageDimensionCompleteness.of("model", resultSet.getLong("model_present"), totalCalls),
+                    UsageDimensionCompleteness.of("tool", resultSet.getLong("tool_present"), totalCalls),
+                    UsageDimensionCompleteness.of("quotaDimension",
+                            resultSet.getLong("quota_dimension_present"), totalCalls)));
+        }
+
+        private UsageCompleteness withRange(Instant rangeFrom, Instant rangeTo) {
+            return new UsageCompleteness(rangeFrom, rangeTo, totalCalls, dimensions);
+        }
+    }
 
     private record ScopeFilter(String clause, String tenant, String project, String team) {
         static ScopeFilter explicit(String tenant, String project) {

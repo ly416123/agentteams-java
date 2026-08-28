@@ -14,13 +14,19 @@ import io.agentteams.controlplane.config.ConfigSnapshot;
 import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ResourceApplyRecord;
 import io.agentteams.controlplane.usage.JdbcUsageBudgetRepository;
+import io.agentteams.controlplane.usage.UsageQueryService;
 import io.agentteams.controlplane.usage.UsageBudgetEvaluation;
 import io.agentteams.controlplane.usage.UsageBudgetPolicy;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -98,6 +104,43 @@ class FoundationRepositoryIT {
                     assertThat(actual.actualCost()).isEqualByComparingTo("6");
                     assertThat(actual.forecastCost()).isEqualByComparingTo("72");
                 });
+    }
+
+    @Test
+    void aggregatesUsageDimensionCompletenessAgainstPostgres() {
+        Instant now = Instant.now().minusSeconds(1);
+        jdbc.update("""
+                INSERT INTO model_call_audits
+                    (id, provider, model, latency_millis, prompt_tokens, completion_tokens, request_hash,
+                     outcome, occurred_at, tenant_id, project_id, cost_usd, cost_status, worker_id, task_id,
+                     team_id, tool_id, quota_id, quota_dimension)
+                VALUES (?, 'openai', 'gpt-4o', 10, 1, 2, repeat('a', 64), 'SUCCESS', ?,
+                        'tenant-a', 'project-a', 0, 'UNPRICED', ?, ?, ?, ?, ?, ?),
+                       (?, 'openai', 'gpt-4o', 10, 1, 2, repeat('b', 64), 'SUCCESS', ?,
+                        'tenant-a', 'project-a', 0, 'UNPRICED', NULL, NULL, NULL, '', NULL, '')
+                """, UUID.randomUUID(), Timestamp.from(now), "worker-a", "task-a", "team-a", "tool-a", "quota-a",
+                "project", UUID.randomUUID(), Timestamp.from(now.plusMillis(1)));
+
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            UsageQueryService.UsageCompleteness result = new UsageQueryService(jdbc.getDataSource())
+                    .completeness(now.minusSeconds(60), now.plusSeconds(60));
+
+            assertThat(result.totalCalls()).isEqualTo(2);
+            assertThat(result.dimensions()).filteredOn(dimension -> dimension.name().equals("workerId"))
+                    .singleElement().satisfies(dimension -> {
+                        assertThat(dimension.present()).isEqualTo(1);
+                        assertThat(dimension.missing()).isEqualTo(1);
+                    });
+            assertThat(result.dimensions()).filteredOn(dimension -> dimension.name().equals("quotaDimension"))
+                    .singleElement().satisfies(dimension -> {
+                        assertThat(dimension.present()).isEqualTo(1);
+                        assertThat(dimension.missing()).isEqualTo(1);
+                    });
+        } finally {
+            PrincipalContext.clear();
+        }
     }
 
     @Test

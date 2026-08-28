@@ -29,6 +29,28 @@ public final class UsageController {
         return UsageSummaryResponse.from(summary, UsageQueryService.GroupBy.parse(groupBy));
     }
 
+    @GetMapping("/dimensions/completeness")
+    public UsageCompletenessResponse completeness(@RequestParam(name = "from", required = false) Instant from,
+            @RequestParam(name = "to", required = false) Instant to) {
+        return UsageCompletenessResponse.from(service.completeness(from, to));
+    }
+
+    public record UsageCompletenessResponse(Instant from, Instant to, long totalCalls,
+            List<UsageDimensionCompletenessResponse> dimensions) {
+        static UsageCompletenessResponse from(UsageQueryService.UsageCompleteness completeness) {
+            return new UsageCompletenessResponse(completeness.from(), completeness.to(), completeness.totalCalls(),
+                    completeness.dimensions().stream().map(UsageDimensionCompletenessResponse::from).toList());
+        }
+    }
+
+    public record UsageDimensionCompletenessResponse(String name, long present, long missing,
+            java.math.BigDecimal coverage) {
+        static UsageDimensionCompletenessResponse from(UsageQueryService.UsageDimensionCompleteness completeness) {
+            return new UsageDimensionCompletenessResponse(completeness.name(), completeness.present(),
+                    completeness.missing(), completeness.coverage());
+        }
+    }
+
     public record UsageSummaryResponse(Instant from, Instant to, long calls, long failures,
             long promptTokens, long completionTokens, double costUsd, double averageLatencyMillis,
             List<ProviderModelUsageResponse> byProviderModel,

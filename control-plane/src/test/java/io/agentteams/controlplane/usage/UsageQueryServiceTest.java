@@ -14,6 +14,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 import io.agentteams.controlplane.security.AuthorizationService;
@@ -138,6 +139,57 @@ class UsageQueryServiceTest {
     }
 
     @Test
+    void reportsCompletenessForEachUsageDimensionWithinAuthenticatedScope() throws Exception {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageCompleteness>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("team-a"))).thenAnswer(invocation -> {
+                    String sql = invocation.getArgument(0);
+                    assertThat(sql).contains("NULLIF(BTRIM(CAST(tenant_id AS text)), '')")
+                            .contains("NULLIF(BTRIM(CAST(quota_dimension AS text)), '')")
+                            .doesNotContain("prompt")
+                            .doesNotContain("response");
+                    RowMapper<UsageQueryService.UsageCompleteness> mapper = invocation.getArgument(1);
+                    return mapper.mapRow(completenessResult(), 0);
+                });
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            UsageQueryService.UsageCompleteness completeness = service().completeness(
+                    NOW.minusSeconds(3600), NOW);
+
+            assertThat(completeness.totalCalls()).isEqualTo(12);
+            assertThat(completeness.dimensions()).extracting(UsageQueryService.UsageDimensionCompleteness::name)
+                    .containsExactly("tenantId", "projectId", "teamId", "workerId", "taskId", "provider", "model",
+                            "tool", "quotaDimension");
+            UsageQueryService.UsageDimensionCompleteness worker = completeness.dimensions().stream()
+                    .filter(value -> value.name().equals("workerId")).findFirst().orElseThrow();
+            assertThat(worker.present()).isEqualTo(9);
+            assertThat(worker.missing()).isEqualTo(3);
+            assertThat(worker.coverage()).isEqualByComparingTo(new BigDecimal("0.750000"));
+            verify(jdbc).queryForObject(anyString(),
+                    ArgumentMatchers.<RowMapper<UsageQueryService.UsageCompleteness>>any(),
+                    eq(Timestamp.from(NOW.minusSeconds(3600))), eq(Timestamp.from(NOW)),
+                    eq("tenant-a"), eq("project-a"), eq("team-a"));
+        } finally {
+            PrincipalContext.clear();
+        }
+    }
+
+    @Test
+    void leavesCoverageEmptyWhenTheWindowHasNoCalls() throws Exception {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageCompleteness>>any(),
+                any(), any())).thenAnswer(invocation -> {
+                    RowMapper<UsageQueryService.UsageCompleteness> mapper = invocation.getArgument(1);
+                    return mapper.mapRow(emptyCompletenessResult(), 0);
+                });
+
+        UsageQueryService.UsageCompleteness completeness = service().completeness(null, NOW);
+
+        assertThat(completeness.totalCalls()).isZero();
+        assertThat(completeness.dimensions()).allSatisfy(dimension ->
+                assertThat(dimension.coverage()).isNull());
+    }
+
+    @Test
     void supportsSafeOperationalDimensionsAndKeepsMissingValuesInOneBucket() throws Exception {
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
                 .thenReturn(new UsageQueryService.UsageTotals(2, 0, 10, 5, 1.5));
@@ -225,6 +277,27 @@ class UsageQueryServiceTest {
         when(resultSet.getDouble("cost_usd")).thenReturn(1.5D);
         when(resultSet.getDouble("average_latency_millis")).thenReturn(12D);
         when(resultSet.getString("dimension_value")).thenReturn(value);
+        return resultSet;
+    }
+
+    private static ResultSet completenessResult() throws java.sql.SQLException {
+        ResultSet resultSet = mock(ResultSet.class);
+        when(resultSet.getLong("total_calls")).thenReturn(12L);
+        when(resultSet.getLong("tenant_present")).thenReturn(10L);
+        when(resultSet.getLong("project_present")).thenReturn(11L);
+        when(resultSet.getLong("team_present")).thenReturn(8L);
+        when(resultSet.getLong("worker_present")).thenReturn(9L);
+        when(resultSet.getLong("task_present")).thenReturn(7L);
+        when(resultSet.getLong("provider_present")).thenReturn(12L);
+        when(resultSet.getLong("model_present")).thenReturn(12L);
+        when(resultSet.getLong("tool_present")).thenReturn(6L);
+        when(resultSet.getLong("quota_dimension_present")).thenReturn(5L);
+        return resultSet;
+    }
+
+    private static ResultSet emptyCompletenessResult() throws java.sql.SQLException {
+        ResultSet resultSet = mock(ResultSet.class);
+        when(resultSet.getLong("total_calls")).thenReturn(0L);
         return resultSet;
     }
 }

@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,5 +76,29 @@ class UsageControllerTest {
                 .andExpect(jsonPath("$.groups[0].status").value("SUCCESS"))
                 .andExpect(jsonPath("$.groups[0].calls").value(3));
         verify(service).summarize(from, to, "status", 1);
+    }
+
+    @Test
+    void returnsDimensionCompletenessWithoutDimensionValues() throws Exception {
+        Instant from = Instant.parse("2026-08-23T00:00:00Z");
+        Instant to = Instant.parse("2026-08-23T01:00:00Z");
+        when(service.completeness(from, to)).thenReturn(new UsageQueryService.UsageCompleteness(from, to, 12,
+                List.of(new UsageQueryService.UsageDimensionCompleteness("workerId", 9, 3,
+                        new BigDecimal("0.750000")))));
+
+        mockMvc.perform(get("/api/v1/usage/dimensions/completeness")
+                        .param("from", from.toString())
+                        .param("to", to.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.from").exists())
+                .andExpect(jsonPath("$.to").exists())
+                .andExpect(jsonPath("$.totalCalls").value(12))
+                .andExpect(jsonPath("$.dimensions[0].name").value("workerId"))
+                .andExpect(jsonPath("$.dimensions[0].present").value(9))
+                .andExpect(jsonPath("$.dimensions[0].missing").value(3))
+                .andExpect(jsonPath("$.dimensions[0].coverage").value(0.750000))
+                .andExpect(jsonPath("$.dimensions[0].tenantId").doesNotExist())
+                .andExpect(jsonPath("$.dimensions[0].dimensionValue").doesNotExist());
+        verify(service).completeness(from, to);
     }
 }
