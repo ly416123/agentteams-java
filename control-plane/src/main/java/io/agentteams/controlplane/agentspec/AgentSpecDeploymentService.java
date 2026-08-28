@@ -120,6 +120,8 @@ public final class AgentSpecDeploymentService {
                     node.put("reference", binding.reference());
                     node.put("revision", binding.revision());
                     node.put("digest", binding.digest());
+                    if (binding.artifactRef() != null) node.put("artifactRef", binding.artifactRef());
+                    if (binding.sizeBytes() != null) node.put("sizeBytes", binding.sizeBytes());
                     node.put("workerId", workerId.toString());
                     node.put("teamRef", teamRef);
                     ObjectNode bindingScope = node.putObject("scope");

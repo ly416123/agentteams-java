@@ -10,7 +10,9 @@ public record AgentSpecReferenceBinding(
         String projectId,
         String teamId,
         String revision,
-        String digest) {
+        String digest,
+        String artifactRef,
+        Long sizeBytes) {
 
     public AgentSpecReferenceBinding {
         Objects.requireNonNull(type, "type");
@@ -20,6 +22,13 @@ public record AgentSpecReferenceBinding(
         reference = reference.trim();
         revision = revision.trim();
         digest = digest.trim();
+        artifactRef = artifactRef == null || artifactRef.isBlank() ? null : artifactRef.trim();
+        if (sizeBytes != null && sizeBytes < 0) {
+            throw new IllegalArgumentException("sizeBytes must not be negative");
+        }
+        if ((artifactRef == null) != (sizeBytes == null)) {
+            throw new IllegalArgumentException("artifactRef and sizeBytes must be provided together");
+        }
         tenantId = normalize(tenantId);
         projectId = normalize(projectId);
         teamId = normalize(teamId);
@@ -35,7 +44,14 @@ public record AgentSpecReferenceBinding(
         String digest = metadata.digest() == null
                 ? AgentSpecReferenceDigest.derived(reference, metadata.revision()) : metadata.digest();
         return new AgentSpecReferenceBinding(reference.type(), reference.value(), metadata.tenantId(),
-                metadata.projectId(), metadata.teamId(), metadata.revision(), digest);
+                metadata.projectId(), metadata.teamId(), metadata.revision(), digest,
+                metadata.artifactRef(), metadata.sizeBytes());
+    }
+
+    /** Compatibility constructor for bindings that predate artifact delivery metadata. */
+    public AgentSpecReferenceBinding(AgentSpecReferenceType type, String reference, String tenantId,
+            String projectId, String teamId, String revision, String digest) {
+        this(type, reference, tenantId, projectId, teamId, revision, digest, null, null);
     }
 
     private static String normalize(String value) {

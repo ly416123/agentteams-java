@@ -38,27 +38,33 @@ public interface AgentSpecReferenceCatalog {
     }
 
     record ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
-            String lifecycle, String revision, String digest) {
+            String lifecycle, String revision, String digest, String artifactRef, Long sizeBytes) {
         /** Compatibility constructor for catalogs that do not expose a digest yet. */
         public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
                 String lifecycle, String revision) {
-            this(tenantId, projectId, teamId, visibility, lifecycle, revision, null);
+            this(tenantId, projectId, teamId, visibility, lifecycle, revision, null, null, null);
+        }
+
+        /** Compatibility constructor for catalogs that expose a digest but no artifact. */
+        public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
+                String lifecycle, String revision, String digest) {
+            this(tenantId, projectId, teamId, visibility, lifecycle, revision, digest, null, null);
         }
 
         /** Compatibility constructor for catalogs that predate team scope. */
         public ReferenceMetadata(String tenantId, String projectId, Visibility visibility, String lifecycle) {
-            this(tenantId, projectId, null, visibility, lifecycle, null, null);
+            this(tenantId, projectId, null, visibility, lifecycle, null, null, null, null);
         }
 
         /** Compatibility constructor for catalogs that already carry team scope. */
         public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
                 String lifecycle) {
-            this(tenantId, projectId, teamId, visibility, lifecycle, null, null);
+            this(tenantId, projectId, teamId, visibility, lifecycle, null, null, null, null);
         }
 
         /** Compatibility constructor for string visibility callers. */
         public ReferenceMetadata(String tenantId, String projectId, String visibility, String lifecycle) {
-            this(tenantId, projectId, null, Visibility.from(visibility), lifecycle, null, null);
+            this(tenantId, projectId, null, Visibility.from(visibility), lifecycle, null, null, null, null);
         }
 
         public ReferenceMetadata {
@@ -89,6 +95,18 @@ public interface AgentSpecReferenceCatalog {
                 if (digest.isBlank()) {
                     digest = null;
                 }
+            }
+            if (artifactRef != null) {
+                artifactRef = artifactRef.trim();
+                if (artifactRef.isBlank()) {
+                    artifactRef = null;
+                }
+            }
+            if (sizeBytes != null && sizeBytes < 0) {
+                throw new IllegalArgumentException("sizeBytes must not be negative");
+            }
+            if ((artifactRef == null) != (sizeBytes == null)) {
+                throw new IllegalArgumentException("artifactRef and sizeBytes must be provided together");
             }
         }
 

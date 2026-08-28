@@ -114,7 +114,9 @@ class AgentSpecDeploymentServiceTest {
                 new AgentSpecReferenceCatalog.ReferenceMetadata("tenant-a", "project-a", "research",
                         AgentSpecReferenceCatalog.Visibility.PROJECT, "PUBLISHED",
                         reference.type() == AgentSpecReferenceType.SKILL ? "skill-2" : "mcp-7",
-                        reference.type() == AgentSpecReferenceType.SKILL ? "sha256:skill" : "sha256:mcp"));
+                        reference.type() == AgentSpecReferenceType.SKILL ? "sha256:skill" : "sha256:mcp",
+                        reference.type() == AgentSpecReferenceType.SKILL ? "https://objects.example.test/skill.tar.gz" : null,
+                        reference.type() == AgentSpecReferenceType.SKILL ? 12L : null));
         AgentSpecDeploymentService service = new AgentSpecDeploymentService(specs, snapshots, deployments,
                 new ObjectMapper(), null, new CatalogAgentSpecReferenceValidator(catalog));
 
@@ -128,6 +130,9 @@ class AgentSpecDeploymentServiceTest {
         assertThat(root.path("resourceBindings").get(1).path("type").asText()).isEqualTo("SKILL");
         assertThat(root.path("resourceBindings").get(1).path("revision").asText()).isEqualTo("skill-2");
         assertThat(root.path("resourceBindings").get(1).path("digest").asText()).isEqualTo("sha256:skill");
+        assertThat(root.path("resourceBindings").get(1).path("artifactRef").asText())
+                .isEqualTo("https://objects.example.test/skill.tar.gz");
+        assertThat(root.path("resourceBindings").get(1).path("sizeBytes").asLong()).isEqualTo(12L);
         assertThat(root.path("resourceBindings").get(1).path("workerId").asText()).isEqualTo(workerId.toString());
         assertThat(root.path("resourceBindings").get(1).path("teamRef").asText()).isEqualTo("research");
         assertThat(root.path("resourceBindings").get(2).path("type").asText()).isEqualTo("MCP");
