@@ -67,6 +67,22 @@ class ConversationServiceTest {
     }
 
     @Test
+    void idempotentReplayDoesNotIncludeEventsFromTheNextMessage() {
+        FakeConversationRuntime runtime = new FakeConversationRuntime();
+        ConversationService service = new ConversationService(runtime);
+        service.create(CONTEXT);
+        service.start(SESSION_ID);
+
+        service.send(SESSION_ID, "message-1", "first");
+        service.send(SESSION_ID, "message-2", "second");
+
+        ConversationService.SendResult replay = service.send(SESSION_ID, "message-1", "first");
+
+        assertThat(replay.events()).hasSize(2)
+                .allSatisfy(event -> assertThat(event.data()).contains("first").doesNotContain("second"));
+    }
+
+    @Test
     void reusingMessageIdempotencyKeyForDifferentContentIsRejected() {
         ConversationService service = startedService();
         service.send(SESSION_ID, "message-1", "hello");

@@ -65,6 +65,8 @@ public final class ConversationService {
             throw new IllegalArgumentException("content must not be blank");
         }
         synchronized (state) {
+            List<ConversationEvent> observed = runtime.events(sessionId, 0);
+            freezeTerminalCursors(state, observed);
             SendRecord previous = state.messages.get(idempotencyKey);
             if (previous != null) {
                 if (!previous.content.equals(content)) {
@@ -72,8 +74,10 @@ public final class ConversationService {
                             ConversationRuntimeException.Code.IDEMPOTENCY_CONFLICT,
                             "message idempotency key was reused with different content");
                 }
+                List<ConversationEvent> replay = runtime.events(sessionId, previous.startCursor);
+                freezeTerminalCursors(state, replay);
                 return new SendResult(sessionId, idempotencyKey,
-                        runtime.events(sessionId, previous.afterCursor));
+                        eventsFor(previous, state, replay));
             }
             if (state.status == Status.CANCELLED) {
                 throw new ConversationRuntimeException(ConversationRuntimeException.Code.CANCELLED,
@@ -83,18 +87,23 @@ public final class ConversationService {
                 throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
                         "conversation has not started");
             }
-            long afterCursor = lastCursor(runtime.events(sessionId, 0));
+            long startCursor = lastCursor(observed);
             runtime.send(new ConversationRuntimePort.Message(sessionId, idempotencyKey, content));
-            SendResult result = new SendResult(sessionId, idempotencyKey,
-                    runtime.events(sessionId, afterCursor));
-            state.messages.put(idempotencyKey, new SendRecord(content, afterCursor));
-            return result;
+            SendRecord record = new SendRecord(content, startCursor);
+            state.messages.put(idempotencyKey, record);
+            List<ConversationEvent> produced = runtime.events(sessionId, startCursor);
+            freezeTerminalCursors(state, produced);
+            return new SendResult(sessionId, idempotencyKey, eventsFor(record, state, produced));
         }
     }
 
     public List<ConversationEvent> events(UUID sessionId, long afterCursor) {
-        session(sessionId);
-        return runtime.events(sessionId, afterCursor);
+        SessionState state = session(sessionId);
+        synchronized (state) {
+            List<ConversationEvent> observed = runtime.events(sessionId, afterCursor);
+            freezeTerminalCursors(state, observed);
+            return observed;
+        }
     }
 
     public Conversation cancel(UUID sessionId) {
@@ -113,6 +122,7 @@ public final class ConversationService {
             if (state.status != Status.CANCELLED) {
                 runtime.cancel(sessionId);
                 state.status = Status.CANCELLED;
+                freezeTerminalCursors(state, runtime.events(sessionId, 0));
             }
             state.cancelKeys.put(idempotencyKey, Boolean.TRUE);
             return snapshot(state);
@@ -131,6 +141,46 @@ public final class ConversationService {
         return events.isEmpty() ? 0 : events.get(events.size() - 1).cursor();
     }
 
+    private static void freezeTerminalCursors(SessionState state, List<ConversationEvent> observed) {
+        for (SendRecord record : state.messages.values()) {
+            if (record.endCursor != null) {
+                continue;
+            }
+            observed.stream()
+                    .filter(event -> event.cursor() > record.startCursor)
+                    .filter(event -> isTerminal(event.type()))
+                    .mapToLong(ConversationEvent::cursor)
+                    .min()
+                    .ifPresent(record::freezeAt);
+        }
+    }
+
+    private static List<ConversationEvent> eventsFor(SendRecord record, SessionState state,
+            List<ConversationEvent> observed) {
+        long endCursor = lastCursor(observed);
+        if (record.endCursor != null) {
+            endCursor = Math.min(endCursor, record.endCursor);
+        }
+        long nextStartCursor = state.messages.values().stream()
+                .filter(candidate -> candidate.startCursor > record.startCursor)
+                .mapToLong(candidate -> candidate.startCursor)
+                .min()
+                .orElse(Long.MAX_VALUE);
+        if (nextStartCursor != Long.MAX_VALUE) {
+            endCursor = Math.min(endCursor, nextStartCursor);
+        }
+        long upperBound = endCursor;
+        return observed.stream()
+                .filter(event -> event.cursor() > record.startCursor && event.cursor() <= upperBound)
+                .toList();
+    }
+
+    private static boolean isTerminal(String type) {
+        return "message.completed".equals(type)
+                || "conversation.failed".equals(type)
+                || "conversation.cancelled".equals(type);
+    }
+
     private static Conversation snapshot(SessionState state) {
         return new Conversation(state.context.sessionId(), state.context, state.status);
     }
@@ -146,6 +196,18 @@ public final class ConversationService {
         }
     }
 
-    private record SendRecord(String content, long afterCursor) {
+    private static final class SendRecord {
+        private final String content;
+        private final long startCursor;
+        private Long endCursor;
+
+        private SendRecord(String content, long startCursor) {
+            this.content = content;
+            this.startCursor = startCursor;
+        }
+
+        private void freezeAt(long cursor) {
+            endCursor = cursor;
+        }
     }
 }
