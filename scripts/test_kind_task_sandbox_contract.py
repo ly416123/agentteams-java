@@ -97,6 +97,25 @@ class TaskSandboxHelmContractTest(unittest.TestCase):
                 "AGENTTEAMS_SANDBOX_ENABLED"):
             self.assertIn(required, operator)
 
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_operator_deployment_is_discoverable_by_its_controller_label(self):
+        manifests = rendered_manifests()
+        operator = next(
+            manifest
+            for manifest in manifests
+            if manifest.get("kind") == "Deployment"
+            and manifest["metadata"]["name"].endswith("-operator")
+        )
+
+        self.assertEqual(
+            "agentteams-operator",
+            operator["metadata"]["labels"]["app.kubernetes.io/name"],
+        )
+        self.assertEqual(
+            "agentteams",
+            operator["metadata"]["labels"]["app.kubernetes.io/part-of"],
+        )
+
     def test_kind_values_keep_real_runtime_classes_disabled(self):
         kind_values = yaml.safe_load((ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8"))
         self.assertFalse(kind_values.get("sandbox", {}).get("enabled", False))

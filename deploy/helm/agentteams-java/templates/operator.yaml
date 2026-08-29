@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "agentteams-java.fullname" . }}-operator
+  labels:
+    app.kubernetes.io/name: agentteams-operator
+    app.kubernetes.io/part-of: agentteams
 spec:
   replicas: {{ .Values.operator.replicas }}
   selector:
