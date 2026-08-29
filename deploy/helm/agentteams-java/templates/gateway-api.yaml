@@ -1,4 +1,5 @@
 {{- if and .Values.ingress.enabled (eq .Values.ingress.mode "GATEWAY_API") }}
+{{- $console := .Values.console | default dict -}}
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -28,8 +29,15 @@ spec:
   hostnames: [{{ .Values.ingress.host | quote }}]
   rules:
     - matches:
-        - path: { type: PathPrefix, value: /api/v1 }
+        - path: { type: PathPrefix, value: /api }
       backendRefs:
         - name: {{ include "agentteams-java.fullname" . }}-control-plane
           port: {{ .Values.controlPlane.port }}
+    {{- if $console.enabled }}
+    - matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - name: {{ include "agentteams-java.fullname" . }}-console
+          port: 8080
+    {{- end }}
 {{- end }}

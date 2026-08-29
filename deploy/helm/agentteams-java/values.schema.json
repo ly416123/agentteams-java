@@ -13,6 +13,23 @@
         "operator": { "type": "string", "minLength": 1 }
       }
     },
+    "console": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": { "type": "string", "minLength": 1 },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "apiBasePath": { "type": "string", "minLength": 1 },
+            "oidcIssuer": { "type": "string" },
+            "oidcClientId": { "type": "string" }
+          }
+        }
+      }
+    },
     "ingress": {
       "type": "object",
       "additionalProperties": false,

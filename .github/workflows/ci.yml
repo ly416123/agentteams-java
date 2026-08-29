@@ -19,6 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Set up Node.js for Console
+        if: ${{ hashFiles('console/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: console/package-lock.json
       - name: Validate architecture map
         run: python scripts/validate-architecture-map.py
       - name: Validate API contract
@@ -39,6 +46,23 @@ jobs:
         run: python -m unittest scripts/test_kind_task_sandbox_contract.py
       - name: Validate AgentScope Fake Model runtime contract
         run: python scripts/test-agentscope-runtime-contract.py
+      - name: Console npm checks
+        run: |
+          set -euo pipefail
+          if [[ ! -d console ]]; then
+            echo "CONSOLE_NPM_CHECKS_SKIPPED: console/ 不存在，等待 Console SPA 合入后执行 npm test/build/lint。"
+            exit 0
+          fi
+          if [[ ! -f console/package.json ]]; then
+            echo "::error::console/ 存在但缺少 package.json，无法执行 Console npm 契约。"
+            exit 1
+          fi
+          npm --prefix console ci
+          npm --prefix console test
+          npm --prefix console run build
+          npm --prefix console run lint
+      - name: Validate Console deployment manifests
+        run: python3 scripts/validate-console-manifests.py
       - name: Set up Java
         uses: actions/setup-java@v5
         with:

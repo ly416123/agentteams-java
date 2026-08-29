@@ -12,11 +12,18 @@ spec:
     - host: api.agentteams.localhost
       http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: agentteams-agentteams-java-control-plane
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agentteams-agentteams-java-console
                 port:
                   name: http
     - host: gateway.agentteams.localhost
