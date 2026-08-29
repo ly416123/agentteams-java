@@ -1,0 +1,12 @@
+:root {
+  --ink: #e8f0f7;
+  --muted: #8fa5b7;
+  --line: rgb(154 185 204 / 14%);
+  --panel: rgb(16 31 46 / 86%);
+  --panel-soft: rgb(20 39 57 / 70%);
+  --accent: #8de0cf;
+  --info: #79b9ee;
+  --warning: #f4c978;
+  --danger: #f18f8f;
+  --success: #8de0cf;
+}
