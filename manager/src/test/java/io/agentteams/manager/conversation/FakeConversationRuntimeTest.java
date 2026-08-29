@@ -3,6 +3,7 @@ package io.agentteams.manager.conversation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -55,5 +56,15 @@ class FakeConversationRuntimeTest {
 
         assertThat(runtime.events(SESSION_ID, 1)).extracting(ConversationEvent::cursor)
                 .containsExactly(2L, 3L);
+    }
+
+    @Test
+    void encodesControlCharactersAsValidJson() throws Exception {
+        FakeConversationRuntime runtime = new FakeConversationRuntime();
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "line one\nline two"));
+
+        assertThat(new ObjectMapper().readTree(runtime.events(SESSION_ID, 1).get(0).data())
+                .path("text").asText()).isEqualTo("FAKE: line one\nline two");
     }
 }

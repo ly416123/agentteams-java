@@ -48,6 +48,7 @@ class QwenPawConversationMockTest(unittest.TestCase):
                 "Content-Type": "application/json",
                 "X-Agent-Id": "agent-a",
                 "Authorization": "Bearer secret-token",
+                "Idempotency-Key": "message-1",
             },
             method="POST",
         )
@@ -62,6 +63,7 @@ class QwenPawConversationMockTest(unittest.TestCase):
         self.assertNotIn("secret-token", body)
         self.assertNotIn("private prompt", "\n".join(MOCK.audit_log()))
         self.assertNotIn("secret-token", "\n".join(MOCK.audit_log()))
+        self.assertIn("idempotency-key=message-1", "\n".join(MOCK.audit_log()))
 
     def test_delay_and_disconnect_can_be_changed_without_restarting_server(self):
         self.post_json("/debug/config", {"delay_seconds": 0.02, "disconnect_after": 1})

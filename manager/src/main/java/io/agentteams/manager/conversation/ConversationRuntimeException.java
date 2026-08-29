@@ -14,7 +14,8 @@ public final class ConversationRuntimeException extends RuntimeException {
         CANCELLED,
         IDEMPOTENCY_CONFLICT,
         SESSION_NOT_FOUND,
-        INVALID_STATE
+        INVALID_STATE,
+        RESOURCE_EXHAUSTED
     }
 
     private final Code code;

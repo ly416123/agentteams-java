@@ -107,10 +107,13 @@ public class ManagerApplication {
             @Value("${AGENTTEAMS_CONVERSATION_REQUEST_TIMEOUT_MS:120000}") long requestTimeoutMillis,
             @Value("${AGENTTEAMS_CONVERSATION_MAX_RESPONSE_BYTES:4194304}") long maxResponseBytes,
             @Value("${AGENTTEAMS_CONVERSATION_USER_ID:agentteams}") String userId,
-            @Value("${AGENTTEAMS_CONVERSATION_CHANNEL:console}") String channel) {
+            @Value("${AGENTTEAMS_CONVERSATION_CHANNEL:console}") String channel,
+            @Value("${AGENTTEAMS_CONVERSATION_MAX_CONCURRENT_REQUESTS:128}") int maxConcurrentRequests,
+            @Value("${AGENTTEAMS_CONVERSATION_MAX_EVENTS_PER_SESSION:10000}") int maxEventsPerSession,
+            @Value("${AGENTTEAMS_CONVERSATION_MAX_SESSIONS:10000}") int maxSessions) {
         return new ConversationRuntimeConfiguration(URI.create(endpoint), agentId, authorizationToken,
                 Duration.ofMillis(connectTimeoutMillis), Duration.ofMillis(requestTimeoutMillis),
-                maxResponseBytes, userId, channel);
+                maxResponseBytes, userId, channel, maxConcurrentRequests, maxEventsPerSession, maxSessions);
     }
 
     @Bean(destroyMethod = "close")

@@ -1,5 +1,7 @@
 package io.agentteams.manager.conversation;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Deterministic in-memory runtime for local development and tests. */
 public final class FakeConversationRuntime implements ConversationRuntimePort {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final Map<UUID, State> sessions = new ConcurrentHashMap<>();
     private final boolean workerAvailable;
 
@@ -90,7 +93,12 @@ public final class FakeConversationRuntime implements ConversationRuntimePort {
     }
 
     private static String jsonText(String value) {
-        return "{\"text\":\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}";
+        try {
+            return OBJECT_MAPPER.writeValueAsString(Map.of("text", value));
+        } catch (JsonProcessingException error) {
+            throw new ConversationRuntimeException(ConversationRuntimeException.Code.PROTOCOL_ERROR,
+                    "unable to encode fake conversation event", error);
+        }
     }
 
     private static final class State {

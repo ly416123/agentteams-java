@@ -12,7 +12,10 @@ public record ConversationRuntimeConfiguration(
         Duration requestTimeout,
         long maxResponseBytes,
         String userId,
-        String channel) {
+        String channel,
+        int maxConcurrentRequests,
+        int maxEventsPerSession,
+        int maxSessions) {
 
     public ConversationRuntimeConfiguration {
         if (endpoint == null || (!"http".equalsIgnoreCase(endpoint.getScheme())
@@ -31,8 +34,29 @@ public record ConversationRuntimeConfiguration(
         }
         requireText(userId, "userId");
         requireText(channel, "channel");
+        if (maxConcurrentRequests <= 0) {
+            throw new IllegalArgumentException("maxConcurrentRequests must be positive");
+        }
+        if (maxEventsPerSession <= 0) {
+            throw new IllegalArgumentException("maxEventsPerSession must be positive");
+        }
+        if (maxSessions <= 0) {
+            throw new IllegalArgumentException("maxSessions must be positive");
+        }
         authorizationToken = authorizationToken == null || authorizationToken.isBlank()
                 ? null : authorizationToken;
+        if (authorizationToken != null && "http".equalsIgnoreCase(endpoint.getScheme())
+                && !isLoopbackHost(endpoint.getHost())) {
+            throw new IllegalArgumentException(
+                    "authorizationToken requires https unless endpoint is loopback");
+        }
+    }
+
+    public ConversationRuntimeConfiguration(URI endpoint, String agentId, String authorizationToken,
+            Duration connectTimeout, Duration requestTimeout, long maxResponseBytes, String userId,
+            String channel) {
+        this(endpoint, agentId, authorizationToken, connectTimeout, requestTimeout, maxResponseBytes,
+                userId, channel, 128, 10_000, 10_000);
     }
 
     public ConversationRuntimeConfiguration(URI endpoint, String agentId, String authorizationToken,
@@ -49,5 +73,11 @@ public record ConversationRuntimeConfiguration(
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be blank");
         }
+    }
+
+    private static boolean isLoopbackHost(String host) {
+        return "localhost".equalsIgnoreCase(host)
+                || "127.0.0.1".equals(host)
+                || "::1".equals(host);
     }
 }

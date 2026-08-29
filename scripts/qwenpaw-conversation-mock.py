@@ -141,7 +141,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         with CONFIG_LOCK:
-            AUDIT.append(f"chat session={session_id} agent={bool(self.headers.get('X-Agent-Id'))}")
+            AUDIT.append(
+                f"chat session={session_id} agent={bool(self.headers.get('X-Agent-Id'))}"
+                f" idempotency-key={self.headers.get('Idempotency-Key', '')}"
+            )
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")

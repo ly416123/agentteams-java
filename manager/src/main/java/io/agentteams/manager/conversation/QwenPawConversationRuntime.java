@@ -29,7 +29,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Conversation runtime adapter for QwenPaw's HTTP/SSE console API. */
 public final class QwenPawConversationRuntime implements ConversationRuntimePort, AutoCloseable {
@@ -41,6 +43,9 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     private final Map<UUID, RequestHandle> requests = new ConcurrentHashMap<>();
     private final ExecutorService readerExecutor;
     private final ScheduledExecutorService timeoutExecutor;
+    private final Semaphore requestSlots;
+    private final Semaphore sessionSlots;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public QwenPawConversationRuntime(ConversationRuntimeConfiguration configuration) {
         this(configuration,
@@ -56,7 +61,9 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
-        this.readerExecutor = Executors.newCachedThreadPool(runnable -> {
+        this.requestSlots = new Semaphore(configuration.maxConcurrentRequests());
+        this.sessionSlots = new Semaphore(configuration.maxSessions());
+        this.readerExecutor = Executors.newFixedThreadPool(configuration.maxConcurrentRequests(), runnable -> {
             Thread thread = new Thread(runnable, "qwenpaw-conversation-sse-reader");
             thread.setDaemon(true);
             return thread;
@@ -71,11 +78,21 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     @Override
     public void start(Context context) {
         Objects.requireNonNull(context, "context");
+        ensureOpen();
         SessionState candidate = new SessionState(context);
-        SessionState state = sessions.putIfAbsent(context.sessionId(), candidate);
+        SessionState state = sessions.get(context.sessionId());
         if (state == null) {
-            state = candidate;
-        } else if (!state.context.equals(context)) {
+            if (!sessionSlots.tryAcquire()) {
+                throw resourceExhausted("conversation session limit reached");
+            }
+            state = sessions.putIfAbsent(context.sessionId(), candidate);
+            if (state == null) {
+                state = candidate;
+            } else {
+                sessionSlots.release();
+            }
+        }
+        if (!state.context.equals(context)) {
             throw new ConversationRuntimeException(ConversationRuntimeException.Code.IDEMPOTENCY_CONFLICT,
                     "conversation session already exists with different context");
         }
@@ -90,6 +107,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     @Override
     public void send(Message message) {
         Objects.requireNonNull(message, "message");
+        ensureOpen();
         SessionState state = session(message.sessionId());
         synchronized (state) {
             if (!state.started) {
@@ -100,36 +118,42 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                 throw new ConversationRuntimeException(ConversationRuntimeException.Code.CANCELLED,
                         "conversation has been cancelled");
             }
-        }
-
-        RequestHandle handle = new RequestHandle(message.sessionId());
-        if (requests.putIfAbsent(message.sessionId(), handle) != null) {
-            throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
-                    "conversation already has a request in flight");
-        }
-        try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(chatEndpoint())
-                    .timeout(configuration.requestTimeout())
-                    .header("Accept", "text/event-stream")
-                    .header("Content-Type", "application/json")
-                    .header("X-Agent-Id", configuration.agentId());
-            if (configuration.authorizationToken() != null) {
-                builder.header("Authorization", "Bearer " + configuration.authorizationToken());
+            if (state.request != null) {
+                throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
+                        "conversation already has a request in flight");
             }
-            HttpRequest request = builder.POST(HttpRequest.BodyPublishers.ofString(
-                    requestBody(state.context, message), StandardCharsets.UTF_8)).build();
-            CompletableFuture<HttpResponse<InputStream>> future = httpClient.sendAsync(
-                    request, HttpResponse.BodyHandlers.ofInputStream());
-            handle.future = future;
-            future.thenAcceptAsync(response -> processResponse(state, handle, response), readerExecutor)
-                    .whenComplete((ignored, error) -> {
-                        if (error != null && !handle.cancelled()) {
-                            publishFailure(state, handle, classifyTransport(error));
-                        }
-                    });
-        } catch (RuntimeException error) {
-            requests.remove(message.sessionId(), handle);
-            throw error;
+            if (!requestSlots.tryAcquire()) {
+                throw resourceExhausted("conversation request limit reached");
+            }
+            RequestHandle handle = new RequestHandle(message.sessionId(), requestSlots);
+            state.request = handle;
+            requests.put(message.sessionId(), handle);
+            try {
+                HttpRequest.Builder builder = HttpRequest.newBuilder(chatEndpoint())
+                        .timeout(configuration.requestTimeout())
+                        .header("Accept", "text/event-stream")
+                        .header("Content-Type", "application/json")
+                        .header("X-Agent-Id", configuration.agentId())
+                        .header("Idempotency-Key", message.idempotencyKey());
+                if (configuration.authorizationToken() != null) {
+                    builder.header("Authorization", "Bearer " + configuration.authorizationToken());
+                }
+                HttpRequest request = builder.POST(HttpRequest.BodyPublishers.ofString(
+                        requestBody(state.context, message), StandardCharsets.UTF_8)).build();
+                CompletableFuture<HttpResponse<InputStream>> future = httpClient.sendAsync(
+                        request, HttpResponse.BodyHandlers.ofInputStream());
+                handle.future = future;
+                future.thenAcceptAsync(response -> processResponse(state, handle, response), readerExecutor)
+                        .whenComplete((ignored, error) -> {
+                            if (error != null && !handle.cancelled()) {
+                                publishFailure(state, handle, classifyTransport(error));
+                            }
+                        });
+            } catch (RuntimeException error) {
+                clearRequest(state, handle);
+                handle.cancel();
+                throw error;
+            }
         }
     }
 
@@ -149,24 +173,53 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
 
     @Override
     public void cancel(UUID sessionId) {
+        ensureOpen();
         SessionState state = session(sessionId);
         RequestHandle handle;
         synchronized (state) {
-            if (state.cancelled) {
+            if (state.cancelled && state.remoteCancelSucceeded) {
                 return;
             }
-            state.cancelled = true;
-            append(state, "conversation.cancelled", "{}");
-            handle = requests.remove(sessionId);
+            if (!state.cancelled) {
+                state.cancelled = true;
+                append(state, "conversation.cancelled", "{}");
+            }
+            handle = state.request;
         }
-        if (handle != null) {
-            handle.cancel();
+        ConversationRuntimeException remoteFailure = null;
+        try {
+            cancelRemote(state.context);
+            synchronized (state) {
+                state.remoteCancelSucceeded = true;
+            }
+        } catch (ConversationRuntimeException error) {
+            remoteFailure = error;
+        } finally {
+            if (handle != null) {
+                handle.cancel();
+            }
+        }
+        if (remoteFailure != null) {
+            throw remoteFailure;
         }
     }
 
     @Override
     public void close() {
-        requests.values().forEach(RequestHandle::cancel);
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        for (SessionState state : sessions.values()) {
+            synchronized (state) {
+                if (state.request != null) {
+                    state.request.cancel();
+                }
+            }
+        }
+        requests.values().forEach(handle -> {
+            handle.cancel();
+            handle.releaseSlot();
+        });
         requests.clear();
         readerExecutor.shutdownNow();
         timeoutExecutor.shutdownNow();
@@ -176,17 +229,37 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             HttpResponse<InputStream> response) {
         handle.stream = response.body();
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            ConversationRuntimeException.Code code = classifyHttp(response.statusCode());
+            handle.armIdleTimeout(timeoutExecutor, configuration.requestTimeout());
             try (InputStream body = response.body()) {
-                readLimited(body);
-                publishFailure(state, handle, classifyHttp(response.statusCode()));
+                readLimited(handle, body);
             } catch (IOException error) {
+                // Preserve the HTTP status category even when its body is incomplete.
+            } finally {
+                handle.cancelIdleTimeout();
+                handle.stream = null;
+                publishFailure(state, handle, code);
+                clearRequest(state, handle);
+            }
+            return;
+        }
+
+        handle.armIdleTimeout(timeoutExecutor, configuration.requestTimeout());
+        if (!isSseContentType(response)) {
+            try (InputStream body = response.body()) {
+                readLimited(handle, body);
+            } catch (IOException ignored) {
+                // The response is already classified as a protocol error.
+            } finally {
+                handle.cancelIdleTimeout();
+                handle.stream = null;
                 publishFailure(state, handle, ConversationRuntimeException.Code.PROTOCOL_ERROR);
+                clearRequest(state, handle);
             }
             return;
         }
 
         boolean terminal = false;
-        handle.armIdleTimeout(timeoutExecutor, configuration.requestTimeout());
         try (InputStream body = response.body()) {
             terminal = readSse(state, handle, body);
             if (!terminal && !handle.cancelled()) {
@@ -202,16 +275,19 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                         ? ConversationRuntimeException.Code.TIMEOUT
                         : ConversationRuntimeException.Code.CONNECTION_CLOSED);
             }
+        } catch (ConversationRuntimeException error) {
+            publishFailure(state, handle, error.code());
         } finally {
             handle.cancelIdleTimeout();
             handle.stream = null;
-            requests.remove(state.context.sessionId(), handle);
+            clearRequest(state, handle);
         }
     }
 
     private boolean readSse(SessionState state, RequestHandle handle, InputStream body)
             throws IOException, ResponseTooLargeException {
         StringBuilder data = new StringBuilder();
+        StringBuilder eventType = new StringBuilder();
         ByteArrayOutputStream line = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         long totalBytes = 0;
@@ -225,7 +301,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             for (int index = 0; index < read; index++) {
                 byte value = buffer[index];
                 if (value == '\n') {
-                    if (processSseLine(state, data, line)) {
+                    if (processSseLine(state, data, eventType, line)) {
                         return true;
                     }
                     line.reset();
@@ -238,20 +314,21 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             }
         }
         if (line.size() > 0) {
-            processSseLine(state, data, line);
+            processSseLine(state, data, eventType, line);
         }
-        return !data.isEmpty() && processSseData(state, data);
+        return !data.isEmpty() && processSseData(state, data, eventType.toString());
     }
 
     private boolean processSseLine(SessionState state, StringBuilder data,
-            ByteArrayOutputStream line) {
+            StringBuilder eventType, ByteArrayOutputStream line) {
         String value = line.toString(StandardCharsets.UTF_8);
         if (value.endsWith("\r")) {
             value = value.substring(0, value.length() - 1);
         }
         if (value.isEmpty()) {
-            boolean terminal = processSseData(state, data);
+            boolean terminal = processSseData(state, data, eventType.toString());
             data.setLength(0);
+            eventType.setLength(0);
             return terminal;
         }
         if (value.startsWith("data:")) {
@@ -259,18 +336,36 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                 data.append('\n');
             }
             data.append(value.substring("data:".length()).trim());
+        } else if (value.startsWith("event:")) {
+            eventType.setLength(0);
+            eventType.append(value.substring("event:".length()).trim());
         }
         return false;
     }
 
-    private boolean processSseData(SessionState state, StringBuilder data) {
-        if (data.isEmpty() || "[DONE]".equals(data.toString())) {
+    private boolean processSseData(SessionState state, StringBuilder data, String eventType) {
+        if (data.isEmpty()) {
+            if (!eventType.isEmpty() && !isSupportedEventType(eventType)) {
+                appendFailure(state, ConversationRuntimeException.Code.PROTOCOL_ERROR);
+                return true;
+            }
             return false;
+        }
+        if (!eventType.isEmpty() && !isSupportedEventType(eventType)) {
+            appendFailure(state, ConversationRuntimeException.Code.PROTOCOL_ERROR);
+            return true;
+        }
+        if ("[DONE]".equals(data.toString())) {
+            return true;
         }
         final JsonNode event;
         try {
             event = objectMapper.readTree(data.toString());
         } catch (IOException error) {
+            appendFailure(state, ConversationRuntimeException.Code.PROTOCOL_ERROR);
+            return true;
+        }
+        if (event == null || !event.isObject()) {
             appendFailure(state, ConversationRuntimeException.Code.PROTOCOL_ERROR);
             return true;
         }
@@ -291,8 +386,17 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                 || event.path("delta").asBoolean(false)
                 || "in_progress".equals(status)) {
             appendIfNotCancelled(state, "message.delta", data.toString());
+            return false;
         }
-        return false;
+        if (!eventType.isEmpty() && "conversation.started".equals(eventType)
+                && "created".equals(status)) {
+            return false;
+        }
+        if ("created".equals(status)) {
+            return false;
+        }
+        appendFailure(state, ConversationRuntimeException.Code.PROTOCOL_ERROR);
+        return true;
     }
 
     private void publishFailure(SessionState state, RequestHandle handle,
@@ -301,12 +405,33 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             return;
         }
         appendFailure(state, code);
-        requests.remove(state.context.sessionId(), handle);
+        clearRequest(state, handle);
     }
 
     private void appendFailure(SessionState state, ConversationRuntimeException.Code code) {
         appendIfNotCancelled(state, "conversation.failed",
                 "{\"code\":\"" + code.name() + "\"}");
+    }
+
+    private static boolean isSupportedEventType(String eventType) {
+        return switch (eventType) {
+            case "conversation.started", "message.delta", "message.completed", "task.updated",
+                    "tool.started", "tool.completed", "conversation.cancelled", "conversation.failed" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isTerminalEvent(String type) {
+        return "message.completed".equals(type)
+                || "conversation.failed".equals(type)
+                || "conversation.cancelled".equals(type);
+    }
+
+    private static boolean isSseContentType(HttpResponse<?> response) {
+        return response.headers().firstValue("Content-Type")
+                .map(value -> value.split(";", 2)[0].trim())
+                .map("text/event-stream"::equalsIgnoreCase)
+                .orElse(false);
     }
 
     private void appendIfNotCancelled(SessionState state, String type, String data) {
@@ -318,8 +443,35 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     }
 
     private void append(SessionState state, String type, String data) {
+        if (state.events.size() > configuration.maxEventsPerSession()
+                || (state.events.size() >= configuration.maxEventsPerSession()
+                        && !isTerminalEvent(type))) {
+            throw resourceExhausted("conversation event history limit reached");
+        }
         state.events.add(ConversationEvent.of(state.context.sessionId(), state.events.size() + 1,
                 type, data, Instant.now()));
+    }
+
+    private void clearRequest(SessionState state, RequestHandle handle) {
+        synchronized (state) {
+            if (state.request == handle) {
+                state.request = null;
+            }
+        }
+        requests.remove(state.context.sessionId(), handle);
+        handle.releaseSlot();
+    }
+
+    private void ensureOpen() {
+        if (closed.get()) {
+            throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
+                    "conversation runtime is closed");
+        }
+    }
+
+    private static ConversationRuntimeException resourceExhausted(String message) {
+        return new ConversationRuntimeException(ConversationRuntimeException.Code.RESOURCE_EXHAUSTED,
+                message);
     }
 
     private String requestBody(Context context, Message message) throws RuntimeException {
@@ -347,15 +499,67 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         }
     }
 
-    private void readLimited(InputStream stream) throws IOException, ResponseTooLargeException {
+    private void readLimited(RequestHandle handle, InputStream stream)
+            throws IOException, ResponseTooLargeException {
         byte[] buffer = new byte[8192];
         long total = 0;
         int read;
         while ((read = stream.read(buffer)) != -1) {
+            handle.touch(timeoutExecutor, configuration.requestTimeout());
             total += read;
             if (total > configuration.maxResponseBytes()) {
                 throw new ResponseTooLargeException();
             }
+        }
+    }
+
+    private void cancelRemote(Context context) {
+        RequestHandle cancelHandle = new RequestHandle(context.sessionId(), null);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(cancelEndpoint())
+                .timeout(configuration.requestTimeout())
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("X-Agent-Id", configuration.agentId());
+        if (configuration.authorizationToken() != null) {
+            builder.header("Authorization", "Bearer " + configuration.authorizationToken());
+        }
+        try {
+            HttpResponse<InputStream> response = httpClient.send(builder.POST(
+                    HttpRequest.BodyPublishers.ofString(cancelBody(context), StandardCharsets.UTF_8)).build(),
+                    HttpResponse.BodyHandlers.ofInputStream());
+            cancelHandle.stream = response.body();
+            cancelHandle.armIdleTimeout(timeoutExecutor, configuration.requestTimeout());
+            try (InputStream body = response.body()) {
+                readLimited(cancelHandle, body);
+            } finally {
+                cancelHandle.cancelIdleTimeout();
+                cancelHandle.stream = null;
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new ConversationRuntimeException(classifyHttp(response.statusCode()),
+                        "QwenPaw cancellation failed with HTTP status " + response.statusCode());
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new ConversationRuntimeException(ConversationRuntimeException.Code.TIMEOUT,
+                    "QwenPaw cancellation was interrupted", interrupted);
+        } catch (ResponseTooLargeException error) {
+            throw new ConversationRuntimeException(ConversationRuntimeException.Code.PROTOCOL_ERROR,
+                    "QwenPaw cancellation response was too large", error);
+        } catch (IOException error) {
+            throw new ConversationRuntimeException(classifyTransport(error),
+                    "QwenPaw cancellation request failed", error);
+        }
+    }
+
+    private String cancelBody(Context context) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("session_id", context.sessionId().toString());
+        try {
+            return objectMapper.writeValueAsString(body);
+        } catch (IOException error) {
+            throw new ConversationRuntimeException(ConversationRuntimeException.Code.PROTOCOL_ERROR,
+                    "unable to encode QwenPaw cancellation request", error);
         }
     }
 
@@ -370,6 +574,11 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     private URI chatEndpoint() {
         String base = configuration.endpoint().toString().replaceAll("/+$", "");
         return URI.create(base + "/api/console/chat");
+    }
+
+    private URI cancelEndpoint() {
+        String base = configuration.endpoint().toString().replaceAll("/+$", "");
+        return URI.create(base + "/api/console/cancel");
     }
 
     private static ConversationRuntimeException.Code classifyHttp(int status) {
@@ -404,8 +613,10 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     private static final class SessionState {
         private final Context context;
         private final List<ConversationEvent> events = new ArrayList<>();
+        private RequestHandle request;
         private boolean started;
         private boolean cancelled;
+        private boolean remoteCancelSucceeded;
 
         private SessionState(Context context) {
             this.context = context;
@@ -414,14 +625,17 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
 
     private static final class RequestHandle {
         private final UUID sessionId;
+        private final Semaphore slots;
         private volatile CompletableFuture<?> future;
         private volatile InputStream stream;
         private volatile boolean cancelled;
         private volatile boolean timedOut;
         private volatile ScheduledFuture<?> idleTimeout;
+        private final AtomicBoolean slotReleased = new AtomicBoolean();
 
-        private RequestHandle(UUID sessionId) {
+        private RequestHandle(UUID sessionId, Semaphore slots) {
             this.sessionId = sessionId;
+            this.slots = slots;
         }
 
         private boolean cancelled() {
@@ -458,6 +672,14 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             if (currentTimeout != null) {
                 currentTimeout.cancel(false);
                 idleTimeout = null;
+            }
+        }
+
+        private void releaseSlot() {
+            if (slotReleased.compareAndSet(false, true)) {
+                if (slots != null) {
+                    slots.release();
+                }
             }
         }
 

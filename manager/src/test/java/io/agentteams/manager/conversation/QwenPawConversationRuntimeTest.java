@@ -1,6 +1,7 @@
 package io.agentteams.manager.conversation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,9 +14,11 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -31,24 +34,36 @@ class QwenPawConversationRuntimeTest {
             "project-a", "team-a", "worker-a", "task-a", SESSION_ID);
 
     private HttpServer server;
+    private ExecutorService serverExecutor;
     private AtomicReference<String> requestBody;
     private AtomicReference<String> agentId;
     private AtomicReference<String> authorization;
+    private AtomicReference<String> idempotencyKey;
+    private AtomicReference<String> cancelBody;
     private AtomicInteger redirectedRequests;
+    private AtomicInteger cancelRequests;
 
     @BeforeEach
     void setUp() throws IOException {
         requestBody = new AtomicReference<>();
         agentId = new AtomicReference<>();
         authorization = new AtomicReference<>();
+        idempotencyKey = new AtomicReference<>();
+        cancelBody = new AtomicReference<>();
         redirectedRequests = new AtomicInteger();
+        cancelRequests = new AtomicInteger();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        serverExecutor = Executors.newCachedThreadPool();
+        server.setExecutor(serverExecutor);
     }
 
     @AfterEach
     void tearDown() {
         if (server != null) {
             server.stop(0);
+        }
+        if (serverExecutor != null) {
+            serverExecutor.shutdownNow();
         }
     }
 
@@ -78,6 +93,7 @@ class QwenPawConversationRuntimeTest {
         assertThat(events.get(2).data()).contains("hello");
         assertThat(agentId.get()).isEqualTo("agent-a");
         assertThat(authorization.get()).isEqualTo("Bearer secret");
+        assertThat(idempotencyKey.get()).isEqualTo("message-1");
         JsonNode request = MAPPER.readTree(requestBody.get());
         assertThat(request.path("session_id").asText()).isEqualTo(SESSION_ID.toString());
         assertThat(request.path("input").get(0).path("content").get(0).path("text").asText())
@@ -100,6 +116,47 @@ class QwenPawConversationRuntimeTest {
         assertThat(failure.type()).isEqualTo("conversation.failed");
         assertThat(failure.data()).contains("WORKER_UNAVAILABLE").doesNotContain("secret provider detail");
         assertThat(authorization.get()).isNull();
+        runtime.close();
+    }
+
+    @Test
+    void classifiesHttpFailureEvenWhenErrorBodyIsTooLarge() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 503,
+                "application/json", "0123456789"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 4);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("WORKER_UNAVAILABLE");
+        runtime.close();
+    }
+
+    @Test
+    void timesOutWhenNonSuccessResponseBodyStaysIdle() throws Exception {
+        CountDownLatch responseReady = new CountDownLatch(1);
+        server.createContext("/api/console/chat", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(503, 0);
+            responseReady.countDown();
+            try {
+                Thread.sleep(2_000);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(URI.create("http://127.0.0.1:"
+                        + server.getAddress().getPort()), null, 8192, Duration.ofMillis(100));
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+        assertThat(responseReady.await(5, TimeUnit.SECONDS)).isTrue();
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("WORKER_UNAVAILABLE");
         runtime.close();
     }
 
@@ -147,6 +204,76 @@ class QwenPawConversationRuntimeTest {
     }
 
     @Test
+    void rejectsNonSseContentTypeAsProtocolError() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "application/json", "{\"status\":\"completed\"}"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("PROTOCOL_ERROR");
+        runtime.close();
+    }
+
+    @Test
+    void rejectsUnknownSseEventAndAcceptsDoneAsTerminal() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "event: unknown\ndata: {}\n\n"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("PROTOCOL_ERROR");
+        runtime.close();
+
+        server.stop(0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(serverExecutor);
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "data: [DONE]\n\n"));
+        server.start();
+        QwenPawConversationRuntime doneRuntime = runtime(null, 8192);
+        doneRuntime.start(CONTEXT);
+        doneRuntime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-2", "hello"));
+        Thread.sleep(100);
+        assertThat(doneRuntime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started");
+        doneRuntime.close();
+    }
+
+    @Test
+    void rejectsUnknownSseEventWithoutDataOrWithDoneMarker() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "event: unknown\n\n"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("PROTOCOL_ERROR");
+        runtime.close();
+
+        server.stop(0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(serverExecutor);
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "event: unknown\ndata: [DONE]\n\n"));
+        server.start();
+        QwenPawConversationRuntime doneRuntime = runtime(null, 8192);
+        doneRuntime.start(CONTEXT);
+        doneRuntime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-2", "hello"));
+        awaitEvents(doneRuntime, 2);
+        assertThat(doneRuntime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "conversation.failed");
+        doneRuntime.close();
+    }
+
+    @Test
     void timesOutWhenResponseHeadersArriveButSseBodyStaysIdle() throws Exception {
         CountDownLatch responseReady = new CountDownLatch(1);
         server.createContext("/api/console/chat", exchange -> {
@@ -161,6 +288,8 @@ class QwenPawConversationRuntimeTest {
                 exchange.close();
             }
         });
+        server.createContext("/api/console/cancel", exchange ->
+                writeResponse(exchange, 200, "application/json", "{\"status\":\"cancelled\"}"));
         server.start();
         QwenPawConversationRuntime runtime = runtime(URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
                 null, 8192, Duration.ofMillis(100));
@@ -205,7 +334,7 @@ class QwenPawConversationRuntimeTest {
         runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
 
         awaitEvents(runtime, 2);
-        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("PROTOCOL_ERROR");
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("HTTP_FAILURE");
         assertThat(redirectedRequests).hasValue(0);
         runtime.close();
     }
@@ -230,6 +359,8 @@ class QwenPawConversationRuntimeTest {
                 exchange.close();
             }
         });
+        server.createContext("/api/console/cancel", exchange ->
+                writeResponse(exchange, 200, "application/json", "{\"status\":\"cancelled\"}"));
         server.start();
         QwenPawConversationRuntime runtime = runtime(null, 8192);
         runtime.start(CONTEXT);
@@ -242,6 +373,180 @@ class QwenPawConversationRuntimeTest {
 
         assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
                 .containsExactly("conversation.started", "conversation.cancelled");
+        runtime.close();
+    }
+
+    @Test
+    void cancellationCallsRemoteEndpointBeforeClosingLocalStream() throws Exception {
+        CountDownLatch responseReady = new CountDownLatch(1);
+        CountDownLatch releaseResponse = new CountDownLatch(1);
+        server.createContext("/api/console/chat", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            responseReady.countDown();
+            try {
+                releaseResponse.await(5, TimeUnit.SECONDS);
+                exchange.getResponseBody().write(
+                        "data: {\"status\":\"completed\"}\n\n"
+                                .getBytes(StandardCharsets.UTF_8));
+                exchange.getResponseBody().flush();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.createContext("/api/console/cancel", exchange -> {
+            cancelRequests.incrementAndGet();
+            cancelBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            writeResponse(exchange, 200, "application/json", "{\"status\":\"cancelled\"}");
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+        assertThat(responseReady.await(5, TimeUnit.SECONDS)).isTrue();
+
+        runtime.cancel(SESSION_ID);
+        releaseResponse.countDown();
+        Thread.sleep(100);
+
+        assertThat(cancelRequests).hasValue(1);
+        assertThat(cancelBody.get()).contains(SESSION_ID.toString());
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "conversation.cancelled");
+        runtime.close();
+    }
+
+    @Test
+    void cancellationFailureIsReportedButStillClosesLocalStream() throws Exception {
+        CountDownLatch responseReady = new CountDownLatch(1);
+        CountDownLatch releaseResponse = new CountDownLatch(1);
+        server.createContext("/api/console/chat", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            responseReady.countDown();
+            try {
+                releaseResponse.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.createContext("/api/console/cancel", exchange ->
+                writeResponse(exchange, 503, "application/json", "provider unavailable"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+        assertThat(responseReady.await(5, TimeUnit.SECONDS)).isTrue();
+
+        assertThatThrownBy(() -> runtime.cancel(SESSION_ID))
+                .isInstanceOf(ConversationRuntimeException.class)
+                .satisfies(error -> assertThat(((ConversationRuntimeException) error).code())
+                        .isEqualTo(ConversationRuntimeException.Code.WORKER_UNAVAILABLE));
+        releaseResponse.countDown();
+        Thread.sleep(100);
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "conversation.cancelled");
+        runtime.close();
+    }
+
+    @Test
+    void cancellationWinsBeforeAConcurrentSendCanRegisterARequest() throws Exception {
+        server.createContext("/api/console/cancel", exchange ->
+                writeResponse(exchange, 200, "application/json", "{\"status\":\"cancelled\"}"));
+        server.createContext("/api/console/chat", exchange -> {
+            throw new AssertionError("chat must not be called after cancellation");
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> cancellation = executor.submit(() -> runtime.cancel(SESSION_ID));
+            cancellation.get(5, TimeUnit.SECONDS);
+            Future<?> send = executor.submit(() -> runtime.send(
+                    new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello")));
+            assertThatThrownBy(() -> send.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(ConversationRuntimeException.class);
+        } finally {
+            executor.shutdownNow();
+            runtime.close();
+        }
+    }
+
+    @Test
+    void enforcesConfiguredConcurrentRequestLimitWithoutDroppingEvents() throws Exception {
+        CountDownLatch responseReady = new CountDownLatch(1);
+        CountDownLatch releaseResponse = new CountDownLatch(1);
+        server.createContext("/api/console/chat", exchange -> {
+            responseReady.countDown();
+            try {
+                releaseResponse.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        ConversationRuntimeConfiguration configuration = new ConversationRuntimeConfiguration(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort()), "agent-a", null,
+                Duration.ofSeconds(2), Duration.ofSeconds(2), 8192, "agentteams", "console", 1, 10, 10);
+        QwenPawConversationRuntime runtime = new QwenPawConversationRuntime(configuration,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(), MAPPER);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+        assertThat(responseReady.await(5, TimeUnit.SECONDS)).isTrue();
+        UUID secondSession = UUID.fromString("00000000-0000-0000-0000-000000000005");
+        runtime.start(new ConversationRuntimePort.Context("project-a", "team-a", "worker-a", "task-a",
+                secondSession));
+        assertThatThrownBy(() -> runtime.send(new ConversationRuntimePort.Message(
+                secondSession, "message-2", "hello")))
+                .isInstanceOf(ConversationRuntimeException.class)
+                .satisfies(error -> assertThat(((ConversationRuntimeException) error).code())
+                        .isEqualTo(ConversationRuntimeException.Code.RESOURCE_EXHAUSTED));
+        releaseResponse.countDown();
+        runtime.close();
+    }
+
+    @Test
+    void reportsEventHistoryExhaustionInsteadOfDroppingEvents() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "data: {\"status\":\"in_progress\"}\n\n"
+                        + "data: {\"status\":\"in_progress\"}\n\n"));
+        server.start();
+        ConversationRuntimeConfiguration configuration = new ConversationRuntimeConfiguration(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort()), "agent-a", null,
+                Duration.ofSeconds(2), Duration.ofSeconds(2), 8192, "agentteams", "console", 1, 2, 10);
+        QwenPawConversationRuntime runtime = new QwenPawConversationRuntime(configuration,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(), MAPPER);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 3);
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.delta", "conversation.failed");
+        assertThat(runtime.events(SESSION_ID, 0).get(2).data()).contains("RESOURCE_EXHAUSTED");
+        runtime.close();
+    }
+
+    @Test
+    void enforcesConfiguredSessionLimit() throws Exception {
+        ConversationRuntimeConfiguration configuration = new ConversationRuntimeConfiguration(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort()), "agent-a", null,
+                Duration.ofSeconds(2), Duration.ofSeconds(2), 8192, "agentteams", "console", 1, 10, 1);
+        QwenPawConversationRuntime runtime = new QwenPawConversationRuntime(configuration,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(), MAPPER);
+        runtime.start(CONTEXT);
+        assertThatThrownBy(() -> runtime.start(new ConversationRuntimePort.Context(
+                "project-a", "team-a", "worker-a", "task-a",
+                UUID.fromString("00000000-0000-0000-0000-000000000005"))))
+                .isInstanceOf(ConversationRuntimeException.class)
+                .satisfies(error -> assertThat(((ConversationRuntimeException) error).code())
+                        .isEqualTo(ConversationRuntimeException.Code.RESOURCE_EXHAUSTED));
         runtime.close();
     }
 
@@ -282,6 +587,7 @@ class QwenPawConversationRuntimeTest {
         requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         agentId.set(exchange.getRequestHeaders().getFirst("X-Agent-Id"));
         authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+        idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
     }
 
     private static void writeResponse(HttpExchange exchange, int status, String contentType, String body)

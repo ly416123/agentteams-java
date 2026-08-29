@@ -6,7 +6,12 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Application service for conversation lifecycle, replay and idempotency. */
+/**
+ * Application service for conversation lifecycle, replay and idempotency.
+ *
+ * <p>{@code SendRecord} is deliberately process-local. Durable idempotency across
+ * restarts or multiple manager replicas requires a persistent store at this boundary.
+ */
 public final class ConversationService {
     public enum Status { CREATED, ACTIVE, CANCELLED }
 
