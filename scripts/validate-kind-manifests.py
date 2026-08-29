@@ -100,7 +100,7 @@ def main():
     for required in ("qwenpaw-openai-mock", "python:3.12-alpine", "server.py"):
         if required not in qwenpaw_mock_manifest_text:
             fail(f"QwenPaw mock manifest missing {required}")
-    for required in ("/chat/completions", "KIND_LEASE_RECOVERY_OK", "KIND_WORKER_RESTART_OK",
+    for required in ("/chat/completions", "/debug/delay", "KIND_LEASE_RECOVERY_OK", "KIND_WORKER_RESTART_OK",
                      "QWENPAW_MOCK_RESPONSE_DELAY_SECONDS", "stream"):
         if required not in qwenpaw_mock_script_text:
             fail(f"QwenPaw mock server missing {required}")
@@ -220,7 +220,7 @@ def main():
     if not worker_restart_script.exists():
         fail("Kind in-flight Worker restart recovery script does not exist")
     worker_restart_text = worker_restart_script.read_text(encoding="utf-8")
-    for required in ("RUNNING", "delete", "agent_leases", "KIND_WORKER_RESTART_OK"):
+    for required in ("RUNNING", "delete", "agent_leases", "clear_mock_delay_runtime", "KIND_WORKER_RESTART_OK"):
         if required not in worker_restart_text:
             fail(f"Kind in-flight Worker restart script missing {required}")
     if "run-kind-worker-restart.py --agent-id" not in oidc_workflow:

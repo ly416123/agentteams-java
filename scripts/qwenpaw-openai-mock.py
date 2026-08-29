@@ -15,8 +15,22 @@ MODEL = "agentteams-kind-mock"
 RESPONSE_TEXT = "KIND_LEASE_RECOVERY_OK"
 RESTART_RESPONSE_TEXT = "KIND_WORKER_RESTART_OK"
 RESPONSE_DELAY_SECONDS = max(0.0, float(os.environ.get("QWENPAW_MOCK_RESPONSE_DELAY_SECONDS", "0")))
+DELAY_LOCK = threading.Lock()
 IN_FLIGHT_REQUESTS = 0
 IN_FLIGHT_LOCK = threading.Lock()
+
+
+def set_response_delay(seconds: float) -> None:
+    global RESPONSE_DELAY_SECONDS
+    if seconds < 0:
+        raise ValueError("seconds must not be negative")
+    with DELAY_LOCK:
+        RESPONSE_DELAY_SECONDS = seconds
+
+
+def response_delay() -> float:
+    with DELAY_LOCK:
+        return RESPONSE_DELAY_SECONDS
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -39,6 +53,9 @@ class Handler(BaseHTTPRequestHandler):
                 inflight = IN_FLIGHT_REQUESTS
             self.send_json(200, {"inflight": inflight})
             return
+        if self.path.rstrip("/") == "/debug/delay":
+            self.send_json(200, {"seconds": response_delay()})
+            return
         if self.path.rstrip("/") in {"/v1/models", "/models"}:
             self.send_json(
                 200,
@@ -51,6 +68,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(404, {"error": {"message": "not found", "type": "invalid_request_error"}})
 
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+        if self.path.rstrip("/") == "/debug/delay":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length) or b"{}")
+                set_response_delay(float(body["seconds"]))
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+                self.send_json(400, {"error": {"message": str(error), "type": "invalid_request_error"}})
+                return
+            self.send_json(200, {"seconds": response_delay()})
+            return
         if not self.path.rstrip("/").endswith("/chat/completions"):
             self.send_json(404, {"error": {"message": "not found", "type": "invalid_request_error"}})
             return
@@ -63,8 +90,9 @@ class Handler(BaseHTTPRequestHandler):
         with IN_FLIGHT_LOCK:
             IN_FLIGHT_REQUESTS += 1
         try:
-            if RESPONSE_DELAY_SECONDS:
-                time.sleep(RESPONSE_DELAY_SECONDS)
+            delay = response_delay()
+            if delay:
+                time.sleep(delay)
             response_id = f"chatcmpl-{uuid.uuid4()}"
             completion = {
                 "id": response_id,
