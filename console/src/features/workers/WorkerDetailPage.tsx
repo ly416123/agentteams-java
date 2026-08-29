@@ -17,7 +17,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
   if (worker.isError || !worker.data)
     return (
       <div className="page">
-        <ErrorState error={worker.error} />;
+        <ErrorState error={worker.error} onRetry={() => void worker.refetch()} />
       </div>
     );
   const data = worker.data;
@@ -69,6 +69,13 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
           projectId={projectId}
           worker={data}
           operations={operations.data || []}
+          onRefresh={async () => {
+            const [latestWorker, latestOperations] = await Promise.all([
+              worker.refetch(),
+              operations.refetch(),
+            ]);
+            return { worker: latestWorker.data, operations: latestOperations.data };
+          }}
         />
       </div>
       <section className="panel">
@@ -78,15 +85,21 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
             <h2>操作记录</h2>
           </div>
         </div>
-        <Timeline
-          items={(operations.data || []).map((operation) => ({
-            id: operation.id,
-            title: operation.type,
-            description: operation.status,
-            time: operation.updatedAt,
-            tone: operation.status === 'FAILED' ? 'danger' : 'success',
-          }))}
-        />
+        {operations.isLoading ? (
+          <div className="loading-block">加载操作记录…</div>
+        ) : operations.isError ? (
+          <ErrorState error={operations.error} onRetry={() => void operations.refetch()} />
+        ) : (
+          <Timeline
+            items={(operations.data || []).map((operation) => ({
+              id: operation.id,
+              title: operation.type,
+              description: operation.status,
+              time: operation.updatedAt,
+              tone: operation.status === 'FAILED' ? 'danger' : 'success',
+            }))}
+          />
+        )}
       </section>
     </div>
   );

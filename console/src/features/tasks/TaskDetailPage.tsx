@@ -7,12 +7,24 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { Timeline } from '../../components/Timeline';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 
+type TaskActionName = 'queue' | 'cancel' | 'retry' | 'pause' | 'approve' | 'reject';
+const actionLabels: Record<TaskActionName, string> = {
+  queue: '排队执行',
+  cancel: '取消任务',
+  retry: '重试任务',
+  pause: '暂停任务',
+  approve: '批准任务',
+  reject: '拒绝任务',
+};
+
 export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskId: string }) {
   const task = useTask(projectId, taskId);
   const events = useTaskEvents(projectId, taskId);
   const action = useTaskAction(projectId, taskId);
   const [conflict, setConflict] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [conflictAction, setConflictAction] = useState<TaskActionName | null>(null);
+  const [conflictRefreshError, setConflictRefreshError] = useState<unknown>();
   if (task.isLoading)
     return (
       <div className="page">
@@ -22,19 +34,33 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   if (task.isError || !task.data)
     return (
       <div className="page">
-        <ErrorState error={task.error} />
+        <ErrorState error={task.error} onRetry={() => void task.refetch()} />
       </div>
     );
-  const runAction = (name: 'queue' | 'cancel' | 'retry' | 'pause' | 'approve' | 'reject') =>
+  const runAction = (name: TaskActionName, version = task.data.version) =>
     action.mutate(
-      { action: name, expectedVersion: task.data.version },
+      { action: name, expectedVersion: version },
       {
         onSuccess: () => setSubmitted(true),
         onError: (error) => {
-          if (error instanceof ApiError && error.status === 409) setConflict(true);
+          if (error instanceof ApiError && error.status === 409) {
+            setConflictAction(name);
+            setConflictRefreshError(undefined);
+            setConflict(true);
+          }
         },
       },
     );
+  const retryLatestAction = async (name = conflictAction) => {
+    if (!name) return;
+    const latest = await task.refetch();
+    if (latest.data) {
+      setConflictRefreshError(undefined);
+      runAction(name, latest.data.version);
+    } else {
+      setConflictRefreshError(latest.error || new Error('无法刷新任务状态'));
+    }
+  };
   return (
     <div className="page">
       <Link className="back-link" to={`/${projectId}/tasks`}>
@@ -67,6 +93,12 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           </button>
         )}
       </div>
+      {action.isError && !conflict && (
+        <ErrorState error={action.error} onRetry={() => void retryLatestAction()} />
+      )}
+      {Boolean(conflictRefreshError) && (
+        <ErrorState error={conflictRefreshError} onRetry={() => void retryLatestAction()} />
+      )}
       <div className="content-grid">
         <section className="panel">
           <div className="section-heading">
@@ -75,6 +107,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
               <h2>状态时间线</h2>
             </div>
           </div>
+          {events.isError && (
+            <ErrorState error={events.error} onRetry={() => void events.refetch()} />
+          )}
           <Timeline
             items={(events.data || []).map((event) => ({
               id: event.id,
@@ -106,12 +141,13 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
       </div>
       <VersionConflictModal
         open={conflict}
-        actionLabel="取消任务"
+        actionLabel={conflictAction ? actionLabels[conflictAction] : '继续操作'}
         description="任务在操作前已被其他请求更新，当前表单内容仍保留。"
         onCancel={() => setConflict(false)}
-        onConfirm={() => {
+        onConfirm={async () => {
+          if (!conflictAction) return;
           setConflict(false);
-          runAction('cancel');
+          await retryLatestAction(conflictAction);
         }}
       />
     </div>

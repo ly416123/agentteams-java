@@ -104,7 +104,7 @@ export function TeamCreatePage({ projectId }: { projectId: string }) {
             </label>
           </>
         )}
-        {create.isError && <ErrorState error={create.error} />}
+        {create.isError && <ErrorState error={create.error} onRetry={submit} />}
       </section>
       <div className="form-actions">
         <button

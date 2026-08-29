@@ -1,15 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { ResourceTable } from '../../components/ResourceTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useWorkers } from '../../queries/useWorkerQueries';
+import { CursorPagination } from '../../components/CursorPagination';
 
 export function WorkerListPage({ projectId }: { projectId: string }) {
   const [search, setSearch] = useState('');
   const [phase, setPhase] = useState('');
-  const workers = useWorkers(projectId, { search, phase });
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [cursorHistory, setCursorHistory] = useState<string[]>([]);
+  const workers = useWorkers(projectId, { search, phase, cursor });
+  const items = workers.data?.items || [];
+  useEffect(() => {
+    setCursor(undefined);
+    setCursorHistory([]);
+  }, [search, phase]);
   return (
     <div className="page">
       <div className="page-heading">
@@ -43,9 +51,9 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
         <div className="panel loading-block">加载 Worker…</div>
       ) : workers.isError ? (
         <ErrorState error={workers.error} onRetry={() => void workers.refetch()} />
-      ) : workers.data?.length ? (
+      ) : items.length ? (
         <ResourceTable
-          items={workers.data}
+          items={items}
           columns={[
             {
               key: 'name',
@@ -84,6 +92,22 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
         />
       ) : (
         <EmptyState title="暂无 Worker" description="Worker 注册后会出现在这里。" />
+      )}
+      {!workers.isLoading && !workers.isError && items.length > 0 && (
+        <CursorPagination
+          hasPrevious={cursorHistory.length > 0}
+          hasNext={Boolean(workers.data?.nextCursor)}
+          onPrevious={() => {
+            const previous = cursorHistory[cursorHistory.length - 1];
+            setCursorHistory((history) => history.slice(0, -1));
+            setCursor(previous);
+          }}
+          onNext={() => {
+            if (!workers.data?.nextCursor) return;
+            setCursorHistory((history) => [...history, cursor || '']);
+            setCursor(workers.data.nextCursor || undefined);
+          }}
+        />
       )}
     </div>
   );

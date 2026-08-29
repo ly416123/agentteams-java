@@ -7,68 +7,125 @@ import {
   useWorkerRollout,
 } from '../../queries/useWorkerQueries';
 import type { WorkerRolloutRequest } from '../../api/workers';
+import { ErrorState } from '../../components/ErrorState';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 
 export function WorkerOperationPanel({
   projectId,
   worker,
   operations = [],
+  onRefresh,
 }: {
   projectId: string;
   worker: Worker;
   operations?: WorkerOperation[];
+  onRefresh: () => Promise<{ worker?: Worker; operations?: WorkerOperation[] }>;
 }) {
   const action = useWorkerAction(projectId, worker.id);
   const rollout = useWorkerRollout(projectId, worker.id);
   const rollback = useWorkerRollback(projectId, worker.id);
   const [conflict, setConflict] = useState(false);
   const [message, setMessage] = useState('');
-  const [retry, setRetry] = useState<(() => void) | null>(null);
+  const [retry, setRetry] = useState<
+    ((latest: { worker?: Worker; operations?: WorkerOperation[] }) => void) | null
+  >(null);
+  const [formError, setFormError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [rolloutForm, setRolloutForm] = useState({
+    imageDigest: worker.imageDigest || '',
+    configRevision: worker.configRevision || '',
+    secretGeneration: worker.secretGeneration || '',
+    previousStableSpec: worker.previousStableSpec || '{}',
+  });
   const failedRollout = operations.find(
     (operation) => operation.type === 'ROLLOUT' && operation.status === 'FAILED',
   );
-  const pending = action.isPending || rollout.isPending || rollback.isPending;
-  const handleError = (error: unknown, retryAction: () => void) => {
+  const pending = action.isPending || rollout.isPending || rollback.isPending || refreshing;
+  const handleError = (
+    error: unknown,
+    retryAction: (latest: { worker?: Worker; operations?: WorkerOperation[] }) => void,
+  ) => {
+    setRetry(() => retryAction);
     if (error instanceof ApiError && error.status === 409) {
-      setRetry(() => retryAction);
       setConflict(true);
     }
   };
-  const run = (name: 'drain' | 'terminate') =>
+  const run = (name: 'drain' | 'terminate', currentWorker = worker) =>
     action.mutate(
-      { action: name, expectedVersion: worker.version },
+      { action: name, expectedVersion: currentWorker.version },
       {
         onSuccess: () => setMessage('操作已提交'),
-        onError: (error) => handleError(error, () => run(name)),
+        onError: (error) =>
+          handleError(error, (latest) => {
+            if (latest.worker) run(name, latest.worker);
+            else setFormError('无法读取 Worker 最新版本，请刷新后重试。');
+          }),
       },
     );
-  const submitRollout = () => {
+  const submitRollout = (currentWorker = worker) => {
+    if (!rolloutForm.imageDigest || !rolloutForm.configRevision || !rolloutForm.secretGeneration) {
+      setFormError('镜像 Digest、配置 Revision、Secret Generation 均为必填项。');
+      return;
+    }
+    setFormError('');
     const body: WorkerRolloutRequest = {
-      expectedVersion: worker.version,
-      imageDigest: worker.imageDigest || worker.imageVersion || `worker-${worker.id}`,
-      runtime: worker.runtime,
-      configRevision: worker.configRevision || worker.configVersion || `worker-${worker.version}`,
-      secretGeneration: worker.secretGeneration || `worker-${worker.version}`,
-      previousStableSpec: worker.previousStableSpec || '{}',
+      expectedVersion: currentWorker.version,
+      imageDigest: rolloutForm.imageDigest,
+      runtime: currentWorker.runtime,
+      configRevision: rolloutForm.configRevision,
+      secretGeneration: rolloutForm.secretGeneration,
+      previousStableSpec: rolloutForm.previousStableSpec,
       owner: 'console',
-      correlationId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${worker.id}`,
+      correlationId: globalThis.crypto?.randomUUID?.() || crypto.randomUUID(),
     };
     rollout.mutate(body, {
       onSuccess: () => setMessage('操作已提交'),
-      onError: (error) => handleError(error, submitRollout),
+      onError: (error) =>
+        handleError(error, (latest) => {
+          if (latest.worker) submitRollout(latest.worker);
+          else setFormError('无法读取 Worker 最新版本，请刷新后重试。');
+        }),
     });
   };
-  const submitRollback = () => {
-    if (!failedRollout) return;
+  const submitRollback = (currentOperation = failedRollout) => {
+    if (!currentOperation) return;
+    setFormError('');
     rollback.mutate(
-      { operationId: failedRollout.id, expectedVersion: failedRollout.version },
+      { operationId: currentOperation.id, expectedVersion: currentOperation.version },
       {
         onSuccess: () => setMessage('操作已提交'),
-        onError: (error) => handleError(error, submitRollback),
+        onError: (error) =>
+          handleError(error, (latest) => {
+            const latestOperation = latest.operations?.find(
+              (operation) => operation.type === 'ROLLOUT' && operation.status === 'FAILED',
+            );
+            if (latestOperation) submitRollback(latestOperation);
+            else setFormError('无法读取失败 Rollout 的最新版本，请刷新后重试。');
+          }),
       },
     );
   };
+  const confirmConflict = async () => {
+    setRefreshing(true);
+    const latest = await onRefresh();
+    setRefreshing(false);
+    setConflict(false);
+    const retryAction = retry;
+    setRetry(null);
+    if (retryAction && (latest.worker || latest.operations)) retryAction(latest);
+    else setFormError('无法刷新 Worker 最新状态，请稍后重试。');
+  };
   const unavailable = worker.phase !== 'READY';
+  const mutationError = rollout.error || rollback.error || action.error;
+  const retryLatest = async () => {
+    setRefreshing(true);
+    try {
+      const latest = await onRefresh();
+      retry?.(latest);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   return (
     <>
       <section className="panel operation-panel">
@@ -103,30 +160,75 @@ export function WorkerOperationPanel({
           <button
             className="button button--ghost"
             disabled={unavailable || pending}
-            onClick={submitRollout}
+            onClick={() => submitRollout()}
           >
             Rollout
           </button>
           <button
             className="button button--ghost"
             disabled={unavailable || pending || !failedRollout}
-            onClick={submitRollback}
+            onClick={() => submitRollback()}
           >
             Rollback
           </button>
         </div>
+        {mutationError && !conflict && (
+          <ErrorState error={mutationError} onRetry={() => void retryLatest()} />
+        )}
+        <div className="rollout-form" aria-label="Rollout 参数">
+          <label>
+            镜像 Digest
+            <input
+              required
+              aria-label="镜像 Digest"
+              value={rolloutForm.imageDigest}
+              onChange={(event) =>
+                setRolloutForm({ ...rolloutForm, imageDigest: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            配置 Revision
+            <input
+              required
+              aria-label="配置 Revision"
+              value={rolloutForm.configRevision}
+              onChange={(event) =>
+                setRolloutForm({ ...rolloutForm, configRevision: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Secret Generation
+            <input
+              required
+              aria-label="Secret Generation"
+              value={rolloutForm.secretGeneration}
+              onChange={(event) =>
+                setRolloutForm({ ...rolloutForm, secretGeneration: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            稳定规格快照
+            <textarea
+              required
+              aria-label="稳定规格快照"
+              value={rolloutForm.previousStableSpec}
+              onChange={(event) =>
+                setRolloutForm({ ...rolloutForm, previousStableSpec: event.target.value })
+              }
+            />
+          </label>
+        </div>
+        {formError && <p className="error-text">{formError}</p>}
         {message && <p className="success-text">{message}</p>}
       </section>
       <VersionConflictModal
         open={conflict}
         actionLabel="继续操作"
         onCancel={() => setConflict(false)}
-        onConfirm={() => {
-          setConflict(false);
-          const retryAction = retry;
-          setRetry(null);
-          retryAction?.();
-        }}
+        onConfirm={() => void confirmConflict()}
       />
     </>
   );

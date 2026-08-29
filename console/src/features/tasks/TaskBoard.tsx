@@ -2,12 +2,23 @@ import { Link } from 'react-router-dom';
 import type { Task } from '../../api/types';
 import { StatusBadge } from '../../components/StatusBadge';
 
-const columns = ['PENDING', 'CREATED', 'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'];
+export const TASK_PHASES = [
+  'DRAFT',
+  'QUEUED',
+  'PAUSED',
+  'ASSIGNED',
+  'ACCEPTED',
+  'RUNNING',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELLED',
+  'REJECTED',
+] as const;
 export function TaskBoard({ projectId, tasks }: { projectId: string; tasks: Task[] }) {
   return (
     <div className="task-board">
-      {columns.map((phase) => (
-        <section className="board-column" key={phase}>
+      {TASK_PHASES.map((phase) => (
+        <section className="board-column" data-phase={phase} aria-label={phase} key={phase}>
           <div className="board-column-heading">
             <h2>
               <StatusBadge phase={phase} />

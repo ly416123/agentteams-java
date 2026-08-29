@@ -11,16 +11,13 @@ import {
   type TeamFilters,
 } from '../api/teams';
 import { queryKeys } from './queryKeys';
-
-function items<T>(data: T[] | { items: T[] } | undefined): T[] {
-  return Array.isArray(data) ? data : data?.items || [];
-}
+import { normalizeCursorPage } from '../api/types';
 export function useTeams(projectId: string, filters: TeamFilters) {
   return useQuery({
     queryKey: queryKeys.teams(projectId, filters),
     queryFn: () => listTeams(projectId, filters),
     enabled: Boolean(projectId),
-    select: items,
+    select: normalizeCursorPage,
   });
 }
 export function useTeam(projectId: string, teamId: string) {

@@ -8,10 +8,12 @@ import { ProjectProvider } from '../../src/auth/ProjectContext';
 import { ProjectSwitcher } from '../../src/features/projects/ProjectSwitcher';
 
 vi.mock('../../src/api/projects', () => ({
-  listProjects: vi.fn().mockResolvedValue([
-    { id: 'p-1', name: '平台工程', tenantId: 't-1', status: 'ACTIVE', createdBy: 'admin' },
-    { id: 'p-2', name: '研究项目', tenantId: 't-1', status: 'ACTIVE', createdBy: 'admin' },
-  ]),
+  listProjects: vi.fn().mockResolvedValue({
+    items: [
+      { id: 'p-1', name: '平台工程', tenantId: 't-1', status: 'ACTIVE', createdBy: 'admin' },
+      { id: 'p-2', name: '研究项目', tenantId: 't-1', status: 'ACTIVE', createdBy: 'admin' },
+    ],
+  }),
 }));
 
 describe('ProjectSwitcher', () => {

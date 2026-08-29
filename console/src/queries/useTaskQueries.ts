@@ -7,10 +7,8 @@ import {
   taskAction,
   type TaskFilters,
 } from '../api/tasks';
+import { normalizeCursorPage } from '../api/types';
 import { queryKeys } from './queryKeys';
-function items<T>(data: T[] | { items: T[] } | undefined): T[] {
-  return Array.isArray(data) ? data : data?.items || [];
-}
 export function useTasks(
   projectId: string,
   filters: TaskFilters,
@@ -21,7 +19,7 @@ export function useTasks(
     queryKey: queryKeys.tasks(projectId, filters, view, cursor),
     queryFn: () => listTasks(projectId, { ...filters, cursor }),
     enabled: Boolean(projectId),
-    select: items,
+    select: normalizeCursorPage,
   });
 }
 export function useTask(projectId: string, taskId: string) {

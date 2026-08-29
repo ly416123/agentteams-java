@@ -7,12 +7,26 @@ export type ApiErrorShape = {
   details?: Record<string, unknown>;
 };
 
-export type Page<T> = {
+export type CursorPage<T> = {
   items: T[];
-  nextCursor?: string;
+  nextCursor?: string | null;
+  hasMore?: boolean;
   total?: number;
   serverTime?: string;
 };
+
+export type Page<T> = CursorPage<T>;
+
+export function normalizeCursorPage<T>(value: CursorPage<T> | T[]): CursorPage<T> {
+  if (Array.isArray(value)) {
+    return { items: value, hasMore: false };
+  }
+  return {
+    ...value,
+    items: value.items || [],
+    hasMore: value.hasMore ?? Boolean(value.nextCursor),
+  };
+}
 
 export type Project = {
   id: string;
@@ -97,12 +111,39 @@ export type Task = {
   summary?: string;
 };
 
+export type DashboardGroup = {
+  provider: string | null;
+  model: string | null;
+  calls: number;
+  failures: number;
+  promptTokens: number;
+  completionTokens: number;
+  estimatedCostUsd: number;
+  averageLatencyMillis: number;
+  dimension?: string | null;
+  dimensionValue?: string | null;
+};
+
+export type DashboardSummary = {
+  from: string;
+  to: string;
+  calls: number;
+  failures: number;
+  promptTokens: number;
+  completionTokens: number;
+  estimatedCostUsd: number;
+  averageLatencyMillis: number;
+  byProviderModel: DashboardGroup[];
+  groupBy?: string | null;
+  groups: DashboardGroup[];
+};
+
 export type TaskEvent = {
   id: string;
   phase?: string;
   type: string;
   message: string;
-  createdAt: string;
+  createdAt?: string;
 };
 
 export type Worker = {
@@ -143,4 +184,5 @@ export type Overview = {
   teams: { total: number; active: number };
   recentTasks: Task[];
   alerts: Array<{ id: string; severity: string; message: string; createdAt: string }>;
+  usage?: DashboardSummary;
 };

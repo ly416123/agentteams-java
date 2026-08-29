@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { listProjects } from '../../api/projects';
 import { useProject } from '../../auth/ProjectContext';
 import { queryKeys } from '../../queries/queryKeys';
+import { ErrorState } from '../../components/ErrorState';
 
 export function ProjectSwitcher() {
   const { projectId, setProjectId } = useProject();
@@ -16,6 +17,10 @@ export function ProjectSwitcher() {
     navigate(`/${nextProjectId}/overview`);
   };
 
+  if (projects.isError) {
+    return <ErrorState error={projects.error} onRetry={() => void projects.refetch()} />;
+  }
+
   return (
     <label className="project-switcher">
       <span>Project</span>
@@ -25,7 +30,7 @@ export function ProjectSwitcher() {
         aria-label="当前 Project"
       >
         {!projects.data && <option value="">加载中…</option>}
-        {projects.data?.map((project) => (
+        {projects.data?.items.map((project) => (
           <option key={project.id} value={project.id}>
             {project.name}
           </option>

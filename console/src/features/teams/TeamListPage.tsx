@@ -1,15 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { ResourceTable } from '../../components/ResourceTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useTeams } from '../../queries/useTeamQueries';
+import { CursorPagination } from '../../components/CursorPagination';
 
 export function TeamListPage({ projectId }: { projectId: string }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
-  const teams = useTeams(projectId, { search, status });
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [cursorHistory, setCursorHistory] = useState<string[]>([]);
+  const teams = useTeams(projectId, { search, status, cursor });
+  const items = teams.data?.items || [];
+  useEffect(() => {
+    setCursor(undefined);
+    setCursorHistory([]);
+  }, [search, status]);
   return (
     <div className="page">
       <div className="page-heading">
@@ -45,9 +53,9 @@ export function TeamListPage({ projectId }: { projectId: string }) {
         <div className="panel loading-block">加载 Team…</div>
       ) : teams.isError ? (
         <ErrorState error={teams.error} onRetry={() => void teams.refetch()} />
-      ) : teams.data?.length ? (
+      ) : items.length ? (
         <ResourceTable
-          items={teams.data}
+          items={items}
           columns={[
             {
               key: 'name',
@@ -91,6 +99,22 @@ export function TeamListPage({ projectId }: { projectId: string }) {
               创建 Team
             </Link>
           }
+        />
+      )}
+      {!teams.isLoading && !teams.isError && items.length > 0 && (
+        <CursorPagination
+          hasPrevious={cursorHistory.length > 0}
+          hasNext={Boolean(teams.data?.nextCursor)}
+          onPrevious={() => {
+            const previous = cursorHistory[cursorHistory.length - 1];
+            setCursorHistory((history) => history.slice(0, -1));
+            setCursor(previous);
+          }}
+          onNext={() => {
+            if (!teams.data?.nextCursor) return;
+            setCursorHistory((history) => [...history, cursor || '']);
+            setCursor(teams.data.nextCursor || undefined);
+          }}
         />
       )}
     </div>

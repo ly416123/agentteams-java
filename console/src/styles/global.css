@@ -893,6 +893,35 @@ select:focus {
   color: var(--success);
   font-size: 13px;
 }
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.rollout-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.rollout-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.rollout-form textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+.error-text {
+  margin: 12px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
 @media (max-width: 1000px) {
   .sidebar {
     width: 78px;
@@ -962,6 +991,9 @@ select:focus {
     grid-template-columns: repeat(2, 1fr);
   }
   .detail-list {
+    grid-template-columns: 1fr;
+  }
+  .rollout-form {
     grid-template-columns: 1fr;
   }
 }

@@ -24,6 +24,23 @@ describe('state components', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
   });
 
+  it('offers explicit login and refresh actions for auth and conflict errors', () => {
+    const onLogin = vi.fn();
+    const onRetry = vi.fn();
+    const { rerender } = render(
+      <ErrorState error={{ status: 401, message: 'token expired' }} onLogin={onLogin} />,
+    );
+
+    expect(screen.getByText('登录已失效')).toBeInTheDocument();
+    screen.getByRole('button', { name: '重新登录' }).click();
+    expect(onLogin).toHaveBeenCalledOnce();
+
+    rerender(<ErrorState error={{ status: 409, message: 'version changed' }} onRetry={onRetry} />);
+    expect(screen.getByText('资源版本冲突')).toBeInTheDocument();
+    screen.getByRole('button', { name: '刷新后重试' }).click();
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it('keeps the pending action visible during version conflict confirmation', () => {
     const onConfirm = vi.fn();
     render(

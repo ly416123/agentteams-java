@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { EmptyState } from '../../components/EmptyState';
+import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Timeline } from '../../components/Timeline';
 import {
@@ -27,7 +29,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
   if (team.isError || !team.data)
     return (
       <div className="page">
-        <p>Team 不存在或无法访问。</p>
+        <ErrorState error={team.error} onRetry={() => void team.refetch()} />
       </div>
     );
   return (
@@ -83,23 +85,35 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
       {tab === '成员 Agent' && (
         <section className="panel">
           <h2>成员 Agent</h2>
-          {members.data?.map((member) => (
-            <div className="member-row" key={member.id}>
-              <div>
-                <strong>{member.agentId}</strong>
-                <small>
-                  {member.runtime || 'runtime 未知'} · {(member.capabilities || []).join('、')}
-                </small>
+          {members.isLoading ? (
+            <div className="loading-block">加载成员…</div>
+          ) : members.isError ? (
+            <ErrorState error={members.error} onRetry={() => void members.refetch()} />
+          ) : members.data?.length ? (
+            members.data.map((member) => (
+              <div className="member-row" key={member.id}>
+                <div>
+                  <strong>{member.agentId}</strong>
+                  <small>
+                    {member.runtime || 'runtime 未知'} · {(member.capabilities || []).join('、')}
+                  </small>
+                </div>
+                <StatusBadge phase={member.status} />
               </div>
-              <StatusBadge phase={member.status} />
-            </div>
-          ))}
+            ))
+          ) : (
+            <EmptyState title="暂无成员" description="为 Team 添加 Agent 后会显示在这里。" />
+          )}
         </section>
       )}
       {tab === '策略' && (
         <section className="panel">
           <h2>调度策略</h2>
-          {policy.data && (
+          {policy.isLoading ? (
+            <div className="loading-block">加载策略…</div>
+          ) : policy.isError ? (
+            <ErrorState error={policy.error} onRetry={() => void policy.refetch()} />
+          ) : policy.data ? (
             <div className="detail-list">
               <span>
                 最大并发<strong>{policy.data.maxConcurrentTasks}</strong>
@@ -114,6 +128,8 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 能力要求<strong>{policy.data.requiredCapabilities.join('、') || '无'}</strong>
               </span>
             </div>
+          ) : (
+            <EmptyState title="暂无策略" description="当前 Team 尚未配置调度策略。" />
           )}
         </section>
       )}
@@ -121,24 +137,40 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
         <div className="content-grid">
           <section className="panel">
             <h2>版本</h2>
-            {revisions.data?.map((revision) => (
-              <div className="member-row" key={revision.revision}>
-                <div>
-                  <strong>Revision {revision.revision}</strong>
-                  <small>{revision.digest}</small>
+            {revisions.isLoading ? (
+              <div className="loading-block">加载版本…</div>
+            ) : revisions.isError ? (
+              <ErrorState error={revisions.error} onRetry={() => void revisions.refetch()} />
+            ) : revisions.data?.length ? (
+              revisions.data.map((revision) => (
+                <div className="member-row" key={revision.revision}>
+                  <div>
+                    <strong>Revision {revision.revision}</strong>
+                    <small>{revision.digest}</small>
+                  </div>
+                  <StatusBadge phase={revision.status} />
                 </div>
-                <StatusBadge phase={revision.status} />
-              </div>
-            ))}
+              ))
+            ) : (
+              <EmptyState title="暂无版本" description="Team 发布版本会显示在这里。" />
+            )}
           </section>
           <section className="panel">
             <h2>部署</h2>
-            {deployments.data?.map((deployment) => (
-              <div className="member-row" key={deployment.id}>
-                <strong>Revision {deployment.teamRevision}</strong>
-                <StatusBadge phase={deployment.status} />
-              </div>
-            ))}
+            {deployments.isLoading ? (
+              <div className="loading-block">加载部署…</div>
+            ) : deployments.isError ? (
+              <ErrorState error={deployments.error} onRetry={() => void deployments.refetch()} />
+            ) : deployments.data?.length ? (
+              deployments.data.map((deployment) => (
+                <div className="member-row" key={deployment.id}>
+                  <strong>Revision {deployment.teamRevision}</strong>
+                  <StatusBadge phase={deployment.status} />
+                </div>
+              ))
+            ) : (
+              <EmptyState title="暂无部署" description="Team 部署记录会显示在这里。" />
+            )}
           </section>
         </div>
       )}

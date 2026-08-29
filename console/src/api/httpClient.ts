@@ -48,43 +48,55 @@ type ClientOptions = {
 
 export type HttpClient = {
   request<T>(path: string, options?: RequestOptions): Promise<T>;
+  requestText(path: string, options?: RequestOptions): Promise<string>;
 };
 
 export function createHttpClient(options: ClientOptions = {}): HttpClient {
+  async function send(path: string, requestOptions: RequestOptions) {
+    const method = (requestOptions.method || 'GET').toUpperCase();
+    const url = new URL(path, options.baseUrl || window.location.origin);
+    Object.entries(requestOptions.query || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
+    });
+    const headers = new Headers(requestOptions.headers);
+    if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+    if (requestOptions.body !== undefined) headers.set('Content-Type', 'application/json');
+    const token = options.getAccessToken?.();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    if (method !== 'GET' && method !== 'HEAD') {
+      headers.set('Idempotency-Key', headers.get('Idempotency-Key') || crypto.randomUUID());
+    }
+    const response = await fetch(
+      new Request(url, {
+        method,
+        headers,
+        body: requestOptions.body === undefined ? undefined : JSON.stringify(requestOptions.body),
+        signal: requestOptions.signal,
+      }),
+    );
+    if (!response.ok) {
+      const text = await response.text();
+      let payload: ApiErrorShape = { message: text || '请求失败' };
+      try {
+        payload = JSON.parse(text) as ApiErrorShape;
+      } catch {
+        // Non-JSON gateway errors still become the same typed ApiError.
+      }
+      const error = new ApiError(response.status, payload);
+      if (response.status === 401) options.onUnauthorized?.();
+      throw error;
+    }
+    return response;
+  }
+
   return {
     async request<T>(path: string, requestOptions: RequestOptions = {}) {
-      const method = (requestOptions.method || 'GET').toUpperCase();
-      const url = new URL(path, options.baseUrl || window.location.origin);
-      Object.entries(requestOptions.query || {}).forEach(([key, value]) => {
-        if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
-      });
-      const headers = new Headers(requestOptions.headers);
-      headers.set('Accept', 'application/json');
-      if (requestOptions.body !== undefined) {
-        headers.set('Content-Type', 'application/json');
-      }
-      const token = options.getAccessToken?.();
-      if (token) headers.set('Authorization', `Bearer ${token}`);
-      if (method !== 'GET' && method !== 'HEAD') {
-        headers.set('Idempotency-Key', headers.get('Idempotency-Key') || crypto.randomUUID());
-      }
-
-      const response = await fetch(
-        new Request(url, {
-          method,
-          headers,
-          body: requestOptions.body === undefined ? undefined : JSON.stringify(requestOptions.body),
-          signal: requestOptions.signal,
-        }),
-      );
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as ApiErrorShape;
-        const error = new ApiError(response.status, payload);
-        if (response.status === 401) options.onUnauthorized?.();
-        throw error;
-      }
+      const response = await send(path, requestOptions);
       if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
+    },
+    async requestText(path: string, requestOptions: RequestOptions = {}) {
+      return (await send(path, requestOptions)).text();
     },
   };
 }

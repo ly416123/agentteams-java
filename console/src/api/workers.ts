@@ -1,5 +1,5 @@
 import { apiClient, type HttpClient } from './httpClient';
-import type { Page, Worker, WorkerOperation } from './types';
+import { normalizeCursorPage, type CursorPage, type Worker, type WorkerOperation } from './types';
 
 export type WorkerFilters = { search?: string; phase?: string; runtime?: string; cursor?: string };
 export type WorkerRolloutRequest = {
@@ -17,9 +17,11 @@ export function listWorkers(
   filters: WorkerFilters = {},
   client: HttpClient = apiClient,
 ) {
-  return client.request<Page<Worker> | Worker[]>('/api/v1/agents', {
-    query: { projectId, ...filters },
-  });
+  return client
+    .request<CursorPage<Worker> | Worker[]>('/api/v1/agents', {
+      query: { projectId, ...filters },
+    })
+    .then(normalizeCursorPage);
 }
 export function getWorker(workerId: string, client: HttpClient = apiClient) {
   return client.request<Worker>(`/api/v1/agents/${workerId}`);

@@ -10,15 +10,13 @@ import {
   type WorkerRolloutRequest,
 } from '../api/workers';
 import { queryKeys } from './queryKeys';
-function items<T>(data: T[] | { items: T[] } | undefined): T[] {
-  return Array.isArray(data) ? data : data?.items || [];
-}
+import { normalizeCursorPage } from '../api/types';
 export function useWorkers(projectId: string, filters: WorkerFilters) {
   return useQuery({
     queryKey: queryKeys.workers(projectId, filters),
     queryFn: () => listWorkers(projectId, filters),
     enabled: Boolean(projectId),
-    select: items,
+    select: normalizeCursorPage,
   });
 }
 export function useWorker(projectId: string, workerId: string) {

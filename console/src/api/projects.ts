@@ -1,6 +1,8 @@
 import { apiClient, type HttpClient } from './httpClient';
-import type { Project } from './types';
+import { normalizeCursorPage, type CursorPage, type Project } from './types';
 
 export function listProjects(client: HttpClient = apiClient) {
-  return client.request<Project[]>('/api/v1/projects');
+  return client
+    .request<CursorPage<Project> | Project[]>('/api/v1/projects')
+    .then(normalizeCursorPage);
 }

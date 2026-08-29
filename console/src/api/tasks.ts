@@ -1,8 +1,9 @@
 import { apiClient, type HttpClient } from './httpClient';
-import type { Page, Task, TaskEvent } from './types';
+import { normalizeCursorPage, type CursorPage, type Task } from './types';
+import { parseTaskEventStream } from './taskEvents';
 
 export type TaskFilters = {
-  search?: string;
+  q?: string;
   phase?: string;
   teamId?: string;
   workerId?: string;
@@ -16,13 +17,19 @@ export function listTasks(
   filters: TaskFilters = {},
   client: HttpClient = apiClient,
 ) {
-  return client.request<Page<Task> | Task[]>('/api/v1/tasks', { query: { projectId, ...filters } });
+  return client
+    .request<CursorPage<Task> | Task[]>('/api/v1/tasks', { query: { projectId, ...filters } })
+    .then(normalizeCursorPage);
 }
 export function getTask(taskId: string, client: HttpClient = apiClient) {
   return client.request<Task>(`/api/v1/tasks/${taskId}`);
 }
 export function listTaskEvents(taskId: string, client: HttpClient = apiClient) {
-  return client.request<TaskEvent[]>(`/api/v1/tasks/${taskId}/events`);
+  return client
+    .requestText(`/api/v1/tasks/${taskId}/events`, {
+      headers: { Accept: 'text/event-stream, application/json' },
+    })
+    .then((payload) => parseTaskEventStream(payload));
 }
 export function createTask(
   projectId: string,

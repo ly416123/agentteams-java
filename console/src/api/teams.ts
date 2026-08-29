@@ -1,5 +1,13 @@
 import { apiClient, type HttpClient } from './httpClient';
-import type { Page, Team, TeamDeployment, TeamMember, TeamPolicy, TeamRevision } from './types';
+import {
+  normalizeCursorPage,
+  type CursorPage,
+  type Team,
+  type TeamDeployment,
+  type TeamMember,
+  type TeamPolicy,
+  type TeamRevision,
+} from './types';
 
 export type TeamFilters = { search?: string; status?: string; cursor?: string };
 const query = (projectId: string, filters: TeamFilters = {}) => ({ projectId, ...filters });
@@ -9,7 +17,9 @@ export function listTeams(
   filters?: TeamFilters,
   client: HttpClient = apiClient,
 ) {
-  return client.request<Page<Team> | Team[]>('/api/v1/teams', { query: query(projectId, filters) });
+  return client
+    .request<CursorPage<Team> | Team[]>('/api/v1/teams', { query: query(projectId, filters) })
+    .then(normalizeCursorPage);
 }
 export function getTeam(teamId: string, client: HttpClient = apiClient) {
   return client.request<Team>(`/api/v1/teams/${teamId}`);
