@@ -12,6 +12,7 @@ type AuthManager = {
 
 type AuthContextValue = {
   status: 'loading' | 'authenticated' | 'unauthenticated';
+  error?: unknown;
   user?: User;
   accessToken?: string;
   login: (returnTo?: string) => Promise<void>;
@@ -32,15 +33,26 @@ export function AuthProvider({
   const manager = providedManager || defaultManager;
   const [status, setStatus] = useState<AuthContextValue['status']>('loading');
   const [user, setUser] = useState<User>();
+  const [error, setError] = useState<unknown>();
 
   useEffect(() => {
     let active = true;
-    manager.getUser().then((existing) => {
-      if (!active) return;
-      setUser(existing || undefined);
-      setMemoryAccessToken(existing && !existing.expired ? existing.access_token : undefined);
-      setStatus(existing && !existing.expired ? 'authenticated' : 'unauthenticated');
-    });
+    manager
+      .getUser()
+      .then((existing) => {
+        if (!active) return;
+        setError(undefined);
+        setUser(existing || undefined);
+        setMemoryAccessToken(existing && !existing.expired ? existing.access_token : undefined);
+        setStatus(existing && !existing.expired ? 'authenticated' : 'unauthenticated');
+      })
+      .catch((nextError) => {
+        if (!active) return;
+        setMemoryAccessToken(undefined);
+        setUser(undefined);
+        setError(nextError);
+        setStatus('unauthenticated');
+      });
     return () => {
       active = false;
     };
@@ -59,6 +71,7 @@ export function AuthProvider({
   const value = useMemo<AuthContextValue>(
     () => ({
       status,
+      error,
       user,
       accessToken: user?.access_token,
       login: async (returnTo = '/') => {
@@ -82,7 +95,7 @@ export function AuthProvider({
         return next;
       },
     }),
-    [manager, status, user],
+    [manager, status, user, error],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

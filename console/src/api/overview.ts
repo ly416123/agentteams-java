@@ -64,5 +64,6 @@ export async function getOverview(
     })),
     usage: summary,
     errors: Object.keys(errors).length ? errors : undefined,
+    metricsUnavailable: true,
   };
 }

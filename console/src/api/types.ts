@@ -213,4 +213,5 @@ export type Overview = {
   alerts: Array<{ id: string; severity: string; message: string; createdAt: string }>;
   usage?: DashboardSummary;
   errors?: Partial<Record<'summary' | 'alerts' | 'teams' | 'tasks' | 'workers', unknown>>;
+  metricsUnavailable?: boolean;
 };
