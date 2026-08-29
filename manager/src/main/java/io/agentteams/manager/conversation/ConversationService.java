@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * restarts or multiple manager replicas requires a persistent store at this boundary.
  */
 public final class ConversationService {
-    public enum Status { CREATED, ACTIVE, CANCELLED }
+    public enum Status { CREATED, ACTIVE, CANCELLING, CANCELLED }
 
     public record Conversation(UUID sessionId, ConversationRuntimePort.Context context, Status status) {
     }
@@ -88,6 +88,10 @@ public final class ConversationService {
                 throw new ConversationRuntimeException(ConversationRuntimeException.Code.CANCELLED,
                         "conversation has been cancelled");
             }
+            if (state.status == Status.CANCELLING) {
+                throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
+                        "conversation cancellation is in progress");
+            }
             if (state.status != Status.ACTIVE) {
                 throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
                         "conversation has not started");
@@ -125,9 +129,14 @@ public final class ConversationService {
                 return snapshot(state);
             }
             if (state.status != Status.CANCELLED) {
-                runtime.cancel(sessionId);
-                state.status = Status.CANCELLED;
-                freezeTerminalCursors(state, runtime.events(sessionId, 0));
+                try {
+                    runtime.cancel(sessionId);
+                    state.status = Status.CANCELLED;
+                    freezeTerminalCursors(state, runtime.events(sessionId, 0));
+                } catch (RuntimeException error) {
+                    state.status = Status.ACTIVE;
+                    throw error;
+                }
             }
             state.cancelKeys.put(idempotencyKey, Boolean.TRUE);
             return snapshot(state);

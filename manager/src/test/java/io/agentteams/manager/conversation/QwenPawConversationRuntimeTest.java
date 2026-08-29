@@ -134,6 +134,61 @@ class QwenPawConversationRuntimeTest {
     }
 
     @Test
+    void cancellationResponseKeepsHttpStatusClassificationWhenBodyEndsUnexpectedly() throws Exception {
+        server.createContext("/api/console/chat", exchange ->
+                writeResponse(exchange, 200, "text/event-stream", "data: {\"status\":\"in_progress\"}\n\n"));
+        server.createContext("/api/console/cancel", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.getResponseHeaders().set("Content-Length", "999999");
+            exchange.sendResponseHeaders(503, 0);
+            exchange.close();
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        assertThatThrownBy(() -> runtime.cancel(SESSION_ID))
+                .isInstanceOf(ConversationRuntimeException.class)
+                .satisfies(error -> assertThat(((ConversationRuntimeException) error).code())
+                        .isEqualTo(ConversationRuntimeException.Code.WORKER_UNAVAILABLE));
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.delta");
+        runtime.close();
+    }
+
+    @Test
+    void cancellationResponseKeepsTimeoutWhenItsBodyStaysIdle() throws Exception {
+        CountDownLatch cancelResponseReady = new CountDownLatch(1);
+        server.createContext("/api/console/chat", exchange ->
+                writeResponse(exchange, 200, "text/event-stream", "data: {\"status\":\"in_progress\"}\n\n"));
+        server.createContext("/api/console/cancel", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(503, 0);
+            cancelResponseReady.countDown();
+            try {
+                Thread.sleep(2_000);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(URI.create("http://127.0.0.1:"
+                        + server.getAddress().getPort()), null, 8192, Duration.ofMillis(100));
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        assertThatThrownBy(() -> runtime.cancel(SESSION_ID))
+                .isInstanceOf(ConversationRuntimeException.class)
+                .satisfies(error -> assertThat(((ConversationRuntimeException) error).code())
+                        .isEqualTo(ConversationRuntimeException.Code.TIMEOUT));
+        assertThat(cancelResponseReady.await(5, TimeUnit.SECONDS)).isTrue();
+        runtime.close();
+    }
+
+    @Test
     void timesOutWhenNonSuccessResponseBodyStaysIdle() throws Exception {
         CountDownLatch responseReady = new CountDownLatch(1);
         server.createContext("/api/console/chat", exchange -> {
@@ -243,6 +298,32 @@ class QwenPawConversationRuntimeTest {
         assertThat(doneRuntime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
                 .containsExactly("conversation.started");
         doneRuntime.close();
+    }
+
+    @Test
+    void mapsDeclaredSseEventsByEventNameAndPreservesTheirPayloads() throws Exception {
+        String taskCreated = "{\"status\":\"created\",\"task_id\":\"task-1\"}";
+        String taskUpdated = "{\"status\":\"in_progress\",\"task_id\":\"task-1\",\"step\":2}";
+        String toolStarted = "{\"status\":\"in_progress\",\"tool\":\"search\",\"call_id\":\"call-1\"}";
+        String toolCompleted = "{\"status\":\"completed\",\"tool\":\"search\",\"result\":\"ok\"}";
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "event: task.created\ndata: " + taskCreated + "\n\n"
+                        + "event: task.updated\ndata: " + taskUpdated + "\n\n"
+                        + "event: tool.started\ndata: " + toolStarted + "\n\n"
+                        + "event: tool.completed\ndata: " + toolCompleted + "\n\n"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 5);
+        List<ConversationEvent> events = runtime.events(SESSION_ID, 0);
+        assertThat(events).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "task.created", "task.updated",
+                        "tool.started", "tool.completed");
+        assertThat(events).extracting(ConversationEvent::data)
+                .containsExactly("{}", taskCreated, taskUpdated, toolStarted, toolCompleted);
+        runtime.close();
     }
 
     @Test
@@ -419,7 +500,7 @@ class QwenPawConversationRuntimeTest {
     }
 
     @Test
-    void cancellationFailureIsReportedButStillClosesLocalStream() throws Exception {
+    void cancellationFailureLeavesRuntimeActiveAndAllowsRetry() throws Exception {
         CountDownLatch responseReady = new CountDownLatch(1);
         CountDownLatch releaseResponse = new CountDownLatch(1);
         server.createContext("/api/console/chat", exchange -> {
@@ -449,7 +530,7 @@ class QwenPawConversationRuntimeTest {
         releaseResponse.countDown();
         Thread.sleep(100);
         assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
-                .containsExactly("conversation.started", "conversation.cancelled");
+                .containsExactly("conversation.started");
         runtime.close();
     }
 

@@ -142,8 +142,11 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                         requestBody(state.context, message), StandardCharsets.UTF_8)).build();
                 CompletableFuture<HttpResponse<InputStream>> future = httpClient.sendAsync(
                         request, HttpResponse.BodyHandlers.ofInputStream());
-                handle.future = future;
-                future.thenAcceptAsync(response -> processResponse(state, handle, response), readerExecutor)
+                handle.upstreamFuture = future;
+                CompletableFuture<Void> processing = future.thenAcceptAsync(
+                        response -> processResponse(state, handle, response), readerExecutor);
+                handle.future = processing;
+                processing
                         .whenComplete((ignored, error) -> {
                             if (error != null && !handle.cancelled()) {
                                 publishFailure(state, handle, classifyTransport(error));
@@ -180,24 +183,25 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             if (state.cancelled && state.remoteCancelSucceeded) {
                 return;
             }
-            if (!state.cancelled) {
-                state.cancelled = true;
-                append(state, "conversation.cancelled", "{}");
-            }
+            state.cancelRequested = true;
             handle = state.request;
         }
         ConversationRuntimeException remoteFailure = null;
         try {
             cancelRemote(state.context);
             synchronized (state) {
+                state.cancelled = true;
+                state.cancelRequested = false;
                 state.remoteCancelSucceeded = true;
+                append(state, "conversation.cancelled", "{}");
             }
         } catch (ConversationRuntimeException error) {
+            synchronized (state) {
+                state.cancelRequested = false;
+            }
             remoteFailure = error;
         } finally {
-            if (handle != null) {
-                handle.cancel();
-            }
+            if (handle != null) handle.cancel();
         }
         if (remoteFailure != null) {
             throw remoteFailure;
@@ -227,6 +231,15 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
 
     private void processResponse(SessionState state, RequestHandle handle,
             HttpResponse<InputStream> response) {
+        if (handle.cancelled()) {
+            try {
+                response.body().close();
+            } catch (IOException ignored) {
+                // Cancellation cleanup is best effort.
+            }
+            clearRequest(state, handle);
+            return;
+        }
         handle.stream = response.body();
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             ConversationRuntimeException.Code code = classifyHttp(response.statusCode());
@@ -370,6 +383,13 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             return true;
         }
         String status = event.path("status").asText();
+        if (!eventType.isEmpty() && switch (eventType) {
+            case "task.created", "task.updated", "tool.started", "tool.completed" -> true;
+            default -> false;
+        }) {
+            appendIfNotCancelled(state, eventType, data.toString());
+            return "tool.completed".equals(eventType);
+        }
         if ("failed".equals(status)) {
             appendFailure(state, ConversationRuntimeException.Code.MODEL_PROVIDER_UNAVAILABLE);
             return true;
@@ -382,14 +402,15 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             appendIfNotCancelled(state, "message.completed", data.toString());
             return true;
         }
-        if ("message".equals(event.path("type").asText())
-                || event.path("delta").asBoolean(false)
-                || "in_progress".equals(status)) {
-            appendIfNotCancelled(state, "message.delta", data.toString());
-            return false;
-        }
         if (!eventType.isEmpty() && "conversation.started".equals(eventType)
                 && "created".equals(status)) {
+            return false;
+        }
+        if ("message".equals(event.path("type").asText())
+                || event.path("delta").asBoolean(false)
+                || (!eventType.isEmpty() && "message.delta".equals(eventType))
+                || (eventType.isEmpty() && "in_progress".equals(status))) {
+            appendIfNotCancelled(state, "message.delta", data.toString());
             return false;
         }
         if ("created".equals(status)) {
@@ -415,7 +436,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
 
     private static boolean isSupportedEventType(String eventType) {
         return switch (eventType) {
-            case "conversation.started", "message.delta", "message.completed", "task.updated",
+            case "conversation.started", "message.delta", "message.completed", "task.created", "task.updated",
                     "tool.started", "tool.completed", "conversation.cancelled", "conversation.failed" -> true;
             default -> false;
         };
@@ -527,17 +548,46 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             HttpResponse<InputStream> response = httpClient.send(builder.POST(
                     HttpRequest.BodyPublishers.ofString(cancelBody(context), StandardCharsets.UTF_8)).build(),
                     HttpResponse.BodyHandlers.ofInputStream());
+            int status = response.statusCode();
+            ConversationRuntimeException.Code statusCode = classifyHttp(status);
             cancelHandle.stream = response.body();
             cancelHandle.armIdleTimeout(timeoutExecutor, configuration.requestTimeout());
+            long declaredLength = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
+            if ((status < 200 || status >= 300)
+                    && declaredLength > configuration.maxResponseBytes()) {
+                cancelHandle.cancelIdleTimeout();
+                cancelHandle.stream = null;
+                throw new ConversationRuntimeException(statusCode,
+                        "QwenPaw cancellation failed with HTTP status " + status);
+            }
             try (InputStream body = response.body()) {
                 readLimited(cancelHandle, body);
+            } catch (ResponseTooLargeException error) {
+                if (status < 200 || status >= 300) {
+                    throw new ConversationRuntimeException(statusCode,
+                            "QwenPaw cancellation failed with HTTP status " + status, error);
+                }
+                throw new ConversationRuntimeException(ConversationRuntimeException.Code.PROTOCOL_ERROR,
+                        "QwenPaw cancellation response was too large", error);
+            } catch (IOException error) {
+                if (cancelHandle.timedOut()) {
+                    throw new ConversationRuntimeException(ConversationRuntimeException.Code.TIMEOUT,
+                            "QwenPaw cancellation response timed out", error);
+                }
+                if (status < 200 || status >= 300) {
+                    throw new ConversationRuntimeException(statusCode,
+                            "QwenPaw cancellation failed with HTTP status " + status, error);
+                }
+                throw new ConversationRuntimeException(cancelHandle.timedOut()
+                        ? ConversationRuntimeException.Code.TIMEOUT : classifyTransport(error),
+                        "QwenPaw cancellation response could not be read", error);
             } finally {
                 cancelHandle.cancelIdleTimeout();
                 cancelHandle.stream = null;
             }
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ConversationRuntimeException(classifyHttp(response.statusCode()),
-                        "QwenPaw cancellation failed with HTTP status " + response.statusCode());
+            if (status < 200 || status >= 300) {
+                throw new ConversationRuntimeException(statusCode,
+                        "QwenPaw cancellation failed with HTTP status " + status);
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -616,6 +666,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         private RequestHandle request;
         private boolean started;
         private boolean cancelled;
+        private boolean cancelRequested;
         private boolean remoteCancelSucceeded;
 
         private SessionState(Context context) {
@@ -627,6 +678,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         private final UUID sessionId;
         private final Semaphore slots;
         private volatile CompletableFuture<?> future;
+        private volatile CompletableFuture<?> upstreamFuture;
         private volatile InputStream stream;
         private volatile boolean cancelled;
         private volatile boolean timedOut;
@@ -689,6 +741,10 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             CompletableFuture<?> currentFuture = future;
             if (currentFuture != null) {
                 currentFuture.cancel(true);
+            }
+            CompletableFuture<?> currentUpstream = upstreamFuture;
+            if (currentUpstream != null) {
+                currentUpstream.cancel(true);
             }
             InputStream currentStream = stream;
             if (currentStream != null) {

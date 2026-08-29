@@ -7,7 +7,7 @@ import java.util.UUID;
 /** Immutable event in a conversation's replayable event stream. */
 public record ConversationEvent(UUID sessionId, long cursor, String type, String data, Instant occurredAt) {
     private static final Set<String> TYPES = Set.of(
-            "conversation.started", "message.delta", "message.completed", "task.updated",
+            "conversation.started", "message.delta", "message.completed", "task.created", "task.updated",
             "tool.started", "tool.completed", "conversation.cancelled", "conversation.failed");
 
     public ConversationEvent {
