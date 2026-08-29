@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test",
+    "e2e": "node tests/e2e/run.mjs",
+    "e2e:install": "playwright install chromium",
     "lint": "eslint .",
     "format:check": "prettier --check ."
   },

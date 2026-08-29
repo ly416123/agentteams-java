@@ -6,6 +6,7 @@ import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Timeline } from '../../components/Timeline';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
+import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 
 type TaskActionName = 'queue' | 'cancel' | 'retry' | 'pause' | 'approve' | 'reject';
 const actionLabels: Record<TaskActionName, string> = {
@@ -16,6 +17,14 @@ const actionLabels: Record<TaskActionName, string> = {
   approve: '批准任务',
   reject: '拒绝任务',
 };
+const actionImpacts: Record<TaskActionName, string> = {
+  queue: '任务将进入执行队列，符合条件时会被 Worker 接收。',
+  cancel: '将停止任务执行，并使后续 Worker 不再领取此任务。',
+  retry: '将基于当前任务配置重新创建一次执行尝试。',
+  pause: '任务将暂停调度，当前执行可能等待恢复。',
+  approve: '批准后任务将可以继续进入执行流程。',
+  reject: '任务将被拒绝，后续不会再进入执行流程。',
+};
 
 export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskId: string }) {
   const task = useTask(projectId, taskId);
@@ -25,6 +34,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const [submitted, setSubmitted] = useState(false);
   const [conflictAction, setConflictAction] = useState<TaskActionName | null>(null);
   const [conflictRefreshError, setConflictRefreshError] = useState<unknown>();
+  const [confirmation, setConfirmation] = useState<TaskActionName | null>(null);
   if (task.isLoading)
     return (
       <div className="page">
@@ -84,7 +94,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
             排队执行
           </button>
         )}
-        <button className="button button--danger" onClick={() => runAction('cancel')}>
+        <button className="button button--danger" onClick={() => setConfirmation('cancel')}>
           取消任务
         </button>
         {task.data.phase === 'FAILED' && (
@@ -148,6 +158,18 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           if (!conflictAction) return;
           setConflict(false);
           await retryLatestAction(conflictAction);
+        }}
+      />
+      <ActionConfirmModal
+        open={Boolean(confirmation)}
+        actionLabel={confirmation ? actionLabels[confirmation] : '操作'}
+        impact={confirmation ? actionImpacts[confirmation] : ''}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          if (!confirmation) return;
+          const name = confirmation;
+          setConfirmation(null);
+          runAction(name);
         }}
       />
     </div>

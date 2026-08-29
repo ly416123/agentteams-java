@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { AuthProvider, useAuth } from '../../src/auth/AuthProvider';
 import { RequireAuth } from '../../src/auth/RequireAuth';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { LoginPage } from '../../src/features/login/LoginPage';
+import { RETURN_TO_STORAGE_KEY } from '../../src/auth/oidc';
 
 function AuthProbe() {
   const auth = useAuth();
@@ -39,7 +42,7 @@ describe('OIDC authentication', () => {
   it('redirects an unauthenticated user to login with the original path', async () => {
     const manager = { getUser: vi.fn().mockResolvedValue(null), signinRedirect: vi.fn() };
     render(
-      <MemoryRouter initialEntries={['/p-1/tasks']}>
+      <MemoryRouter initialEntries={['/p-1/tasks?phase=RUNNING#timeline']}>
         <AuthProvider manager={manager}>
           <Routes>
             <Route
@@ -57,5 +60,28 @@ describe('OIDC authentication', () => {
     );
 
     expect(await screen.findByText('login')).toBeInTheDocument();
+    expect(sessionStorage.getItem(RETURN_TO_STORAGE_KEY)).toBe('/p-1/tasks?phase=RUNNING#timeline');
+  });
+
+  it('passes the complete return route through OIDC state and session storage', async () => {
+    const manager = {
+      getUser: vi.fn().mockResolvedValue(null),
+      signinRedirect: vi.fn().mockResolvedValue(undefined),
+    };
+    render(
+      <MemoryRouter
+        initialEntries={[{ pathname: '/login', state: { from: '/p-1/tasks?x=1#events' } }]}
+      >
+        <AuthProvider manager={manager}>
+          <LoginPage />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: '使用组织账号登录' }));
+    expect(manager.signinRedirect).toHaveBeenCalledWith({
+      state: { returnTo: '/p-1/tasks?x=1#events' },
+    });
+    expect(sessionStorage.getItem(RETURN_TO_STORAGE_KEY)).toBe('/p-1/tasks?x=1#events');
   });
 });

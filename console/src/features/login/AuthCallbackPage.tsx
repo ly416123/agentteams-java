@@ -1,16 +1,22 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ErrorState } from '../../components/ErrorState';
 import { useAuth } from '../../auth/AuthProvider';
+import { consumeReturnTo } from '../../auth/oidc';
 
 export function AuthCallbackPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const started = useRef(false);
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     auth
       .completeLogin()
-      .then(() => navigate(location.state?.from || '/', { replace: true }))
+      .then((user) =>
+        navigate(consumeReturnTo(user?.state, location.state?.from || '/'), { replace: true }),
+      )
       .catch(() => undefined);
   }, [auth, location.state, navigate]);
   if (auth.status === 'unauthenticated')

@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { User } from 'oidc-client-ts';
-import { createOidcUserManager } from './oidc';
+import { createOidcUserManager, saveReturnTo } from './oidc';
 import { setMemoryAccessToken } from './memoryToken';
 
 type AuthManager = {
   getUser: () => Promise<User | null>;
-  signinRedirect: () => Promise<void>;
+  signinRedirect: (args?: { state?: unknown }) => Promise<void>;
   signoutRedirect?: () => Promise<void>;
   signinCallback?: () => Promise<User | undefined>;
 };
@@ -14,9 +14,9 @@ type AuthContextValue = {
   status: 'loading' | 'authenticated' | 'unauthenticated';
   user?: User;
   accessToken?: string;
-  login: () => Promise<void>;
+  login: (returnTo?: string) => Promise<void>;
   logout: () => Promise<void>;
-  completeLogin: () => Promise<void>;
+  completeLogin: () => Promise<User | undefined>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -61,7 +61,10 @@ export function AuthProvider({
       status,
       user,
       accessToken: user?.access_token,
-      login: () => manager.signinRedirect(),
+      login: async (returnTo = '/') => {
+        saveReturnTo(returnTo);
+        await manager.signinRedirect({ state: { returnTo } });
+      },
       logout: async () => {
         setMemoryAccessToken(undefined);
         setUser(undefined);
@@ -69,13 +72,14 @@ export function AuthProvider({
         await manager.signoutRedirect?.();
       },
       completeLogin: async () => {
-        if (!manager.signinCallback) return;
+        if (!manager.signinCallback) return undefined;
         const next = await manager.signinCallback();
         if (next) {
           setMemoryAccessToken(next.access_token);
           setUser(next);
           setStatus('authenticated');
         }
+        return next;
       },
     }),
     [manager, status, user],

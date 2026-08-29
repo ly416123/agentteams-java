@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/httpClient';
-import { getTask, taskAction } from '../../src/api/tasks';
+import { getTask, streamTaskEvents, taskAction } from '../../src/api/tasks';
 import { TaskPage } from '../../src/features/tasks/TaskPage';
 import { TaskDetailPage } from '../../src/features/tasks/TaskDetailPage';
 
@@ -35,11 +35,17 @@ vi.mock('../../src/api/tasks', () => ({
     teamId: 'team-1',
     workerId: 'worker-1',
   }),
-  listTaskEvents: vi
-    .fn()
-    .mockResolvedValue([
-      { id: 'e-1', type: 'task.created', message: '任务已创建', createdAt: '2026-08-29T01:00:00Z' },
-    ]),
+  streamTaskEvents: vi.fn().mockImplementation(async (_taskId, options) => {
+    options.onEvents([
+      {
+        id: 'e-1',
+        cursor: 'e-1',
+        type: 'task.created',
+        message: '任务已创建',
+        createdAt: '2026-08-29T01:00:00Z',
+      },
+    ]);
+  }),
   taskAction: vi.fn().mockResolvedValue({
     id: 'task-1',
     title: '生成周报',
@@ -72,12 +78,33 @@ describe('Task pages', () => {
     expect(screen.getByPlaceholderText('搜索任务')).toBeInTheDocument();
   });
 
+  it('offers every domain TaskPhase in the status filter', async () => {
+    renderWithQuery(<TaskPage projectId="p-1" />);
+    const select = await screen.findByRole('combobox', { name: '任务状态' });
+    expect(Array.from(select.querySelectorAll('option')).map((option) => option.value)).toEqual([
+      '',
+      'DRAFT',
+      'QUEUED',
+      'PAUSED',
+      'ASSIGNED',
+      'ACCEPTED',
+      'RUNNING',
+      'SUCCEEDED',
+      'FAILED',
+      'CANCELLED',
+      'REJECTED',
+    ]);
+  });
+
   it('shows task timeline and versioned lifecycle actions', async () => {
     renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
     expect(await screen.findByText('生成周报')).toBeInTheDocument();
     expect(screen.getByText('任务已创建')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '取消任务' })).toBeInTheDocument();
     expect(screen.getByText('版本 4')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '取消任务' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('将停止任务执行');
+    expect(screen.getByRole('button', { name: '确认取消任务' })).toBeInTheDocument();
   });
 
   it('refetches the latest task before retrying a conflicted action', async () => {
@@ -124,9 +151,34 @@ describe('Task pages', () => {
     renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
     await screen.findByText('生成周报');
     await userEvent.click(screen.getByRole('button', { name: '取消任务' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认取消任务' }));
     await screen.findByText('资源状态已更新');
     await userEvent.click(screen.getByRole('button', { name: '仍然取消任务' }));
 
     expect(taskAction).toHaveBeenLastCalledWith('task-1', 'cancel', 7);
+  });
+
+  it('reconnects task events from the last cursor and merges duplicate deliveries', async () => {
+    const stream = vi.mocked(streamTaskEvents);
+    stream.mockReset();
+    stream
+      .mockImplementationOnce(async (_taskId, options) => {
+        options.onEvents([
+          { id: 'cursor-1', cursor: 'cursor-1', type: 'task.updated', message: '已排队' },
+        ]);
+      })
+      .mockImplementationOnce(async (_taskId, options) => {
+        expect(options.after).toBe('cursor-1');
+        options.onEvents([
+          { id: 'cursor-1', cursor: 'cursor-1', type: 'task.updated', message: '已排队' },
+          { id: 'cursor-2', cursor: 'cursor-2', type: 'task.succeeded', message: '已完成' },
+        ]);
+      });
+
+    renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+    expect(await screen.findByText('已排队')).toBeInTheDocument();
+    await waitFor(() => expect(stream).toHaveBeenCalledTimes(2), { timeout: 1000 });
+    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(screen.getAllByText('已排队')).toHaveLength(1);
   });
 });

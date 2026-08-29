@@ -110,6 +110,8 @@ describe('Worker pages', () => {
     expect(screen.getByText('v1.4.0')).toBeInTheDocument();
     expect(screen.getByText('Drain')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Drain' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('将停止接收新任务');
+    await userEvent.click(screen.getByRole('button', { name: '确认 Drain' }));
     expect(screen.getByText('操作已提交')).toBeInTheDocument();
     expect(screen.getByText('DRAIN')).toBeInTheDocument();
   });
@@ -118,11 +120,13 @@ describe('Worker pages', () => {
     renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
     await screen.findByText('分析 Worker');
     await userEvent.click(screen.getByRole('button', { name: 'Rollout' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认 Rollout' }));
     expect(await screen.findByText('操作已提交')).toBeInTheDocument();
     expect(rolloutWorker).toHaveBeenCalledWith(
       'worker-1',
-      expect.objectContaining({ expectedVersion: 5 }),
+      expect.objectContaining({ expectedVersion: 5, imageDigest: 'sha256:worker-1' }),
     );
+    expect(vi.mocked(rolloutWorker).mock.calls.at(-1)?.[1]).not.toHaveProperty('owner');
   });
 
   it('requires rollout metadata instead of fabricating missing values', async () => {
@@ -143,11 +147,12 @@ describe('Worker pages', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Rollout' }));
-
     expect(
-      screen.getByText('镜像 Digest、配置 Revision、Secret Generation 均为必填项。'),
+      screen.getByText(
+        'Rollout 提交已禁用：镜像 Digest、配置 Revision、Secret Generation、稳定规格快照均需提供真实值。',
+      ),
     ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rollout' })).toBeDisabled();
     expect(rolloutWorker).not.toHaveBeenCalled();
   });
 
@@ -186,6 +191,7 @@ describe('Worker pages', () => {
     renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
     await screen.findByText('分析 Worker');
     await userEvent.click(screen.getByRole('button', { name: 'Drain' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认 Drain' }));
     await screen.findByText('资源状态已更新');
     await userEvent.click(screen.getByRole('button', { name: '仍然继续操作' }));
 

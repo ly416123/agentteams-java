@@ -1,7 +1,10 @@
 import { useAuth } from '../../auth/AuthProvider';
+import { useLocation } from 'react-router-dom';
 
 export function LoginPage() {
   const auth = useAuth();
+  const location = useLocation();
+  const returnTo = typeof location.state?.from === 'string' ? location.state.from : '/';
   return (
     <div className="login-page">
       <div className="login-card">
@@ -11,7 +14,7 @@ export function LoginPage() {
         <p>使用组织的 OIDC 账号登录，访问已授权的 Project。</p>
         <button
           className="button button--primary button--wide"
-          onClick={() => void auth.login()}
+          onClick={() => void auth.login(returnTo)}
           disabled={auth.status === 'loading'}
         >
           使用组织账号登录

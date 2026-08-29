@@ -8,6 +8,7 @@ describe('API contracts', () => {
     const client = {
       request: vi.fn().mockResolvedValue({ calls: 4 }),
       requestText: vi.fn(),
+      requestStream: vi.fn(),
     };
 
     await getDashboardSummary(client);
@@ -22,6 +23,7 @@ describe('API contracts', () => {
         nextCursor: 'cursor-2',
       }),
       requestText: vi.fn(),
+      requestStream: vi.fn(),
     };
 
     const page = await listProjects(client);
@@ -31,7 +33,11 @@ describe('API contracts', () => {
   });
 
   it('uses q for Task search to match the server query contract', async () => {
-    const client = { request: vi.fn().mockResolvedValue({ items: [] }), requestText: vi.fn() };
+    const client = {
+      request: vi.fn().mockResolvedValue({ items: [] }),
+      requestText: vi.fn(),
+      requestStream: vi.fn(),
+    };
 
     await listTasks('p-1', { q: 'weekly report' }, client);
 

@@ -6,6 +6,7 @@ import { useTasks } from '../../queries/useTaskQueries';
 import { TaskBoard } from './TaskBoard';
 import { TaskTable } from './TaskTable';
 import { CursorPagination } from '../../components/CursorPagination';
+import { TASK_PHASES } from '../../api/types';
 
 export function TaskPage({ projectId }: { projectId: string }) {
   const [view, setView] = useState<'board' | 'table'>('board');
@@ -43,8 +44,11 @@ export function TaskPage({ projectId }: { projectId: string }) {
           onChange={(event) => setPhase(event.target.value)}
         >
           <option value="">全部状态</option>
-          <option value="RUNNING">执行中</option>
-          <option value="FAILED">失败</option>
+          {TASK_PHASES.map((taskPhase) => (
+            <option value={taskPhase} key={taskPhase}>
+              {taskPhase}
+            </option>
+          ))}
         </select>
         <div className="view-toggle">
           <button

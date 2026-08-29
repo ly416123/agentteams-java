@@ -1,19 +1,8 @@
 import { Link } from 'react-router-dom';
-import type { Task } from '../../api/types';
+import { TASK_PHASES, type Task } from '../../api/types';
 import { StatusBadge } from '../../components/StatusBadge';
 
-export const TASK_PHASES = [
-  'DRAFT',
-  'QUEUED',
-  'PAUSED',
-  'ASSIGNED',
-  'ACCEPTED',
-  'RUNNING',
-  'SUCCEEDED',
-  'FAILED',
-  'CANCELLED',
-  'REJECTED',
-] as const;
+export { TASK_PHASES } from '../../api/types';
 export function TaskBoard({ projectId, tasks }: { projectId: string; tasks: Task[] }) {
   return (
     <div className="task-board">

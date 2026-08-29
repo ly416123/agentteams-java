@@ -1,6 +1,6 @@
 import { apiClient, type HttpClient } from './httpClient';
 import { normalizeCursorPage, type CursorPage, type Task } from './types';
-import { parseTaskEventStream } from './taskEvents';
+export { streamTaskEvents } from './taskEvents';
 
 export type TaskFilters = {
   q?: string;
@@ -23,13 +23,6 @@ export function listTasks(
 }
 export function getTask(taskId: string, client: HttpClient = apiClient) {
   return client.request<Task>(`/api/v1/tasks/${taskId}`);
-}
-export function listTaskEvents(taskId: string, client: HttpClient = apiClient) {
-  return client
-    .requestText(`/api/v1/tasks/${taskId}/events`, {
-      headers: { Accept: 'text/event-stream, application/json' },
-    })
-    .then((payload) => parseTaskEventStream(payload));
 }
 export function createTask(
   projectId: string,

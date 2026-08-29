@@ -12,6 +12,17 @@ describe('state components', () => {
     expect(screen.getByRole('status')).toHaveAttribute('data-tone', 'info');
   });
 
+  it.each([
+    ['PROVISIONING', '准备中'],
+    ['BUSY', '忙碌'],
+    ['OFFLINE', '离线'],
+    ['IN_PROGRESS', '进行中'],
+    ['OPEN', '未处理'],
+  ])('maps common %s status', (phase, label) => {
+    render(<StatusBadge phase={phase} />);
+    expect(screen.getByRole('status')).toHaveTextContent(label);
+  });
+
   it('explains retryable dependency errors', () => {
     render(
       <ErrorState

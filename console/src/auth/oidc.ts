@@ -1,5 +1,26 @@
 import { UserManager, type UserManagerSettings } from 'oidc-client-ts';
 
+export const RETURN_TO_STORAGE_KEY = 'agentteams.oidc.returnTo';
+
+export function saveReturnTo(returnTo: string) {
+  if (returnTo.startsWith('/') && !returnTo.startsWith('//')) {
+    sessionStorage.setItem(RETURN_TO_STORAGE_KEY, returnTo);
+  }
+}
+
+export function consumeReturnTo(state?: unknown, fallback = '/') {
+  const stateReturnTo =
+    state && typeof state === 'object' && 'returnTo' in state
+      ? (state as { returnTo?: unknown }).returnTo
+      : undefined;
+  const stored = sessionStorage.getItem(RETURN_TO_STORAGE_KEY);
+  sessionStorage.removeItem(RETURN_TO_STORAGE_KEY);
+  const candidate = typeof stateReturnTo === 'string' ? stateReturnTo : stored;
+  return candidate && candidate.startsWith('/') && !candidate.startsWith('//')
+    ? candidate
+    : fallback;
+}
+
 class MemoryUserStore {
   private values = new Map<string, string>();
 

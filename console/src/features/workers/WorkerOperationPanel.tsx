@@ -9,6 +9,21 @@ import {
 import type { WorkerRolloutRequest } from '../../api/workers';
 import { ErrorState } from '../../components/ErrorState';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
+import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+
+type ConfirmedAction = 'drain' | 'terminate' | 'rollout' | 'rollback';
+const actionLabels: Record<ConfirmedAction, string> = {
+  drain: 'Drain',
+  terminate: 'Terminate',
+  rollout: 'Rollout',
+  rollback: 'Rollback',
+};
+const actionImpacts: Record<ConfirmedAction, string> = {
+  drain: 'Worker 将停止接收新任务，并等待当前任务完成或被接管。',
+  terminate: 'Worker 将被终止，当前任务会中断且不会再接收新任务。',
+  rollout: 'Worker 将切换到新镜像与配置，期间可能短暂不可用。',
+  rollback: 'Worker 将回滚到失败 Rollout 的稳定规格，当前版本可能被替换。',
+};
 
 export function WorkerOperationPanel({
   projectId,
@@ -31,11 +46,12 @@ export function WorkerOperationPanel({
   >(null);
   const [formError, setFormError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [confirmation, setConfirmation] = useState<ConfirmedAction | null>(null);
   const [rolloutForm, setRolloutForm] = useState({
     imageDigest: worker.imageDigest || '',
     configRevision: worker.configRevision || '',
     secretGeneration: worker.secretGeneration || '',
-    previousStableSpec: worker.previousStableSpec || '{}',
+    previousStableSpec: worker.previousStableSpec || '',
   });
   const failedRollout = operations.find(
     (operation) => operation.type === 'ROLLOUT' && operation.status === 'FAILED',
@@ -63,8 +79,8 @@ export function WorkerOperationPanel({
       },
     );
   const submitRollout = (currentWorker = worker) => {
-    if (!rolloutForm.imageDigest || !rolloutForm.configRevision || !rolloutForm.secretGeneration) {
-      setFormError('镜像 Digest、配置 Revision、Secret Generation 均为必填项。');
+    if (!rolloutReady) {
+      setFormError('镜像 Digest、配置 Revision、Secret Generation、稳定规格快照均为必填项。');
       return;
     }
     setFormError('');
@@ -75,8 +91,6 @@ export function WorkerOperationPanel({
       configRevision: rolloutForm.configRevision,
       secretGeneration: rolloutForm.secretGeneration,
       previousStableSpec: rolloutForm.previousStableSpec,
-      owner: 'console',
-      correlationId: globalThis.crypto?.randomUUID?.() || crypto.randomUUID(),
     };
     rollout.mutate(body, {
       onSuccess: () => setMessage('操作已提交'),
@@ -86,6 +100,15 @@ export function WorkerOperationPanel({
           else setFormError('无法读取 Worker 最新版本，请刷新后重试。');
         }),
     });
+  };
+  const rolloutReady = Object.values(rolloutForm).every((value) => value.trim().length > 0);
+  const confirmAction = () => {
+    if (!confirmation) return;
+    const selected = confirmation;
+    setConfirmation(null);
+    if (selected === 'drain' || selected === 'terminate') run(selected);
+    if (selected === 'rollout') submitRollout();
+    if (selected === 'rollback') submitRollback();
   };
   const submitRollback = (currentOperation = failedRollout) => {
     if (!currentOperation) return;
@@ -146,28 +169,28 @@ export function WorkerOperationPanel({
           <button
             className="button button--ghost"
             disabled={unavailable || pending}
-            onClick={() => run('drain')}
+            onClick={() => setConfirmation('drain')}
           >
             Drain
           </button>
           <button
             className="button button--danger"
             disabled={unavailable || pending}
-            onClick={() => run('terminate')}
+            onClick={() => setConfirmation('terminate')}
           >
             Terminate
           </button>
           <button
             className="button button--ghost"
-            disabled={unavailable || pending}
-            onClick={() => submitRollout()}
+            disabled={unavailable || pending || !rolloutReady}
+            onClick={() => setConfirmation('rollout')}
           >
             Rollout
           </button>
           <button
             className="button button--ghost"
             disabled={unavailable || pending || !failedRollout}
-            onClick={() => submitRollback()}
+            onClick={() => setConfirmation('rollback')}
           >
             Rollback
           </button>
@@ -221,6 +244,12 @@ export function WorkerOperationPanel({
             />
           </label>
         </div>
+        {!rolloutReady && (
+          <p className="error-text">
+            Rollout 提交已禁用：镜像 Digest、配置 Revision、Secret
+            Generation、稳定规格快照均需提供真实值。
+          </p>
+        )}
         {formError && <p className="error-text">{formError}</p>}
         {message && <p className="success-text">{message}</p>}
       </section>
@@ -229,6 +258,13 @@ export function WorkerOperationPanel({
         actionLabel="继续操作"
         onCancel={() => setConflict(false)}
         onConfirm={() => void confirmConflict()}
+      />
+      <ActionConfirmModal
+        open={Boolean(confirmation)}
+        actionLabel={confirmation ? actionLabels[confirmation] : '操作'}
+        impact={confirmation ? actionImpacts[confirmation] : ''}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={confirmAction}
       />
     </>
   );

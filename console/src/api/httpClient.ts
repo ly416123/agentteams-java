@@ -49,6 +49,7 @@ type ClientOptions = {
 export type HttpClient = {
   request<T>(path: string, options?: RequestOptions): Promise<T>;
   requestText(path: string, options?: RequestOptions): Promise<string>;
+  requestStream(path: string, options?: RequestOptions): Promise<Response>;
 };
 
 export function createHttpClient(options: ClientOptions = {}): HttpClient {
@@ -97,6 +98,9 @@ export function createHttpClient(options: ClientOptions = {}): HttpClient {
     },
     async requestText(path: string, requestOptions: RequestOptions = {}) {
       return (await send(path, requestOptions)).text();
+    },
+    async requestStream(path: string, requestOptions: RequestOptions = {}) {
+      return send(path, requestOptions);
     },
   };
 }

@@ -9,8 +9,6 @@ export type WorkerRolloutRequest = {
   configRevision: string;
   secretGeneration: string;
   previousStableSpec: string;
-  owner: string;
-  correlationId: string;
 };
 export function listWorkers(
   projectId: string,

@@ -100,7 +100,7 @@ export type Task = {
   id: string;
   title: string;
   description: string;
-  phase: string;
+  phase: TaskPhase;
   priority: number;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +110,21 @@ export type Task = {
   creator?: string;
   summary?: string;
 };
+
+export const TASK_PHASES = [
+  'DRAFT',
+  'QUEUED',
+  'PAUSED',
+  'ASSIGNED',
+  'ACCEPTED',
+  'RUNNING',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELLED',
+  'REJECTED',
+] as const;
+
+export type TaskPhase = (typeof TASK_PHASES)[number];
 
 export type DashboardGroup = {
   provider: string | null;
@@ -140,6 +155,7 @@ export type DashboardSummary = {
 
 export type TaskEvent = {
   id: string;
+  cursor?: string;
   phase?: string;
   type: string;
   message: string;
