@@ -1,6 +1,7 @@
 package io.agentteams.manager.api;
 
 import io.agentteams.manager.InvalidModelOutputException;
+import io.agentteams.manager.conversation.ConversationRuntimeException;
 import io.agentteams.manager.ManagerToolConflictException;
 import io.agentteams.manager.ManagerToolTemporaryFailureException;
 import io.agentteams.manager.ModelCallAdmissionRejectedException;
@@ -103,6 +104,25 @@ public final class ManagerErrorHandler {
     ResponseEntity<ErrorResponse> storage(DataAccessException error, HttpServletRequest request) {
         return error(HttpStatus.SERVICE_UNAVAILABLE, "TOOL_TEMPORARY_FAILURE",
                 "session storage is unavailable", request, Map.of());
+    }
+
+    @ExceptionHandler(ConversationRuntimeException.class)
+    ResponseEntity<ErrorResponse> conversation(ConversationRuntimeException error, HttpServletRequest request) {
+        HttpStatus status = switch (error.code()) {
+            case SESSION_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case IDEMPOTENCY_CONFLICT, INVALID_STATE, CANCELLED -> HttpStatus.CONFLICT;
+            case WORKER_UNAVAILABLE, MODEL_PROVIDER_UNAVAILABLE, TIMEOUT, CONNECTION_CLOSED ->
+                    HttpStatus.SERVICE_UNAVAILABLE;
+            case RESOURCE_EXHAUSTED -> HttpStatus.TOO_MANY_REQUESTS;
+            default -> HttpStatus.BAD_GATEWAY;
+        };
+        if (error.code() == ConversationRuntimeException.Code.WORKER_UNAVAILABLE) {
+            return error(status, "MODEL_UNAVAILABLE", "model provider is unavailable", request, Map.of());
+        }
+        if (error.code() == ConversationRuntimeException.Code.SESSION_NOT_FOUND) {
+            return error(status, "NOT_FOUND", "session not found", request, Map.of());
+        }
+        return error(status, "CONVERSATION_" + error.code().name(), "conversation request failed", request, Map.of());
     }
 
     @ExceptionHandler(Exception.class)

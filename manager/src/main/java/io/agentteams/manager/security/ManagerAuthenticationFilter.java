@@ -16,7 +16,8 @@ public final class ManagerAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/v1/manager/");
+        String path = request.getRequestURI();
+        return !path.startsWith("/api/v1/manager/") && !path.startsWith("/api/v1/conversations");
     }
 
     @Override

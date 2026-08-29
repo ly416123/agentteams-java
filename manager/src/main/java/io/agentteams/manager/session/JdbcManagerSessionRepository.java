@@ -10,7 +10,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
-public final class JdbcManagerSessionRepository implements ManagerSessionRepository {
+public class JdbcManagerSessionRepository implements ManagerSessionRepository {
     private final JdbcTemplate jdbc;
 
     public JdbcManagerSessionRepository(JdbcTemplate jdbc) {

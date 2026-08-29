@@ -96,6 +96,33 @@ class QwenPawConversationMockTest(unittest.TestCase):
         self.assertNotIn('"status":"completed"', result.get("body", ""))
         self.assertIn('"status":"cancelled"', result.get("body", ""))
 
+    def test_chat_reconnects_after_query_and_last_event_id(self):
+        body = self.read_chat("session-reconnect", "reconnect prompt", {"Idempotency-Key": "reconnect-1"})
+        self.assertIn("id: 1\n", body)
+        self.assertIn("id: 2\n", body)
+        self.assertIn("id: 3\n", body)
+
+        replay = self.read_chat(
+            "session-reconnect",
+            "reconnect prompt",
+            {"Idempotency-Key": "reconnect-1", "Last-Event-ID": "1"},
+            query="after=1",
+        )
+        self.assertNotIn("id: 1\n", replay)
+        self.assertIn("id: 2\n", replay)
+        self.assertIn("id: 3\n", replay)
+
+    def test_duplicate_idempotency_key_replays_and_conflicting_input_is_rejected(self):
+        headers = {"Idempotency-Key": "duplicate-1"}
+        first = self.read_chat("session-duplicate", "first prompt", headers)
+        duplicate = self.read_chat("session-duplicate", "first prompt", headers)
+        self.assertEqual(duplicate, first)
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self.read_chat("session-duplicate", "different prompt", headers)
+        self.assertEqual(raised.exception.code, 409)
+        self.assertNotIn("different prompt", raised.exception.read().decode())
+
     def test_kind_manifest_declares_the_conversation_mock_without_changing_openai_mock(self):
         manifest_path = ROOT / "deploy/kind-qwenpaw-openai-mock.yaml"
         manifest = manifest_path.read_text(encoding="utf-8")
@@ -115,14 +142,14 @@ class QwenPawConversationMockTest(unittest.TestCase):
             (ROOT / "scripts/qwenpaw-conversation-mock.py").read_text(encoding="utf-8"),
         )
 
-    def read_chat(self, session_id, prompt):
+    def read_chat(self, session_id, prompt, headers=None, query=""):
         request = urllib.request.Request(
-            f"{self.base_url}/api/console/chat",
+            f"{self.base_url}/api/console/chat?{query}" if query else f"{self.base_url}/api/console/chat",
             data=json.dumps({
                 "session_id": session_id,
                 "input": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
             }).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **(headers or {})},
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=2) as response:

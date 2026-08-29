@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AuthProvider } from '../auth/AuthProvider';
 import { ProjectProvider } from '../auth/ProjectContext';
 import { RequireAuth } from '../auth/RequireAuth';
@@ -14,6 +14,7 @@ import { TaskCreatePage } from '../features/tasks/TaskCreatePage';
 import { TaskPage } from '../features/tasks/TaskPage';
 import { WorkerDetailPage } from '../features/workers/WorkerDetailPage';
 import { WorkerListPage } from '../features/workers/WorkerListPage';
+import { ConversationPage } from '../features/conversations/ConversationPage';
 import { ConsoleLayout } from './AppShell';
 import { AppShell } from './AppShell';
 
@@ -24,13 +25,15 @@ export function AppRouter() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Routes>
-          <Route path="/" element={<AppShell />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          <Route path="/:projectId/*" element={<ProtectedProjectRoutes />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<AppShell />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
+            <Route path="/:projectId/*" element={<ProtectedProjectRoutes />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>
   );
@@ -53,6 +56,11 @@ function ProtectedProjectRoutes() {
             <Route path="tasks/:taskId" element={<TaskDetailRoute projectId={projectId} />} />
             <Route path="workers" element={<WorkerListPage projectId={projectId} />} />
             <Route path="workers/:workerId" element={<WorkerDetailRoute projectId={projectId} />} />
+            <Route path="conversations/new" element={<ConversationPage projectId={projectId} />} />
+            <Route
+              path="conversations/:conversationId"
+              element={<ConversationDetailRoute projectId={projectId} />}
+            />
           </Route>
         </Routes>
       </ProjectProvider>
@@ -70,4 +78,8 @@ function TaskDetailRoute({ projectId }: { projectId: string }) {
 function WorkerDetailRoute({ projectId }: { projectId: string }) {
   const { workerId = '' } = useParams();
   return <WorkerDetailPage projectId={projectId} workerId={workerId} />;
+}
+function ConversationDetailRoute({ projectId }: { projectId: string }) {
+  const { conversationId = '' } = useParams();
+  return <ConversationPage projectId={projectId} conversationId={conversationId} />;
 }

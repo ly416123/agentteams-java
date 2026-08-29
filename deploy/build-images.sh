@@ -70,6 +70,7 @@ done
 declare -a images=(
   "deploy/docker/control-plane.Dockerfile|ghcr.io/ly416123/agentteams-control-plane:latest"
   "deploy/docker/gateway.Dockerfile|ghcr.io/ly416123/agentteams-agent-gateway:latest"
+  "deploy/docker/manager.Dockerfile|ghcr.io/ly416123/agentteams-manager:latest"
   "deploy/docker/operator.Dockerfile|ghcr.io/ly416123/agentteams-operator:latest"
   "deploy/docker/worker.Dockerfile|ghcr.io/ly416123/agentteams-agent-worker:latest"
 )

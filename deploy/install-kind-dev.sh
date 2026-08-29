@@ -26,11 +26,17 @@ fi
 "$ROOT/deploy/preload-kind-images.sh"
 
 kubectl apply -f "$ROOT/deploy/kind-dev-infra.yaml"
+kubectl apply -f "$ROOT/deploy/kind-qwenpaw-openai-mock.yaml"
+kubectl -n "$NAMESPACE" create secret generic agentteams-manager \
+  --from-literal=password="${AGENTTEAMS_DATABASE_PASSWORD:-agentteams-dev}" \
+  --from-literal=deepseek-api-key="${DEEPSEEK_API_KEY:-kind-dev-placeholder}" \
+  --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n "$NAMESPACE" rollout status statefulset/postgresql statefulset/nats statefulset/minio --timeout=180s
 kubectl -n "$NAMESPACE" wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=180s
 
 kubectl apply -f "$ROOT/deploy/kind-observability.yaml"
 kubectl -n "$NAMESPACE" wait --for=condition=available deployment/prometheus deployment/grafana deployment/qwenpaw --timeout=240s
+kubectl -n "$NAMESPACE" wait --for=condition=available deployment/qwenpaw-conversation-mock --timeout=120s
 # The development manifest uses a mounted ConfigMap and Prometheus has no
 # sidecar reloader; restart it so updated rules/config are loaded immediately.
 kubectl -n "$NAMESPACE" rollout restart deployment/prometheus
@@ -73,11 +79,13 @@ helm upgrade --install agentteams "$ROOT/deploy/helm/agentteams-java" \
 kubectl -n "$NAMESPACE" rollout restart \
   deployment/agentteams-agentteams-java-control-plane \
   deployment/agentteams-agentteams-java-gateway \
-  deployment/agentteams-agentteams-java-operator
+  deployment/agentteams-agentteams-java-operator \
+  deployment/agentteams-agentteams-java-manager
 kubectl -n "$NAMESPACE" wait --for=condition=available \
   deployment/agentteams-agentteams-java-control-plane \
   deployment/agentteams-agentteams-java-gateway \
-  deployment/agentteams-agentteams-java-operator --timeout=300s
+  deployment/agentteams-agentteams-java-operator \
+  deployment/agentteams-agentteams-java-manager --timeout=300s
 if [[ "$CONSOLE_ENABLED" == true ]]; then
   kubectl -n "$NAMESPACE" rollout restart deployment/agentteams-agentteams-java-console
   kubectl -n "$NAMESPACE" wait --for=condition=available \

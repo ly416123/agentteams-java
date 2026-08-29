@@ -295,7 +295,8 @@ conversation.failed
 - `/api` 代理到本机 Control Plane；
 - OIDC 回调地址使用本地 Keycloak；
 - 对话默认使用 Fake Worker 或 Mock QwenPaw；
-- UI 验收可以在真实 Worker 不可用时执行管理流程。
+- 当前项目本机具备 Docker、Chrome 浏览器和 Kind 集群，可执行真实部署、浏览器和跨服务验收；
+- UI 管理流程可以在真实 Worker 未就绪时使用 Mock 对话验收，但提交前不得把环境缺失标记为通过。
 
 Kind 验收：
 

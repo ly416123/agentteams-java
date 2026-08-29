@@ -3,6 +3,9 @@ spring:
     name: agentteams-manager
   flyway:
     enabled: true
+    table: manager_flyway_schema_history
+    baseline-on-migrate: true
+    baseline-version: 0
     locations: classpath:db/manager-migration
 management:
   endpoints:

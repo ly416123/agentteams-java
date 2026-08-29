@@ -422,7 +422,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
 
     private void publishFailure(SessionState state, RequestHandle handle,
             ConversationRuntimeException.Code code) {
-        if (handle.cancelled()) {
+        if (handle.cancelled() || state.cancelRequested) {
             return;
         }
         appendFailure(state, code);

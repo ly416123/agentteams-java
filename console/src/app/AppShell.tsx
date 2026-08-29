@@ -36,6 +36,7 @@ const navItems = [
   { to: 'tasks', label: 'Tasks', icon: '✓' },
   { to: 'teams', label: 'Teams', icon: '◇' },
   { to: 'workers', label: 'Workers', icon: '⬡' },
+  { to: 'conversations/new', label: '对话', icon: '◌' },
 ];
 
 export function ConsoleLayout() {

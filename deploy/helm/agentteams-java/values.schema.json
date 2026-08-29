@@ -282,6 +282,16 @@
         "controlPlaneUrl": { "type": "string", "minLength": 1 },
         "modelEgressCIDR": { "type": "string", "minLength": 1 },
         "securityEgressCIDR": { "type": "string", "minLength": 1 },
+        "conversation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "runtime": { "type": "string", "enum": ["fake", "qwenpaw"] },
+            "qwenpawEndpoint": { "type": "string", "minLength": 1 },
+            "qwenpawAgentId": { "type": "string", "minLength": 1 }
+          }
+        },
+        "env": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } },
         "security": {
           "type": "object",
           "additionalProperties": false,

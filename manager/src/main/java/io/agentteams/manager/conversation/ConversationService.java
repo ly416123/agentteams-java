@@ -47,6 +47,10 @@ public final class ConversationService {
         return start(conversation.sessionId());
     }
 
+    public Conversation get(UUID sessionId) {
+        return snapshot(session(sessionId));
+    }
+
     public Conversation start(UUID sessionId) {
         SessionState state = session(sessionId);
         synchronized (state) {
@@ -79,10 +83,8 @@ public final class ConversationService {
                             ConversationRuntimeException.Code.IDEMPOTENCY_CONFLICT,
                             "message idempotency key was reused with different content");
                 }
-                List<ConversationEvent> replay = runtime.events(sessionId, previous.startCursor);
-                freezeTerminalCursors(state, replay);
                 return new SendResult(sessionId, idempotencyKey,
-                        eventsFor(previous, state, replay));
+                        previous.responseEvents);
             }
             if (state.status == Status.CANCELLED) {
                 throw new ConversationRuntimeException(ConversationRuntimeException.Code.CANCELLED,
@@ -102,7 +104,8 @@ public final class ConversationService {
             state.messages.put(idempotencyKey, record);
             List<ConversationEvent> produced = runtime.events(sessionId, startCursor);
             freezeTerminalCursors(state, produced);
-            return new SendResult(sessionId, idempotencyKey, eventsFor(record, state, produced));
+            record.responseEvents = eventsFor(record, state, produced);
+            return new SendResult(sessionId, idempotencyKey, record.responseEvents);
         }
     }
 
@@ -112,6 +115,14 @@ public final class ConversationService {
             List<ConversationEvent> observed = runtime.events(sessionId, afterCursor);
             freezeTerminalCursors(state, observed);
             return observed;
+        }
+    }
+
+    public boolean hasPendingMessage(UUID sessionId) {
+        SessionState state = session(sessionId);
+        synchronized (state) {
+            freezeTerminalCursors(state, runtime.events(sessionId, 0));
+            return state.messages.values().stream().anyMatch(record -> record.endCursor == null);
         }
     }
 
@@ -213,6 +224,7 @@ public final class ConversationService {
     private static final class SendRecord {
         private final String content;
         private final long startCursor;
+        private List<ConversationEvent> responseEvents = List.of();
         private Long endCursor;
 
         private SendRecord(String content, long startCursor) {

@@ -9,6 +9,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 
 DEFAULT_DELAY_SECONDS = max(0.0, float(os.environ.get("QWENPAW_CONVERSATION_MOCK_DELAY_SECONDS", "0")))
@@ -53,12 +54,12 @@ def set_configuration(delay_seconds: float | None = None, disconnect_after: int 
 
 def mark_cancelled(session_id: str) -> None:
     with CONFIG_LOCK:
-        SESSIONS.setdefault(session_id, {"cursor": 0, "cancelled": False})["cancelled"] = True
+        SESSIONS.setdefault(session_id, {"cursor": 0, "cancelled": False, "events": [], "requests": {}})["cancelled"] = True
 
 
 def next_cursor(session_id: str) -> int:
     with CONFIG_LOCK:
-        state = SESSIONS.setdefault(session_id, {"cursor": 0, "cancelled": False})
+        state = SESSIONS.setdefault(session_id, {"cursor": 0, "cancelled": False, "events": [], "requests": {}})
         state["cursor"] += 1
         return state["cursor"]
 
@@ -85,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-        path = self.path.rstrip("/")
+        path = urlsplit(self.path).path.rstrip("/")
         if path == "/health":
             self.send_json(200, {"status": "ok"})
         elif path == "/debug/config":
@@ -94,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-        path = self.path.rstrip("/")
+        path = urlsplit(self.path).path.rstrip("/")
         if path == "/debug/config":
             self.update_configuration()
             return
@@ -140,11 +141,29 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "invalid chat request", "detail": str(error)})
             return
 
+        idempotency_key = self.headers.get("Idempotency-Key", "")
+        request_fingerprint = json.dumps(request, sort_keys=True, separators=(",", ":"))
+        conflict = False
+        with CONFIG_LOCK:
+            state = SESSIONS.setdefault(
+                session_id, {"cursor": 0, "cancelled": False, "events": [], "requests": {}}
+            )
+            previous = state["requests"].get(idempotency_key) if idempotency_key else None
+            if previous is not None and previous["fingerprint"] != request_fingerprint:
+                conflict = True
+            elif idempotency_key:
+                state["requests"][idempotency_key] = {
+                    "fingerprint": request_fingerprint,
+                }
+
         with CONFIG_LOCK:
             AUDIT.append(
                 f"chat session={session_id} agent={bool(self.headers.get('X-Agent-Id'))}"
-                f" idempotency-key={self.headers.get('Idempotency-Key', '')}"
+                f" idempotency-key={idempotency_key}"
             )
+        if conflict:
+            self.send_json(409, {"error": "idempotency key conflicts with the original request"})
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -153,21 +172,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "999999")
         self.end_headers()
 
-        events = (
-            ("conversation.started", {"status": "created", "object": "response"}),
-            ("message.delta", {
-                "status": "in_progress", "type": "message", "delta": True,
-                "role": "assistant", "content": [{"text": "CONVERSATION_MOCK_DELTA"}],
-            }),
-            ("message.completed", {
-                "status": "completed", "object": "response",
-                "output": [{"type": "message", "role": "assistant",
-                             "content": [{"text": "CONVERSATION_MOCK_OK"}]}],
-            }),
-        )
+        events = self.session_events(session_id)
+        query = parse_qs(urlsplit(self.path).query)
+        after_values = [query.get("after", ["0"])[0], self.headers.get("Last-Event-ID", "0")]
+        try:
+            after = max(int(value or "0") for value in after_values)
+        except ValueError:
+            self.send_json(400, {"error": "after must be a non-negative cursor"})
+            return
+        if after < 0:
+            self.send_json(400, {"error": "after must be a non-negative cursor"})
+            return
+        events = [event for event in events if event[0] > after]
         emitted = 0
         try:
-            for event_name, payload in events:
+            for cursor, event_name, payload in events:
                 delay = configuration()["delay_seconds"]
                 if delay:
                     time.sleep(delay)
@@ -175,9 +194,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.write_event(session_id, "conversation.cancelled",
                                      {"status": "cancelled", "object": "response"})
                     return
-                payload = dict(payload)
-                payload["cursor"] = next_cursor(session_id)
-                self.write_event_payload(event_name, payload)
+                self.write_event_payload(cursor, event_name, payload)
                 emitted += 1
                 disconnect_after = configuration()["disconnect_after"]
                 if disconnect_after is not None and emitted >= disconnect_after:
@@ -187,13 +204,41 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.flush_stream()
 
+    def session_events(self, session_id: str) -> list[tuple[int, str, dict[str, Any]]]:
+        with CONFIG_LOCK:
+            state = SESSIONS.setdefault(
+                session_id, {"cursor": 0, "cancelled": False, "events": [], "requests": {}}
+            )
+            state.setdefault("events", [])
+            state.setdefault("requests", {})
+            if not state["events"]:
+                definitions = (
+                    ("conversation.started", {"status": "created", "object": "response"}),
+                    ("message.delta", {
+                        "status": "in_progress", "type": "message", "delta": True,
+                        "role": "assistant", "content": [{"text": "CONVERSATION_MOCK_DELTA"}],
+                    }),
+                    ("message.completed", {
+                        "status": "completed", "object": "response",
+                        "output": [{"type": "message", "role": "assistant",
+                                     "content": [{"text": "CONVERSATION_MOCK_OK"}]}],
+                    }),
+                )
+                for event_name, payload in definitions:
+                    state["cursor"] += 1
+                    event_payload = dict(payload)
+                    event_payload["cursor"] = state["cursor"]
+                    state["events"].append((state["cursor"], event_name, event_payload))
+            return list(state["events"])
+
     def write_event(self, session_id: str, event_name: str, payload: dict[str, Any]) -> None:
         payload = dict(payload)
         payload["cursor"] = next_cursor(session_id)
-        self.write_event_payload(event_name, payload)
+        self.write_event_payload(payload["cursor"], event_name, payload)
 
-    def write_event_payload(self, event_name: str, payload: dict[str, Any]) -> None:
-        encoded = (f"event: {event_name}\n"
+    def write_event_payload(self, cursor: int, event_name: str, payload: dict[str, Any]) -> None:
+        encoded = (f"id: {cursor}\n"
+                   f"event: {event_name}\n"
                    f"data: {json.dumps(payload, separators=(',', ':'))}\n\n").encode("utf-8")
         self.wfile.write(encoded)
         self.wfile.flush()

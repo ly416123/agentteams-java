@@ -35,6 +35,18 @@ class ConversationServiceTest {
     }
 
     @Test
+    void getReturnsTheConversationSnapshotAndRejectsUnknownSessions() {
+        ConversationService service = new ConversationService(new FakeConversationRuntime());
+        service.create(CONTEXT);
+
+        assertThat(service.get(SESSION_ID).context()).isEqualTo(CONTEXT);
+        assertThatThrownBy(() -> service.get(UUID.randomUUID()))
+                .isInstanceOf(ConversationRuntimeException.class)
+                .satisfies(error -> assertThat(((ConversationRuntimeException) error).code())
+                        .isEqualTo(ConversationRuntimeException.Code.SESSION_NOT_FOUND));
+    }
+
+    @Test
     void sameMessageIdempotencyKeyReturnsTheSameEventsWithoutDuplicatingRuntimeWork() {
         FakeConversationRuntime runtime = new FakeConversationRuntime();
         ConversationService service = new ConversationService(runtime);
@@ -49,7 +61,7 @@ class ConversationServiceTest {
     }
 
     @Test
-    void idempotentReplayReadsEventsProducedAfterTheInitialAsyncSend() throws Exception {
+    void idempotentReplayReturnsTheOriginalAsyncSendResponse() throws Exception {
         DelayedRuntime runtime = new DelayedRuntime();
         ConversationService service = new ConversationService(runtime);
         service.create(CONTEXT);
@@ -62,8 +74,7 @@ class ConversationServiceTest {
         assertThat(runtime.completed.await(5, TimeUnit.SECONDS)).isTrue();
 
         ConversationService.SendResult replay = service.send(SESSION_ID, "message-1", "hello");
-        assertThat(replay.events()).extracting(ConversationEvent::type)
-                .containsExactly("message.delta", "message.completed");
+        assertThat(replay).isEqualTo(initial);
     }
 
     @Test

@@ -25,6 +25,12 @@ spec:
                 name: {{ include "agentteams-java.fullname" . }}-control-plane
                 port: { name: http }
           {{- if $manager.enabled }}
+          - path: /api/v1/conversations
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "agentteams-java.fullname" . }}-manager
+                port: { name: http }
           - path: /api/v1/manager
             pathType: Prefix
             backend:

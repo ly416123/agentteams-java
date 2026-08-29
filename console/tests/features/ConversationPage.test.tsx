@@ -1,0 +1,107 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
+import { ConversationPage } from '../../src/features/conversations/ConversationPage';
+
+const mocks = vi.hoisted(() => ({
+  getConversation: vi.fn(),
+  createConversation: vi.fn(),
+  sendConversationMessage: vi.fn(),
+  cancelConversation: vi.fn(),
+  streamConversationEvents: vi.fn(),
+  listTeams: vi.fn(),
+}));
+
+vi.mock('../../src/api/conversations', () => mocks);
+vi.mock('../../src/api/teams', () => ({ listTeams: mocks.listTeams }));
+vi.mock('../../src/streams/conversationEvents', () => ({
+  streamConversationEvents: mocks.streamConversationEvents,
+}));
+
+function renderPage(conversationId?: string, search = '') {
+  return render(
+    <MemoryRouter initialEntries={[`/p-1/conversations/${conversationId || 'new'}${search}`]}>
+      <QueryClientProvider client={new QueryClient()}>
+        <ConversationPage projectId="p-1" conversationId={conversationId} />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe('ConversationPage', () => {
+  it('appends user content and assistant deltas as safe plain text', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 1,
+    });
+    mocks.streamConversationEvents.mockImplementation(async (id, options) => {
+      expect(id).toBe('c-1');
+      options.onState('connected');
+      options.onEvent({
+        id: '1',
+        type: 'message.delta',
+        data: '',
+        payload: { delta: '<b>回答</b>' },
+      });
+      options.onEvent({ id: '2', type: 'message.completed', data: '', payload: {} });
+    });
+    mocks.sendConversationMessage.mockResolvedValue({ session: { version: 2 } });
+
+    renderPage('c-1');
+    expect(await screen.findByText('<b>回答</b>')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '回答' })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText('输入消息'), '请继续');
+    await userEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(await screen.findByText('请继续')).toBeInTheDocument();
+    expect(mocks.sendConversationMessage).toHaveBeenCalledWith(
+      'c-1',
+      { content: '请继续', expectedVersion: 1 },
+      expect.anything(),
+      expect.any(String),
+    );
+  });
+
+  it('confirms cancellation and disables sending after the server confirms it', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 3,
+    });
+    mocks.streamConversationEvents.mockResolvedValue(undefined);
+    mocks.cancelConversation.mockResolvedValue({ status: 'CANCELLED', version: 4 });
+
+    renderPage('c-1');
+    await screen.findByText('Team team-1');
+    await userEvent.click(screen.getByRole('button', { name: '取消会话' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('取消后将不能继续发送消息');
+    await userEvent.click(screen.getByRole('button', { name: '确认取消会话' }));
+
+    await waitFor(() =>
+      expect(mocks.cancelConversation).toHaveBeenCalledWith(
+        'c-1',
+        { expectedVersion: 3 },
+        expect.anything(),
+        expect.any(String),
+      ),
+    );
+    expect(await screen.findByText('会话已取消')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
+  });
+
+  it('offers an actionable team selection state when no team context exists', async () => {
+    mocks.listTeams.mockResolvedValue({ items: [] });
+
+    renderPage(undefined);
+
+    expect(await screen.findByText('没有可用 Team')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前往 Teams' })).toHaveAttribute('href', '/p-1/teams');
+  });
+});

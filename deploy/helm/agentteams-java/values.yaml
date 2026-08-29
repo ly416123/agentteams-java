@@ -148,6 +148,14 @@ gateway:
     requestTimeout: 3s
 manager:
   enabled: false
+  image: ghcr.io/ly416123/agentteams-manager:latest
+  existingSecret: agentteams-database
+  model: deepseek-v4-flash
+  conversation:
+    runtime: fake
+    qwenpawEndpoint: http://127.0.0.1:8088
+    qwenpawAgentId: default
+  env: {}
   autoscaling:
     enabled: false
     minReplicas: 1

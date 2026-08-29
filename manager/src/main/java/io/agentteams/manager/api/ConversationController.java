@@ -1,0 +1,177 @@
+package io.agentteams.manager.api;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.TextNode;
+import io.agentteams.manager.conversation.ConversationEvent;
+import io.agentteams.manager.conversation.ConversationRuntimeException;
+import io.agentteams.manager.conversation.ConversationRuntimePort;
+import io.agentteams.manager.conversation.ConversationService;
+import io.agentteams.manager.security.ManagerAuthorizationException;
+import io.agentteams.manager.security.ManagerPrincipal;
+import io.agentteams.manager.security.ManagerRequestContext;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/** HTTP boundary for the lightweight runtime conversation used by the Console. */
+@RestController
+@RequestMapping("/api/v1/conversations")
+public final class ConversationController {
+    private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+    private static final long EVENT_WAIT_TIMEOUT_MILLIS = 30_000L;
+    private static final long EVENT_POLL_INTERVAL_MILLIS = 25L;
+    private final ConversationService service;
+    private final ObjectMapper mapper;
+
+    public ConversationController(ConversationService service) {
+        this(service, new ObjectMapper());
+    }
+
+    @Autowired
+    public ConversationController(ConversationService service, ObjectMapper mapper) {
+        this.service = service;
+        this.mapper = mapper;
+    }
+
+    @PostMapping
+    public ResponseEntity<SessionResponse> create(
+            @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
+            @RequestBody CreateRequest request) {
+        requireKey(idempotencyKey);
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        if (request == null || request.sessionId() == null) {
+            throw new IllegalArgumentException("sessionId is required");
+        }
+        requireScope(request.projectValue(), request.teamValue(), principal);
+        ConversationRuntimePort.Context context = new ConversationRuntimePort.Context(
+                request.projectValue(), request.teamValue(), request.workerValue(), request.taskValue(), request.sessionId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(service.createAndStart(context)));
+    }
+
+    @GetMapping("/{sessionId}")
+    public SessionResponse get(@PathVariable UUID sessionId) {
+        ConversationService.Conversation conversation = service.get(sessionId);
+        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
+        return SessionResponse.from(conversation);
+    }
+
+    @PostMapping("/{sessionId}/messages")
+    public MessageResponse message(@PathVariable UUID sessionId,
+            @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
+            @RequestBody MessageRequest request) {
+        requireKey(idempotencyKey);
+        if (request == null || request.content() == null || request.content().isBlank()) {
+            throw new IllegalArgumentException("content is required");
+        }
+        ConversationService.Conversation conversation = service.get(sessionId);
+        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
+        ConversationService.SendResult result = service.send(sessionId, idempotencyKey, request.content());
+        return new MessageResponse(result.sessionId(), result.idempotencyKey(),
+                result.events().stream().map(this::eventResponse).toList());
+    }
+
+    @GetMapping(value = "/{sessionId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<String> events(@PathVariable UUID sessionId,
+            @RequestParam(name = "after", defaultValue = "0") long after,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
+        if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative");
+        long cursor = Math.max(after, parseCursor(lastEventId));
+        ConversationService.Conversation conversation = service.get(sessionId);
+        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
+        waitForPendingMessage(sessionId);
+        StringBuilder stream = new StringBuilder();
+        for (ConversationEvent event : service.events(sessionId, cursor)) {
+            stream.append("id: ").append(event.cursor()).append('\n')
+                    .append("event: ").append(event.type()).append('\n');
+            for (String line : event.data().split("\\R", -1)) {
+                stream.append("data: ").append(line).append('\n');
+            }
+            stream.append('\n');
+        }
+        return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(stream.toString());
+    }
+
+    private void waitForPendingMessage(UUID sessionId) {
+        if (!service.hasPendingMessage(sessionId)) return;
+        long deadline = System.nanoTime() + EVENT_WAIT_TIMEOUT_MILLIS * 1_000_000L;
+        while (service.hasPendingMessage(sessionId) && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(EVENT_POLL_INTERVAL_MILLIS);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    @PostMapping("/{sessionId}/cancel")
+    public SessionResponse cancel(@PathVariable UUID sessionId,
+            @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey) {
+        requireKey(idempotencyKey);
+        ConversationService.Conversation conversation = service.get(sessionId);
+        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
+        return SessionResponse.from(service.cancel(sessionId, idempotencyKey));
+    }
+
+    private static void requireScope(String project, String team, ManagerPrincipal principal) {
+        if (!principal.projectId().equals(project) || !principal.teamId().equals(team)) {
+            throw new ManagerAuthorizationException("conversation scope does not match authenticated principal");
+        }
+    }
+
+    private static void requireKey(String key) {
+        if (key == null || key.isBlank() || key.length() > 255) {
+            throw new IllegalArgumentException("Idempotency-Key is required and must be at most 255 characters");
+        }
+    }
+
+    private static long parseCursor(String value) {
+        if (value == null || value.isBlank()) return 0;
+        try {
+            long cursor = Long.parseLong(value);
+            if (cursor < 0) throw new NumberFormatException();
+            return cursor;
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException("Last-Event-ID must be a non-negative cursor");
+        }
+    }
+
+    public record CreateRequest(UUID sessionId, String project, String team, String worker, String task,
+            String projectId, String teamId, String workerId, String taskId) {
+        String projectValue() { return project != null ? project : projectId; }
+        String teamValue() { return team != null ? team : teamId; }
+        String workerValue() { return worker != null ? worker : workerId; }
+        String taskValue() { return task != null ? task : taskId; }
+    }
+    public record MessageRequest(String content, Long expectedVersion) { }
+    private EventResponse eventResponse(ConversationEvent event) {
+        JsonNode data;
+        try {
+            data = mapper.readTree(event.data());
+        } catch (Exception error) {
+            data = TextNode.valueOf(event.data());
+        }
+        return new EventResponse(event.cursor(), event.type(), data);
+    }
+    public record CancelRequest(Long expectedVersion) { }
+
+    public record SessionResponse(UUID sessionId, ConversationRuntimePort.Context context, String status) {
+        static SessionResponse from(ConversationService.Conversation conversation) {
+            return new SessionResponse(conversation.sessionId(), conversation.context(), conversation.status().name());
+        }
+    }
+    public record EventResponse(long id, String event, JsonNode data) { }
+    public record MessageResponse(UUID sessionId, String idempotencyKey, List<EventResponse> events) { }
+}

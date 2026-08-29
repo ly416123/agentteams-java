@@ -134,7 +134,9 @@ application configuration.
 ## Project environment and validation gate
 
 The primary local development environment is macOS with Colima and a working
-Docker daemon. `deploy/dev-env.sh` selects the `colima` Docker context and
+Docker daemon. This project workspace has Docker Engine available locally,
+Chrome available for browser validation, and an existing Kind cluster named
+`agentteams`. `deploy/dev-env.sh` selects the `colima` Docker context and
 exports the Docker endpoint used by Testcontainers. Docker-backed tests are
 therefore part of the normal local verification path, not an optional CI-only
 substitute.
@@ -152,6 +154,11 @@ If the local Docker daemon or Testcontainers endpoint is unavailable, pure
 Java tests may still be useful for diagnosis, but the change must not be
 submitted to GitHub CI as locally verified until the Docker-backed command has
 passed.
+
+For this workspace, Docker/Kind/browser validation is an execution
+requirement. Acceptance commands must fail with a non-zero exit code when
+Docker, Kind, kubectl, the required image, or Chrome is unavailable; an
+environmental `SKIPPED` result is not accepted as a passing result.
 
 ## Local infrastructure
 

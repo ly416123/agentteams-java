@@ -52,4 +52,19 @@ class ManagerAuthenticationFilterTest {
 
         assertThatThrownBy(ManagerRequestContext::require).isInstanceOf(ManagerAuthenticationException.class);
     }
+
+    @Test
+    void protectsConversationApiWithTheSameBearerAuthentication() throws Exception {
+        ManagerIdentityTokenValidator validator = mock(ManagerIdentityTokenValidator.class);
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRequestURI("/api/v1/conversations");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        new ManagerAuthenticationFilter(validator).doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        verify(chain, org.mockito.Mockito.never()).doFilter(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
 }
