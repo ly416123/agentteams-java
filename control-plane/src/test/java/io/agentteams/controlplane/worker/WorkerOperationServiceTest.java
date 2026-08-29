@@ -120,6 +120,25 @@ class WorkerOperationServiceTest {
     }
 
     @Test
+    void repeatsRollbackWithTheSameIdempotencyKeyWithoutApplyingItTwice() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+        WorkerOperation rollout = operations.rollout(agentId, new WorkerRolloutRequest(0, "rollback-key",
+                "sha256:image", "qwenpaw", "config-1", "secret-1"));
+        persistence.inTransaction(tx -> {
+            tx.workerOperations().updateStatus(rollout.id(), WorkerOperationStatus.FAILED,
+                    "PROVIDER_FAILURE", rollout.version(), NOW);
+            return null;
+        });
+
+        WorkerOperation first = operations.rollback(agentId, rollout.id(), 1, "rollback-request-1");
+        WorkerOperation repeated = operations.rollback(agentId, rollout.id(), 1, "rollback-request-1");
+
+        assertThat(repeated).isEqualTo(first);
+        assertThat(first.status()).isEqualTo(WorkerOperationStatus.ROLLED_BACK);
+    }
+
+    @Test
     void doesNotCreateASecondActiveOperationForTheSameWorker() {
         UUID agentId = UUID.randomUUID();
         insertAgent(agentId, AgentPhase.READY);

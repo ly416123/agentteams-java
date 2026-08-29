@@ -58,7 +58,8 @@ public final class ManagerSessionController {
         requireTrusted(projectId, principal.projectId(), "projectId");
         requireTrusted(teamId, principal.teamId(), "teamId");
         requireTrusted(actorId, principal.subject(), "actorId");
-        ManagerSessionServiceFacade.SessionPage page = facade.listSessions(pageSize, cursor);
+        ManagerSessionServiceFacade.SessionPage page = facade.listSessions(pageSize, cursor, principal.projectId(),
+                principal.teamId(), principal.subject());
         return ManagerSessionPageResponse.from(page);
     }
 
@@ -105,7 +106,8 @@ public final class ManagerSessionController {
         for (ManagerEventRecord event : events) {
             stream.append("id: ").append(event.cursor()).append('\n')
                     .append("event: ").append(event.type()).append('\n')
-                    .append("data: ").append(event.payload()).append("\n\n");
+                    .append("data: ").append(io.agentteams.manager.session.ManagerEventRedactor.redact(event.payload()))
+                    .append("\n\n");
         }
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(stream.toString());
     }

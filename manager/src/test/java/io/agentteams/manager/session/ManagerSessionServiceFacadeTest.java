@@ -51,6 +51,20 @@ class ManagerSessionServiceFacadeTest {
     }
 
     @Test
+    void neverTreatsLegacyTeamAsACrossTeamWildcard() {
+        InMemoryManagerSessionRepository repository = new InMemoryManagerSessionRepository();
+        ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, null,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        ManagerSessionRecord session = facade.createSession(
+                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "actor-a"),
+                "legacy-session-key");
+        ManagerRequestContext.set(new ManagerPrincipal("actor-a", "tenant-a", "project-a", "team-b", Set.of()));
+
+        assertThatThrownBy(() -> facade.getSession(session.id()))
+                .isInstanceOf(io.agentteams.manager.security.ManagerAuthorizationException.class);
+    }
+
+    @Test
     void acceptsIsoInstantCursorWithoutLosingSubMillisecondPrecision() {
         InMemoryManagerSessionRepository repository = new InMemoryManagerSessionRepository();
         ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, null,
@@ -82,7 +96,7 @@ class ManagerSessionServiceFacadeTest {
         ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, model,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         ManagerSessionRecord session = facade.createSession(
-                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "actor-a"),
+                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "team-a", "actor-a"),
                 "session-key");
         ManagerRequestContext.set(new ManagerPrincipal("actor-a", "tenant-a", "project-a", "team-a",
                 Set.of("task:create", "task:read")));

@@ -3,9 +3,9 @@ package io.agentteams.controlplane.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.persistence.DomainEventRecord;
+import io.agentteams.controlplane.security.SensitiveFieldPolicy;
 import io.agentteams.controlplane.service.TaskService;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -20,10 +20,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/tasks")
 public final class TaskEventController {
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final Set<String> SENSITIVE = Set.of("token", "accesstoken", "refreshtoken", "bearertoken",
-            "secret", "clientsecret", "secretgeneration", "requestedsecretgeneration", "password",
-            "authorization", "credential", "credentials", "apikey", "privatekey", "containerlog",
-            "previousstablespec", "spec", "input", "log", "logs");
     private final TaskService service;
 
     public TaskEventController(TaskService service) { this.service = service; }
@@ -60,15 +56,11 @@ public final class TaskEventController {
             var fields = node.fields();
             while (fields.hasNext()) {
                 var entry = fields.next();
-                if (SENSITIVE.contains(normalize(entry.getKey()))) {
+                if (SensitiveFieldPolicy.isSensitive(entry.getKey())) {
                     fields.remove();
                 } else redactNode(entry.getValue());
             }
         } else if (node.isArray()) node.forEach(TaskEventController::redactNode);
-    }
-
-    private static String normalize(String key) {
-        return key.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     private static long parseCursor(String value) {

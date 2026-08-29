@@ -70,12 +70,18 @@ public final class WorkerOperationService {
     }
 
     public WorkerOperation rollback(UUID operationId, long expectedVersion) {
-        return rollback(null, operationId, expectedVersion);
+        throw new IllegalArgumentException("Idempotency-Key is required");
     }
 
-    /** Rolls back an operation while optionally enforcing the agent path scope. */
+    /** Compatibility overload that fails closed until a request key is supplied. */
     public WorkerOperation rollback(UUID agentId, UUID operationId, long expectedVersion) {
+        throw new IllegalArgumentException("Idempotency-Key is required");
+    }
+
+    /** Rolls back an operation while enforcing a durable request idempotency key. */
+    public WorkerOperation rollback(UUID agentId, UUID operationId, long expectedVersion, String idempotencyKey) {
         Objects.requireNonNull(operationId, "operationId");
+        requireKey(idempotencyKey);
         Instant now = clock.instant();
         return persistence.inTransaction(tx -> {
             WorkerOperation current = tx.workerOperations().findByIdForUpdate(operationId)
@@ -84,6 +90,12 @@ public final class WorkerOperationService {
                 throw new ResourceNotFoundException("worker operation", operationId);
             }
             requireVisible(current.agentId());
+            WorkerOperationRepository.RollbackRequest prior = tx.workerOperations().findRollback(operationId)
+                    .orElse(null);
+            if (prior != null) {
+                assertRollbackRequest(prior, expectedVersion, idempotencyKey);
+                return current;
+            }
             if (current.version() != expectedVersion) {
                 throw new io.agentteams.controlplane.persistence.OptimisticLockFailure(
                         "worker_operation", operationId, expectedVersion, current.version());
@@ -91,6 +103,14 @@ public final class WorkerOperationService {
             if (current.type() != WorkerOperationType.ROLLOUT
                     || current.status() != WorkerOperationStatus.FAILED) {
                 throw new WorkerLifecycleConflictException("WORKER_ROLLBACK_NOT_ALLOWED");
+            }
+            WorkerOperationRepository.RollbackRequest request = new WorkerOperationRepository.RollbackRequest(
+                    operationId, idempotencyKey, expectedVersion, now);
+            if (!tx.workerOperations().insertRollback(request)) {
+                WorkerOperationRepository.RollbackRequest winner = tx.workerOperations().findRollback(operationId)
+                        .orElseThrow(() -> new IllegalStateException("rollback idempotency record disappeared"));
+                assertRollbackRequest(winner, expectedVersion, idempotencyKey);
+                return current;
             }
             WorkerOperation updated = tx.workerOperations().updateStatus(operationId, WorkerOperationStatus.ROLLED_BACK,
                     null, expectedVersion, now);
@@ -340,6 +360,13 @@ public final class WorkerOperationService {
                 || !Objects.equals(existing.requestedSecretGeneration(), requestedSecretGeneration)
                 || !Objects.equals(existing.previousStableSpec(), previousStableSpec)) {
             throw new IdempotencyConflictException(idempotencyKey, "worker operation");
+        }
+    }
+
+    private static void assertRollbackRequest(WorkerOperationRepository.RollbackRequest existing,
+            long expectedVersion, String idempotencyKey) {
+        if (!existing.idempotencyKey().equals(idempotencyKey) || existing.expectedVersion() != expectedVersion) {
+            throw new IdempotencyConflictException(idempotencyKey, "worker rollback");
         }
     }
 

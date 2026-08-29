@@ -81,6 +81,24 @@ public final class WorkerOperationRepository {
                 agentId, idempotencyKey).stream().findFirst();
     }
 
+    public Optional<RollbackRequest> findRollback(UUID operationId) {
+        return jdbc.query("""
+                SELECT operation_id, idempotency_key, expected_version, created_at
+                  FROM worker_operation_rollbacks WHERE operation_id = ?
+                """, (rs, row) -> new RollbackRequest(rs.getObject("operation_id", UUID.class),
+                rs.getString("idempotency_key"), rs.getLong("expected_version"),
+                JdbcSupport.instant(rs, "created_at")), operationId).stream().findFirst();
+    }
+
+    public boolean insertRollback(RollbackRequest request) {
+        return jdbc.update("""
+                INSERT INTO worker_operation_rollbacks(operation_id, idempotency_key, expected_version, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (operation_id) DO NOTHING
+                """, request.operationId(), request.idempotencyKey(), request.expectedVersion(),
+                JdbcSupport.timestamp(request.createdAt())) > 0;
+    }
+
     public Optional<WorkerOperation> findActiveByAgentForUpdate(UUID agentId) {
         return jdbc.query(select() + " WHERE agent_id = ? AND status IN ('PENDING', 'RUNNING')"
                         + " ORDER BY created_at, id LIMIT 1 FOR UPDATE",
@@ -218,5 +236,16 @@ public final class WorkerOperationRepository {
 
     private static String text(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    public record RollbackRequest(UUID operationId, String idempotencyKey, long expectedVersion, Instant createdAt) {
+        public RollbackRequest {
+            java.util.Objects.requireNonNull(operationId, "operationId");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                throw new IllegalArgumentException("idempotencyKey must not be blank");
+            }
+            if (expectedVersion < 0) throw new IllegalArgumentException("expectedVersion must not be negative");
+            java.util.Objects.requireNonNull(createdAt, "createdAt");
+        }
     }
 }

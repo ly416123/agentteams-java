@@ -45,13 +45,20 @@ public final class TeamRepository {
                 JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), name).stream().findFirst();
     }
 
-    public List<TeamRecord> findAll() {
+    public List<TeamRecord> findAll(Principal principal) {
         return jdbc.query("""
                 SELECT id, name, display_name, status, created_at, updated_at, version
-                  FROM teams ORDER BY name, id
+                  FROM teams t
+                  JOIN resource_scopes s ON s.resource_type = 'TEAM' AND s.resource_id = t.id
+                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')
+                 ORDER BY t.name, t.id
                 """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
                 rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
-                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")));
+                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), principal.scope().tenant(),
+                principal.scope().project(), principal.scope().team(), principal.subject());
     }
 
     public List<TeamRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,

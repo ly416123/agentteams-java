@@ -46,7 +46,12 @@ public final class TeamController {
     }
 
     @GetMapping
-    public CursorPage<TeamResponse> list(@RequestParam(required = false) String cursor,
+    public List<TeamResponse> list() {
+        return service.list().stream().map(TeamResponse::from).toList();
+    }
+
+    @GetMapping("/page")
+    public CursorPage<TeamResponse> page(@RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction, @RequestParam(required = false) String status,
             @RequestParam(required = false) String q, @RequestParam(required = false) String search) {

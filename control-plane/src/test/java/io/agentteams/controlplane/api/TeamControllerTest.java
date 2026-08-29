@@ -120,13 +120,26 @@ class TeamControllerTest {
     }
 
     @Test
-    void returnsTeamListInTheCommonCursorEnvelope() throws Exception {
+    void keepsLegacyTeamListAsAnArray() throws Exception {
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        TeamRecord team = new TeamRecord(UUID.randomUUID(), "research", "Research", "ACTIVE", now, now, 0);
+        when(service.list()).thenReturn(List.of(team));
+
+        mockMvc.perform(get("/api/v1/teams"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("research"))
+                .andExpect(jsonPath("$.items").doesNotExist());
+        verify(service).list();
+    }
+
+    @Test
+    void exposesManagementTeamPageOnAnExplicitPath() throws Exception {
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
         TeamRecord team = new TeamRecord(UUID.randomUUID(), "research", "Research", "ACTIVE", now, now, 0);
         when(service.list(any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new CursorPage<>(List.of(team), "next", true, now));
 
-        mockMvc.perform(get("/api/v1/teams").param("pageSize", "20").param("q", "research")
+        mockMvc.perform(get("/api/v1/teams/page").param("pageSize", "20").param("q", "research")
                 .param("status", "ACTIVE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("research"))

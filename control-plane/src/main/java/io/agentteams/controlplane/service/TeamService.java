@@ -49,6 +49,7 @@ public final class TeamService {
     }
 
     public TeamRecord create(String name, String displayName, TeamPolicyRecord policy, Instant now) {
+        requireScopeContext();
         Objects.requireNonNull(policy, "policy");
         Objects.requireNonNull(now, "now");
         TeamRecord team = TeamRecord.create(UUID.randomUUID(), name, displayName, now);
@@ -67,6 +68,7 @@ public final class TeamService {
 
     public TeamRecord create(String idempotencyKey, String name, String displayName,
             TeamPolicyRecord policy, Instant now) {
+        requireScopeContext();
         if (idempotency == null) {
             throw new IllegalStateException("team idempotency is not configured");
         }
@@ -127,8 +129,8 @@ public final class TeamService {
     }
 
     public List<TeamRecord> list() {
-        return persistence.inTransaction(tx -> tx.teams().findAll()).stream()
-                .filter(team -> isVisible(team.id())).toList();
+        io.agentteams.controlplane.security.Principal principal = requireScopeContext();
+        return persistence.inTransaction(tx -> tx.teams().findAll(principal));
     }
 
     public CursorPage<TeamRecord> list(CursorPageRequest request) {
@@ -137,10 +139,7 @@ public final class TeamService {
 
     public CursorPage<TeamRecord> list(CursorPageRequest request, String status, String query) {
         Objects.requireNonNull(request, "request");
-        if (resourceScopes == null) throw new IllegalStateException("resource scope repository is required");
-        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
-                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
-                        "authentication required"));
+        io.agentteams.controlplane.security.Principal principal = requireScopeContext();
         List<TeamRecord> rows = persistence.inTransaction(tx -> tx.teams().findPage(principal, request.position(),
                 request.pageSize() + 1, request.direction(), status, query));
         return CursorPage.fromRows(rows, request.pageSize(),
@@ -274,31 +273,23 @@ public final class TeamService {
     }
 
     private void bindIfAuthenticated(UUID resourceId, Instant createdAt) {
-        if (resourceScopes != null) {
-            PrincipalContext.current().ifPresent(principal ->
-                    resourceScopes.bind("TEAM", resourceId, principal, createdAt));
-        }
+        resourceScopes.bind("TEAM", resourceId, requireScopeContext(), createdAt);
     }
 
     private void requireVisible(UUID resourceId) {
-        if (resourceScopes != null) {
-            resourceScopes.requireVisible("TEAM", resourceId);
-        }
-    }
-
-    private boolean isVisible(UUID resourceId) {
-        try {
-            requireVisible(resourceId);
-            return true;
-        } catch (RuntimeException ignored) {
-            return false;
-        }
+        requireScopeContext();
+        resourceScopes.requireVisible("TEAM", resourceId);
     }
 
     private void requireWorkerVisible(UUID resourceId) {
-        if (resourceScopes != null) {
-            resourceScopes.requireVisible("WORKER", resourceId);
-        }
+        requireScopeContext();
+        resourceScopes.requireVisible("WORKER", resourceId);
+    }
+
+    private io.agentteams.controlplane.security.Principal requireScopeContext() {
+        if (resourceScopes == null) throw new IllegalStateException("resource scope repository is required");
+        return PrincipalContext.current().orElseThrow(() ->
+                new io.agentteams.controlplane.security.AuthorizationException("authentication required"));
     }
 
     private String requireKey(String value) {

@@ -172,14 +172,15 @@ class InternalWorkerOperationControllerTest {
                 "sha256:new", "qwenpaw", "config-2", "secret-2", "{}", "rollout-1", 1,
                 "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
                 Instant.parse("2030-01-01T00:00:00Z"));
-        when(operations.rollback(operationId, 3L)).thenReturn(operation);
+        when(operations.rollback(null, operationId, 3L, "rollback-key")).thenReturn(operation);
 
         mockMvc.perform(post("/internal/v1/worker-operations/{id}/rollback", operationId)
-                        .header(InternalWorkerOperationController.TOKEN_HEADER, "secret")
+                .header(InternalWorkerOperationController.TOKEN_HEADER, "secret")
+                        .header("Idempotency-Key", "rollback-key")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":3}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(operationId.toString()));
 
-        verify(operations).rollback(operationId, 3L);
+        verify(operations).rollback(null, operationId, 3L, "rollback-key");
     }
 }

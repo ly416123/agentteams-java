@@ -66,13 +66,20 @@ public class ManagerSessionServiceFacade {
     }
 
     public SessionPage listSessions(Integer pageSize, String cursor) {
+        ManagerPrincipal principal = ManagerRequestContext.current().orElseThrow(() ->
+                new io.agentteams.manager.security.ManagerAuthorizationException("authentication required"));
+        return listSessions(pageSize, cursor, principal.projectId(), principal.teamId(), principal.subject());
+    }
+
+    public SessionPage listSessions(Integer pageSize, String cursor, String projectId, String teamId, String actorId) {
         int size = pageSize == null ? 50 : pageSize;
         if (size < 1 || size > 200) throw new IllegalArgumentException("pageSize must be between 1 and 200");
         ManagerPrincipal principal = ManagerRequestContext.current().orElseThrow(() ->
                 new io.agentteams.manager.security.ManagerAuthorizationException("authentication required"));
+        requireRequestedScope(principal, projectId, teamId, actorId);
         SessionCursor position = decodeCursor(cursor);
-        List<ManagerSessionRecord> rows = repository.findSessions(principal.tenantId(), principal.projectId(),
-                principal.teamId(), principal.subject(), position == null ? null : position.updatedAt(),
+        List<ManagerSessionRecord> rows = repository.findSessions(principal.tenantId(), projectId, teamId, actorId,
+                position == null ? null : position.updatedAt(),
                 position == null ? null : position.id(), size + 1);
         boolean hasMore = rows.size() > size;
         List<ManagerSessionRecord> items = rows.subList(0, Math.min(size, rows.size()));
@@ -217,10 +224,21 @@ public class ManagerSessionServiceFacade {
     private static void requireScope(ManagerPrincipal principal, ManagerSessionRecord session) {
         if (!principal.tenantId().equals(session.tenantId())
                 || !principal.projectId().equals(session.projectId())
-                || (!session.teamId().equals("legacy") && !principal.teamId().equals(session.teamId()))
+                || !principal.teamId().equals(session.teamId())
                 || !principal.subject().equals(session.actor())) {
             throw new io.agentteams.manager.security.ManagerAuthorizationException(
                     "manager session is outside the caller scope");
+        }
+    }
+
+    private static void requireRequestedScope(ManagerPrincipal principal, String projectId, String teamId,
+            String actorId) {
+        if (projectId == null || teamId == null || actorId == null
+                || !principal.projectId().equals(projectId)
+                || !principal.teamId().equals(teamId)
+                || !principal.subject().equals(actorId)) {
+            throw new io.agentteams.manager.security.ManagerAuthorizationException(
+                    "manager session list is outside the caller scope");
         }
     }
     private static void requireText(String value, String field) {

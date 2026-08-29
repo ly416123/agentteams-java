@@ -52,7 +52,14 @@ class ManagerSessionControllerTest {
         when(facade.createSession(any(), org.mockito.ArgumentMatchers.eq("session-key"))).thenReturn(session);
         when(facade.getSession(sessionId)).thenReturn(session);
         when(facade.events(sessionId, 0)).thenReturn(List.of(
-                new ManagerEventRecord(sessionId, 1, "SESSION_CREATED", "{}", session.createdAt())));
+                new ManagerEventRecord(sessionId, 1, "SESSION_CREATED",
+                        "{\"status\":\"ACTIVE\",\"messageId\":\"m-1\",\"token\":\"secret\","
+                                + "\"password\":\"secret\",\"apiKey\":\"secret\","
+                                + "\"deepseekApiKey\":\"secret\",\"clientSecret\":\"secret\","
+                                + "\"bearerToken\":\"secret\",\"privateKey\":\"secret\","
+                                + "\"credentials\":\"secret\",\"secret\":\"secret\","
+                                + "\"nested\":{\"spec\":{\"password\":\"secret\"},"
+                                + "\"status\":\"should-drop\"}}", session.createdAt())));
         ManagerSessionServiceFacade.MessageResult message = new ManagerSessionServiceFacade.MessageResult(session,
                 new io.agentteams.manager.session.ManagerMessageRecord(UUID.randomUUID(), sessionId, "message-key",
                         "actor-a", "user", "hash", "message accepted", "created", session.createdAt()), null);
@@ -78,7 +85,19 @@ class ManagerSessionControllerTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(0));
         mvc.perform(get("/api/v1/manager/sessions/" + sessionId + "/events")
                 .param("after", "0"))
-                .andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith("text/event-stream"));
+                .andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith("text/event-stream"))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"status\":\"ACTIVE\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"messageId\":\"m-1\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("token"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("password"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("apiKey"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("deepseekApiKey"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("clientSecret"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("bearerToken"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("privateKey"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("credentials"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("spec"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("nested"))));
         mvc.perform(post("/api/v1/manager/sessions/" + sessionId + "/cancel")
                 .header("Idempotency-Key", "cancel-key")
                 .contentType("application/json")
@@ -136,7 +155,9 @@ class ManagerSessionControllerTest {
     void listsSessionsOnlyInsideAuthenticatedScopeWithCursorEnvelope() throws Exception {
         ManagerSessionRecord session = ManagerSessionRecord.newSession(sessionId, "tenant-a", "project-a",
                 "team-a", "actor-a", Instant.parse("2026-08-26T00:00:00Z"));
-        when(facade.listSessions(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+        when(facade.listSessions(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new ManagerSessionServiceFacade.SessionPage(List.of(session), "next", true,
                         session.createdAt()));
 
@@ -148,6 +169,7 @@ class ManagerSessionControllerTest {
                 .andExpect(jsonPath("$.items[0].actorId").value("actor-a"))
                 .andExpect(jsonPath("$.nextCursor").value("next"))
                 .andExpect(jsonPath("$.hasMore").value(true));
+        org.mockito.Mockito.verify(facade).listSessions(20, null, "project-a", "team-a", "actor-a");
     }
 
     @Test

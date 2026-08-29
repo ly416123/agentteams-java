@@ -71,13 +71,15 @@ public final class InternalWorkerOperationController {
     public ResponseEntity<WorkerOperationResponse> rollback(
             @PathVariable UUID operationId,
             @RequestHeader(name = TOKEN_HEADER, required = false) String token,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody RollbackRequest request) {
         authorize(token);
+        requireIdempotencyKey(idempotencyKey);
         if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
             throw new IllegalArgumentException("expectedVersion is required");
         }
         return ResponseEntity.ok(WorkerOperationResponse.from(
-                operations.rollback(operationId, request.expectedVersion())));
+                operations.rollback(null, operationId, request.expectedVersion(), idempotencyKey)));
     }
 
     @PostMapping("/{operationId}/operator")
@@ -113,6 +115,12 @@ public final class InternalWorkerOperationController {
         byte[] supplied = token == null ? new byte[0] : token.getBytes(StandardCharsets.UTF_8);
         if (internalToken.isBlank() || !MessageDigest.isEqual(expected, supplied)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "internal worker operation token rejected");
+        }
+    }
+
+    private static void requireIdempotencyKey(String value) {
+        if (value == null || value.isBlank() || value.length() > 255) {
+            throw new IllegalArgumentException("Idempotency-Key is required and must be at most 255 characters");
         }
     }
 

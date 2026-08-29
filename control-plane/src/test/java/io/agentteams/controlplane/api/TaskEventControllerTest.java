@@ -62,4 +62,26 @@ class TaskEventControllerTest {
         mvc.perform(get("/api/v1/tasks/{id}/events", UUID.randomUUID()).param("after", "-1"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void redactsProviderApiKeyVariantsIncludingDeepSeek() throws Exception {
+        TaskService service = mock(TaskService.class);
+        UUID taskId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-29T00:00:00Z");
+        DomainEventRecord event = DomainEventRecord.create(UUID.randomUUID(), "task", taskId, "TaskUpdated",
+                "{\"deepseekApiKey\":\"deep-secret\",\"provider_api_key\":\"provider-secret\","
+                        + "\"openai-api-key\":\"openai-secret\",\"safe\":\"kept\"}", now, 1);
+        when(service.events(eq(taskId), anyLong())).thenReturn(List.of(event));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new TaskEventController(service))
+                .setControllerAdvice(new ApiErrorHandler()).build();
+
+        mvc.perform(get("/api/v1/tasks/{id}/events", taskId))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"safe\":\"kept\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("deep-secret"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("provider-secret"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("openai-secret"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("deepseekApiKey"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("provider_api_key"))));
+    }
 }

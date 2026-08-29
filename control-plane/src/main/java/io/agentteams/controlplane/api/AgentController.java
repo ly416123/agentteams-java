@@ -112,9 +112,11 @@ public final class AgentController {
 
     @PostMapping("/{agentId}/operations/{operationId}/rollback")
     public WorkerOperationResponse rollback(@PathVariable UUID agentId, @PathVariable UUID operationId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
             @RequestBody OperationVersionRequest request) {
+        requireIdempotencyKey(idempotencyKey);
         return WorkerOperationResponse.from(operations().rollback(agentId, operationId,
-                expectedVersion(request)));
+                expectedVersion(request), idempotencyKey));
     }
 
     public record LifecycleRequest(Long expectedVersion) {

@@ -161,7 +161,7 @@ class ControlPlaneControllerTest {
                 "rollout-operation-2", 3, "alice", Instant.parse("2026-08-23T00:02:00Z"),
                 "correlation-4", Instant.parse("2026-08-23T00:00:00Z"));
         when(workerOperations.get(agentId, operationId)).thenReturn(operation);
-        when(workerOperations.rollback(agentId, operationId, 4L)).thenReturn(operation);
+        when(workerOperations.rollback(agentId, operationId, 4L, "rollback-operation-1")).thenReturn(operation);
 
         mockMvc.perform(get("/api/v1/agents/{agentId}/operations/{operationId}", agentId, operationId))
                 .andExpect(status().isOk())
@@ -169,12 +169,22 @@ class ControlPlaneControllerTest {
                 .andExpect(jsonPath("$.agentId").value(agentId.toString()));
 
         mockMvc.perform(post("/api/v1/agents/{agentId}/operations/{operationId}/rollback", agentId, operationId)
+                        .header("Idempotency-Key", "rollback-operation-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedVersion\":4}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(operationId.toString()));
         verify(workerOperations).get(agentId, operationId);
-        verify(workerOperations).rollback(agentId, operationId, 4L);
+        verify(workerOperations).rollback(agentId, operationId, 4L, "rollback-operation-1");
+    }
+
+    @Test
+    void rejectsAgentRollbackWithoutIdempotencyKey() throws Exception {
+        mockMvc.perform(post("/api/v1/agents/{agentId}/operations/{operationId}/rollback",
+                        UUID.randomUUID(), UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":4}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

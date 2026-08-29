@@ -112,10 +112,45 @@ class TeamServiceScopeTest {
         TeamService withoutScopes = new TeamService(persistence,
                 new io.agentteams.controlplane.team.TeamSchedulingPolicy(), null);
 
+        org.assertj.core.api.Assertions.assertThatThrownBy(withoutScopes::list)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("resource scope");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> withoutScopes.list(
                 new io.agentteams.controlplane.api.CursorPageRequest(null, 20, null, null)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("resource scope");
+    }
+
+    @Test
+    void rejectsLegacyListingWithoutAnAuthenticatedPrincipal() {
+        PrincipalContext.clear();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(service::list)
+                .isInstanceOf(AuthorizationException.class)
+                .hasMessageContaining("authentication");
+    }
+
+    @Test
+    void rejectsIndividualVisibilityChecksWithoutAnAuthenticatedPrincipal() {
+        PrincipalContext.clear();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.get(UUID.randomUUID()))
+                .isInstanceOf(AuthorizationException.class)
+                .hasMessageContaining("authentication");
+    }
+
+    @Test
+    void usesScopedRepositoryForLegacyListing() {
+        TeamRecord team = new TeamRecord(UUID.randomUUID(), "team", "Team", "ACTIVE", NOW, NOW, 0);
+        when(transaction.teams()).thenReturn(teams);
+        when(teams.findAll(PRINCIPAL)).thenReturn(List.of(team));
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Function<FoundationTransaction, Object> work = invocation.getArgument(0);
+            return work.apply(transaction);
+        });
+        assertThat(service.list()).containsExactly(team);
+        verify(teams).findAll(PRINCIPAL);
     }
 
     @Test
@@ -142,7 +177,7 @@ class TeamServiceScopeTest {
         });
 
         TeamService keyed = new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
-                null, new IdempotencyService());
+                resourceScopes, new IdempotencyService());
 
         assertThat(keyed.addMember(teamId, agentId, "MEMBER", NOW, "member-key")).isEqualTo(member);
         assertThat(keyed.addMember(teamId, agentId, "MEMBER", NOW, "member-key")).isEqualTo(member);
@@ -169,7 +204,7 @@ class TeamServiceScopeTest {
         });
 
         TeamService keyed = new TeamService(persistence, new io.agentteams.controlplane.team.TeamSchedulingPolicy(),
-                null, new IdempotencyService());
+                resourceScopes, new IdempotencyService());
 
         assertThat(keyed.updatePolicy(teamId, 3, true, List.of("java"), List.of("gpu"), 2, NOW, "policy-key"))
                 .isEqualTo(policy);
