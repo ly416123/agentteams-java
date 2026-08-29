@@ -1,5 +1,7 @@
 package io.agentteams.manager.conversation;
 
+import java.util.Objects;
+
 /** Safe, stable failure raised at the Conversation runtime boundary. */
 public final class ConversationRuntimeException extends RuntimeException {
     public enum Code {
@@ -19,12 +21,12 @@ public final class ConversationRuntimeException extends RuntimeException {
 
     public ConversationRuntimeException(Code code, String message) {
         super(message);
-        this.code = code;
+        this.code = Objects.requireNonNull(code, "code");
     }
 
     public ConversationRuntimeException(Code code, String message, Throwable cause) {
         super(message, cause);
-        this.code = code;
+        this.code = Objects.requireNonNull(code, "code");
     }
 
     public Code code() {

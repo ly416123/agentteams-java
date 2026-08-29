@@ -12,6 +12,12 @@ class ConversationServiceTest {
             "project-a", "team-a", "worker-a", null, SESSION_ID);
 
     @Test
+    void runtimeExceptionRequiresAStableCode() {
+        assertThatThrownBy(() -> new ConversationRuntimeException(null, "invalid"))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     void createAndStartAreIdempotentAndExposeStartedEvent() {
         FakeConversationRuntime runtime = new FakeConversationRuntime();
         ConversationService service = new ConversationService(runtime);
