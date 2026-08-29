@@ -15,6 +15,6 @@ export const queryKeys = {
   taskEvents: (projectId: string, taskId: string) => ['task-events', projectId, taskId] as const,
   workers: (projectId: string, filters: object = {}) => ['workers', projectId, filters] as const,
   worker: (projectId: string, workerId: string) => ['worker', projectId, workerId] as const,
-  workerOperations: (projectId: string, workerId: string) =>
-    ['worker-operations', projectId, workerId] as const,
+  workerOperations: (projectId: string, workerId: string, cursor?: string) =>
+    ['worker-operations', projectId, workerId, cursor] as const,
 };

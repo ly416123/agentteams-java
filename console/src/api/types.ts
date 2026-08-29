@@ -195,10 +195,22 @@ export type WorkerOperation = {
 };
 
 export type Overview = {
-  tasks: { total: number; queued: number; running: number; succeeded: number; failed: number };
-  workers: { ready: number; connecting: number; unhealthy: number; draining: number };
-  teams: { total: number; active: number };
+  tasks: {
+    total: number | null;
+    queued: number | null;
+    running: number | null;
+    succeeded: number | null;
+    failed: number | null;
+  };
+  workers: {
+    ready: number | null;
+    connecting: number | null;
+    unhealthy: number | null;
+    draining: number | null;
+  };
+  teams: { total: number | null; active: number | null };
   recentTasks: Task[];
   alerts: Array<{ id: string; severity: string; message: string; createdAt: string }>;
   usage?: DashboardSummary;
+  errors?: Partial<Record<'summary' | 'alerts' | 'teams' | 'tasks' | 'workers', unknown>>;
 };

@@ -3,7 +3,6 @@ import {
   createTeam,
   getPolicy,
   getTeam,
-  listDeployments,
   listMembers,
   listRevisions,
   listTeams,
@@ -48,25 +47,24 @@ export function useTeamRevisions(projectId: string, teamId: string) {
     enabled: Boolean(projectId && teamId),
   });
 }
-export function useTeamDeployments(projectId: string, teamId: string) {
-  return useQuery({
-    queryKey: queryKeys.teamDeployments(projectId, teamId),
-    queryFn: () => listDeployments(teamId),
-    enabled: Boolean(projectId && teamId),
-  });
-}
 export function useCreateTeam(projectId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => createTeam(projectId, body),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['teams', projectId] }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['teams', projectId] });
+      client.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
+    },
   });
 }
 export function useUpdateTeamPolicy(projectId: string, teamId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: Parameters<typeof updatePolicy>[1]) => updatePolicy(teamId, body),
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: queryKeys.teamPolicy(projectId, teamId) }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: queryKeys.teamPolicy(projectId, teamId) });
+      client.invalidateQueries({ queryKey: queryKeys.team(projectId, teamId) });
+      client.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
+    },
   });
 }

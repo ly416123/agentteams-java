@@ -39,9 +39,16 @@ export function useTaskEvents(projectId: string, taskId: string) {
     isLoading: boolean;
     isError: boolean;
     error?: unknown;
-  }>({ data: [], isLoading: Boolean(projectId && taskId), isError: false });
+    connectionState: 'connecting' | 'connected' | 'reconnecting';
+  }>({
+    data: [],
+    isLoading: Boolean(projectId && taskId),
+    isError: false,
+    connectionState: 'connecting',
+  });
   const eventsRef = useRef<TaskEvent[]>([]);
   const cursorRef = useRef<string>();
+  const resourceRef = useRef<string>();
 
   useEffect(() => {
     if (!projectId || !taskId) return;
@@ -49,14 +56,24 @@ export function useTaskEvents(projectId: string, taskId: string) {
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let retryAttempt = 0;
     let active = true;
-    eventsRef.current = [];
-    cursorRef.current = undefined;
-    setState({ data: [], isLoading: true, isError: false });
+    const resource = `${projectId}:${taskId}`;
+    if (resourceRef.current !== resource) {
+      eventsRef.current = [];
+      cursorRef.current = undefined;
+      resourceRef.current = resource;
+    }
+    setState({
+      data: eventsRef.current,
+      isLoading: true,
+      isError: false,
+      connectionState: 'connecting',
+    });
 
     const scheduleReconnect = () => {
       if (!active) return;
       const delay = taskEventReconnectDelay(retryAttempt);
       retryAttempt += 1;
+      setState((current) => ({ ...current, connectionState: 'reconnecting' }));
       reconnectTimer = setTimeout(connect, delay);
     };
     const connect = async () => {
@@ -70,15 +87,26 @@ export function useTaskEvents(projectId: string, taskId: string) {
             const byId = new Map(eventsRef.current.map((event) => [event.id, event]));
             incoming.forEach((event) => byId.set(event.id, event));
             eventsRef.current = [...byId.values()];
-            cursorRef.current =
-              incoming[incoming.length - 1].cursor || incoming[incoming.length - 1].id;
-            setState({ data: eventsRef.current, isLoading: false, isError: false });
+            const lastEvent = incoming[incoming.length - 1];
+            cursorRef.current = lastEvent.cursor || lastEvent.id;
+            setState({
+              data: eventsRef.current,
+              isLoading: false,
+              isError: false,
+              connectionState: 'connected',
+            });
           },
         });
         scheduleReconnect();
       } catch (error) {
         if (!active || controller.signal.aborted) return;
-        setState((current) => ({ ...current, isLoading: false, isError: true, error }));
+        setState((current) => ({
+          ...current,
+          isLoading: false,
+          isError: true,
+          error,
+          connectionState: 'reconnecting',
+        }));
         scheduleReconnect();
       }
     };
@@ -108,13 +136,17 @@ export function useTaskAction(projectId: string, taskId: string) {
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['tasks', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.task(projectId, taskId) });
+      client.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
     },
   });
 }
 export function useCreateTask(projectId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => createTask(projectId, body),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['tasks', projectId] }),
+    mutationFn: (body: Parameters<typeof createTask>[0]) => createTask(body),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['tasks', projectId] });
+      client.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
+    },
   });
 }

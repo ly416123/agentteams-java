@@ -6,7 +6,6 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { Timeline } from '../../components/Timeline';
 import {
   useTeam,
-  useTeamDeployments,
   useTeamMembers,
   useTeamPolicy,
   useTeamRevisions,
@@ -19,7 +18,6 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
   const members = useTeamMembers(projectId, teamId);
   const policy = useTeamPolicy(projectId, teamId);
   const revisions = useTeamRevisions(projectId, teamId);
-  const deployments = useTeamDeployments(projectId, teamId);
   if (team.isLoading)
     return (
       <div className="page">
@@ -157,20 +155,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
           </section>
           <section className="panel">
             <h2>部署</h2>
-            {deployments.isLoading ? (
-              <div className="loading-block">加载部署…</div>
-            ) : deployments.isError ? (
-              <ErrorState error={deployments.error} onRetry={() => void deployments.refetch()} />
-            ) : deployments.data?.length ? (
-              deployments.data.map((deployment) => (
-                <div className="member-row" key={deployment.id}>
-                  <strong>Revision {deployment.teamRevision}</strong>
-                  <StatusBadge phase={deployment.status} />
-                </div>
-              ))
-            ) : (
-              <EmptyState title="暂无部署" description="Team 部署记录会显示在这里。" />
-            )}
+            <div className="info-box">
+              后端暂未提供部署列表接口。请从版本详情或已知 deploymentId 查询单条部署状态。
+            </div>
           </section>
         </div>
       )}

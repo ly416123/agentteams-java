@@ -18,40 +18,51 @@ export async function getOverview(
   projectId: string,
   client: HttpClient = apiClient,
 ): Promise<Overview> {
-  const [summary, alerts, teams, tasks, workers] = await Promise.all([
-    getDashboardSummary(client),
-    listDashboardAlerts(client),
-    listTeams(projectId, {}, client),
-    listTasks(projectId, {}, client),
-    listWorkers(projectId, {}, client),
-  ]);
-  const taskItems = tasks.items;
-  const workerItems = workers.items;
+  const [summaryResult, alertsResult, teamsResult, tasksResult, workersResult] =
+    await Promise.allSettled([
+      getDashboardSummary(client),
+      listDashboardAlerts(client),
+      listTeams(projectId, {}, client),
+      listTasks(projectId, {}, client),
+      listWorkers(projectId, {}, client),
+    ]);
+  const summary = summaryResult.status === 'fulfilled' ? summaryResult.value : undefined;
+  const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value : [];
+  const teams = teamsResult.status === 'fulfilled' ? teamsResult.value : undefined;
+  const tasks = tasksResult.status === 'fulfilled' ? tasksResult.value : undefined;
+  const errors: Overview['errors'] = {};
+  if (summaryResult.status === 'rejected') errors.summary = summaryResult.reason;
+  if (alertsResult.status === 'rejected') errors.alerts = alertsResult.reason;
+  if (teamsResult.status === 'rejected') errors.teams = teamsResult.reason;
+  if (tasksResult.status === 'rejected') errors.tasks = tasksResult.reason;
+  if (workersResult.status === 'rejected') errors.workers = workersResult.reason;
+  const taskItems = tasks?.items || [];
   return {
     tasks: {
-      total: tasks.total ?? taskItems.length,
-      queued: taskItems.filter((task) => task.phase === 'QUEUED').length,
-      running: taskItems.filter((task) => task.phase === 'RUNNING').length,
-      succeeded: taskItems.filter((task) => task.phase === 'SUCCEEDED').length,
-      failed: taskItems.filter((task) => task.phase === 'FAILED').length,
+      total: tasks?.total ?? null,
+      queued: null,
+      running: null,
+      succeeded: null,
+      failed: null,
     },
     workers: {
-      ready: workerItems.filter((worker) => worker.phase === 'READY').length,
-      connecting: workerItems.filter((worker) => worker.phase === 'CONNECTING').length,
-      unhealthy: workerItems.filter((worker) => worker.phase === 'UNHEALTHY').length,
-      draining: workerItems.filter((worker) => worker.phase === 'DRAINING').length,
+      ready: null,
+      connecting: null,
+      unhealthy: null,
+      draining: null,
     },
     teams: {
-      total: teams.total ?? teams.items.length,
-      active: teams.items.filter((team) => team.status === 'ACTIVE').length,
+      total: teams?.total ?? null,
+      active: null,
     },
     recentTasks: taskItems.slice(0, 5),
     alerts: alerts.map((alert, index) => ({
       id: `${alert.rule}-${index}`,
       severity: alert.severity,
       message: alert.message,
-      createdAt: summary.to,
+      createdAt: summary?.to || new Date().toISOString(),
     })),
     usage: summary,
+    errors: Object.keys(errors).length ? errors : undefined,
   };
 }

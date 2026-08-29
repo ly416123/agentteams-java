@@ -197,4 +197,26 @@ describe('Worker pages', () => {
 
     expect(workerAction).toHaveBeenLastCalledWith('worker-1', 'drain', 6);
   });
+
+  it('follows the backend worker phase matrix for lifecycle buttons', () => {
+    renderWithQuery(
+      <WorkerOperationPanel
+        projectId="p-1"
+        worker={{
+          id: 'worker-draining',
+          name: '排空 Worker',
+          phase: 'DRAINING',
+          runtime: 'FAKE',
+          createdAt: '2026-08-29T01:00:00Z',
+          updatedAt: '2026-08-29T02:00:00Z',
+          version: 5,
+        }}
+        operations={[]}
+        onRefresh={async () => ({})}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Drain' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Terminate' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Rollout' })).toBeDisabled();
+  });
 });

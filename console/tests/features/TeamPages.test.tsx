@@ -119,10 +119,12 @@ describe('Team pages', () => {
     expect(screen.getByRole('heading', { name: '调度策略' })).toBeInTheDocument();
   });
 
-  it('shows members, policy, versions, deployments and runs in detail tabs', async () => {
+  it('shows members, policy, versions, explicit deployment boundary and runs in detail tabs', async () => {
     renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
     expect(await screen.findByText('平台 Team')).toBeInTheDocument();
-    for (const tab of ['成员 Agent', '策略', '版本与部署', '运行记录']) {
+    await userEvent.click(screen.getByRole('tab', { name: '版本与部署' }));
+    expect(screen.getByText(/后端暂未提供部署列表接口/)).toBeInTheDocument();
+    for (const tab of ['成员 Agent', '策略', '运行记录']) {
       await userEvent.click(screen.getByRole('tab', { name: tab }));
       expect(screen.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
     }

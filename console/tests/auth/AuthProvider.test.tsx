@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { LoginPage } from '../../src/features/login/LoginPage';
 import { RETURN_TO_STORAGE_KEY } from '../../src/auth/oidc';
+import { AuthCallbackPage } from '../../src/features/login/AuthCallbackPage';
 
 function AuthProbe() {
   const auth = useAuth();
@@ -83,5 +84,24 @@ describe('OIDC authentication', () => {
       state: { returnTo: '/p-1/tasks?x=1#events' },
     });
     expect(sessionStorage.getItem(RETURN_TO_STORAGE_KEY)).toBe('/p-1/tasks?x=1#events');
+  });
+
+  it('surfaces callback failures instead of leaving the callback page loading forever', async () => {
+    const manager = {
+      getUser: vi.fn().mockResolvedValue(null),
+      signinRedirect: vi.fn(),
+      signinCallback: vi.fn().mockRejectedValue(new Error('invalid callback')),
+    };
+
+    render(
+      <MemoryRouter>
+        <AuthProvider manager={manager}>
+          <AuthCallbackPage />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('OIDC 登录失败')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回登录' })).toBeInTheDocument();
   });
 });

@@ -138,7 +138,9 @@ export function WorkerOperationPanel({
     if (retryAction && (latest.worker || latest.operations)) retryAction(latest);
     else setFormError('无法刷新 Worker 最新状态，请稍后重试。');
   };
-  const unavailable = worker.phase !== 'READY';
+  const drainAllowed = ['READY', 'BUSY', 'PROVISIONING'].includes(worker.phase);
+  const terminateAllowed = worker.phase === 'DRAINING' && !worker.currentTaskId;
+  const rolloutAllowed = ['READY', 'BUSY', 'PROVISIONING'].includes(worker.phase);
   const mutationError = rollout.error || rollback.error || action.error;
   const retryLatest = async () => {
     setRefreshing(true);
@@ -159,37 +161,37 @@ export function WorkerOperationPanel({
           </div>
           <span className="version-pill">版本 {worker.version}</span>
         </div>
-        {unavailable && (
+        {!drainAllowed && !terminateAllowed && !rolloutAllowed && (
           <div className="info-box">
             {worker.unavailableReason ||
-              `Worker 当前为「${worker.phase}」，依赖 Worker 的操作已禁用。`}
+              `Worker 当前为「${worker.phase}」，后端权限矩阵不允许生命周期操作。`}
           </div>
         )}
         <div className="operation-actions">
           <button
             className="button button--ghost"
-            disabled={unavailable || pending}
+            disabled={!drainAllowed || pending}
             onClick={() => setConfirmation('drain')}
           >
             Drain
           </button>
           <button
             className="button button--danger"
-            disabled={unavailable || pending}
+            disabled={!terminateAllowed || pending}
             onClick={() => setConfirmation('terminate')}
           >
             Terminate
           </button>
           <button
             className="button button--ghost"
-            disabled={unavailable || pending || !rolloutReady}
+            disabled={!rolloutAllowed || pending || !rolloutReady}
             onClick={() => setConfirmation('rollout')}
           >
             Rollout
           </button>
           <button
             className="button button--ghost"
-            disabled={unavailable || pending || !failedRollout}
+            disabled={pending || !failedRollout}
             onClick={() => setConfirmation('rollback')}
           >
             Rollback

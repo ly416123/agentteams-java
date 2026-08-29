@@ -26,12 +26,13 @@ export function useWorker(projectId: string, workerId: string) {
     enabled: Boolean(projectId && workerId),
   });
 }
-export function useWorkerOperations(projectId: string, workerId: string) {
+export function useWorkerOperations(projectId: string, workerId: string, cursor?: string) {
   return useQuery({
-    queryKey: queryKeys.workerOperations(projectId, workerId),
-    queryFn: () => listOperations(workerId),
+    queryKey: queryKeys.workerOperations(projectId, workerId, cursor),
+    queryFn: () => listOperations(workerId, { cursor }),
     enabled: Boolean(projectId && workerId),
     refetchInterval: 10000,
+    select: normalizeCursorPage,
   });
 }
 export function useWorkerAction(projectId: string, workerId: string) {
@@ -48,6 +49,7 @@ export function useWorkerAction(projectId: string, workerId: string) {
       client.invalidateQueries({ queryKey: ['workers', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });
       client.invalidateQueries({ queryKey: queryKeys.workerOperations(projectId, workerId) });
+      client.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
     },
   });
 }
@@ -60,6 +62,7 @@ export function useWorkerRollout(projectId: string, workerId: string) {
       client.invalidateQueries({ queryKey: ['workers', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });
       client.invalidateQueries({ queryKey: queryKeys.workerOperations(projectId, workerId) });
+      client.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
     },
   });
 }
@@ -78,6 +81,7 @@ export function useWorkerRollback(projectId: string, workerId: string) {
       client.invalidateQueries({ queryKey: ['workers', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });
       client.invalidateQueries({ queryKey: queryKeys.workerOperations(projectId, workerId) });
+      client.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
     },
   });
 }

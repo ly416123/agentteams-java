@@ -23,6 +23,21 @@ describe('state components', () => {
     expect(screen.getByRole('status')).toHaveTextContent(label);
   });
 
+  it('maps published lifecycle statuses to localized labels', () => {
+    render(
+      <div>
+        <StatusBadge phase="REVIEWING" />
+        <StatusBadge phase="PUBLISHED" />
+        <StatusBadge phase="DEPRECATED" />
+        <StatusBadge phase="ROLLED_BACK" />
+      </div>,
+    );
+    expect(screen.getByText('审核中')).toBeInTheDocument();
+    expect(screen.getByText('已发布')).toBeInTheDocument();
+    expect(screen.getByText('已弃用')).toBeInTheDocument();
+    expect(screen.getByText('已回滚')).toBeInTheDocument();
+  });
+
   it('explains retryable dependency errors', () => {
     render(
       <ErrorState

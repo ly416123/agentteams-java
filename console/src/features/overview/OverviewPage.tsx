@@ -37,7 +37,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
         <EmptyState title="暂无概览数据" description="当前 Project 还没有可展示的运行数据。" />
       </div>
     );
-  const { tasks, workers, teams, alerts } = overview.data;
+  const { tasks, workers, teams, alerts, errors } = overview.data;
   return (
     <div className="page">
       <div className="page-heading">
@@ -54,26 +54,34 @@ export function OverviewPage({ projectId }: { projectId: string }) {
         <Metric
           label="任务总量"
           value={tasks.total}
-          detail={`${tasks.running} 个执行中`}
+          detail={`${formatCount(tasks.running)} 个执行中`}
           tone="info"
+          error={errors?.tasks}
+          onRetry={() => void overview.refetch()}
         />
         <Metric
           label="已完成"
           value={tasks.succeeded}
-          detail={`${tasks.failed} 个失败`}
+          detail={`${formatCount(tasks.failed)} 个失败`}
           tone="success"
+          error={errors?.tasks}
+          onRetry={() => void overview.refetch()}
         />
         <Metric
           label="可用 Worker"
           value={workers.ready}
-          detail={`${workers.connecting} 个连接中`}
+          detail={`${formatCount(workers.connecting)} 个连接中`}
           tone="success"
+          error={errors?.workers}
+          onRetry={() => void overview.refetch()}
         />
         <Metric
           label="活跃 Team"
           value={teams.active}
-          detail={`共 ${teams.total} 个 Team`}
+          detail={`共 ${formatCount(teams.total)} 个 Team`}
           tone="neutral"
+          error={errors?.teams}
+          onRetry={() => void overview.refetch()}
         />
       </section>
       <div className="content-grid">
@@ -85,7 +93,9 @@ export function OverviewPage({ projectId }: { projectId: string }) {
             </div>
             <span className="muted">{alerts.length} 条</span>
           </div>
-          {alerts.length ? (
+          {errors?.alerts ? (
+            <ErrorState error={errors.alerts} onRetry={() => void overview.refetch()} />
+          ) : alerts.length ? (
             <div className="alert-list">
               {alerts.map((alert) => (
                 <div className="alert-row" key={alert.id}>
@@ -124,31 +134,48 @@ function Metric({
   value,
   detail,
   tone,
+  error,
+  onRetry,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   detail: string;
   tone: string;
+  error?: unknown;
+  onRetry: () => void;
 }) {
   return (
     <div className="metric-card">
       <span className="metric-label">{label}</span>
-      <strong className="metric-value">{value}</strong>
+      <strong className="metric-value">{formatCount(value)}</strong>
       <span className={`metric-detail metric-detail--${tone}`}>{detail}</span>
+      {error !== undefined && <ErrorState error={error} onRetry={onRetry} />}
     </div>
   );
 }
-function Distribution({ label, value, total }: { label: string; value: number; total: number }) {
-  const percent = total ? Math.round((value / total) * 100) : 0;
+function Distribution({
+  label,
+  value,
+  total,
+}: {
+  label: string;
+  value: number | null;
+  total: number | null;
+}) {
+  const percent = total && value !== null ? Math.round((value / total) * 100) : 0;
   return (
     <div className="distribution-row">
       <div>
         <span>{label}</span>
-        <strong>{value}</strong>
+        <strong>{formatCount(value)}</strong>
       </div>
       <div className="progress">
         <span style={{ width: `${percent}%` }} />
       </div>
     </div>
   );
+}
+
+function formatCount(value: number | null) {
+  return value === null ? '—' : value;
 }

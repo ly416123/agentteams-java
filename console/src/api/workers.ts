@@ -17,15 +17,24 @@ export function listWorkers(
 ) {
   return client
     .request<CursorPage<Worker> | Worker[]>('/api/v1/agents', {
-      query: { projectId, ...filters },
+      query: { q: filters.search, status: filters.phase, cursor: filters.cursor },
     })
     .then(normalizeCursorPage);
 }
 export function getWorker(workerId: string, client: HttpClient = apiClient) {
   return client.request<Worker>(`/api/v1/agents/${workerId}`);
 }
-export function listOperations(workerId: string, client: HttpClient = apiClient) {
-  return client.request<WorkerOperation[]>(`/api/v1/agents/${workerId}/operations`);
+export function listOperations(
+  workerId: string,
+  filters: { cursor?: string } = {},
+  client: HttpClient = apiClient,
+) {
+  return client
+    .request<CursorPage<WorkerOperation> | WorkerOperation[]>(
+      `/api/v1/agents/${workerId}/operations`,
+      { query: filters },
+    )
+    .then(normalizeCursorPage);
 }
 export function workerAction(
   workerId: string,

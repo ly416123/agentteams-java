@@ -117,7 +117,15 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
               <h2>状态时间线</h2>
             </div>
           </div>
-          {events.isError && (
+          {events.connectionState === 'reconnecting' && (
+            <div className="info-box" role="status">
+              事件流已断开，正在重连
+              <button className="button button--ghost" onClick={() => void events.refetch()}>
+                手动重连
+              </button>
+            </div>
+          )}
+          {events.isError && events.connectionState !== 'reconnecting' && (
             <ErrorState error={events.error} onRetry={() => void events.refetch()} />
           )}
           <Timeline

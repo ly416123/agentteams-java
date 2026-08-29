@@ -181,4 +181,23 @@ describe('Task pages', () => {
     expect(screen.getByText('已完成')).toBeInTheDocument();
     expect(screen.getAllByText('已排队')).toHaveLength(1);
   });
+
+  it('shows a visible reconnecting state after the task event stream disconnects', async () => {
+    const stream = vi.mocked(streamTaskEvents);
+    stream.mockReset();
+    stream
+      .mockImplementationOnce(async (_taskId, options) => {
+        options.onEvents([
+          { id: 'cursor-1', cursor: 'cursor-1', type: 'task.updated', message: '已排队' },
+        ]);
+      })
+      .mockRejectedValueOnce(new Error('stream disconnected'));
+
+    renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+    expect(await screen.findByText('已排队')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('事件流已断开，正在重连')).toBeInTheDocument(), {
+      timeout: 1000,
+    });
+    expect(screen.getByRole('button', { name: '手动重连' })).toBeInTheDocument();
+  });
 });

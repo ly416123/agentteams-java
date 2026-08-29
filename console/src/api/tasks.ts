@@ -1,10 +1,10 @@
 import { apiClient, type HttpClient } from './httpClient';
-import { normalizeCursorPage, type CursorPage, type Task } from './types';
+import { normalizeCursorPage, type CursorPage, type Task, type TaskPhase } from './types';
 export { streamTaskEvents } from './taskEvents';
 
 export type TaskFilters = {
   q?: string;
-  phase?: string;
+  phase?: TaskPhase | '';
   teamId?: string;
   workerId?: string;
   creator?: string;
@@ -12,24 +12,47 @@ export type TaskFilters = {
   to?: string;
   cursor?: string;
 };
+export type TaskScope = { tenant: string; project: string; team: string };
+export type CreateTaskRequest = {
+  title: string;
+  description: string;
+  spec: { scope: TaskScope; teamId: string; workerId?: string; [key: string]: unknown };
+};
+
+function taskQuery(filters: TaskFilters) {
+  return Object.fromEntries(
+    Object.entries(filters)
+      .map(([key, value]) => [key === 'creator' ? 'actor' : key, value])
+      .filter(([, value]) => value !== undefined && value !== ''),
+  );
+}
+
 export function listTasks(
   projectId: string,
   filters: TaskFilters = {},
   client: HttpClient = apiClient,
 ) {
+  void projectId;
   return client
-    .request<CursorPage<Task> | Task[]>('/api/v1/tasks', { query: { projectId, ...filters } })
+    .request<CursorPage<Task> | Task[]>('/api/v1/tasks', { query: taskQuery(filters) })
     .then(normalizeCursorPage);
 }
 export function getTask(taskId: string, client: HttpClient = apiClient) {
   return client.request<Task>(`/api/v1/tasks/${taskId}`);
 }
-export function createTask(
-  projectId: string,
-  body: Record<string, unknown>,
-  client: HttpClient = apiClient,
-) {
-  return client.request<Task>('/api/v1/tasks', { method: 'POST', body: { ...body, projectId } });
+export function createTask(body: CreateTaskRequest, client: HttpClient = apiClient) {
+  if (
+    !body.spec ||
+    typeof body.spec !== 'object' ||
+    !body.spec.scope ||
+    !body.spec.teamId ||
+    !body.spec.scope.tenant ||
+    !body.spec.scope.project ||
+    !body.spec.scope.team
+  ) {
+    return Promise.reject(new Error('spec.scope 和 spec.teamId 是必填项'));
+  }
+  return client.request<Task>('/api/v1/tasks', { method: 'POST', body });
 }
 export function taskAction(
   taskId: string,

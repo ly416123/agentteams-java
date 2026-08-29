@@ -6,12 +6,12 @@ import { useTasks } from '../../queries/useTaskQueries';
 import { TaskBoard } from './TaskBoard';
 import { TaskTable } from './TaskTable';
 import { CursorPagination } from '../../components/CursorPagination';
-import { TASK_PHASES } from '../../api/types';
+import { TASK_PHASES, type TaskPhase } from '../../api/types';
 
 export function TaskPage({ projectId }: { projectId: string }) {
   const [view, setView] = useState<'board' | 'table'>('board');
   const [search, setSearch] = useState('');
-  const [phase, setPhase] = useState('');
+  const [phase, setPhase] = useState<TaskPhase | ''>('');
   const [cursor, setCursor] = useState<string | undefined>();
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const tasks = useTasks(projectId, { q: search, phase }, view, cursor);
@@ -41,7 +41,7 @@ export function TaskPage({ projectId }: { projectId: string }) {
         <select
           aria-label="任务状态"
           value={phase}
-          onChange={(event) => setPhase(event.target.value)}
+          onChange={(event) => setPhase(event.target.value as TaskPhase | '')}
         >
           <option value="">全部状态</option>
           {TASK_PHASES.map((taskPhase) => (

@@ -1,13 +1,22 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Timeline } from '../../components/Timeline';
 import { useWorker, useWorkerOperations } from '../../queries/useWorkerQueries';
 import { WorkerOperationPanel } from './WorkerOperationPanel';
+import { CursorPagination } from '../../components/CursorPagination';
 
 export function WorkerDetailPage({ projectId, workerId }: { projectId: string; workerId: string }) {
   const worker = useWorker(projectId, workerId);
-  const operations = useWorkerOperations(projectId, workerId);
+  const [operationCursor, setOperationCursor] = useState<string>();
+  const [operationCursorHistory, setOperationCursorHistory] = useState<string[]>([]);
+  const operations = useWorkerOperations(projectId, workerId, operationCursor);
+  const operationItems = operations.data?.items || [];
+  useEffect(() => {
+    setOperationCursor(undefined);
+    setOperationCursorHistory([]);
+  }, [workerId]);
   if (worker.isLoading)
     return (
       <div className="page">
@@ -68,13 +77,13 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
         <WorkerOperationPanel
           projectId={projectId}
           worker={data}
-          operations={operations.data || []}
+          operations={operationItems}
           onRefresh={async () => {
             const [latestWorker, latestOperations] = await Promise.all([
               worker.refetch(),
               operations.refetch(),
             ]);
-            return { worker: latestWorker.data, operations: latestOperations.data };
+            return { worker: latestWorker.data, operations: latestOperations.data?.items };
           }}
         />
       </div>
@@ -91,13 +100,29 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
           <ErrorState error={operations.error} onRetry={() => void operations.refetch()} />
         ) : (
           <Timeline
-            items={(operations.data || []).map((operation) => ({
+            items={operationItems.map((operation) => ({
               id: operation.id,
               title: operation.type,
               description: operation.status,
               time: operation.updatedAt,
               tone: operation.status === 'FAILED' ? 'danger' : 'success',
             }))}
+          />
+        )}
+        {!operations.isLoading && !operations.isError && operationItems.length > 0 && (
+          <CursorPagination
+            hasPrevious={operationCursorHistory.length > 0}
+            hasNext={Boolean(operations.data?.nextCursor)}
+            onPrevious={() => {
+              const previous = operationCursorHistory[operationCursorHistory.length - 1];
+              setOperationCursorHistory((history) => history.slice(0, -1));
+              setOperationCursor(previous || undefined);
+            }}
+            onNext={() => {
+              if (!operations.data?.nextCursor) return;
+              setOperationCursorHistory((history) => [...history, operationCursor || '']);
+              setOperationCursor(operations.data.nextCursor || undefined);
+            }}
           />
         )}
       </section>

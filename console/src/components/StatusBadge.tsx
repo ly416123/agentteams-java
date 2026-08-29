@@ -1,5 +1,9 @@
 const STATUS_LABELS: Record<string, { label: string; tone: string }> = {
   READY: { label: '就绪', tone: 'success' },
+  REVIEWING: { label: '审核中', tone: 'warning' },
+  PUBLISHED: { label: '已发布', tone: 'success' },
+  DEPRECATED: { label: '已弃用', tone: 'neutral' },
+  ROLLED_BACK: { label: '已回滚', tone: 'warning' },
   PROVISIONING: { label: '准备中', tone: 'info' },
   BUSY: { label: '忙碌', tone: 'info' },
   OFFLINE: { label: '离线', tone: 'neutral' },
