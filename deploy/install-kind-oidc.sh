@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NAMESPACE=${AGENTTEAMS_NAMESPACE:-agentteams}
+source "$ROOT/deploy/console-deployment.sh"
 
 for command_name in helm kubectl kind; do
   command -v "${command_name}" >/dev/null 2>&1 || {
@@ -26,6 +27,7 @@ if kubectl -n "${NAMESPACE}" get secret matrix-appservice >/dev/null 2>&1; then
   # Preserve Matrix AppService authentication when the Matrix dev link is already installed.
   HELM_VALUES+=( -f "${ROOT}/deploy/helm/kind-matrix-values.yaml" )
 fi
+HELM_VALUES+=( --set "console.enabled=$CONSOLE_ENABLED" )
 helm upgrade --install agentteams "${ROOT}/deploy/helm/agentteams-java" \
   --namespace "${NAMESPACE}" --create-namespace --wait --timeout 5m \
   "${HELM_VALUES[@]}"

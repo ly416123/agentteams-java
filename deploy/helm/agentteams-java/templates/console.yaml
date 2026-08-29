@@ -23,6 +23,8 @@ spec:
     matchLabels: { app.kubernetes.io/name: agentteams-console }
   template:
     metadata:
+      annotations:
+        checksum/config: {{ toJson .Values.console.config | sha256sum | quote }}
       labels:
         app.kubernetes.io/name: agentteams-console
         app.kubernetes.io/part-of: agentteams

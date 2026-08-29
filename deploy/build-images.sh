@@ -4,6 +4,9 @@ set -euo pipefail
 # Build and load the local service images into the agentteams Kind cluster.
 # Prerequisites: Docker/Colima, kind, and an existing cluster named agentteams.
 
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+source "$ROOT/deploy/console-deployment.sh"
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "缺少 docker，请先安装 Docker/Colima。" >&2
   exit 1
@@ -70,10 +73,11 @@ declare -a images=(
   "deploy/docker/operator.Dockerfile|ghcr.io/ly416123/agentteams-operator:latest"
   "deploy/docker/worker.Dockerfile|ghcr.io/ly416123/agentteams-agent-worker:latest"
 )
-if [[ -d console ]]; then
+# Source gate equivalent: if [[ -d console ]]; then
+if [[ "$CONSOLE_ENABLED" == true ]]; then
   images+=("deploy/docker/console.Dockerfile|ghcr.io/ly416123/agentteams-console:latest")
 else
-  echo "console/ 不存在，跳过本地 Console 镜像构建；Kind Helm values 仍启用已发布的 Console 镜像。"
+  echo "console/ 不存在，跳过本地 Console 镜像构建和部署。"
 fi
 
 for image in "${images[@]}"; do

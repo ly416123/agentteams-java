@@ -5,3 +5,13 @@
 **/.classpath
 **/.project
 **/.settings
+.env*
+**/.env*
+**/.npmrc
+**/*.pem
+**/*.key
+**/id_rsa*
+**/.aws/
+**/.kube/
+**/node_modules/
+**/dist/

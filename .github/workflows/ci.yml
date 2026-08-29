@@ -61,6 +61,8 @@ jobs:
           test -s /tmp/agentteams-console-enabled.yaml
       - name: Test Console deployment contract
         run: python3 -m unittest scripts/test_console_manifests_contract.py -v
+      - name: Test Console deployment script contract
+        run: python3 deploy/test_console_deployment_contract.py -v
       - name: Console npm checks
         run: |
           set -euo pipefail
@@ -228,6 +230,10 @@ jobs:
           kubectl -n external-secrets wait --for=condition=Available deployment --all --timeout=180s
       - name: Install AgentTeams chart
         run: |
+          console_enabled=false
+          if [[ -d console ]]; then
+            console_enabled=true
+          fi
           helm lint deploy/helm/agentteams-java
           helm template agentteams deploy/helm/agentteams-java \
             --set observability.prometheusRule.enabled=true >/tmp/agentteams-prometheusrule.yaml
@@ -250,7 +256,8 @@ jobs:
             --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_ENABLED=true \
             --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL=http://dashboard-alert-receiver:8080/alerts \
             --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_TIMEOUT=3s \
-            -f deploy/helm/kind-values.yaml
+            -f deploy/helm/kind-values.yaml \
+            --set "console.enabled=$console_enabled"
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-operator --timeout=300s

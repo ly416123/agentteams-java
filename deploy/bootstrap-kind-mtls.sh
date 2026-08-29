@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NAMESPACE=${AGENTTEAMS_NAMESPACE:-agentteams}
+source "$ROOT/deploy/console-deployment.sh"
 CERT_DIR=${AGENTTEAMS_MTLS_DIR:-$ROOT/.local/kind-mtls}
 GATEWAY_SECRET=${AGENTTEAMS_GATEWAY_MTLS_SECRET:-agentteams-gateway-mtls}
 WORKER_SECRET=${AGENTTEAMS_WORKER_MTLS_SECRET:-agentteams-worker-mtls}
@@ -62,7 +63,8 @@ kubectl -n "$NAMESPACE" create secret generic "$WORKER_SECRET" \
 
 helm upgrade --install "$CONTROL_PLANE_RELEASE" "$ROOT/deploy/helm/agentteams-java" \
   --namespace "$NAMESPACE" --create-namespace --wait --timeout 5m \
-  -f "$ROOT/deploy/helm/kind-values.yaml" --set gateway.tls.enabled=true \
+  -f "$ROOT/deploy/helm/kind-values.yaml" \
+  --set "console.enabled=$CONSOLE_ENABLED" --set gateway.tls.enabled=true \
   --set gateway.tls.secretName="$GATEWAY_SECRET"
 
 # The gRPC server loads its certificate chain during process startup. Updating

@@ -6,6 +6,7 @@ NAMESPACE=${AGENTTEAMS_NAMESPACE:-agentteams}
 INGRESS_CHART_VERSION=${INGRESS_NGINX_CHART_VERSION:-4.11.3}
 
 source "$ROOT/deploy/dev-env.sh"
+source "$ROOT/deploy/console-deployment.sh"
 
 for command_name in helm jq; do
   command -v "$command_name" >/dev/null || {
@@ -65,7 +66,8 @@ helm upgrade --install agentteams "$ROOT/deploy/helm/agentteams-java" \
   --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_ENABLED=true \
   --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL=http://dashboard-alert-receiver:8080/alerts \
   --set-string controlPlane.env.AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_TIMEOUT=3s \
-  -f "$ROOT/deploy/helm/kind-values.yaml"
+  -f "$ROOT/deploy/helm/kind-values.yaml" \
+  --set "console.enabled=$CONSOLE_ENABLED"
 # Kind intentionally reuses stable :latest tags. Helm cannot detect a rebuilt
 # image when the tag is unchanged, so force a safe application rollout.
 kubectl -n "$NAMESPACE" rollout restart \
@@ -76,7 +78,18 @@ kubectl -n "$NAMESPACE" wait --for=condition=available \
   deployment/agentteams-agentteams-java-control-plane \
   deployment/agentteams-agentteams-java-gateway \
   deployment/agentteams-agentteams-java-operator --timeout=300s
-kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
+if [[ "$CONSOLE_ENABLED" == true ]]; then
+  kubectl -n "$NAMESPACE" rollout restart deployment/agentteams-agentteams-java-console
+  kubectl -n "$NAMESPACE" wait --for=condition=available \
+    deployment/agentteams-agentteams-java-console --timeout=300s
+fi
+# Use kind-ingress.yaml only when its Console Service exists; otherwise use the
+# API-only manifest so a missing Console never becomes a deployment dependency.
+if [[ "$CONSOLE_ENABLED" == true ]]; then
+  kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
+else
+  kubectl apply -f "$CONSOLE_INGRESS_MANIFEST"
+fi
 
 "$ROOT/deploy/bootstrap-kind-qwenpaw-worker.sh"
 
