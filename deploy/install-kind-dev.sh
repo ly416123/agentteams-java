@@ -50,8 +50,6 @@ else
     --set controller.admissionWebhooks.enabled=false \
     --set controller.image.digest=""
 fi
-kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
-
 "$ROOT/deploy/build-images.sh"
 kubectl apply -f "$ROOT/deploy/helm/agentteams-java/crds/teams.yaml"
 kubectl apply -f "$ROOT/deploy/helm/agentteams-java/crds/workers.yaml"
@@ -78,6 +76,7 @@ kubectl -n "$NAMESPACE" wait --for=condition=available \
   deployment/agentteams-agentteams-java-control-plane \
   deployment/agentteams-agentteams-java-gateway \
   deployment/agentteams-agentteams-java-operator --timeout=300s
+kubectl apply -f "$ROOT/deploy/kind-ingress.yaml"
 
 "$ROOT/deploy/bootstrap-kind-qwenpaw-worker.sh"
 

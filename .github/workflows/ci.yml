@@ -19,6 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Set up Helm for Console contracts
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.16.4
       - name: Set up Node.js for Console
         if: ${{ hashFiles('console/package.json') != '' }}
         uses: actions/setup-node@v4
@@ -46,6 +50,17 @@ jobs:
         run: python -m unittest scripts/test_kind_task_sandbox_contract.py
       - name: Validate AgentScope Fake Model runtime contract
         run: python scripts/test-agentscope-runtime-contract.py
+      - name: Render Console-enabled manifests
+        run: |
+          helm template agentteams deploy/helm/agentteams-java \
+            --namespace agentteams \
+            --set console.enabled=true \
+            --set ingress.enabled=true \
+            --set ingress.host=api.agentteams.localhost \
+            >/tmp/agentteams-console-enabled.yaml
+          test -s /tmp/agentteams-console-enabled.yaml
+      - name: Test Console deployment contract
+        run: python3 -m unittest scripts/test_console_manifests_contract.py -v
       - name: Console npm checks
         run: |
           set -euo pipefail
@@ -72,10 +87,7 @@ jobs:
       - name: Unit and integration tests
         run: mvn -q -Pintegration-tests verify
       - name: Helm lint
-        uses: azure/setup-helm@v5
-        with:
-          version: v3.16.4
-      - run: helm lint deploy/helm/agentteams-java
+        run: helm lint deploy/helm/agentteams-java
       - run: helm template agentteams deploy/helm/agentteams-java >/tmp/agentteams-rendered.yaml
 
   kind-recovery:

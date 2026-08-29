@@ -26,6 +26,7 @@ def main():
         fail("expected one local Ingress resource")
     text = ingress_path.read_text(encoding="utf-8")
     for service in ("agentteams-agentteams-java-control-plane", "agentteams-agentteams-java-gateway",
+                    "agentteams-agentteams-java-console",
                     "qwenpaw", "prometheus", "grafana"):
         if service not in text:
             fail(f"Ingress missing backend service {service}")
@@ -33,12 +34,15 @@ def main():
     if not installer.exists():
         fail("kind installer does not exist")
     installer_text = installer.read_text(encoding="utf-8")
-    order = ["kind-dev-infra.yaml", "kind-observability.yaml", "kind-ingress.yaml",
-             "build-images.sh", "crds/teams.yaml", "crds/workers.yaml", "helm upgrade --install agentteams",
+    order = ["kind-dev-infra.yaml", "kind-observability.yaml", "build-images.sh",
+             "crds/teams.yaml", "crds/workers.yaml", "helm upgrade --install agentteams",
+             "kind-ingress.yaml",
              "bootstrap-kind-qwenpaw-worker.sh"]
     positions = [installer_text.find(value) for value in order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        fail("installer steps must be ordered infra, observability, ingress, images, CRD, Helm, Worker bootstrap")
+        fail("installer steps must be ordered infra, observability, images, CRD, Helm, ingress, Worker bootstrap")
+    if positions[6] < installer_text.find("deployment/agentteams-agentteams-java-operator --timeout=300s"):
+        fail("installer must apply Kind Ingress only after the Console Service workload is ready")
     for required in (
             "rollout restart deployment/prometheus",
             "rollout status deployment/otel-collector",
@@ -55,6 +59,9 @@ def main():
             fail(f"build image script must prepare base image {base_image}")
     if "docker image inspect" not in build_text or "docker tag" not in build_text:
         fail("build image script must support inspecting and tagging proxy-fetched base images")
+    if ("deploy/docker/console.Dockerfile|ghcr.io/ly416123/agentteams-console:latest" not in build_text
+            or "if [[ -d console ]]; then" not in build_text):
+        fail("build image script must conditionally build and load the Console image")
     worker_bootstrap = ROOT / "deploy/bootstrap-kind-qwenpaw-worker.sh"
     if not worker_bootstrap.exists():
         fail("qwenpaw worker bootstrap script does not exist")
@@ -129,6 +136,8 @@ def main():
     operator = (ROOT / "deploy/helm/agentteams-java/templates/operator.yaml").read_text(encoding="utf-8")
     operator_pdb = (ROOT / "deploy/helm/agentteams-java/templates/poddisruptionbudget.yaml").read_text(encoding="utf-8")
     kind_values = (ROOT / "deploy/helm/kind-values.yaml").read_text(encoding="utf-8")
+    if "console:\n  enabled: true" not in kind_values:
+        fail("Kind values must enable Console so the Ingress backend Service is rendered")
     if "replicas: {{ .Values.operator.replicas }}" not in operator:
         fail("Operator replicas must be configurable from Helm values")
     if "-operator" not in operator_pdb or "app.kubernetes.io/name: agentteams-operator" not in operator_pdb:

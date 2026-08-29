@@ -2,6 +2,9 @@ images:
   controlPlane: ghcr.io/ly416123/agentteams-control-plane:latest
   gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
   operator: ghcr.io/ly416123/agentteams-operator:latest
+console:
+  enabled: true
+  image: ghcr.io/ly416123/agentteams-console:latest
 imagePullPolicy: IfNotPresent
 controlPlane:
   env:

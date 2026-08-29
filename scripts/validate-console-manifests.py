@@ -2,6 +2,7 @@
 """Validate the Console static deployment contract without requiring console/ source."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -100,6 +101,24 @@ def validate_static_contracts():
             "Kind / 必须路由到 Console")
 
 
+def validate_secret_hygiene():
+    gitignore = text(ROOT / ".gitignore")
+    require(".env*" in gitignore, ".gitignore 必须排除 .env* 文件")
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    tracked_env = [
+        path for path in tracked
+        if Path(path).name.startswith(".env") and Path(path).name != ".env.example"
+    ]
+    require(not tracked_env, f"不得提交环境文件：{', '.join(tracked_env)}")
+
+    console_template = text(ROOT / "deploy/helm/agentteams-java/templates/console.yaml")
+    secret_patterns = r"(?i)(secretKeyRef|secretName|password|api[_-]?key|private[_-]?key)"
+    require(not re.search(secret_patterns, console_template),
+            "Console 静态资源模板包含疑似 Secret 字段")
+
+
 def rendered_documents(*args):
     helm = shutil.which("helm")
     if helm is None:
@@ -174,6 +193,7 @@ def validate_source_status():
 def main():
     try:
         validate_static_contracts()
+        validate_secret_hygiene()
         validate_rendered_contracts()
         validate_source_status()
     except (ValidationError, KeyError, TypeError, yaml.YAMLError) as error:

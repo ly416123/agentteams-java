@@ -70,6 +70,11 @@ declare -a images=(
   "deploy/docker/operator.Dockerfile|ghcr.io/ly416123/agentteams-operator:latest"
   "deploy/docker/worker.Dockerfile|ghcr.io/ly416123/agentteams-agent-worker:latest"
 )
+if [[ -d console ]]; then
+  images+=("deploy/docker/console.Dockerfile|ghcr.io/ly416123/agentteams-console:latest")
+else
+  echo "console/ 不存在，跳过本地 Console 镜像构建；Kind Helm values 仍启用已发布的 Console 镜像。"
+fi
 
 for image in "${images[@]}"; do
   IFS='|' read -r dockerfile tag <<<"$image"

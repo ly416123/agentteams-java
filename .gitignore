@@ -39,6 +39,8 @@ Thumbs.db
 
 # Local API credentials (never commit)
 /apikey
+.env*
+!.env.example
 
 # Python acceptance-test bytecode
 **/__pycache__/

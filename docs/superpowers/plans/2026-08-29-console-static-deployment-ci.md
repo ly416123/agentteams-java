@@ -20,7 +20,9 @@
 - 修改 `deploy/helm/agentteams-java/values.schema.json`：约束 Console values，拒绝未声明字段和 Secret 型配置键。
 - 修改 `deploy/helm/agentteams-java/templates/ingress.yaml`：在 Console 启用时添加 `/`，并保留 API 路由。
 - 修改 `deploy/kind-ingress.yaml`：将 `api.agentteams.localhost` 的 `/` 指向 Console、`/api` 指向 Control Plane。
+- 修改 `deploy/helm/kind-values.yaml`、`deploy/build-images.sh`、`deploy/install-kind-dev.sh`：确保 Kind 启用并构建/加载 Console，且 Service 就绪后才应用入口。
 - 修改 `.github/workflows/ci.yml`：Console 目录存在时执行 npm test/build/lint，目录缺失时清晰跳过，并执行 validator。
+- 修改 `.gitignore`、`scripts/validate-kind-manifests.py`：排除本地环境文件并同步 Kind 部署顺序契约。
 - 创建 `scripts/validate-console-manifests.py`：独立校验 Docker/Nginx/Helm/Kind/CI 契约；Helm 不可用时明确标记渲染检查未执行。
 
 ### 任务 1：契约测试（TDD 红灯）
@@ -36,12 +38,14 @@
 ### 任务 3：Helm Console 工作负载
 
 - [ ] 添加 values/schema/template，Console 关闭时不渲染资源，开启时渲染 ConfigMap、Deployment、Service；ConfigMap 只序列化公开配置，容器只挂载配置文件而不引用 Secret。
+- [ ] 为只读根文件系统添加 `/tmp` emptyDir，并在渲染契约中检查该挂载。
 - [ ] 运行契约测试和 `helm lint deploy/helm/agentteams-java`，确认渲染对象、selector、端口和安全上下文符合契约。
 
 ### 任务 4：入口路由与 CI/validator
 
 - [ ] 更新 Helm/Kind Ingress，保证更具体的 `/api` 路由仍指向 Control Plane，根路径指向 Console。
 - [ ] 更新 CI 条件检查，并实现 validator 的静态/渲染检查和缺少 `console/` 的明确说明。
+- [ ] 在 CI 中先安装 Helm，再显式渲染启用 Console 的 chart，并执行 Console 契约测试。
 - [ ] 运行 `python3 scripts/validate-console-manifests.py`、`python3 -m unittest scripts/test_console_manifests_contract.py -v`、`helm lint deploy/helm/agentteams-java`；若 Console 缺失，记录 npm 构建未执行而不是伪造成功。
 
 ### 任务 5：收尾提交
