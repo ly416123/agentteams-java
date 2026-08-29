@@ -1,0 +1,211 @@
+package io.agentteams.manager.conversation;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+class QwenPawConversationRuntimeTest {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
+    private static final ConversationRuntimePort.Context CONTEXT = new ConversationRuntimePort.Context(
+            "project-a", "team-a", "worker-a", "task-a", SESSION_ID);
+
+    private HttpServer server;
+    private AtomicReference<String> requestBody;
+    private AtomicReference<String> agentId;
+    private AtomicReference<String> authorization;
+    private AtomicInteger redirectedRequests;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        requestBody = new AtomicReference<>();
+        agentId = new AtomicReference<>();
+        authorization = new AtomicReference<>();
+        redirectedRequests = new AtomicInteger();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (server != null) {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sendsOfficialRequestAndPublishesDeltaAndCompletedEvents() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"status\":\"created\"}\n\n"
+                            + "data: {\"type\":\"message\",\"role\":\"assistant\","
+                            + "\"content\":[{\"text\":\"hel\"}],\"status\":\"in_progress\"}\n\n"
+                            + "data: {\"id\":\"response-1\",\"status\":\"completed\","
+                            + "\"object\":\"response\",\"output\":[{\"type\":\"message\","
+                            + "\"role\":\"assistant\",\"content\":[{\"text\":\"hello\"}]}]}\n\n");
+        });
+        server.start();
+
+        QwenPawConversationRuntime runtime = runtime("secret", 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "private prompt"));
+
+        awaitEvents(runtime, 3);
+        List<ConversationEvent> events = runtime.events(SESSION_ID, 0);
+        assertThat(events).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.delta", "message.completed");
+        assertThat(events).extracting(ConversationEvent::cursor).containsExactly(1L, 2L, 3L);
+        assertThat(events.get(2).data()).contains("hello");
+        assertThat(agentId.get()).isEqualTo("agent-a");
+        assertThat(authorization.get()).isEqualTo("Bearer secret");
+        JsonNode request = MAPPER.readTree(requestBody.get());
+        assertThat(request.path("session_id").asText()).isEqualTo(SESSION_ID.toString());
+        assertThat(request.path("input").get(0).path("content").get(0).path("text").asText())
+                .isEqualTo("private prompt");
+        assertThat(request.path("project").asText()).isEqualTo("project-a");
+        runtime.close();
+    }
+
+    @Test
+    void classifiesHttp503WithoutPublishingTheRemoteBody() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 503,
+                "application/json", "{\"message\":\"secret provider detail\"}"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        ConversationEvent failure = runtime.events(SESSION_ID, 1).get(0);
+        assertThat(failure.type()).isEqualTo("conversation.failed");
+        assertThat(failure.data()).contains("WORKER_UNAVAILABLE").doesNotContain("secret provider detail");
+        assertThat(authorization.get()).isNull();
+        runtime.close();
+    }
+
+    @Test
+    void rejectsOversizedResponseAndDoesNotFollowRedirects() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            exchange.getResponseHeaders().set("Location", "/redirect-target");
+            writeResponse(exchange, 302, "text/plain", "redirect");
+        });
+        server.createContext("/redirect-target", exchange -> {
+            redirectedRequests.incrementAndGet();
+            writeResponse(exchange, 200, "text/event-stream", "data: {}\n\n");
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 4);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("PROTOCOL_ERROR");
+        assertThat(redirectedRequests).hasValue(0);
+        runtime.close();
+    }
+
+    @Test
+    void localCancellationSuppressesLateRemoteCompletion() throws Exception {
+        CountDownLatch responseReady = new CountDownLatch(1);
+        CountDownLatch releaseResponse = new CountDownLatch(1);
+        server.createContext("/api/console/chat", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            responseReady.countDown();
+            try {
+                releaseResponse.await(5, TimeUnit.SECONDS);
+                exchange.getResponseBody().write(
+                        "data: {\"status\":\"completed\",\"object\":\"response\"}\n\n"
+                                .getBytes(StandardCharsets.UTF_8));
+                exchange.getResponseBody().flush();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+        assertThat(responseReady.await(5, TimeUnit.SECONDS)).isTrue();
+
+        runtime.cancel(SESSION_ID);
+        releaseResponse.countDown();
+        Thread.sleep(200);
+
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "conversation.cancelled");
+        runtime.close();
+    }
+
+    @Test
+    void removesCompletedRequestSoTheSessionCanSendAgain() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "data: {\"status\":\"completed\"}\n\n"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+        awaitEvents(runtime, 2);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-2", "again"));
+        awaitEvents(runtime, 3);
+
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.completed", "message.completed");
+        runtime.close();
+    }
+
+    private QwenPawConversationRuntime runtime(String token, long maxResponseBytes) {
+        ConversationRuntimeConfiguration configuration = new ConversationRuntimeConfiguration(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                "agent-a", token, Duration.ofSeconds(2), Duration.ofSeconds(2), maxResponseBytes,
+                "agentteams", "console");
+        return new QwenPawConversationRuntime(configuration,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2))
+                        .followRedirects(HttpClient.Redirect.NEVER).build(), MAPPER);
+    }
+
+    private void captureRequest(HttpExchange exchange) throws IOException {
+        requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        agentId.set(exchange.getRequestHeaders().getFirst("X-Agent-Id"));
+        authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+    }
+
+    private static void writeResponse(HttpExchange exchange, int status, String contentType, String body)
+            throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", contentType);
+        exchange.sendResponseHeaders(status, bytes.length);
+        exchange.getResponseBody().write(bytes);
+        exchange.close();
+    }
+
+    private static void awaitEvents(QwenPawConversationRuntime runtime, int expected) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (runtime.events(SESSION_ID, 0).size() < expected && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat(runtime.events(SESSION_ID, 0)).hasSizeGreaterThanOrEqualTo(expected);
+    }
+}
