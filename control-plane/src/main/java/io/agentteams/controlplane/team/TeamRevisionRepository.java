@@ -74,10 +74,11 @@ public class TeamRevisionRepository {
             Instant now, String idempotencyKey, TeamRevisionPublishValidator validator, String requestHash) {
         requireKey(idempotencyKey);
         return transaction.execute(status -> {
-            Optional<TeamRevision> replay = operationResult(teamId, target.revision(), "ROLLBACK", idempotencyKey,
-                    requestHash);
+            Optional<TeamRevision> replay = operationResult(teamId, "ROLLBACK", idempotencyKey, requestHash);
             if (replay.isPresent()) return replay.get();
             jdbc.queryForObject("SELECT current_revision FROM teams WHERE id = ? FOR UPDATE", Long.class, teamId);
+            replay = operationResult(teamId, "ROLLBACK", idempotencyKey, requestHash);
+            if (replay.isPresent()) return replay.get();
             TeamRevision lockedTarget = locked(teamId, target.revision());
             if (lockedTarget.status() != TeamRevisionStatus.PUBLISHED || lockedTarget.version() != expectedVersion) {
                 throw new TeamRevisionConflictException("rollback target version or status is stale");
@@ -135,7 +136,7 @@ public class TeamRevisionRepository {
             String requestHash) {
         requireKey(idempotencyKey);
         return transaction.execute(status -> {
-            Optional<TeamRevision> replay = operationResult(teamId, revision, "TRANSITION", idempotencyKey, requestHash);
+            Optional<TeamRevision> replay = operationResult(teamId, "TRANSITION", idempotencyKey, requestHash);
             if (replay.isPresent()) return replay.get();
             TeamRevision current = locked(teamId, revision);
             if (current.status() != expectedStatus || current.version() != expectedVersion) {
@@ -161,7 +162,7 @@ public class TeamRevisionRepository {
             TeamRevisionPublishValidator validator, String requestHash) {
         requireKey(idempotencyKey);
         return transaction.execute(status -> {
-            Optional<TeamRevision> replay = operationResult(teamId, revision, "PUBLISH", idempotencyKey, requestHash);
+            Optional<TeamRevision> replay = operationResult(teamId, "PUBLISH", idempotencyKey, requestHash);
             if (replay.isPresent()) return replay.get();
             jdbc.queryForObject("SELECT current_revision FROM teams WHERE id = ? FOR UPDATE", Long.class, teamId);
             TeamRevision current = locked(teamId, revision);
@@ -240,8 +241,7 @@ public class TeamRevisionRepository {
     public TeamRevision update(TeamRevision revision, String idempotencyKey, String requestHash) {
         requireKey(idempotencyKey);
         return transaction.execute(status -> {
-            Optional<TeamRevision> replay = operationResult(revision.teamId(), revision.revision(), "UPDATE",
-                    idempotencyKey, requestHash);
+            Optional<TeamRevision> replay = operationResult(revision.teamId(), "UPDATE", idempotencyKey, requestHash);
             if (replay.isPresent()) return replay.get();
             TeamRevision current = locked(revision.teamId(), revision.revision());
             if (current.status() == TeamRevisionStatus.PUBLISHED
@@ -288,17 +288,14 @@ public class TeamRevisionRepository {
         }
     }
 
-    private Optional<TeamRevision> operationResult(UUID teamId, long revision, String operation, String key,
-            String requestHash) {
+    /** Returns the persisted operation result; result_revision is the output, not the requested target revision. */
+    private Optional<TeamRevision> operationResult(UUID teamId, String operation, String key, String requestHash) {
         return jdbc.query("""
                 SELECT result_revision, request_hash FROM team_revision_operations
                  WHERE team_id = ? AND operation = ? AND idempotency_key = ?
                 """, (rs, row) -> new Object[] { rs.getLong(1), rs.getString(2) }, teamId, operation, key).stream()
                 .findFirst().map(result -> {
                     long resultRevision = (long) result[0];
-                    if (resultRevision != revision) {
-                        throw new TeamRevisionConflictException("Idempotency-Key belongs to another revision");
-                    }
                     if (requestHash != null && !requestHash.equals(result[1])) {
                         throw new TeamRevisionConflictException("Idempotency-Key request hash mismatch");
                     }

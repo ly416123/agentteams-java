@@ -191,8 +191,9 @@ public final class TeamController {
             @RequestBody RollbackRequest request) {
         requireIdempotencyKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
-        return RevisionResponse.from(revisions.rollback(teamId, request.targetRevision(), actor(request.actor()),
-                idempotencyKey, Instant.now()));
+        return RevisionResponse.from(revisions.rollback(teamId, requiredRollbackRevision(request.targetRevision()),
+                requiredExpectedVersion(request.expectedVersion()), actor(request.actor()), idempotencyKey,
+                Instant.now()));
     }
 
     public record CreateTeamRequest(String name, String displayName, Integer maxConcurrentTasks,
@@ -218,7 +219,7 @@ public final class TeamController {
     public record MemberDeploymentRequest(UUID agentId, String baseManifest, String taskOverlay) {
     }
 
-    public record RollbackRequest(long targetRevision, String actor) {
+    public record RollbackRequest(Long targetRevision, Long expectedVersion, String actor) {
     }
 
     public record TeamResponse(UUID id, String name, String displayName, String status,
@@ -287,6 +288,18 @@ public final class TeamController {
         if (request == null) throw new IllegalArgumentException("request body is required");
         if (request.expectedVersion() < 0) throw new IllegalArgumentException("expectedVersion must not be negative");
         return request.expectedVersion();
+    }
+
+    private static long requiredRollbackRevision(Long value) {
+        if (value == null) throw new IllegalArgumentException("targetRevision is required");
+        if (value < 1) throw new IllegalArgumentException("targetRevision must be positive");
+        return value;
+    }
+
+    private static long requiredExpectedVersion(Long value) {
+        if (value == null) throw new IllegalArgumentException("expectedVersion is required");
+        if (value < 0) throw new IllegalArgumentException("expectedVersion must not be negative");
+        return value;
     }
 
     private static String actor(String actor) {

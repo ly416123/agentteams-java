@@ -2,8 +2,12 @@ package io.agentteams.controlplane.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,6 +19,10 @@ import io.agentteams.controlplane.persistence.TeamMemberRecord;
 import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
 import io.agentteams.controlplane.service.TeamService;
+import io.agentteams.controlplane.team.TeamDeploymentService;
+import io.agentteams.controlplane.team.TeamRevision;
+import io.agentteams.controlplane.team.TeamRevisionService;
+import io.agentteams.controlplane.team.TeamRevisionStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -31,6 +39,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class TeamControllerTest {
     @Mock
     private TeamService service;
+    @Mock
+    private TeamRevisionService revisions;
+    @Mock
+    private TeamDeploymentService deployments;
 
     private MockMvc mockMvc;
 
@@ -117,6 +129,66 @@ class TeamControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"maxConcurrentTasks\":1,\"expectedVersion\":0}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rollbackPassesTargetRevisionAndExpectedVersionToTheGuardedServiceOverload() throws Exception {
+        UUID teamId = UUID.randomUUID();
+        UUID leaderAgentId = UUID.randomUUID();
+        TeamRevision rollback = new TeamRevision(teamId, 8, leaderAgentId, "{}", "digest",
+                TeamRevisionStatus.DRAFT, 5L, "alice", Instant.parse("2026-08-23T00:00:00Z"), 0,
+                List.of(leaderAgentId));
+        revisions = mock(TeamRevisionService.class, invocation -> {
+            if (invocation.getMethod().getName().equals("rollback") && invocation.getArguments().length == 6) {
+                return rollback;
+            }
+            return null;
+        });
+
+        mockMvc = MockMvcBuilders.standaloneSetup(new TeamController(service, revisions, deployments))
+                .setControllerAdvice(new ApiErrorHandler()).build();
+
+        mockMvc.perform(post("/api/v1/teams/{teamId}/rollback", teamId)
+                        .header("Idempotency-Key", "rollback-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetRevision\":5,\"expectedVersion\":3,\"actor\":\"alice\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(8))
+                .andExpect(jsonPath("$.rollbackOfRevision").value(5));
+
+        var invocation = mockingDetails(revisions).getInvocations().stream()
+                .filter(call -> call.getMethod().getName().equals("rollback"))
+                .findFirst().orElseThrow();
+        Object[] arguments = invocation.getArguments();
+        assertThat(arguments).hasSize(6);
+        assertThat(arguments[0]).isEqualTo(teamId);
+        assertThat(arguments[1]).isEqualTo(5L);
+        assertThat(arguments[2]).isEqualTo(3L);
+        assertThat(arguments[3]).isEqualTo("alice");
+        assertThat(arguments[4]).isEqualTo("rollback-key");
+        assertThat(arguments[5]).isInstanceOf(Instant.class);
+    }
+
+    @Test
+    void rollbackRejectsMissingTargetRevisionOrExpectedVersionAsBadRequest() throws Exception {
+        UUID teamId = UUID.randomUUID();
+
+        mockMvc = MockMvcBuilders.standaloneSetup(new TeamController(service, revisions, deployments))
+                .setControllerAdvice(new ApiErrorHandler()).build();
+
+        mockMvc.perform(post("/api/v1/teams/{teamId}/rollback", teamId)
+                        .header("Idempotency-Key", "rollback-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetRevision\":5}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/teams/{teamId}/rollback", teamId)
+                        .header("Idempotency-Key", "rollback-key-2")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":3}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(revisions);
     }
 
     @Test
