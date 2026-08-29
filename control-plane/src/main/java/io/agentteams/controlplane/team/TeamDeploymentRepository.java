@@ -65,6 +65,16 @@ public class TeamDeploymentRepository {
                         deployment.version()));
     }
 
+    public Optional<UUID> findTeamIdByBinding(UUID bindingId, UUID agentId) {
+        return jdbc.query("""
+                SELECT deployment.team_id
+                  FROM team_deployment_members member
+                  JOIN team_deployments deployment ON deployment.id = member.deployment_id
+                 WHERE member.binding_id = ? AND member.agent_id = ?
+                """, (rs, row) -> rs.getObject("team_id", UUID.class), bindingId, agentId)
+                .stream().findFirst();
+    }
+
     public List<TeamDeployment.Member> failedMembers(UUID deploymentId) {
         return jdbc.query("""
                 SELECT agent_id, base_manifest::text, task_overlay::text, binding_id, status, failure_code

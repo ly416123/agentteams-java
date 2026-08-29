@@ -14,10 +14,59 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
 
 class TeamRevisionServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-26T00:00:00Z");
+    private static final Principal PRINCIPAL = new Principal("alice",
+            new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of("team:write"));
+    private ResourceScopeRepository scopes;
+
+    @BeforeEach
+    void setPrincipal() {
+        scopes = mock(ResourceScopeRepository.class);
+        PrincipalContext.set(PRINCIPAL);
+    }
+
+    @AfterEach
+    void clearPrincipal() { PrincipalContext.clear(); }
+
+    @Test
+    void revisionMutationFailsClosedWithoutPrincipal() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        ResourceScopeRepository scopes = mock(ResourceScopeRepository.class);
+        TeamRevisionService service = new TeamRevisionService(repository, repository::validatePublish, scopes);
+        PrincipalContext.clear();
+
+        assertThatThrownBy(() -> service.createDraft(UUID.randomUUID(), UUID.randomUUID(), "{}", List.of(),
+                "alice", "key", NOW)).isInstanceOf(AuthorizationException.class)
+                .hasMessageContaining("authentication");
+        verify(repository, never()).createDraft(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void revisionMutationRejectsCrossTeamPrincipalBeforePersistence() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        ResourceScopeRepository scopes = mock(ResourceScopeRepository.class);
+        UUID teamId = UUID.randomUUID();
+        UUID leader = UUID.randomUUID();
+        PrincipalContext.set(PRINCIPAL);
+        org.mockito.Mockito.doThrow(new AuthorizationException("resource is outside caller team"))
+                .when(scopes).requireVisible("TEAM", teamId);
+        TeamRevisionService service = new TeamRevisionService(repository, repository::validatePublish, scopes);
+
+        assertThatThrownBy(() -> service.createDraft(teamId, leader, "{}", List.of(leader), "alice", "key", NOW))
+                .isInstanceOf(AuthorizationException.class).hasMessageContaining("outside caller team");
+        verify(repository, never()).createDraft(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
 
     @Test
     void publishedRevisionCannotBeModified() {
@@ -25,7 +74,7 @@ class TeamRevisionServiceTest {
         UUID teamId = UUID.randomUUID();
         TeamRevision published = revision(teamId, 3, TeamRevisionStatus.PUBLISHED, null);
         when(repository.find(teamId, 3)).thenReturn(Optional.of(published));
-        TeamRevisionService service = new TeamRevisionService(repository);
+        TeamRevisionService service = new TeamRevisionService(repository, repository::validatePublish, scopes);
 
         assertThatThrownBy(() -> service.updateOverlay(teamId, 3, "{\"changed\":true}", 0, "alice", NOW))
                 .isInstanceOf(TeamRevisionConflictException.class)
@@ -43,7 +92,7 @@ class TeamRevisionServiceTest {
                 any(), any()))
                 .thenReturn(new TeamRevision(teamId, 4, target.leaderAgentId(), target.overlayJson(), target.digest(),
                         TeamRevisionStatus.DRAFT, 2L, "alice", NOW, 0, target.memberAgentIds()));
-        TeamRevisionService service = new TeamRevisionService(repository);
+        TeamRevisionService service = new TeamRevisionService(repository, repository::validatePublish, scopes);
 
         TeamRevision rollback = service.rollback(teamId, 2, 0, "alice", "rollback-key", NOW);
 
@@ -65,7 +114,7 @@ class TeamRevisionServiceTest {
                 .thenAnswer(invocation -> new TeamRevision(teamId, 1, leaderAgentId, invocation.getArgument(2),
                         invocation.getArgument(3, String.class), TeamRevisionStatus.DRAFT, null, "alice", NOW, 0,
                         List.of(leaderAgentId)));
-        TeamRevisionService service = new TeamRevisionService(repository);
+        TeamRevisionService service = new TeamRevisionService(repository, repository::validatePublish, scopes);
 
         TeamRevision created = service.createDraft(teamId, leaderAgentId,
                 "{\"z\":1,\"a\":2}", List.of(leaderAgentId), "alice", "create-key", NOW);
@@ -86,7 +135,7 @@ class TeamRevisionServiceTest {
         when(repository.find(teamId, 3)).thenReturn(Optional.of(draft));
         when(repository.publish(eq(teamId), eq(3L), eq(0L), eq("publish-key"), eq(validator), any()))
                 .thenReturn(published);
-        TeamRevisionService service = new TeamRevisionService(repository, validator);
+        TeamRevisionService service = new TeamRevisionService(repository, validator, scopes);
 
         assertThat(service.publish(teamId, 3, 0, "publish-key")).isSameAs(published);
 
@@ -102,7 +151,7 @@ class TeamRevisionServiceTest {
         when(repository.find(draft.teamId(), 1)).thenReturn(Optional.of(draft));
         when(repository.transition(eq(draft.teamId()), eq(1L), eq(0L), eq(TeamRevisionStatus.DRAFT),
                 eq(TeamRevisionStatus.REVIEWING), eq("review-key"), any())).thenReturn(draft);
-        new TeamRevisionService(repository).review(draft.teamId(), 1, 0, "review-key");
+        new TeamRevisionService(repository, repository::validatePublish, scopes).review(draft.teamId(), 1, 0, "review-key");
         verify(repository).transition(eq(draft.teamId()), eq(1L), eq(0L), eq(TeamRevisionStatus.DRAFT),
                 eq(TeamRevisionStatus.REVIEWING), eq("review-key"), any());
     }
@@ -114,7 +163,7 @@ class TeamRevisionServiceTest {
         when(repository.find(draft.teamId(), 1)).thenReturn(Optional.of(draft));
         when(repository.update(any(), eq("overlay-key"), any())).thenReturn(draft);
 
-        new TeamRevisionService(repository).updateOverlay(draft.teamId(), 1, "{\"changed\":true}", 0,
+        new TeamRevisionService(repository, repository::validatePublish, scopes).updateOverlay(draft.teamId(), 1, "{\"changed\":true}", 0,
                 "alice", NOW, "overlay-key");
 
         verify(repository).update(any(), eq("overlay-key"), any());
@@ -129,7 +178,7 @@ class TeamRevisionServiceTest {
         when(repository.publish(eq(draft.teamId()), eq(3L), eq(0L), eq("publish-key"), eq(validator), any()))
                 .thenReturn(draft);
 
-        new TeamRevisionService(repository, validator).publish(draft.teamId(), 3, 0, "publish-key");
+        new TeamRevisionService(repository, validator, scopes).publish(draft.teamId(), 3, 0, "publish-key");
 
         verify(repository).publish(eq(draft.teamId()), eq(3L), eq(0L), eq("publish-key"), eq(validator), any());
         verify(validator, never()).validate(any());
@@ -144,7 +193,7 @@ class TeamRevisionServiceTest {
         when(repository.createRollback(eq(target.teamId()), eq(target), eq(0L), eq("alice"), eq(NOW),
                 eq("rollback-key"), eq(validator), any())).thenReturn(target);
 
-        new TeamRevisionService(repository, validator).rollback(target.teamId(), 2, 0, "alice",
+        new TeamRevisionService(repository, validator, scopes).rollback(target.teamId(), 2, 0, "alice",
                 "rollback-key", NOW);
 
         verify(repository).createRollback(eq(target.teamId()), eq(target), eq(0L), eq("alice"), eq(NOW),
@@ -155,7 +204,7 @@ class TeamRevisionServiceTest {
     @Test
     void draftRejectsEmptyMembersBeforePersistence() {
         TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
-        assertThatThrownBy(() -> new TeamRevisionService(repository).createDraft(UUID.randomUUID(), UUID.randomUUID(),
+        assertThatThrownBy(() -> new TeamRevisionService(repository, repository::validatePublish, scopes).createDraft(UUID.randomUUID(), UUID.randomUUID(),
                 "{}", List.of(), "alice", "key", NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("members");
         verify(repository, never()).createDraft(any(), any(), any(), any(), any(), any(), any(), any(), any());

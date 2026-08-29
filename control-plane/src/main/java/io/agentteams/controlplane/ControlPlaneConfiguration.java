@@ -374,8 +374,9 @@ public class ControlPlaneConfiguration {
 
     @Bean
     TeamRevisionService teamRevisionService(TeamRevisionRepository repository,
-            TeamRevisionPublishValidator publishValidator) {
-        return new TeamRevisionService(repository, publishValidator);
+            TeamRevisionPublishValidator publishValidator,
+            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes) {
+        return new TeamRevisionService(repository, publishValidator, resourceScopes);
     }
 
     @Bean
@@ -386,9 +387,10 @@ public class ControlPlaneConfiguration {
     @Bean
     TeamDeploymentService teamDeploymentService(TeamDeploymentRepository repository,
             ConfigSnapshotService snapshots, ConfigDeploymentService deployments, Clock clock,
-            TeamRevisionRepository revisions) {
+            TeamRevisionRepository revisions,
+            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes) {
         return new TeamDeploymentService(repository, snapshots, deployments, new io.agentteams.controlplane.config.EffectiveConfigComposer(),
-                clock, revisions);
+                clock, revisions, resourceScopes);
     }
 
     @Bean

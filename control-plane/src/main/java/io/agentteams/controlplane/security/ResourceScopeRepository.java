@@ -35,7 +35,7 @@ public class ResourceScopeRepository {
                  WHERE resource_type = ? AND resource_id = ?
                    AND tenant_id = ? AND project_id = ? AND team = ?
                 """, (rs, row) -> true, resourceType, resourceId, principal.scope().tenant(),
-                principal.scope().project(), principal.scope().team()).stream().findFirst().orElse(false)).orElse(true);
+                principal.scope().project(), principal.scope().team()).stream().findFirst().orElse(false)).orElse(false);
     }
 
     public void requireVisible(String resourceType, UUID resourceId) {

@@ -53,7 +53,7 @@ class ManagerSessionControllerTest {
         when(facade.getSession(sessionId)).thenReturn(session);
         when(facade.events(sessionId, 0)).thenReturn(List.of(
                 new ManagerEventRecord(sessionId, 1, "SESSION_CREATED",
-                        "{\"status\":\"ACTIVE\",\"messageId\":\"m-1\",\"token\":\"secret\","
+                        "{\"status\":\"ACTIVE\",\"message\":\"deployment completed\",\"messageId\":\"m-1\",\"tool\":\"Bearer secret-token-value\",\"token\":\"secret\","
                                 + "\"password\":\"secret\",\"apiKey\":\"secret\","
                                 + "\"deepseekApiKey\":\"secret\",\"clientSecret\":\"secret\","
                                 + "\"bearerToken\":\"secret\",\"privateKey\":\"secret\","
@@ -87,7 +87,10 @@ class ManagerSessionControllerTest {
                 .param("after", "0"))
                 .andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith("text/event-stream"))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("\"status\":\"ACTIVE\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("deployment completed")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("\"messageId\":\"m-1\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret-token-value"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Bearer"))))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("token"))))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("password"))))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("apiKey"))))

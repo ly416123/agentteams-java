@@ -3,6 +3,9 @@ package io.agentteams.controlplane.team;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.config.ConfigManifestCanonicalizer;
+import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -16,18 +19,26 @@ public final class TeamRevisionService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final TeamRevisionRepository repository;
     private final TeamRevisionPublishValidator publishValidator;
+    private final ResourceScopeRepository resourceScopes;
 
     public TeamRevisionService(TeamRevisionRepository repository) {
-        this(repository, repository::validatePublish);
+        this(repository, repository::validatePublish, null);
     }
 
     public TeamRevisionService(TeamRevisionRepository repository, TeamRevisionPublishValidator publishValidator) {
+        this(repository, publishValidator, null);
+    }
+
+    public TeamRevisionService(TeamRevisionRepository repository, TeamRevisionPublishValidator publishValidator,
+            ResourceScopeRepository resourceScopes) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.publishValidator = Objects.requireNonNull(publishValidator, "publishValidator");
+        this.resourceScopes = resourceScopes;
     }
 
     public TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlayJson,
             List<UUID> memberAgentIds, String actor, String idempotencyKey, Instant now) {
+        requireTeamScope(teamId);
         Objects.requireNonNull(memberAgentIds, "memberAgentIds");
         if (memberAgentIds.isEmpty()) throw new IllegalArgumentException("members must not be empty");
         if (!memberAgentIds.contains(leaderAgentId)) {
@@ -116,12 +127,22 @@ public final class TeamRevisionService {
     }
 
     public TeamRevision get(UUID teamId, long revision) {
+        requireTeamScope(teamId);
         return repository.find(teamId, revision)
                 .orElseThrow(() -> new TeamRevisionConflictException("team revision does not exist"));
     }
 
     public List<TeamRevision> list(UUID teamId) {
+        requireTeamScope(teamId);
         return repository.findAll(teamId);
+    }
+
+    private void requireTeamScope(UUID teamId) {
+        if (resourceScopes == null) {
+            throw new IllegalStateException("resource scope repository is required");
+        }
+        PrincipalContext.current().orElseThrow(() -> new AuthorizationException("authentication required"));
+        resourceScopes.requireVisible("TEAM", Objects.requireNonNull(teamId, "teamId"));
     }
 
     private static String canonicalObject(String value) {

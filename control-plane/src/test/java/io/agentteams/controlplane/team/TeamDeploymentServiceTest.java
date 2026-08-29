@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.team;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -17,9 +18,73 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand;
+import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
+import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 
 class TeamDeploymentServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-26T00:00:00Z");
+    private static final Principal PRINCIPAL = new Principal("alice",
+            new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of("team:write"));
+    private ResourceScopeRepository scopes;
+
+    @BeforeEach
+    void setPrincipal() {
+        scopes = mock(ResourceScopeRepository.class);
+        PrincipalContext.set(PRINCIPAL);
+    }
+
+    @AfterEach
+    void clearPrincipal() { PrincipalContext.clear(); }
+
+    @Test
+    void deploymentFailsClosedWithoutPrincipal() {
+        TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
+        ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
+        ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
+        ResourceScopeRepository scopes = mock(ResourceScopeRepository.class);
+        UUID teamId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        TeamRevision revision = new TeamRevision(teamId, 1, agentId, "{}", "digest",
+                TeamRevisionStatus.PUBLISHED, null, "alice", NOW, 0, List.of(agentId));
+        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments,
+                new io.agentteams.controlplane.config.EffectiveConfigComposer(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC), null, scopes);
+        PrincipalContext.clear();
+
+        assertThatThrownBy(() -> service.deploy(revision,
+                List.of(new TeamDeployment.Member(agentId, "{}", "{}")), "alice", "key"))
+                .isInstanceOf(AuthorizationException.class).hasMessageContaining("authentication");
+        verify(repository, never()).create(any());
+    }
+
+    @Test
+    void deploymentRejectsCrossTeamPrincipalBeforePersistence() {
+        TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
+        ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
+        ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
+        ResourceScopeRepository scopes = mock(ResourceScopeRepository.class);
+        UUID teamId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        TeamRevision revision = new TeamRevision(teamId, 1, agentId, "{}", "digest",
+                TeamRevisionStatus.PUBLISHED, null, "alice", NOW, 0, List.of(agentId));
+        PrincipalContext.set(PRINCIPAL);
+        org.mockito.Mockito.doThrow(new AuthorizationException("resource is outside caller team"))
+                .when(scopes).requireVisible("TEAM", teamId);
+        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments,
+                new io.agentteams.controlplane.config.EffectiveConfigComposer(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC), null, scopes);
+
+        assertThatThrownBy(() -> service.deploy(revision,
+                List.of(new TeamDeployment.Member(agentId, "{}", "{}")), "alice", "key"))
+                .isInstanceOf(AuthorizationException.class).hasMessageContaining("outside caller team");
+        verify(repository, never()).create(any());
+    }
 
     @Test
     void partialFailureRetryOnlyReleasesFailedMemberBinding() {
@@ -38,7 +103,7 @@ class TeamDeploymentServiceTest {
         UUID failedBinding = UUID.randomUUID();
         when(repository.failedMembers(deployment.id())).thenReturn(List.of(new TeamDeployment.Member(failedAgent,
                 "{}", "{}", failedBinding, "FAILED", "TEMPORARY_FAILURE")));
-        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments, NOW);
+        TeamDeploymentService service = scopedService(repository, snapshots, deployments);
 
         service.retry(deployment.id());
 
@@ -73,7 +138,7 @@ class TeamDeploymentServiceTest {
                 .thenReturn(new ConfigDeploymentService.ConfigDeployment(binding, snapshot, UUID.randomUUID()));
         when(deployments.deploy(eq(failedAgent), eq("team-revision:" + teamId + ":8:" + failedAgent), eq(snapshot), any()))
                 .thenThrow(new IllegalStateException("temporary"));
-        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments, NOW);
+        TeamDeploymentService service = scopedService(repository, snapshots, deployments);
 
         service.deploy(revision, aggregate.members(), "alice", "deploy-key");
 
@@ -93,7 +158,7 @@ class TeamDeploymentServiceTest {
         UUID agentId = UUID.randomUUID();
         TeamRevision draft = new TeamRevision(teamId, 2, agentId, "{}", "digest", TeamRevisionStatus.DRAFT,
                 null, "alice", NOW, 0, List.of(agentId));
-        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments, NOW);
+        TeamDeploymentService service = scopedService(repository, snapshots, deployments);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.deploy(draft,
                 List.of(new TeamDeployment.Member(agentId)), "alice", "key"))
@@ -117,7 +182,7 @@ class TeamDeploymentServiceTest {
         when(repository.create(any())).thenReturn(aggregate);
         when(repository.find(aggregate.id())).thenReturn(java.util.Optional.of(aggregate));
 
-        new TeamDeploymentService(repository, snapshots, deployments, NOW)
+        scopedService(repository, snapshots, deployments)
                 .deploy(published, aggregate.members(), "alice", "deploy-key");
 
         verify(repository).markMember(aggregate.id(), agentId, null, "FAILED", "IllegalArgumentException");
@@ -141,7 +206,7 @@ class TeamDeploymentServiceTest {
                 bindingId, "FAILED", "TEMPORARY_FAILURE")));
         when(repository.claimRetry(eq(deploymentId), any(), eq(0L), eq("retry-key"), any())).thenReturn(true);
 
-        new TeamDeploymentService(repository, snapshots, deployments, NOW).retry(deploymentId, "retry-key");
+        scopedService(repository, snapshots, deployments).retry(deploymentId, "retry-key");
 
         verify(repository).claimRetry(eq(deploymentId), eq(List.of(agentId)), eq(0L), eq("retry-key"), any());
         verify(deployments).retry(bindingId);
@@ -159,7 +224,7 @@ class TeamDeploymentServiceTest {
         when(repository.failedMembers(deploymentId)).thenReturn(List.of(deployment.members().get(0)));
         when(repository.claimRetry(eq(deploymentId), any(), eq(0L), eq("retry-key"), any())).thenReturn(true);
 
-        new TeamDeploymentService(repository, snapshots, deployments, NOW).retry(deploymentId, "retry-key");
+        scopedService(repository, snapshots, deployments).retry(deploymentId, "retry-key");
 
         verify(repository).claimRetry(eq(deploymentId), any(), eq(0L), eq("retry-key"), any());
     }
@@ -169,9 +234,11 @@ class TeamDeploymentServiceTest {
         TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
         ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
         ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
-        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments, NOW);
+        TeamDeploymentService service = scopedService(repository, snapshots, deployments);
         ConfigAppliedCommand command = new ConfigAppliedCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), 1, true, "", NOW, "worker");
+        when(repository.findTeamIdByBinding(command.bindingId(), command.agentId()))
+                .thenReturn(java.util.Optional.of(UUID.randomUUID()));
 
         service.recordAck(command);
 
@@ -183,11 +250,18 @@ class TeamDeploymentServiceTest {
         TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
         ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
         ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
-        TeamDeploymentService service = new TeamDeploymentService(repository, snapshots, deployments, NOW);
+        TeamDeploymentService service = scopedService(repository, snapshots, deployments);
         ConfigAppliedCommand command = new ConfigAppliedCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), 1, true, "", NOW, "worker", "correlation");
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.recordAck(command, 4))
                 .isInstanceOf(TeamRevisionConflictException.class).hasMessageContaining("stale");
+    }
+
+    private TeamDeploymentService scopedService(TeamDeploymentRepository repository,
+            ConfigSnapshotService snapshots, ConfigDeploymentService deployments) {
+        return new TeamDeploymentService(repository, snapshots, deployments,
+                new io.agentteams.controlplane.config.EffectiveConfigComposer(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC), null, scopes);
     }
 }

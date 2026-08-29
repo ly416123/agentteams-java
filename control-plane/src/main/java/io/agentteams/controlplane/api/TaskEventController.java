@@ -43,24 +43,40 @@ public final class TaskEventController {
     private static String redact(String payload) {
         try {
             JsonNode root = JSON.readTree(payload);
-            redactNode(root);
-            return JSON.writeValueAsString(root);
+            JsonNode redacted = redactNode(root);
+            return JSON.writeValueAsString(redacted == null ? JSON.createObjectNode() : redacted);
         } catch (Exception ignored) {
             return "{\"redacted\":true}";
         }
     }
 
-    private static void redactNode(JsonNode node) {
-        if (node == null) return;
+    private static JsonNode redactNode(JsonNode node) {
+        if (node == null) return null;
         if (node.isObject()) {
+            com.fasterxml.jackson.databind.node.ObjectNode result = JSON.createObjectNode();
             var fields = node.fields();
             while (fields.hasNext()) {
                 var entry = fields.next();
-                if (SensitiveFieldPolicy.isSensitive(entry.getKey())) {
-                    fields.remove();
-                } else redactNode(entry.getValue());
+                if (SensitiveFieldPolicy.isSensitive(entry.getKey())) continue;
+                if (entry.getValue().isTextual() && SensitiveFieldPolicy.containsCredential(entry.getValue().textValue())) {
+                    continue;
+                }
+                JsonNode child = redactNode(entry.getValue());
+                if (child != null) result.set(entry.getKey(), child);
             }
-        } else if (node.isArray()) node.forEach(TaskEventController::redactNode);
+            return result;
+        } else if (node.isArray()) {
+            com.fasterxml.jackson.databind.node.ArrayNode result = JSON.createArrayNode();
+            node.forEach(value -> {
+                if (!value.isTextual() || !SensitiveFieldPolicy.containsCredential(value.textValue())) {
+                    JsonNode child = redactNode(value);
+                    if (child != null) result.add(child);
+                }
+            });
+            return result;
+        }
+        if (node.isTextual() && SensitiveFieldPolicy.containsCredential(node.textValue())) return null;
+        return node;
     }
 
     private static long parseCursor(String value) {

@@ -7,6 +7,9 @@ import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigSnapshot;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
 import io.agentteams.application.api.ConfigEventPort.ConfigAppliedCommand;
+import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +26,7 @@ public final class TeamDeploymentService {
     private final EffectiveConfigComposer composer;
     private final Clock clock;
     private final TeamRevisionRepository revisions;
+    private final ResourceScopeRepository resourceScopes;
 
     public TeamDeploymentService(TeamDeploymentRepository repository, ConfigSnapshotService snapshots,
             ConfigDeploymentService deployments, Clock clock) {
@@ -42,17 +46,25 @@ public final class TeamDeploymentService {
     public TeamDeploymentService(TeamDeploymentRepository repository, ConfigSnapshotService snapshots,
             ConfigDeploymentService deployments, EffectiveConfigComposer composer, Clock clock,
             TeamRevisionRepository revisions) {
+        this(repository, snapshots, deployments, composer, clock, revisions, null);
+    }
+
+    public TeamDeploymentService(TeamDeploymentRepository repository, ConfigSnapshotService snapshots,
+            ConfigDeploymentService deployments, EffectiveConfigComposer composer, Clock clock,
+            TeamRevisionRepository revisions, ResourceScopeRepository resourceScopes) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.snapshots = Objects.requireNonNull(snapshots, "snapshots");
         this.deployments = Objects.requireNonNull(deployments, "deployments");
         this.composer = Objects.requireNonNull(composer, "composer");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.revisions = revisions;
+        this.resourceScopes = resourceScopes;
     }
 
     public TeamDeployment deploy(TeamRevision revision, List<TeamDeployment.Member> members,
             String actor, String idempotencyKey) {
         Objects.requireNonNull(revision, "revision");
+        requireTeamScope(revision.teamId());
         if (revision.status() != TeamRevisionStatus.PUBLISHED) {
             throw new TeamRevisionConflictException("deployment requires a PUBLISHED revision");
         }
@@ -96,6 +108,7 @@ public final class TeamDeploymentService {
     private void retryInternal(UUID deploymentId, String idempotencyKey, boolean persistKey) {
         TeamDeployment deployment = repository.find(Objects.requireNonNull(deploymentId, "deploymentId"))
                 .orElseThrow(() -> new IllegalArgumentException("team deployment does not exist"));
+        requireTeamScope(deployment.teamId());
         List<TeamDeployment.Member> failed = repository.failedMembers(deployment.id());
         if (failed.isEmpty()) throw new IllegalArgumentException("team deployment has no failed members");
         if (persistKey) {
@@ -131,6 +144,7 @@ public final class TeamDeploymentService {
     }
 
     public TeamDeployment find(UUID deploymentId, UUID teamId) {
+        requireTeamScope(teamId);
         TeamDeployment deployment = repository.find(Objects.requireNonNull(deploymentId, "deploymentId"))
                 .orElseThrow(() -> new IllegalArgumentException("team deployment does not exist"));
         if (!deployment.teamId().equals(Objects.requireNonNull(teamId, "teamId"))) {
@@ -150,6 +164,9 @@ public final class TeamDeploymentService {
     }
 
     public void recordAck(UUID deploymentId, UUID agentId, boolean applied, String failureCode) {
+        TeamDeployment deployment = repository.find(Objects.requireNonNull(deploymentId, "deploymentId"))
+                .orElseThrow(() -> new IllegalArgumentException("team deployment does not exist"));
+        requireTeamScope(deployment.teamId());
         repository.markMemberStatus(deploymentId, agentId, applied ? "SUCCEEDED" : "FAILED", failureCode);
         repository.refreshStatus(deploymentId);
     }
@@ -164,7 +181,18 @@ public final class TeamDeploymentService {
         if (command.configVersion() != applyGeneration) {
             throw new TeamRevisionConflictException("ConfigApplied generation is stale");
         }
+        UUID teamId = repository.findTeamIdByBinding(command.bindingId(), command.agentId())
+                .orElseThrow(() -> new IllegalArgumentException("team deployment does not exist"));
+        requireTeamScope(teamId);
         repository.recordConfigAppliedAck(command, applyGeneration);
+    }
+
+    private void requireTeamScope(UUID teamId) {
+        if (resourceScopes == null) {
+            throw new IllegalStateException("resource scope repository is required");
+        }
+        PrincipalContext.current().orElseThrow(() -> new AuthorizationException("authentication required"));
+        resourceScopes.requireVisible("TEAM", Objects.requireNonNull(teamId, "teamId"));
     }
 
     private void applyMember(TeamDeployment deployment, TeamRevision revision, TeamDeployment.Member member,

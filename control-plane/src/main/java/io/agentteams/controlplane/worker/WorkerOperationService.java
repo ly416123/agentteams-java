@@ -143,7 +143,7 @@ public final class WorkerOperationService {
         java.util.List<WorkerOperation> rows = persistence.inTransaction(tx -> tx.workerOperations().findPage(
                 agentId, principal, request.position(), request.pageSize() + 1, request.direction()));
         return CursorPage.fromRows(rows, request.pageSize(),
-                operation -> new CursorPageRequest.Position(operation.createdAt(), operation.id()), clock.instant());
+                operation -> new CursorPageRequest.Position(operation.updatedAt(), operation.id()), clock.instant());
     }
 
     public java.util.Optional<WorkerOperationObservation> observation(UUID operationId) {

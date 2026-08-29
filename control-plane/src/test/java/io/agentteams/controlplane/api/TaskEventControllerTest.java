@@ -84,4 +84,23 @@ class TaskEventControllerTest {
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("deepseekApiKey"))))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("provider_api_key"))));
     }
+
+    @Test
+    void redactsCredentialValuesInOrdinaryFieldsButKeepsBusinessText() throws Exception {
+        TaskService service = mock(TaskService.class);
+        UUID taskId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-29T00:00:00Z");
+        DomainEventRecord event = DomainEventRecord.create(UUID.randomUUID(), "task", taskId, "TaskUpdated",
+                "{\"message\":\"deployment completed\",\"details\":\"Bearer hidden-token-value\","
+                        + "\"note\":\"apiKey=hidden-api-key-value\"}", now, 1);
+        when(service.events(eq(taskId), anyLong())).thenReturn(List.of(event));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new TaskEventController(service))
+                .setControllerAdvice(new ApiErrorHandler()).build();
+
+        mvc.perform(get("/api/v1/tasks/{id}/events", taskId))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("deployment completed")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("hidden-token-value"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("hidden-api-key-value"))));
+    }
 }

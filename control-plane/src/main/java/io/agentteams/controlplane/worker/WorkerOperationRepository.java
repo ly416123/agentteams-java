@@ -47,11 +47,11 @@ public final class WorkerOperationRepository {
     public List<WorkerOperation> findPage(UUID agentId, Principal principal, CursorPageRequest.Position after,
             int limit, CursorPageRequest.Direction direction) {
         String order = direction == CursorPageRequest.Direction.ASC
-                ? " ORDER BY operation.created_at ASC, operation.id ASC LIMIT ?"
-                : " ORDER BY operation.created_at DESC, operation.id DESC LIMIT ?";
+                ? " ORDER BY operation.updated_at ASC, operation.id ASC LIMIT ?"
+                : " ORDER BY operation.updated_at DESC, operation.id DESC LIMIT ?";
         String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
-                ? " AND (operation.created_at, operation.id) > (?, ?)"
-                : " AND (operation.created_at, operation.id) < (?, ?)";
+                ? " AND (operation.updated_at, operation.id) > (?, ?)"
+                : " AND (operation.updated_at, operation.id) < (?, ?)";
         String sql = """
                 SELECT operation.id, operation.agent_id, operation.type, operation.status,
                        operation.requested_spec_digest, operation.requested_runtime,
