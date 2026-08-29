@@ -88,9 +88,10 @@ def request_json(url: str, method: str = "GET", body: dict | None = None,
 
 
 def stream_events(url: str, token: str, after: str | None = None) -> list[tuple[str, str, dict]]:
-    # The deployed runtime talks to the Mock QwenPaw endpoints
-    # /api/console/chat and /api/console/cancel; the browser never calls these
-    # endpoints directly.
+    # The deployed runtime talks to QwenPaw's server-side HTTP/SSE endpoints;
+    # the browser never calls these endpoints directly. Cancellation uses the
+    # official /api/console/chat/stop route and the runtime retains a legacy
+    # /api/console/cancel fallback for the deterministic local mock.
     headers = {"Accept": "text/event-stream"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

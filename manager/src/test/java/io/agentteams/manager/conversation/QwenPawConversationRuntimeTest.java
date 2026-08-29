@@ -40,6 +40,7 @@ class QwenPawConversationRuntimeTest {
     private AtomicReference<String> authorization;
     private AtomicReference<String> idempotencyKey;
     private AtomicReference<String> cancelBody;
+    private AtomicReference<String> cancelQuery;
     private AtomicInteger redirectedRequests;
     private AtomicInteger cancelRequests;
 
@@ -50,11 +51,18 @@ class QwenPawConversationRuntimeTest {
         authorization = new AtomicReference<>();
         idempotencyKey = new AtomicReference<>();
         cancelBody = new AtomicReference<>();
+        cancelQuery = new AtomicReference<>();
         redirectedRequests = new AtomicInteger();
         cancelRequests = new AtomicInteger();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         serverExecutor = Executors.newCachedThreadPool();
         server.setExecutor(serverExecutor);
+        // Existing tests use a prefix handler for /api/console/chat. Register
+        // the more specific official stop route so that route probing reaches
+        // the legacy fallback without entering a deliberately long-lived chat
+        // handler.
+        server.createContext("/api/console/chat/stop", exchange ->
+                writeResponse(exchange, 404, "application/json", "{\"detail\":\"not found\"}"));
     }
 
     @AfterEach
@@ -99,6 +107,38 @@ class QwenPawConversationRuntimeTest {
         assertThat(request.path("input").get(0).path("content").get(0).path("text").asText())
                 .isEqualTo("private prompt");
         assertThat(request.path("project").asText()).isEqualTo("project-a");
+        runtime.close();
+    }
+
+    @Test
+    void acceptsQwenPawContentSnapshotsAndIntermediateMessageCompletion() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"id\":\"response-1\",\"status\":\"created\",\"object\":\"response\"}\n\n"
+                            + "data: {\"id\":\"response-1\",\"status\":\"in_progress\",\"object\":\"response\"}\n\n"
+                            + "data: {\"id\":\"reasoning-1\",\"type\":\"reasoning\",\"object\":\"message\",\"status\":\"in_progress\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":true,\"object\":\"content\",\"text\":\"thinking\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":false,\"object\":\"content\",\"text\":\"thinking\"}\n\n"
+                            + "data: {\"id\":\"reasoning-1\",\"type\":\"reasoning\",\"object\":\"message\",\"status\":\"completed\"}\n\n"
+                            + "data: {\"id\":\"message-1\",\"type\":\"message\",\"object\":\"message\",\"status\":\"in_progress\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":true,\"object\":\"content\",\"text\":\"hello\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":false,\"object\":\"content\",\"text\":\"hello\"}\n\n"
+                            + "data: {\"id\":\"message-1\",\"type\":\"message\",\"object\":\"message\",\"status\":\"completed\"}\n\n"
+                            + "data: {\"id\":\"response-1\",\"status\":\"completed\",\"object\":\"response\",\"output\":[]}\n\n");
+        });
+        server.start();
+
+        QwenPawConversationRuntime runtime = runtime("secret", 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 6);
+        List<ConversationEvent> events = runtime.events(SESSION_ID, 0);
+        assertThat(events).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.delta", "message.delta",
+                        "message.delta", "message.delta", "message.delta", "message.completed");
+        assertThat(events).noneMatch(event -> event.type().equals("conversation.failed"));
         runtime.close();
     }
 
@@ -495,6 +535,25 @@ class QwenPawConversationRuntimeTest {
 
         assertThat(cancelRequests).hasValue(1);
         assertThat(cancelBody.get()).contains(SESSION_ID.toString());
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "conversation.cancelled");
+        runtime.close();
+    }
+
+    @Test
+    void usesOfficialQwenPawChatStopEndpointWithSessionQuery() throws Exception {
+        server.removeContext("/api/console/chat/stop");
+        server.createContext("/api/console/chat/stop", exchange -> {
+            cancelQuery.set(exchange.getRequestURI().getQuery());
+            writeResponse(exchange, 200, "application/json", "{\"stopped\":true}");
+        });
+        server.start();
+
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.cancel(SESSION_ID);
+
+        assertThat(cancelQuery).hasValue("chat_id=" + SESSION_ID);
         assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
                 .containsExactly("conversation.started", "conversation.cancelled");
         runtime.close();

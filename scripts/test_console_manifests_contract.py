@@ -48,6 +48,8 @@ class ConsoleDeploymentContractTest(unittest.TestCase):
         self.assertIn("listen 8080", nginx)
         self.assertIn("try_files $uri $uri/ /index.html;", nginx)
         self.assertNotIn("proxy_pass", nginx)
+        self.assertIn('<script src="/config.js"></script>', read("console/index.html"))
+        self.assertIn("__AGENTTEAMS_CONFIG__", read("console/src/auth/oidc.ts"))
 
     def test_console_values_are_explicit_and_public_only(self):
         values = read("deploy/helm/agentteams-java/values.yaml")
@@ -124,8 +126,18 @@ class ConsoleDeploymentContractTest(unittest.TestCase):
         self.assertIn("-console", gateway_api)
         self.assertEqual(paths[0]["path"], "/api")
         self.assertEqual(paths[0]["backend"]["service"]["name"], "agentteams-agentteams-java-control-plane")
-        self.assertEqual(paths[1]["path"], "/")
-        self.assertEqual(paths[1]["backend"]["service"]["name"], "agentteams-agentteams-java-console")
+        self.assertEqual(
+            next(path for path in paths if path["path"] == "/api/v1/conversations")
+            ["backend"]["service"]["name"],
+            "agentteams-agentteams-java-manager",
+        )
+        self.assertEqual(
+            next(path for path in paths if path["path"] == "/api/v1/manager")
+            ["backend"]["service"]["name"],
+            "agentteams-agentteams-java-manager",
+        )
+        self.assertEqual(paths[-1]["path"], "/")
+        self.assertEqual(paths[-1]["backend"]["service"]["name"], "agentteams-agentteams-java-console")
 
     def test_ci_runs_console_checks_only_when_console_exists_and_validates_manifests(self):
         workflow = read(".github/workflows/ci.yml")

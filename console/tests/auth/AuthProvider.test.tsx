@@ -5,7 +5,7 @@ import { RequireAuth } from '../../src/auth/RequireAuth';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { LoginPage } from '../../src/features/login/LoginPage';
-import { RETURN_TO_STORAGE_KEY } from '../../src/auth/oidc';
+import { oidcSettings, RETURN_TO_STORAGE_KEY } from '../../src/auth/oidc';
 import { AuthCallbackPage } from '../../src/features/login/AuthCallbackPage';
 
 function AuthProbe() {
@@ -18,6 +18,19 @@ function AuthProbe() {
 }
 
 describe('OIDC authentication', () => {
+  it('uses the public runtime OIDC configuration injected by deployment', () => {
+    window.__AGENTTEAMS_CONFIG__ = {
+      oidcIssuer: 'http://keycloak.test/realms/agentteams',
+      oidcClientId: 'agentteams-api',
+    };
+
+    expect(oidcSettings()).toMatchObject({
+      authority: 'http://keycloak.test/realms/agentteams',
+      client_id: 'agentteams-api',
+    });
+    delete window.__AGENTTEAMS_CONFIG__;
+  });
+
   it('keeps the access token in provider memory only', async () => {
     const manager = {
       getUser: vi

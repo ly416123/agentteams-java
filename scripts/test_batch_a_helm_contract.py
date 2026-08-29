@@ -34,6 +34,7 @@ class BatchAHelmContractTest(unittest.TestCase):
         schema = json.loads(read_chart("values.schema.json"))
         sandbox = schema["properties"]["sandbox"]["properties"]
         runtime = schema["properties"]["agentRuntime"]["properties"]
+        conversation = schema["properties"]["manager"]["properties"]["conversation"]["properties"]
 
         self.assertEqual(sandbox["provider"]["enum"], ["fake", "kubernetes"])
         self.assertEqual(
@@ -44,6 +45,31 @@ class BatchAHelmContractTest(unittest.TestCase):
             runtime["agentScope"]["properties"]["rolloutPercentage"]["maximum"],
             100,
         )
+        self.assertEqual(conversation["qwenpawEgressPort"]["maximum"], 65535)
+
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_manager_qwenpaw_network_policy_uses_configured_endpoint_port(self):
+        docs = render_chart(
+            "--set", "manager.enabled=true",
+            "--set", "manager.conversation.runtime=qwenpaw",
+            "--set", "manager.conversation.qwenpawEgressPort=18088",
+            "--set", "manager.security.enabled=true",
+            "--set", "manager.security.issuerUri=http://keycloak/realms/agentteams",
+            "--set", "manager.security.jwkSetUri=http://keycloak/realms/agentteams/protocol/openid-connect/certs",
+            "--set", "manager.security.audience=agentteams-api",
+        )
+        policies = [
+            doc for doc in docs
+            if doc.get("kind") == "NetworkPolicy"
+            and doc["metadata"]["name"].endswith("-manager")
+        ]
+        self.assertEqual(len(policies), 1)
+        egress_ports = {
+            port["port"]
+            for rule in policies[0]["spec"]["egress"]
+            for port in rule.get("ports", [])
+        }
+        self.assertIn(18088, egress_ports)
 
     def test_values_schema_rejects_unknown_controlled_keys(self):
         schema = json.loads(read_chart("values.schema.json"))

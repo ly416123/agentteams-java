@@ -398,7 +398,24 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             appendFailure(state, ConversationRuntimeException.Code.CANCELLED);
             return true;
         }
+        String eventTypeValue = event.path("type").asText();
+        if ("text".equals(eventTypeValue) && event.has("delta")) {
+            if (event.path("delta").asBoolean(false)) {
+                appendIfNotCancelled(state, "message.delta", data.toString());
+            }
+            // QwenPaw emits a delta=false content snapshot after the streamed
+            // chunks. The snapshot is not a terminal response and must not be
+            // surfaced as another delta or treated as an unknown protocol event.
+            return false;
+        }
         if ("completed".equals(status)) {
+            String object = event.path("object").asText();
+            if ("message".equals(object) || "message".equals(eventTypeValue)
+                    || "reasoning".equals(eventTypeValue)) {
+                // QwenPaw completes reasoning and assistant message objects
+                // before it completes the enclosing response.
+                return false;
+            }
             appendIfNotCancelled(state, "message.completed", data.toString());
             return true;
         }
@@ -536,7 +553,21 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
 
     private void cancelRemote(Context context) {
         RequestHandle cancelHandle = new RequestHandle(context.sessionId(), null);
-        HttpRequest.Builder builder = HttpRequest.newBuilder(cancelEndpoint())
+        int status = cancelRemoteOnce(context, cancelEndpoint(context), cancelHandle);
+        if (status == 404 || status == 405) {
+            // Older/local QwenPaw-compatible runtimes and the deterministic
+            // mock expose the pre-2.x endpoint. Keep that compatibility path
+            // only for an explicit route-not-found/method-not-allowed result.
+            status = cancelRemoteOnce(context, legacyCancelEndpoint(), cancelHandle);
+        }
+        if (status < 200 || status >= 300) {
+            throw new ConversationRuntimeException(classifyHttp(status),
+                    "QwenPaw cancellation failed with HTTP status " + status);
+        }
+    }
+
+    private int cancelRemoteOnce(Context context, URI endpoint, RequestHandle cancelHandle) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
                 .timeout(configuration.requestTimeout())
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
@@ -551,6 +582,14 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             int status = response.statusCode();
             ConversationRuntimeException.Code statusCode = classifyHttp(status);
             cancelHandle.stream = response.body();
+            if (status == 404 || status == 405) {
+                // Route probing is intentional for compatibility with older
+                // QwenPaw-compatible runtimes. Do not wait for an error body
+                // from a server that may leave a route-miss response open.
+                response.body().close();
+                cancelHandle.stream = null;
+                return status;
+            }
             cancelHandle.armIdleTimeout(timeoutExecutor, configuration.requestTimeout());
             long declaredLength = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
             if ((status < 200 || status >= 300)
@@ -585,10 +624,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                 cancelHandle.cancelIdleTimeout();
                 cancelHandle.stream = null;
             }
-            if (status < 200 || status >= 300) {
-                throw new ConversationRuntimeException(statusCode,
-                        "QwenPaw cancellation failed with HTTP status " + status);
-            }
+            return status;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new ConversationRuntimeException(ConversationRuntimeException.Code.TIMEOUT,
@@ -626,7 +662,13 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         return URI.create(base + "/api/console/chat");
     }
 
-    private URI cancelEndpoint() {
+    private URI cancelEndpoint(Context context) {
+        String base = configuration.endpoint().toString().replaceAll("/+$", "");
+        return URI.create(base + "/api/console/chat/stop?chat_id="
+                + context.sessionId());
+    }
+
+    private URI legacyCancelEndpoint() {
         String base = configuration.endpoint().toString().replaceAll("/+$", "");
         return URI.create(base + "/api/console/cancel");
     }

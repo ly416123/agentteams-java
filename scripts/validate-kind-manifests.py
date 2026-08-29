@@ -26,10 +26,13 @@ def main():
         fail("expected one local Ingress resource")
     text = ingress_path.read_text(encoding="utf-8")
     for service in ("agentteams-agentteams-java-control-plane", "agentteams-agentteams-java-gateway",
-                    "agentteams-agentteams-java-console",
+                    "agentteams-agentteams-java-console", "agentteams-agentteams-java-manager",
                     "qwenpaw", "prometheus", "grafana"):
         if service not in text:
             fail(f"Ingress missing backend service {service}")
+    for path in ("/api/v1/conversations", "/api/v1/manager"):
+        if path not in text:
+            fail(f"Ingress missing Manager path {path}")
     installer = ROOT / "deploy/install-kind-dev.sh"
     if not installer.exists():
         fail("kind installer does not exist")

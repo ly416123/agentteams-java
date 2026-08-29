@@ -19,6 +19,20 @@ spec:
                 name: agentteams-agentteams-java-control-plane
                 port:
                   name: http
+          - path: /api/v1/conversations
+            pathType: Prefix
+            backend:
+              service:
+                name: agentteams-agentteams-java-manager
+                port:
+                  name: http
+          - path: /api/v1/manager
+            pathType: Prefix
+            backend:
+              service:
+                name: agentteams-agentteams-java-manager
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:

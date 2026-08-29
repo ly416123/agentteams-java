@@ -1,4 +1,5 @@
 {{- $manager := .Values.manager | default dict -}}
+{{- $conversation := $manager.conversation | default dict -}}
 {{- if and $manager.enabled .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -24,6 +25,9 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
         - { protocol: TCP, port: {{ .Values.controlPlane.port }} }
+{{- if eq (default "fake" $conversation.runtime) "qwenpaw" }}
+        - { protocol: TCP, port: {{ default 8088 $conversation.qwenpawEgressPort }} }
+{{- end }}
     - to:
         - namespaceSelector: {}
       ports:

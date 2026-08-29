@@ -15,7 +15,8 @@ class KindQwenPawConversationAcceptanceContractTest(unittest.TestCase):
         source = SCRIPT.read_text(encoding="utf-8")
         for required in (
                 "/api/v1/conversations", "sessionId", "Idempotency-Key",
-                "Last-Event-ID", "after", "/api/console/chat", "/api/console/cancel"):
+                "Last-Event-ID", "after", "/api/console/chat", "/api/console/chat/stop",
+                "/api/console/cancel"):
             self.assertIn(required, source)
 
     def test_script_checks_all_conversation_acceptance_behaviors(self):

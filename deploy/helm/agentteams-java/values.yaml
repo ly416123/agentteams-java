@@ -155,6 +155,8 @@ manager:
     runtime: fake
     qwenpawEndpoint: http://127.0.0.1:8088
     qwenpawAgentId: default
+    # The NetworkPolicy egress port for the selected QwenPaw endpoint.
+    qwenpawEgressPort: 8088
   env: {}
   autoscaling:
     enabled: false

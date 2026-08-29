@@ -350,6 +350,30 @@ Worker log instead of relying on the phase alone. On 2026-08-21, the Manager
 smoke, QwenPaw Provider test, three independent real tasks, and repeated
 Idempotency-Key creation were verified in the local Kind cluster.
 
+For the real Manager Conversation path, deploy the Manager with the QwenPaw
+Service endpoint and matching NetworkPolicy port, then run the authenticated
+acceptance script. It verifies real DeepSeek SSE deltas, terminal completion,
+cursor replay, idempotent message replay, and cancellation; it never treats a
+missing Docker/Kind/image/model dependency as a skip:
+
+```bash
+helm upgrade --install agentteams deploy/helm/agentteams-java \
+  --namespace agentteams --create-namespace --wait \
+  -f deploy/helm/kind-values.yaml -f deploy/helm/kind-oidc-values.yaml \
+  --set-string manager.conversation.qwenpawEndpoint=http://qwenpaw:8088 \
+  --set-string manager.conversation.qwenpawAgentId=default \
+  --set manager.conversation.qwenpawEgressPort=8088
+kubectl -n agentteams port-forward svc/agentteams-agentteams-java-manager 18084:8080
+AGENTTEAMS_API_BEARER_TOKEN="<Keycloak token>" \
+  python3 scripts/run-kind-qwenpaw-conversation-acceptance.py \
+  --base-url http://127.0.0.1:18084 --image agentteams-manager
+```
+
+The browser remains connected only to the AgentTeams Console/Conversation API;
+QwenPaw stays an internal service dependency. The Console Playwright check is
+run with the locally installed Chrome/Chromium browser, while the real
+Conversation acceptance above exercises the deployed Docker/Kind service path.
+
 Team CRD scheduling can be smoke-tested with two existing READY Agent UUIDs.
 The script creates a temporary Team CR, applies the stable `namespace/name`
 Team ID to three tasks, and expects one task to be `ASSIGNED` while the other

@@ -17,6 +17,7 @@ manager:
     runtime: qwenpaw
     qwenpawEndpoint: http://qwenpaw-conversation-mock:8080
     qwenpawAgentId: default
+    qwenpawEgressPort: 8080
   security:
     enabled: true
     issuerUri: http://keycloak:8080/realms/agentteams

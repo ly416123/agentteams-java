@@ -2,6 +2,15 @@ import { UserManager, type UserManagerSettings } from 'oidc-client-ts';
 
 export const RETURN_TO_STORAGE_KEY = 'agentteams.oidc.returnTo';
 
+type RuntimeConfig = {
+  oidcIssuer?: string;
+  oidcClientId?: string;
+};
+
+function runtimeConfig(): RuntimeConfig {
+  return window.__AGENTTEAMS_CONFIG__ || {};
+}
+
 export function saveReturnTo(returnTo: string) {
   if (returnTo.startsWith('/') && !returnTo.startsWith('//')) {
     sessionStorage.setItem(RETURN_TO_STORAGE_KEY, returnTo);
@@ -41,10 +50,14 @@ class MemoryUserStore {
 }
 
 export function oidcSettings(): UserManagerSettings {
-  const issuer = import.meta.env.VITE_OIDC_ISSUER || 'http://localhost:8180/realms/agentteams';
+  const config = runtimeConfig();
+  const issuer =
+    import.meta.env.VITE_OIDC_ISSUER ||
+    config.oidcIssuer ||
+    'http://localhost:8180/realms/agentteams';
   return {
     authority: issuer,
-    client_id: import.meta.env.VITE_OIDC_CLIENT_ID || 'agentteams-console',
+    client_id: import.meta.env.VITE_OIDC_CLIENT_ID || config.oidcClientId || 'agentteams-console',
     redirect_uri: `${window.location.origin}/auth/callback`,
     post_logout_redirect_uri: `${window.location.origin}/login`,
     response_type: 'code',
