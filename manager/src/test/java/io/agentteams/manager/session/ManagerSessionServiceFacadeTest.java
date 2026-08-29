@@ -284,6 +284,20 @@ class ManagerSessionServiceFacadeTest {
             return java.util.Optional.ofNullable(sessions.get(id));
         }
 
+        @Override public List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String actor,
+                Instant beforeUpdatedAt, UUID beforeId, int limit) {
+            return sessions.values().stream()
+                    .filter(session -> session.tenantId().equals(tenantId)
+                            && session.projectId().equals(projectId) && session.actor().equals(actor))
+                    .filter(session -> beforeUpdatedAt == null
+                            || session.updatedAt().isBefore(beforeUpdatedAt)
+                            || (session.updatedAt().equals(beforeUpdatedAt) && session.id().compareTo(beforeId) < 0))
+                    .sorted(java.util.Comparator.comparing(ManagerSessionRecord::updatedAt).reversed()
+                            .thenComparing(ManagerSessionRecord::id, java.util.Comparator.reverseOrder()))
+                    .limit(limit)
+                    .toList();
+        }
+
         @Override public java.util.Optional<ManagerMessageRecord> findMessage(UUID sessionId, String key) {
             return java.util.Optional.ofNullable(messages.get(sessionId + ":" + key));
         }

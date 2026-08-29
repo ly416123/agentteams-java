@@ -10,6 +10,9 @@ public interface ManagerSessionRepository {
 
     Optional<ManagerSessionRecord> findSession(UUID id);
 
+    List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String actor,
+            Instant beforeUpdatedAt, UUID beforeId, int limit);
+
     Optional<ManagerMessageRecord> findMessage(UUID sessionId, String idempotencyKey);
 
     /** Atomically claims an idempotency key and consumes the expected session version. */

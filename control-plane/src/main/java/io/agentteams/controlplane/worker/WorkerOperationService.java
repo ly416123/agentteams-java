@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.worker;
 
+import io.agentteams.controlplane.api.CursorPage;
+import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
@@ -109,6 +111,19 @@ public final class WorkerOperationService {
             requireVisible(agentId);
             return operation;
         });
+    }
+
+    public CursorPage<WorkerOperation> list(UUID agentId, CursorPageRequest request) {
+        Objects.requireNonNull(agentId, "agentId");
+        Objects.requireNonNull(request, "request");
+        PrincipalContext.current().ifPresent(ignored -> requireVisible(agentId));
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        java.util.List<WorkerOperation> rows = persistence.inTransaction(tx -> tx.workerOperations().findPage(
+                agentId, principal, request.position(), request.pageSize() + 1, request.direction()));
+        return CursorPage.fromRows(rows, request.pageSize(),
+                operation -> new CursorPageRequest.Position(operation.createdAt(), operation.id()), clock.instant());
     }
 
     /** Returns the non-expired rollout visible to trusted internal observers. */

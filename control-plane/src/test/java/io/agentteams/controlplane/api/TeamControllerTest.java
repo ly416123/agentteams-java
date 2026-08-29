@@ -118,4 +118,17 @@ class TeamControllerTest {
                         .content("{\"maxConcurrentTasks\":1,\"expectedVersion\":0}"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void returnsTeamListInTheCommonCursorEnvelope() throws Exception {
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        TeamRecord team = new TeamRecord(UUID.randomUUID(), "research", "Research", "ACTIVE", now, now, 0);
+        when(service.list(any())).thenReturn(new CursorPage<>(List.of(team), "next", true, now));
+
+        mockMvc.perform(get("/api/v1/teams").param("pageSize", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].name").value("research"))
+                .andExpect(jsonPath("$.nextCursor").value("next"))
+                .andExpect(jsonPath("$.hasMore").value(true));
+    }
 }

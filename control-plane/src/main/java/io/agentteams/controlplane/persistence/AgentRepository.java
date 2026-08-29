@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.persistence;
 
+import io.agentteams.controlplane.api.CursorPageRequest;
+import io.agentteams.controlplane.security.Principal;
 import io.agentteams.domain.agent.AgentPhase;
 import java.time.Instant;
 import java.util.Optional;
@@ -38,6 +40,30 @@ public final class AgentRepository {
                        created_at, updated_at, version
                   FROM agents WHERE id = ? FOR UPDATE
                 """, this::map, id).stream().findFirst();
+    }
+
+    public java.util.List<AgentRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction) {
+        String order = direction == CursorPageRequest.Direction.ASC
+                ? " ORDER BY a.updated_at ASC, a.id ASC LIMIT ?"
+                : " ORDER BY a.updated_at DESC, a.id DESC LIMIT ?";
+        String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
+                ? " AND (a.updated_at, a.id) > (?, ?)" : " AND (a.updated_at, a.id) < (?, ?)";
+        String sql = """
+                SELECT a.id, a.name, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
+                       a.created_at, a.updated_at, a.version
+                 FROM agents a JOIN resource_scopes s ON s.resource_type = 'WORKER' AND s.resource_id = a.id
+                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')
+                """ + cursor + order;
+        Object[] args = after == null
+                ? new Object[] {principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
+                    principal.subject(), limit}
+                : new Object[] {principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
+                    principal.subject(), JdbcSupport.timestamp(after.updatedAt()), after.id(), limit};
+        return jdbc.query(sql, this::map, args);
     }
 
     public Optional<AgentRecord> findReadyMatching(String taskSpecJson, Instant now) {

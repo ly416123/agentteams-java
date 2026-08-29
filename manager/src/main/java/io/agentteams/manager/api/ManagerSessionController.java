@@ -50,6 +50,18 @@ public final class ManagerSessionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session));
     }
 
+    @GetMapping
+    public ManagerSessionPageResponse list(@RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String cursor, @RequestParam(required = false) String projectId,
+            @RequestParam(required = false) String teamId, @RequestParam(required = false) String actorId) {
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        requireTrusted(projectId, principal.projectId(), "projectId");
+        requireTrusted(teamId, principal.teamId(), "teamId");
+        requireTrusted(actorId, principal.subject(), "actorId");
+        ManagerSessionServiceFacade.SessionPage page = facade.listSessions(pageSize, cursor);
+        return ManagerSessionPageResponse.from(page);
+    }
+
     @PostMapping("/{sessionId}/messages")
     public MessageResponse message(@PathVariable UUID sessionId,
             @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
@@ -128,6 +140,22 @@ public final class ManagerSessionController {
         static SessionResponse from(ManagerSessionRecord session) {
             return new SessionResponse(session.id(), session.tenantId(), session.projectId(), session.actor(),
                     session.status().name(), session.version());
+        }
+    }
+
+    public record ManagerSessionPageResponse(List<SessionListResponse> items, String nextCursor, boolean hasMore,
+            java.time.Instant serverTime) {
+        static ManagerSessionPageResponse from(ManagerSessionServiceFacade.SessionPage page) {
+            return new ManagerSessionPageResponse(page.items().stream().map(SessionListResponse::from).toList(),
+                    page.nextCursor(), page.hasMore(), page.serverTime());
+        }
+    }
+
+    public record SessionListResponse(UUID id, String tenantId, String projectId, String actorId,
+            String status, long version, java.time.Instant createdAt, java.time.Instant updatedAt) {
+        static SessionListResponse from(ManagerSessionRecord session) {
+            return new SessionListResponse(session.id(), session.tenantId(), session.projectId(), session.actor(),
+                    session.status().name(), session.version(), session.createdAt(), session.updatedAt());
         }
     }
 

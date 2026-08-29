@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.service;
 
+import io.agentteams.controlplane.api.CursorPage;
+import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
@@ -127,6 +129,18 @@ public final class TeamService {
     public List<TeamRecord> list() {
         return persistence.inTransaction(tx -> tx.teams().findAll()).stream()
                 .filter(team -> isVisible(team.id())).toList();
+    }
+
+    public CursorPage<TeamRecord> list(CursorPageRequest request) {
+        Objects.requireNonNull(request, "request");
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        List<TeamRecord> rows = persistence.inTransaction(tx -> resourceScopes == null
+                ? tx.teams().findAll()
+                : tx.teams().findPage(principal, request.position(), request.pageSize() + 1, request.direction()));
+        return CursorPage.fromRows(rows, request.pageSize(),
+                team -> new CursorPageRequest.Position(team.updatedAt(), team.id()), Instant.now());
     }
 
     public List<TeamMemberRecord> members(UUID teamId) {

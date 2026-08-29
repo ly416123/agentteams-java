@@ -16,6 +16,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Base64;
 
 /** Coordinates durable session facts with the existing model/tool pipeline. */
 public class ManagerSessionServiceFacade {
@@ -60,6 +61,22 @@ public class ManagerSessionServiceFacade {
                 .orElseThrow(() -> new ManagerSessionNotFoundException(sessionId));
         ManagerRequestContext.current().ifPresent(principal -> requireScope(principal, session));
         return session;
+    }
+
+    public SessionPage listSessions(Integer pageSize, String cursor) {
+        int size = pageSize == null ? 50 : pageSize;
+        if (size < 1 || size > 200) throw new IllegalArgumentException("pageSize must be between 1 and 200");
+        ManagerPrincipal principal = ManagerRequestContext.current().orElseThrow(() ->
+                new io.agentteams.manager.security.ManagerAuthorizationException("authentication required"));
+        SessionCursor position = decodeCursor(cursor);
+        List<ManagerSessionRecord> rows = repository.findSessions(principal.tenantId(), principal.projectId(),
+                principal.subject(), position == null ? null : position.updatedAt(),
+                position == null ? null : position.id(), size + 1);
+        boolean hasMore = rows.size() > size;
+        List<ManagerSessionRecord> items = rows.subList(0, Math.min(size, rows.size()));
+        String next = hasMore && !items.isEmpty()
+                ? encodeCursor(items.get(items.size() - 1).updatedAt(), items.get(items.size() - 1).id()) : null;
+        return new SessionPage(items, next, hasMore, clock.instant());
     }
 
     public MessageResult appendMessage(UUID sessionId, long expectedVersion, String idempotencyKey,
@@ -158,6 +175,32 @@ public class ManagerSessionServiceFacade {
 
     public record MessageResult(ManagerSessionRecord session, ManagerMessageRecord message,
             ManagerToolCallRecord toolCall) { }
+
+    public record SessionPage(List<ManagerSessionRecord> items, String nextCursor, boolean hasMore,
+            Instant serverTime) {
+        public SessionPage {
+            items = List.copyOf(Objects.requireNonNull(items, "items"));
+            Objects.requireNonNull(serverTime, "serverTime");
+        }
+    }
+
+    private record SessionCursor(Instant updatedAt, UUID id) { }
+
+    private static String encodeCursor(Instant updatedAt, UUID id) {
+        String raw = updatedAt.toEpochMilli() + ":" + id;
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static SessionCursor decodeCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) return null;
+        try {
+            String[] parts = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8).split(":", -1);
+            if (parts.length != 2) throw new IllegalArgumentException();
+            return new SessionCursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), UUID.fromString(parts[1]));
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("cursor is invalid", error);
+        }
+    }
 
     private static void requireKey(String value) { requireText(value, "idempotencyKey"); }
 

@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.project;
 
+import io.agentteams.controlplane.api.CursorPage;
+import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.audit.AuditEvent;
 import io.agentteams.controlplane.audit.AuditRecorder;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
@@ -136,6 +138,15 @@ public class ProjectAuthorizationService {
         ProjectRecord project = project(principal.scope().tenant(), projectId);
         membership(project.tenantId(), project.id(), principal.subject());
         return repository.findMemberships(project.tenantId(), project.id());
+    }
+
+    public CursorPage<ProjectRecord> list(CursorPageRequest request) {
+        Objects.requireNonNull(request, "request");
+        Principal principal = principal();
+        List<ProjectRecord> rows = repository.findProjects(principal.scope().tenant(), principal.subject(),
+                request.position(), request.pageSize() + 1, request.direction());
+        return CursorPage.fromRows(rows, request.pageSize(),
+                project -> new CursorPageRequest.Position(project.updatedAt(), project.id()), clock.instant());
     }
 
     @Transactional

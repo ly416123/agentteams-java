@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.project;
 
+import io.agentteams.controlplane.api.CursorPageRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -9,6 +10,9 @@ public interface ProjectRepository {
     Optional<ProjectRecord> findProject(String tenantId, UUID projectId);
 
     Optional<ProjectRecord> findProjectByName(String tenantId, String name);
+
+    List<ProjectRecord> findProjects(String tenantId, String actor, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction);
 
     void insertProject(ProjectRecord project);
 

@@ -1,7 +1,9 @@
 package io.agentteams.controlplane.worker;
 
+import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.persistence.JdbcSupport;
 import io.agentteams.controlplane.persistence.OptimisticLockFailure;
+import io.agentteams.controlplane.security.Principal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -40,6 +42,38 @@ public final class WorkerOperationRepository {
 
     public Optional<WorkerOperation> findByIdForUpdate(UUID id) {
         return jdbc.query(select() + " WHERE id = ? FOR UPDATE", this::map, id).stream().findFirst();
+    }
+
+    public List<WorkerOperation> findPage(UUID agentId, Principal principal, CursorPageRequest.Position after,
+            int limit, CursorPageRequest.Direction direction) {
+        String order = direction == CursorPageRequest.Direction.ASC
+                ? " ORDER BY operation.created_at ASC, operation.id ASC LIMIT ?"
+                : " ORDER BY operation.created_at DESC, operation.id DESC LIMIT ?";
+        String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
+                ? " AND (operation.created_at, operation.id) > (?, ?)"
+                : " AND (operation.created_at, operation.id) < (?, ?)";
+        String sql = """
+                SELECT operation.id, operation.agent_id, operation.type, operation.status,
+                       operation.requested_spec_digest, operation.requested_runtime,
+                       operation.requested_config_revision, operation.requested_secret_generation,
+                       operation.previous_stable_spec::text, operation.idempotency_key,
+                       operation.expected_agent_version, operation.owner, operation.lease_expires_at,
+                       operation.failure_category, operation.correlation_id, operation.created_at,
+                       operation.updated_at, operation.version
+                  FROM worker_operations operation
+                  JOIN resource_scopes scope ON scope.resource_type = 'WORKER'
+                                            AND scope.resource_id = operation.agent_id
+                 WHERE operation.agent_id = ? AND scope.tenant_id = ? AND scope.project_id = ?
+                   AND scope.team = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = scope.tenant_id AND m.project_id::text = scope.project_id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')
+                """ + cursor + order;
+        List<Object> args = new java.util.ArrayList<>(List.of(agentId, principal.scope().tenant(),
+                principal.scope().project(), principal.scope().team(), principal.subject()));
+        if (after != null) { args.add(JdbcSupport.timestamp(after.updatedAt())); args.add(after.id()); }
+        args.add(limit);
+        return jdbc.query(sql, this::map, args.toArray());
     }
 
     public Optional<WorkerOperation> findByAgentAndIdempotencyKey(UUID agentId, String idempotencyKey) {

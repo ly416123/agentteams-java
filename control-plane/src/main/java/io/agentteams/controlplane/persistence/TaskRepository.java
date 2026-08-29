@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.persistence;
 
+import io.agentteams.controlplane.api.CursorPageRequest;
+import io.agentteams.controlplane.security.Principal;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Instant;
 import java.util.Optional;
@@ -41,6 +43,48 @@ public final class TaskRepository {
                        failure_code, redacted_failure_message, created_at, updated_at, version
                   FROM tasks WHERE id = ? FOR UPDATE
                 """, this::map, id).stream().findFirst();
+    }
+
+    public List<TaskRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction, TaskPhase phase, UUID teamId, UUID workerId, String actor,
+            Instant from, Instant to, String query) {
+        String order = direction == CursorPageRequest.Direction.ASC
+                ? " ORDER BY t.updated_at ASC, t.id ASC LIMIT ?"
+                : " ORDER BY t.updated_at DESC, t.id DESC LIMIT ?";
+        String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
+                ? " AND (t.updated_at, t.id) > (?, ?)" : " AND (t.updated_at, t.id) < (?, ?)";
+        StringBuilder sql = new StringBuilder("""
+                SELECT t.id, t.title, t.description, t.phase, t.priority, t.spec::text, t.actor, t.source,
+                       t.failure_code, t.redacted_failure_message, t.created_at, t.updated_at, t.version
+                 FROM tasks t JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id
+                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')
+                """);
+        List<Object> args = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),
+                principal.scope().team(), principal.subject()));
+        if (phase != null) { sql.append(" AND t.phase = ?"); args.add(phase.name()); }
+        if (teamId != null) {
+            sql.append(" AND EXISTS (SELECT 1 FROM team_tasks tt WHERE tt.task_id = t.id AND tt.team_id = ?)");
+            args.add(teamId);
+        }
+        if (workerId != null) {
+            sql.append(" AND EXISTS (SELECT 1 FROM task_assignments ta WHERE ta.task_id = t.id AND ta.agent_id = ?)");
+            args.add(workerId);
+        }
+        if (actor != null && !actor.isBlank()) { sql.append(" AND t.actor = ?"); args.add(actor); }
+        if (from != null) { sql.append(" AND t.updated_at >= ?"); args.add(JdbcSupport.timestamp(from)); }
+        if (to != null) { sql.append(" AND t.updated_at < ?"); args.add(JdbcSupport.timestamp(to)); }
+        if (query != null && !query.isBlank()) {
+            sql.append(" AND (t.title ILIKE ? OR t.description ILIKE ?)");
+            String pattern = "%" + query.trim() + "%";
+            args.add(pattern); args.add(pattern);
+        }
+        sql.append(cursor).append(order);
+        if (after != null) { args.add(JdbcSupport.timestamp(after.updatedAt())); args.add(after.id()); }
+        args.add(limit);
+        return jdbc.query(sql.toString(), this::map, args.toArray());
     }
 
     public List<UUID> findIdsByPhase(TaskPhase phase, int limit) {

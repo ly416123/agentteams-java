@@ -47,6 +47,20 @@ public final class JdbcManagerSessionRepository implements ManagerSessionReposit
     }
 
     @Override
+    public List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String actor,
+            Instant beforeUpdatedAt, UUID beforeId, int limit) {
+        String cursor = beforeUpdatedAt == null ? "" : " AND (updated_at, id) < (?, ?)";
+        String sql = """
+                SELECT id, tenant_id, project_id, actor, status, version, created_at, updated_at
+                  FROM manager_sessions
+                 WHERE tenant_id = ? AND project_id = ? AND actor = ?
+                """ + cursor + " ORDER BY updated_at DESC, id DESC LIMIT ?";
+        if (beforeUpdatedAt == null) return jdbc.query(sql, this::mapSession, tenantId, projectId, actor, limit);
+        return jdbc.query(sql, this::mapSession, tenantId, projectId, actor,
+                java.sql.Timestamp.from(beforeUpdatedAt), beforeId, limit);
+    }
+
+    @Override
     public Optional<ManagerMessageRecord> findMessage(UUID sessionId, String idempotencyKey) {
         return jdbc.query("""
                 SELECT id, session_id, idempotency_key, actor, role, content_hash,

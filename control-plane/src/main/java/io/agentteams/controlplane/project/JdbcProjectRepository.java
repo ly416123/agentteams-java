@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.project;
 
+import io.agentteams.controlplane.api.CursorPageRequest;
 import java.sql.Timestamp;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,6 +39,26 @@ public class JdbcProjectRepository implements ProjectRepository {
                 rs.getString("created_by"), instant(rs, "created_at"),
                 instant(rs, "updated_at"), rs.getLong("version")), tenantId, name)
                 .stream().findFirst();
+    }
+
+    @Override
+    public List<ProjectRecord> findProjects(String tenantId, String actor, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction) {
+        String order = direction == CursorPageRequest.Direction.ASC
+                ? " ORDER BY p.updated_at ASC, p.id ASC LIMIT ?"
+                : " ORDER BY p.updated_at DESC, p.id DESC LIMIT ?";
+        String cursorClause = after == null ? "" : direction == CursorPageRequest.Direction.ASC
+                ? " AND (p.updated_at, p.id) > (?, ?)" : " AND (p.updated_at, p.id) < (?, ?)";
+        String sql = """
+                SELECT p.id, p.tenant_id, p.name, p.status, p.created_by, p.created_at, p.updated_at, p.version
+                  FROM projects p
+                 WHERE p.tenant_id = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = p.tenant_id AND m.project_id = p.id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')
+                """ + cursorClause + order;
+        if (after == null) return jdbc.query(sql, this::mapProject, tenantId, actor, limit);
+        return jdbc.query(sql, this::mapProject, tenantId, actor, Timestamp.from(after.updatedAt()), after.id(), limit);
     }
 
     @Override
@@ -215,5 +236,11 @@ public class JdbcProjectRepository implements ProjectRepository {
             throws java.sql.SQLException {
         Timestamp value = resultSet.getTimestamp(column);
         return Objects.requireNonNull(value, column + " must not be null").toInstant();
+    }
+
+    private ProjectRecord mapProject(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        return new ProjectRecord(rs.getObject("id", UUID.class), rs.getString("tenant_id"),
+                rs.getString("name"), rs.getString("status"), rs.getString("created_by"),
+                instant(rs, "created_at"), instant(rs, "updated_at"), rs.getLong("version"));
     }
 }

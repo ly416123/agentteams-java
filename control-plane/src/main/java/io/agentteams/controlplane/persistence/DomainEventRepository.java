@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.persistence;
 
+import io.agentteams.controlplane.security.Principal;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,6 +36,22 @@ public final class DomainEventRepository {
     public long count() {
         Long count = jdbc.queryForObject("SELECT count(*) FROM domain_events", Long.class);
         return count == null ? 0 : count;
+    }
+
+    public java.util.List<DomainEventRecord> findTaskEvents(Principal principal, UUID taskId, long after, int limit) {
+        return jdbc.query("""
+                SELECT e.id, e.event_id, e.aggregate_type, e.aggregate_id, e.event_type, e.payload::text,
+                       e.occurred_at, e.aggregate_version, e.created_at, e.updated_at, e.version
+                 FROM domain_events e
+                  JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = e.aggregate_id
+                 WHERE e.aggregate_type = 'task' AND e.aggregate_id = ? AND e.aggregate_version > ?
+                   AND s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')
+                 ORDER BY e.aggregate_version ASC, e.id ASC LIMIT ?
+                """, this::map, taskId, after, principal.scope().tenant(), principal.scope().project(),
+                principal.scope().team(), principal.subject(), limit);
     }
 
     public java.util.List<String> eventTypes() {

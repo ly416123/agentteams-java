@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.controlplane.persistence.CreateTaskCommand;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.persistence.DomainEventRecord;
+import io.agentteams.controlplane.api.CursorPage;
+import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceAction;
@@ -21,6 +24,7 @@ import io.agentteams.domain.task.TaskTransitionService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -110,6 +114,38 @@ public final class TaskService {
         TaskRecord task = persistence.findTask(id).orElseThrow(() -> new ResourceNotFoundException("task", id));
         requireVisible(task.id());
         return task;
+    }
+
+    public CursorPage<TaskRecord> list(CursorPageRequest request, TaskListFilter filter) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(filter, "filter");
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        java.util.List<TaskRecord> rows = persistence.inTransaction(tx -> tx.tasks().findPage(principal,
+                request.position(), request.pageSize() + 1, request.direction(), filter.phase(), filter.teamId(),
+                filter.workerId(), filter.actor(), filter.from(), filter.to(), filter.query()));
+        return CursorPage.fromRows(rows, request.pageSize(),
+                task -> new CursorPageRequest.Position(task.updatedAt(), task.id()), clock.instant());
+    }
+
+    public List<DomainEventRecord> events(UUID id, long after) {
+        if (after < 0) throw new IllegalArgumentException("after cursor must not be negative");
+        TaskRecord task = get(id);
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        return persistence.inTransaction(tx -> tx.domainEvents().findTaskEvents(principal, task.id(), after, 1000));
+    }
+
+    public record TaskListFilter(TaskPhase phase, UUID teamId, UUID workerId, String actor, Instant from, Instant to,
+            String query) {
+        public TaskListFilter {
+            if (from != null && to != null && !from.isBefore(to)) {
+                throw new IllegalArgumentException("from must be before to");
+            }
+            query = query == null ? null : query.trim();
+        }
     }
 
     /** Explicit queue operation; task creation intentionally remains in DRAFT. */

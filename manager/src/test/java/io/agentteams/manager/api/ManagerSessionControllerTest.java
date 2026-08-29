@@ -131,4 +131,21 @@ class ManagerSessionControllerTest {
                 .andExpect(jsonPath("$.correlationId").isNotEmpty())
                 .andExpect(header().exists("X-Correlation-Id"));
     }
+
+    @Test
+    void listsSessionsOnlyInsideAuthenticatedScopeWithCursorEnvelope() throws Exception {
+        ManagerSessionRecord session = ManagerSessionRecord.newSession(sessionId, "tenant-a", "project-a",
+                "actor-a", Instant.parse("2026-08-26T00:00:00Z"));
+        when(facade.listSessions(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new ManagerSessionServiceFacade.SessionPage(List.of(session), "next", true,
+                        session.createdAt()));
+
+        mvc.perform(get("/api/v1/manager/sessions").param("projectId", "project-a").param("teamId", "team-a")
+                .param("pageSize", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].projectId").value("project-a"))
+                .andExpect(jsonPath("$.items[0].actorId").value("actor-a"))
+                .andExpect(jsonPath("$.nextCursor").value("next"))
+                .andExpect(jsonPath("$.hasMore").value(true));
+    }
 }

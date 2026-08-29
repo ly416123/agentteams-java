@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -43,6 +44,13 @@ public final class AgentController {
         PrincipalContext.requireScope(request.metadata() == null ? null : request.metadata().toString());
         AgentRecord agent = service.create(idempotencyKey, request.toServiceInput());
         return ResponseEntity.status(201).body(AgentResponse.from(agent));
+    }
+
+    @GetMapping
+    public CursorPage<AgentResponse> list(@RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction)).map(AgentResponse::from);
     }
 
     @GetMapping("/{id}")
@@ -88,6 +96,14 @@ public final class AgentController {
     @GetMapping("/{agentId}/operations/{operationId}")
     public WorkerOperationResponse getOperation(@PathVariable UUID agentId, @PathVariable UUID operationId) {
         return WorkerOperationResponse.from(operations().get(agentId, operationId));
+    }
+
+    @GetMapping("/{agentId}/operations")
+    public CursorPage<WorkerOperationListResponse> listOperations(@PathVariable UUID agentId,
+            @RequestParam(required = false) String cursor, @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String sort, @RequestParam(required = false) String direction) {
+        return operations().list(agentId, new CursorPageRequest(cursor, pageSize, sort, direction))
+                .map(WorkerOperationListResponse::from);
     }
 
     @PostMapping("/{agentId}/operations/{operationId}/rollback")
@@ -152,6 +168,16 @@ public final class AgentController {
             return new WorkerOperationResponse(operation.id(), operation.agentId(), operation.type().name(),
                     operation.status().name(), operation.requestedSpecDigest(), operation.correlationId(),
                     operation.createdAt(), operation.updatedAt(), operation.version());
+        }
+    }
+
+    public record WorkerOperationListResponse(UUID id, UUID agentId, String type, String status,
+            String requestedSpecDigest, String failureCategory, long expectedAgentVersion,
+            Instant createdAt, Instant updatedAt, long version) {
+        static WorkerOperationListResponse from(WorkerOperation operation) {
+            return new WorkerOperationListResponse(operation.id(), operation.agentId(), operation.type().name(),
+                    operation.status().name(), operation.requestedSpecDigest(), operation.failureCategory(),
+                    operation.expectedAgentVersion(), operation.createdAt(), operation.updatedAt(), operation.version());
         }
     }
 

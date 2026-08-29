@@ -2,6 +2,8 @@ package io.agentteams.controlplane.project;
 
 import java.util.UUID;
 import java.util.List;
+import io.agentteams.controlplane.api.CursorPage;
+import io.agentteams.controlplane.api.CursorPageRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -82,6 +84,15 @@ public final class ProjectController {
         if (request == null) throw new IllegalArgumentException("request body is required");
         service.changeRole(projectId, subject, request.role(), request.expectedMembershipVersion());
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping
+    public CursorPage<ProjectResponse> list(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction)).map(ProjectResponse::from);
     }
 
     @GetMapping("/{projectId}/members")

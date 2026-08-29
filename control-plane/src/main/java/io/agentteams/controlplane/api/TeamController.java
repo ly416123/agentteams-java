@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -45,8 +46,10 @@ public final class TeamController {
     }
 
     @GetMapping
-    public List<TeamResponse> list() {
-        return service.list().stream().map(TeamResponse::from).toList();
+    public CursorPage<TeamResponse> list(@RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction)).map(TeamResponse::from);
     }
 
     @GetMapping("/{teamId}")

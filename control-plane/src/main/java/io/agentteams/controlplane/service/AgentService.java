@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.service;
 
+import io.agentteams.controlplane.api.CursorPage;
+import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -66,6 +68,17 @@ public final class AgentService {
                 .orElseThrow(() -> new ResourceNotFoundException("agent", id));
         requireVisible(agent.id());
         return agent;
+    }
+
+    public CursorPage<AgentRecord> list(CursorPageRequest request) {
+        Objects.requireNonNull(request, "request");
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        java.util.List<AgentRecord> rows = persistence.inTransaction(tx ->
+                tx.agents().findPage(principal, request.position(), request.pageSize() + 1, request.direction()));
+        return CursorPage.fromRows(rows, request.pageSize(),
+                agent -> new CursorPageRequest.Position(agent.updatedAt(), agent.id()), clock.instant());
     }
 
     public record AgentInput(String name, String runtime, String capabilitiesJson, String metadataJson) {

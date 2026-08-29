@@ -6,6 +6,8 @@ import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskService;
 import java.time.Instant;
 import java.util.UUID;
+import io.agentteams.domain.task.TaskPhase;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -44,6 +46,19 @@ public final class TaskController {
         TaskRecord task = service.get(id);
         PrincipalContext.requireScope(task.specJson());
         return TaskResponse.from(task);
+    }
+
+    @GetMapping
+    public CursorPage<TaskListResponse> list(@RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction, @RequestParam(required = false) TaskPhase phase,
+            @RequestParam(required = false) UUID teamId, @RequestParam(required = false) UUID workerId,
+            @RequestParam(required = false) String actor, @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to, @RequestParam(required = false, name = "q") String query) {
+        TaskService.TaskListFilter filter = new TaskService.TaskListFilter(phase, teamId, workerId, actor, from, to,
+                query);
+        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction), filter)
+                .map(TaskListResponse::from);
     }
 
     @PostMapping("/{id}/cancel")
@@ -156,6 +171,14 @@ public final class TaskController {
         static TaskResponse from(TaskRecord task) {
             return new TaskResponse(task.id(), task.title(), task.description(), task.phase().name(),
                     task.priority(), task.createdAt(), task.updatedAt(), task.version());
+        }
+    }
+
+    public record TaskListResponse(UUID id, String title, String phase, int priority, String actor, String source,
+            Instant createdAt, Instant updatedAt, long version) {
+        static TaskListResponse from(TaskRecord task) {
+            return new TaskListResponse(task.id(), task.title(), task.phase().name(), task.priority(), task.actor(),
+                    task.source(), task.createdAt(), task.updatedAt(), task.version());
         }
     }
 

@@ -78,4 +78,18 @@ class JdbcManagerSessionRepositoryTest {
                 org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<ManagerEventRecord>>any(),
                 eq(sessionId), eq(0L));
     }
+
+    @Test
+    void queriesSessionsWithTenantProjectAndActorScopeBeforeApplyingCursor() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        JdbcManagerSessionRepository repository = new JdbcManagerSessionRepository(jdbc);
+        UUID beforeId = UUID.randomUUID();
+        Instant before = Instant.parse("2026-08-26T00:00:00Z");
+        repository.findSessions("tenant-a", "project-a", "actor-a", before, beforeId, 21);
+
+        verify(jdbc).query(contains("WHERE tenant_id = ? AND project_id = ? AND actor = ?"),
+                org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<ManagerSessionRecord>>any(),
+                eq("tenant-a"), eq("project-a"), eq("actor-a"), eq(java.sql.Timestamp.from(before)), eq(beforeId),
+                eq(21));
+    }
 }
