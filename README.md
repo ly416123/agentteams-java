@@ -369,6 +369,10 @@ AGENTTEAMS_API_BEARER_TOKEN="<Keycloak token>" \
   --base-url http://127.0.0.1:18084 --image agentteams-manager
 ```
 
+也可以直接运行 `./scripts/smoke-kind-console-real-conversation.sh`；脚本会
+自动建立 Manager/Keycloak port-forward、获取本地 alice 测试令牌，并在结束时
+清理转发进程，不会输出令牌或 API Key。
+
 The browser remains connected only to the AgentTeams Console/Conversation API;
 QwenPaw stays an internal service dependency. The Console Playwright check is
 run with the locally installed Chrome/Chromium browser, while the real

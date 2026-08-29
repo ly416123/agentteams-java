@@ -10,6 +10,15 @@
 
 **执行顺序：** 本计划在管理 API 和 Console SPA 计划完成后执行；Mock 验收必须先通过，真实 Worker、QwenPaw 和 DeepSeek 验收只在本地凭据与 Worker Ready 时运行。
 
+## 执行记录（2026-08-29）
+
+任务 1—6 的实现、Mock/单元测试和 Console 对话工作台已在前序提交中完成。本轮补齐并验证任务 7—8 的真实部署入口：
+
+- 真实 QwenPaw/DeepSeek 配置通过 `scripts/configure-local-qwenpaw-deepseek.sh`；三个 QwenPaw Worker 均为 `Ready`。
+- `scripts/smoke-kind-console-real-conversation.sh` 自动管理本地 Manager/Keycloak port-forward，调用 `scripts/run-kind-qwenpaw-conversation-acceptance.py`，输出 `CONSOLE_REAL_CONVERSATION_OK`。
+- 真实 Worker 任务链路输出 `QWENPAW_DEEPSEEK_TASK_OK`；Docker/Colima、Kind 和 Google Chrome 均实际参与验收。
+- 原清单中的 `run-kind-console-conversation.py`、`conversation.spec.ts` 已由现有的 Python 真实验收入口、Vitest 对话测试和部署 Chrome 检查替代，避免重复维护两套协议客户端。
+
 ---
 
 ## 文件清单
