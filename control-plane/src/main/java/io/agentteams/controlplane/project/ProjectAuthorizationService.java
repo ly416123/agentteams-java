@@ -141,10 +141,14 @@ public class ProjectAuthorizationService {
     }
 
     public CursorPage<ProjectRecord> list(CursorPageRequest request) {
+        return list(request, null, null);
+    }
+
+    public CursorPage<ProjectRecord> list(CursorPageRequest request, String status, String query) {
         Objects.requireNonNull(request, "request");
         Principal principal = principal();
         List<ProjectRecord> rows = repository.findProjects(principal.scope().tenant(), principal.subject(),
-                request.position(), request.pageSize() + 1, request.direction());
+                request.position(), request.pageSize() + 1, request.direction(), status, query);
         return CursorPage.fromRows(rows, request.pageSize(),
                 project -> new CursorPageRequest.Position(project.updatedAt(), project.id()), clock.instant());
     }

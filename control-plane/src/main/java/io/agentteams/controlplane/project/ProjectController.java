@@ -91,8 +91,12 @@ public final class ProjectController {
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer pageSize,
             @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String direction) {
-        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction)).map(ProjectResponse::from);
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String search) {
+        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction), status,
+                firstNonBlank(q, search)).map(ProjectResponse::from);
     }
 
     @GetMapping("/{projectId}/members")
@@ -146,5 +150,9 @@ public final class ProjectController {
         static RoleResponse from(ProjectAuthorizationService.RoleCheck check) {
             return new RoleResponse(check.projectId(), check.subject(), check.role(), check.allowed());
         }
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
     }
 }

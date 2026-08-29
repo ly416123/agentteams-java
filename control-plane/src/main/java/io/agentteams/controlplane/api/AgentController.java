@@ -5,6 +5,7 @@ import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.worker.WorkerOperation;
+import io.agentteams.controlplane.worker.WorkerOperationObservation;
 import io.agentteams.controlplane.worker.WorkerOperationService;
 import io.agentteams.controlplane.worker.WorkerRolloutRequest;
 import java.time.Instant;
@@ -49,8 +50,10 @@ public final class AgentController {
     @GetMapping
     public CursorPage<AgentResponse> list(@RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String direction) {
-        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction)).map(AgentResponse::from);
+            @RequestParam(required = false) String direction, @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q, @RequestParam(required = false) String search) {
+        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction), status,
+                firstNonBlank(q, search)).map(AgentResponse::from);
     }
 
     @GetMapping("/{id}")
@@ -103,7 +106,8 @@ public final class AgentController {
             @RequestParam(required = false) String cursor, @RequestParam(required = false) Integer pageSize,
             @RequestParam(required = false) String sort, @RequestParam(required = false) String direction) {
         return operations().list(agentId, new CursorPageRequest(cursor, pageSize, sort, direction))
-                .map(WorkerOperationListResponse::from);
+                .map(operation -> WorkerOperationListResponse.from(operation,
+                        operations().observation(operation.id()).orElse(null)));
     }
 
     @PostMapping("/{agentId}/operations/{operationId}/rollback")
@@ -172,12 +176,27 @@ public final class AgentController {
     }
 
     public record WorkerOperationListResponse(UUID id, UUID agentId, String type, String status,
-            String requestedSpecDigest, String failureCategory, long expectedAgentVersion,
-            Instant createdAt, Instant updatedAt, long version) {
-        static WorkerOperationListResponse from(WorkerOperation operation) {
+            String requestedSpecDigest, String requestedRuntime, String requestedConfigRevision,
+            String failureCategory, long expectedAgentVersion, Instant createdAt, Instant updatedAt, long version,
+            boolean operatorReady, String operatorSpecDigest, String operatorRuntime,
+            String operatorConfigRevision, Instant operatorObservedAt, boolean gatewayOnline,
+            String gatewaySpecDigest, String gatewayRuntime, String gatewayConfigRevision,
+            Instant gatewayObservedAt, boolean observationsMatch) {
+        static WorkerOperationListResponse from(WorkerOperation operation, WorkerOperationObservation observation) {
+            boolean hasObservation = observation != null;
             return new WorkerOperationListResponse(operation.id(), operation.agentId(), operation.type().name(),
-                    operation.status().name(), operation.requestedSpecDigest(), operation.failureCategory(),
-                    operation.expectedAgentVersion(), operation.createdAt(), operation.updatedAt(), operation.version());
+                    operation.status().name(), operation.requestedSpecDigest(), operation.requestedRuntime(),
+                    operation.requestedConfigRevision(), operation.failureCategory(), operation.expectedAgentVersion(),
+                    operation.createdAt(), operation.updatedAt(), operation.version(),
+                    hasObservation && observation.operatorReady(), hasObservation ? observation.operatorSpecDigest() : null,
+                    hasObservation ? observation.operatorRuntime() : null,
+                    hasObservation ? observation.operatorConfigRevision() : null,
+                    hasObservation ? observation.operatorObservedAt() : null,
+                    hasObservation && observation.gatewayOnline(), hasObservation ? observation.gatewaySpecDigest() : null,
+                    hasObservation ? observation.gatewayRuntime() : null,
+                    hasObservation ? observation.gatewayConfigRevision() : null,
+                    hasObservation ? observation.gatewayObservedAt() : null,
+                    hasObservation && observation.matches(operation));
         }
     }
 
@@ -215,5 +234,9 @@ public final class AgentController {
             throw new IllegalStateException("worker operation service is not configured");
         }
         return workerOperations;
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
     }
 }

@@ -21,18 +21,20 @@ public final class JdbcManagerSessionRepository implements ManagerSessionReposit
     public ManagerSessionRecord insertSession(ManagerSessionRecord session, String idempotencyKey) {
         int inserted = jdbc.update("""
                 INSERT INTO manager_sessions
-                    (id, tenant_id, project_id, actor, status, version, idempotency_key, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (tenant_id, project_id, actor, idempotency_key) DO NOTHING
-                """, session.id(), session.tenantId(), session.projectId(), session.actor(),
-                session.status().name(), session.version(), idempotencyKey, session.createdAt(), session.updatedAt());
+                    (id, tenant_id, project_id, team_id, actor, status, version, idempotency_key, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (tenant_id, project_id, team_id, actor, idempotency_key) DO NOTHING
+                """, session.id(), session.tenantId(), session.projectId(), session.teamId(), session.actor(),
+                session.status().name(), session.version(), idempotencyKey,
+                session.createdAt(), session.updatedAt());
         if (inserted == 0) {
             return jdbc.query("""
-                    SELECT id, tenant_id, project_id, actor, status, version, created_at, updated_at
+                    SELECT id, tenant_id, project_id, team_id, actor, status, version, created_at, updated_at
                       FROM manager_sessions
-                     WHERE tenant_id = ? AND project_id = ? AND actor = ? AND idempotency_key = ?
+                     WHERE tenant_id = ? AND project_id = ? AND team_id = ? AND actor = ? AND idempotency_key = ?
                     """,
-                    this::mapSession, session.tenantId(), session.projectId(), session.actor(), idempotencyKey)
+                    this::mapSession, session.tenantId(), session.projectId(), session.teamId(), session.actor(),
+                    idempotencyKey)
                     .stream().findFirst().orElseThrow(() -> new DuplicateKeyException("session idempotency conflict"));
         }
         return session;
@@ -41,22 +43,22 @@ public final class JdbcManagerSessionRepository implements ManagerSessionReposit
     @Override
     public Optional<ManagerSessionRecord> findSession(UUID id) {
         return jdbc.query("""
-                SELECT id, tenant_id, project_id, actor, status, version, created_at, updated_at
+                SELECT id, tenant_id, project_id, team_id, actor, status, version, created_at, updated_at
                   FROM manager_sessions WHERE id = ?
                 """, this::mapSession, id).stream().findFirst();
     }
 
     @Override
-    public List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String actor,
+    public List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String teamId, String actor,
             Instant beforeUpdatedAt, UUID beforeId, int limit) {
         String cursor = beforeUpdatedAt == null ? "" : " AND (updated_at, id) < (?, ?)";
         String sql = """
-                SELECT id, tenant_id, project_id, actor, status, version, created_at, updated_at
+                SELECT id, tenant_id, project_id, team_id, actor, status, version, created_at, updated_at
                   FROM manager_sessions
-                 WHERE tenant_id = ? AND project_id = ? AND actor = ?
+                 WHERE tenant_id = ? AND project_id = ? AND team_id = ? AND actor = ?
                 """ + cursor + " ORDER BY updated_at DESC, id DESC LIMIT ?";
-        if (beforeUpdatedAt == null) return jdbc.query(sql, this::mapSession, tenantId, projectId, actor, limit);
-        return jdbc.query(sql, this::mapSession, tenantId, projectId, actor,
+        if (beforeUpdatedAt == null) return jdbc.query(sql, this::mapSession, tenantId, projectId, teamId, actor, limit);
+        return jdbc.query(sql, this::mapSession, tenantId, projectId, teamId, actor,
                 java.sql.Timestamp.from(beforeUpdatedAt), beforeId, limit);
     }
 
@@ -203,7 +205,7 @@ public final class JdbcManagerSessionRepository implements ManagerSessionReposit
 
     private ManagerSessionRecord mapSession(ResultSet rs, int row) throws SQLException {
         return new ManagerSessionRecord(rs.getObject("id", UUID.class), rs.getString("tenant_id"),
-                rs.getString("project_id"), rs.getString("actor"),
+                rs.getString("project_id"), rs.getString("team_id"), rs.getString("actor"),
                 ManagerSessionRecord.Status.valueOf(rs.getString("status")), rs.getLong("version"),
                 rs.getObject("created_at", Instant.class), rs.getObject("updated_at", Instant.class));
     }

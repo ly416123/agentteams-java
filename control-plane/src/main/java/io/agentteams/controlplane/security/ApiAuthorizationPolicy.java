@@ -20,6 +20,15 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/agents")) {
             return Optional.of("GET".equals(method) ? Permission.AGENT_READ : Permission.AGENT_WRITE);
         }
+        if (path.startsWith("/api/v1/management/tasks")) {
+            if ("GET".equals(method)) return Optional.of(Permission.TASK_READ);
+            if (path.endsWith("/cancel")) return Optional.of(Permission.TASK_CANCEL);
+            if (path.endsWith("/retry")) return Optional.of(Permission.TASK_RETRY);
+            if (path.endsWith("/pause")) return Optional.of(Permission.TASK_PAUSE);
+            if (path.endsWith("/approve")) return Optional.of(Permission.TASK_APPROVE);
+            if (path.endsWith("/reject")) return Optional.of(Permission.TASK_REJECT);
+            return Optional.of(Permission.TASK_CREATE);
+        }
         if (path.startsWith("/api/v1/tasks/") && path.contains("/artifacts")) {
             return Optional.of("GET".equals(method) ? Permission.ARTIFACT_READ : Permission.ARTIFACT_WRITE);
         }

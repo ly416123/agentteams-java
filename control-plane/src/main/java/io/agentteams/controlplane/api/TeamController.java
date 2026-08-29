@@ -48,8 +48,10 @@ public final class TeamController {
     @GetMapping
     public CursorPage<TeamResponse> list(@RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String direction) {
-        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction)).map(TeamResponse::from);
+            @RequestParam(required = false) String direction, @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q, @RequestParam(required = false) String search) {
+        return service.list(new CursorPageRequest(cursor, pageSize, sort, direction), status,
+                firstNonBlank(q, search)).map(TeamResponse::from);
     }
 
     @GetMapping("/{teamId}")
@@ -284,5 +286,9 @@ public final class TeamController {
 
     private static String actor(String actor) {
         return actor == null || actor.isBlank() ? "api" : actor.trim();
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
     }
 }

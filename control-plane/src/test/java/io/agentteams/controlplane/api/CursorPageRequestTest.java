@@ -11,7 +11,7 @@ class CursorPageRequestTest {
     @Test
     void appliesSafeDefaultsAndDecodesStableCursor() {
         UUID id = UUID.randomUUID();
-        String cursor = CursorPageRequest.encode(Instant.parse("2026-08-29T00:00:00Z"), id);
+        String cursor = CursorPageRequest.encode(Instant.parse("2026-08-29T00:00:00.123456789Z"), id);
 
         CursorPageRequest request = new CursorPageRequest(cursor, null, null, null);
 
@@ -19,7 +19,14 @@ class CursorPageRequestTest {
         assertThat(request.sort()).isEqualTo("updatedAt");
         assertThat(request.direction()).isEqualTo(CursorPageRequest.Direction.DESC);
         assertThat(request.position().id()).isEqualTo(id);
-        assertThat(request.position().updatedAt()).isEqualTo(Instant.parse("2026-08-29T00:00:00Z"));
+        assertThat(request.position().updatedAt()).isEqualTo(Instant.parse("2026-08-29T00:00:00.123456789Z"));
+    }
+
+    @Test
+    void rejectsSortThatTheStableCursorQueriesDoNotImplement() {
+        assertThatThrownBy(() -> new CursorPageRequest(null, 20, "name", "desc"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("sort");
     }
 
     @Test

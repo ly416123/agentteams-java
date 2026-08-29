@@ -37,6 +37,7 @@ public class ManagerSessionServiceFacade {
         ManagerRequestContext.current().ifPresent(principal -> {
             if (!principal.tenantId().equals(command.tenantId())
                     || !principal.projectId().equals(command.projectId())
+                    || !principal.teamId().equals(command.teamId())
                     || !principal.subject().equals(command.actor())) {
                 throw new io.agentteams.manager.security.ManagerAuthorizationException(
                         "manager session is outside the caller scope");
@@ -44,10 +45,11 @@ public class ManagerSessionServiceFacade {
         });
         Instant now = clock.instant();
         ManagerSessionRecord requested = ManagerSessionRecord.newSession(UUID.randomUUID(), command.tenantId(),
-                command.projectId(), command.actor(), now);
+                command.projectId(), command.teamId(), command.actor(), now);
         ManagerSessionRecord stored = repository.insertSession(requested, idempotencyKey);
         if (!stored.id().equals(requested.id()) && (!stored.tenantId().equals(command.tenantId())
-                || !stored.projectId().equals(command.projectId()) || !stored.actor().equals(command.actor()))) {
+                || !stored.projectId().equals(command.projectId()) || !stored.teamId().equals(command.teamId())
+                || !stored.actor().equals(command.actor()))) {
             throw new ManagerToolConflictException("session idempotency key was reused with a different scope");
         }
         if (stored.id().equals(requested.id())) {
@@ -70,7 +72,7 @@ public class ManagerSessionServiceFacade {
                 new io.agentteams.manager.security.ManagerAuthorizationException("authentication required"));
         SessionCursor position = decodeCursor(cursor);
         List<ManagerSessionRecord> rows = repository.findSessions(principal.tenantId(), principal.projectId(),
-                principal.subject(), position == null ? null : position.updatedAt(),
+                principal.teamId(), principal.subject(), position == null ? null : position.updatedAt(),
                 position == null ? null : position.id(), size + 1);
         boolean hasMore = rows.size() > size;
         List<ManagerSessionRecord> items = rows.subList(0, Math.min(size, rows.size()));
@@ -165,11 +167,16 @@ public class ManagerSessionServiceFacade {
         return repository.findEventsAfter(sessionId, afterCursor);
     }
 
-    public record CreateSessionCommand(String tenantId, String projectId, String actor) {
+    public record CreateSessionCommand(String tenantId, String projectId, String teamId, String actor) {
         public CreateSessionCommand {
             requireText(tenantId, "tenantId");
             requireText(projectId, "projectId");
+            requireText(teamId, "teamId");
             requireText(actor, "actor");
+        }
+
+        public CreateSessionCommand(String tenantId, String projectId, String actor) {
+            this(tenantId, projectId, "legacy", actor);
         }
     }
 
@@ -187,16 +194,19 @@ public class ManagerSessionServiceFacade {
     private record SessionCursor(Instant updatedAt, UUID id) { }
 
     private static String encodeCursor(Instant updatedAt, UUID id) {
-        String raw = updatedAt.toEpochMilli() + ":" + id;
+        String raw = updatedAt.toString() + ":" + id;
         return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
     private static SessionCursor decodeCursor(String cursor) {
         if (cursor == null || cursor.isBlank()) return null;
         try {
-            String[] parts = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8).split(":", -1);
-            if (parts.length != 2) throw new IllegalArgumentException();
-            return new SessionCursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), UUID.fromString(parts[1]));
+            if (cursor.length() > 512) throw new IllegalArgumentException();
+            String raw = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+            int separator = raw.lastIndexOf(':');
+            if (separator <= 0 || separator == raw.length() - 1) throw new IllegalArgumentException();
+            return new SessionCursor(Instant.parse(raw.substring(0, separator)),
+                    UUID.fromString(raw.substring(separator + 1)));
         } catch (RuntimeException error) {
             throw new IllegalArgumentException("cursor is invalid", error);
         }
@@ -207,6 +217,7 @@ public class ManagerSessionServiceFacade {
     private static void requireScope(ManagerPrincipal principal, ManagerSessionRecord session) {
         if (!principal.tenantId().equals(session.tenantId())
                 || !principal.projectId().equals(session.projectId())
+                || (!session.teamId().equals("legacy") && !principal.teamId().equals(session.teamId()))
                 || !principal.subject().equals(session.actor())) {
             throw new io.agentteams.manager.security.ManagerAuthorizationException(
                     "manager session is outside the caller scope");

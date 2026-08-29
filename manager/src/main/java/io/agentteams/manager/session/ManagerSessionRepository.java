@@ -10,7 +10,7 @@ public interface ManagerSessionRepository {
 
     Optional<ManagerSessionRecord> findSession(UUID id);
 
-    List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String actor,
+    List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String teamId, String actor,
             Instant beforeUpdatedAt, UUID beforeId, int limit);
 
     Optional<ManagerMessageRecord> findMessage(UUID sessionId, String idempotencyKey);

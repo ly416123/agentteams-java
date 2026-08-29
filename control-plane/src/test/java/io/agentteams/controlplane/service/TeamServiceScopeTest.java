@@ -108,6 +108,17 @@ class TeamServiceScopeTest {
     }
 
     @Test
+    void failsClosedWhenResourceScopeRepositoryIsUnavailableForListing() {
+        TeamService withoutScopes = new TeamService(persistence,
+                new io.agentteams.controlplane.team.TeamSchedulingPolicy(), null);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> withoutScopes.list(
+                new io.agentteams.controlplane.api.CursorPageRequest(null, 20, null, null)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("resource scope");
+    }
+
+    @Test
     void memberMutationWithSameKeyAndRequestReturnsTheExistingMember() {
         UUID teamId = UUID.randomUUID();
         UUID agentId = UUID.randomUUID();

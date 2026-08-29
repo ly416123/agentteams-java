@@ -2,6 +2,7 @@ package io.agentteams.controlplane.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -44,11 +45,16 @@ class ProjectListControllerTest {
         Instant now = Instant.parse("2026-08-29T00:00:00Z");
         ProjectRecord project = new ProjectRecord(UUID.randomUUID(), "tenant-a", "project-a", "ACTIVE", "actor-a",
                 now, now, 0);
-        when(service.list(any())).thenReturn(new CursorPage<>(List.of(project), null, false, now));
+        when(service.list(any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new CursorPage<>(List.of(project), null, false, now));
 
-        mvc.perform(get("/api/v1/projects").param("pageSize", "20"))
+        mvc.perform(get("/api/v1/projects").param("pageSize", "20").param("q", "project")
+                .param("search", "project").param("status", "ACTIVE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("project-a"))
                 .andExpect(jsonPath("$.hasMore").value(false));
+
+        verify(service).list(any(), org.mockito.ArgumentMatchers.eq("ACTIVE"),
+                org.mockito.ArgumentMatchers.eq("project"));
     }
 }

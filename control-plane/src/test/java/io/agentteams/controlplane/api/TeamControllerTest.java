@@ -123,12 +123,16 @@ class TeamControllerTest {
     void returnsTeamListInTheCommonCursorEnvelope() throws Exception {
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
         TeamRecord team = new TeamRecord(UUID.randomUUID(), "research", "Research", "ACTIVE", now, now, 0);
-        when(service.list(any())).thenReturn(new CursorPage<>(List.of(team), "next", true, now));
+        when(service.list(any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new CursorPage<>(List.of(team), "next", true, now));
 
-        mockMvc.perform(get("/api/v1/teams").param("pageSize", "20"))
+        mockMvc.perform(get("/api/v1/teams").param("pageSize", "20").param("q", "research")
+                .param("status", "ACTIVE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("research"))
                 .andExpect(jsonPath("$.nextCursor").value("next"))
                 .andExpect(jsonPath("$.hasMore").value(true));
+        verify(service).list(any(), org.mockito.ArgumentMatchers.eq("ACTIVE"),
+                org.mockito.ArgumentMatchers.eq("research"));
     }
 }

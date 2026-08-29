@@ -44,12 +44,17 @@ public final class AgentRepository {
 
     public java.util.List<AgentRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
             CursorPageRequest.Direction direction) {
+        return findPage(principal, after, limit, direction, null, null);
+    }
+
+    public java.util.List<AgentRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction, String status, String query) {
         String order = direction == CursorPageRequest.Direction.ASC
                 ? " ORDER BY a.updated_at ASC, a.id ASC LIMIT ?"
                 : " ORDER BY a.updated_at DESC, a.id DESC LIMIT ?";
         String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
                 ? " AND (a.updated_at, a.id) > (?, ?)" : " AND (a.updated_at, a.id) < (?, ?)";
-        String sql = """
+        StringBuilder sql = new StringBuilder("""
                 SELECT a.id, a.name, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
                        a.created_at, a.updated_at, a.version
                  FROM agents a JOIN resource_scopes s ON s.resource_type = 'WORKER' AND s.resource_id = a.id
@@ -57,13 +62,18 @@ public final class AgentRepository {
                    AND EXISTS (SELECT 1 FROM project_memberships m
                                 WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
-                """ + cursor + order;
-        Object[] args = after == null
-                ? new Object[] {principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
-                    principal.subject(), limit}
-                : new Object[] {principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
-                    principal.subject(), JdbcSupport.timestamp(after.updatedAt()), after.id(), limit};
-        return jdbc.query(sql, this::map, args);
+                """);
+        java.util.List<Object> values = new java.util.ArrayList<>(java.util.List.of(principal.scope().tenant(),
+                principal.scope().project(), principal.scope().team(), principal.subject()));
+        if (status != null && !status.isBlank()) { sql.append(" AND a.phase = ?"); values.add(status.trim()); }
+        if (query != null && !query.isBlank()) {
+            sql.append(" AND (a.name ILIKE ? OR a.runtime ILIKE ?)");
+            values.add("%" + query.trim() + "%"); values.add("%" + query.trim() + "%");
+        }
+        sql.append(cursor).append(order);
+        if (after != null) { values.add(JdbcSupport.timestamp(after.updatedAt())); values.add(after.id()); }
+        values.add(limit);
+        return jdbc.query(sql.toString(), this::map, values.toArray());
     }
 
     public Optional<AgentRecord> findReadyMatching(String taskSpecJson, Instant now) {

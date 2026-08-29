@@ -45,7 +45,7 @@ public final class TaskRepository {
                 """, this::map, id).stream().findFirst();
     }
 
-    public List<TaskRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
+    public List<TaskListRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
             CursorPageRequest.Direction direction, TaskPhase phase, UUID teamId, UUID workerId, String actor,
             Instant from, Instant to, String query) {
         String order = direction == CursorPageRequest.Direction.ASC
@@ -54,9 +54,17 @@ public final class TaskRepository {
         String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
                 ? " AND (t.updated_at, t.id) > (?, ?)" : " AND (t.updated_at, t.id) < (?, ?)";
         StringBuilder sql = new StringBuilder("""
-                SELECT t.id, t.title, t.description, t.phase, t.priority, t.spec::text, t.actor, t.source,
-                       t.failure_code, t.redacted_failure_message, t.created_at, t.updated_at, t.version
-                 FROM tasks t JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id
+                SELECT t.id, t.title, t.phase, t.priority, t.actor, t.source,
+                       t.created_at, t.updated_at, t.version,
+                       s.tenant_id, s.project_id, s.team,
+                       team_ref.team_id, worker_ref.agent_id
+                  FROM tasks t JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id
+                  LEFT JOIN LATERAL (SELECT tt.team_id FROM team_tasks tt
+                                      WHERE tt.task_id = t.id ORDER BY tt.created_at, tt.team_id LIMIT 1) team_ref
+                    ON TRUE
+                  LEFT JOIN LATERAL (SELECT ta.agent_id FROM task_assignments ta
+                                      WHERE ta.task_id = t.id ORDER BY ta.created_at, ta.id LIMIT 1) worker_ref
+                    ON TRUE
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
                                 WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
@@ -84,7 +92,7 @@ public final class TaskRepository {
         sql.append(cursor).append(order);
         if (after != null) { args.add(JdbcSupport.timestamp(after.updatedAt())); args.add(after.id()); }
         args.add(limit);
-        return jdbc.query(sql.toString(), this::map, args.toArray());
+        return jdbc.query(sql.toString(), this::mapListItem, args.toArray());
     }
 
     public List<UUID> findIdsByPhase(TaskPhase phase, int limit) {
@@ -142,5 +150,13 @@ public final class TaskRepository {
                 rs.getString("source"), rs.getString("failure_code"),
                 rs.getString("redacted_failure_message"), JdbcSupport.instant(rs, "created_at"),
                 JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"));
+    }
+
+    private TaskListRecord mapListItem(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        return new TaskListRecord(rs.getObject("id", UUID.class), rs.getString("title"),
+                TaskPhase.valueOf(rs.getString("phase")), rs.getInt("priority"), rs.getString("tenant_id"),
+                rs.getString("project_id"), rs.getString("team"), rs.getString("actor"), rs.getString("source"),
+                rs.getObject("team_id", UUID.class), rs.getObject("agent_id", UUID.class),
+                JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"));
     }
 }

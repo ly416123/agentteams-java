@@ -2,6 +2,7 @@ package io.agentteams.controlplane.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -46,11 +47,16 @@ class AgentListControllerTest {
         AgentRecord agent = new AgentRecord(UUID.randomUUID(), "worker-a", AgentPhase.READY, "qwenpaw", "{}",
                 "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}",
                 now, now, 0);
-        when(service.list(any())).thenReturn(new CursorPage<>(List.of(agent), null, false, now));
+        when(service.list(any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new CursorPage<>(List.of(agent), null, false, now));
 
-        mvc.perform(get("/api/v1/agents").param("pageSize", "20"))
+        mvc.perform(get("/api/v1/agents").param("pageSize", "20").param("search", "worker")
+                .param("status", "READY"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("worker-a"))
                 .andExpect(jsonPath("$.items[0].phase").value("READY"));
+
+        verify(service).list(any(), org.mockito.ArgumentMatchers.eq("READY"),
+                org.mockito.ArgumentMatchers.eq("worker"));
     }
 }

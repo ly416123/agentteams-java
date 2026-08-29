@@ -20,15 +20,15 @@ class JdbcManagerSessionRepositoryTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any())).thenReturn(1);
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(1);
         JdbcManagerSessionRepository repository = new JdbcManagerSessionRepository(jdbc);
         ManagerSessionRecord session = ManagerSessionRecord.newSession(UUID.randomUUID(), "tenant-a", "project-a",
-                "actor-a", Instant.parse("2026-08-26T00:00:00Z"));
+                "team-a", "actor-a", Instant.parse("2026-08-26T00:00:00Z"));
 
         repository.insertSession(session, "session-key");
 
         verify(jdbc).update(contains("INSERT INTO manager_sessions"), eq(session.id()), eq("tenant-a"),
-                eq("project-a"), eq("actor-a"), eq("ACTIVE"), eq(0L), eq("session-key"),
+                eq("project-a"), eq("team-a"), eq("actor-a"), eq("ACTIVE"), eq(0L), eq("session-key"),
                 eq(session.createdAt()), eq(session.updatedAt()));
     }
 
@@ -80,16 +80,17 @@ class JdbcManagerSessionRepositoryTest {
     }
 
     @Test
-    void queriesSessionsWithTenantProjectAndActorScopeBeforeApplyingCursor() {
+    void queriesSessionsWithTenantProjectTeamAndActorScopeBeforeApplyingCursor() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JdbcManagerSessionRepository repository = new JdbcManagerSessionRepository(jdbc);
         UUID beforeId = UUID.randomUUID();
         Instant before = Instant.parse("2026-08-26T00:00:00Z");
-        repository.findSessions("tenant-a", "project-a", "actor-a", before, beforeId, 21);
+        repository.findSessions("tenant-a", "project-a", "team-a", "actor-a", before, beforeId, 21);
 
-        verify(jdbc).query(contains("WHERE tenant_id = ? AND project_id = ? AND actor = ?"),
+        verify(jdbc).query(contains("WHERE tenant_id = ? AND project_id = ? AND team_id = ? AND actor = ?"),
                 org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<ManagerSessionRecord>>any(),
-                eq("tenant-a"), eq("project-a"), eq("actor-a"), eq(java.sql.Timestamp.from(before)), eq(beforeId),
+                eq("tenant-a"), eq("project-a"), eq("team-a"), eq("actor-a"),
+                eq(java.sql.Timestamp.from(before)), eq(beforeId),
                 eq(21));
     }
 }

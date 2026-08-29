@@ -135,7 +135,7 @@ class ManagerSessionControllerTest {
     @Test
     void listsSessionsOnlyInsideAuthenticatedScopeWithCursorEnvelope() throws Exception {
         ManagerSessionRecord session = ManagerSessionRecord.newSession(sessionId, "tenant-a", "project-a",
-                "actor-a", Instant.parse("2026-08-26T00:00:00Z"));
+                "team-a", "actor-a", Instant.parse("2026-08-26T00:00:00Z"));
         when(facade.listSessions(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new ManagerSessionServiceFacade.SessionPage(List.of(session), "next", true,
                         session.createdAt()));
@@ -144,8 +144,16 @@ class ManagerSessionControllerTest {
                 .param("pageSize", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].projectId").value("project-a"))
+                .andExpect(jsonPath("$.items[0].teamId").value("team-a"))
                 .andExpect(jsonPath("$.items[0].actorId").value("actor-a"))
                 .andExpect(jsonPath("$.nextCursor").value("next"))
                 .andExpect(jsonPath("$.hasMore").value(true));
+    }
+
+    @Test
+    void rejectsNegativeLastEventId() throws Exception {
+        mvc.perform(get("/api/v1/manager/sessions/" + sessionId + "/events")
+                .param("after", "-1"))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -126,6 +126,11 @@ public final class WorkerOperationService {
                 operation -> new CursorPageRequest.Position(operation.createdAt(), operation.id()), clock.instant());
     }
 
+    public java.util.Optional<WorkerOperationObservation> observation(UUID operationId) {
+        Objects.requireNonNull(operationId, "operationId");
+        return persistence.inTransaction(tx -> tx.workerOperations().findObservation(operationId));
+    }
+
     /** Returns the non-expired rollout visible to trusted internal observers. */
     public java.util.Optional<WorkerOperation> active(UUID agentId, Instant now) {
         Objects.requireNonNull(agentId, "agentId");

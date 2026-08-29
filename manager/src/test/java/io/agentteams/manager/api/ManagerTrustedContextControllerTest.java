@@ -67,7 +67,7 @@ class ManagerTrustedContextControllerTest {
         ManagerRequestContext.set(new ManagerPrincipal("trusted-user", "tenant-a", "project-a",
                 "team-a", Set.of("task:create")));
         ManagerSessionRecord session = ManagerSessionRecord.newSession(sessionId, "tenant-a", "project-a",
-                "trusted-user", Instant.parse("2026-08-26T00:00:00Z"));
+                "team-a", "trusted-user", Instant.parse("2026-08-26T00:00:00Z"));
         when(facade.createSession(any(), org.mockito.ArgumentMatchers.eq("session-key"))).thenReturn(session);
 
         mvc.perform(post("/api/v1/manager/sessions")
@@ -78,7 +78,8 @@ class ManagerTrustedContextControllerTest {
 
         verify(facade).createSession(
                 org.mockito.ArgumentMatchers.argThat(command -> command.actor().equals("trusted-user")
-                        && command.tenantId().equals("tenant-a") && command.projectId().equals("project-a")),
+                        && command.tenantId().equals("tenant-a") && command.projectId().equals("project-a")
+                        && command.teamId().equals("team-a")),
                 org.mockito.ArgumentMatchers.eq("session-key"));
     }
 }

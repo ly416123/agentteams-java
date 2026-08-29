@@ -46,7 +46,7 @@ public final class ManagerSessionController {
         requireTrusted(projectId, principal.projectId(), "projectId");
         ManagerSessionRecord session = facade.createSession(
                 new ManagerSessionServiceFacade.CreateSessionCommand(principal.tenantId(), principal.projectId(),
-                        principal.subject()), idempotencyKey);
+                        principal.teamId(), principal.subject()), idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session));
     }
 
@@ -98,6 +98,7 @@ public final class ManagerSessionController {
     public ResponseEntity<String> events(@PathVariable UUID sessionId,
             @RequestParam(name = "after", defaultValue = "0") long after,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
+        if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative");
         long cursor = Math.max(after, parseCursor(lastEventId));
         List<ManagerEventRecord> events = facade.events(sessionId, cursor);
         StringBuilder stream = new StringBuilder();
@@ -135,10 +136,11 @@ public final class ManagerSessionController {
 
     public record CancelRequest(Long expectedVersion, String actor) { }
 
-    public record SessionResponse(UUID id, String tenantId, String projectId, String actor,
+    public record SessionResponse(UUID id, String tenantId, String projectId, String teamId, String actor,
             String status, long version) {
         static SessionResponse from(ManagerSessionRecord session) {
-            return new SessionResponse(session.id(), session.tenantId(), session.projectId(), session.actor(),
+            return new SessionResponse(session.id(), session.tenantId(), session.projectId(), session.teamId(),
+                    session.actor(),
                     session.status().name(), session.version());
         }
     }
@@ -151,10 +153,11 @@ public final class ManagerSessionController {
         }
     }
 
-    public record SessionListResponse(UUID id, String tenantId, String projectId, String actorId,
+    public record SessionListResponse(UUID id, String tenantId, String projectId, String teamId, String actorId,
             String status, long version, java.time.Instant createdAt, java.time.Instant updatedAt) {
         static SessionListResponse from(ManagerSessionRecord session) {
-            return new SessionListResponse(session.id(), session.tenantId(), session.projectId(), session.actor(),
+            return new SessionListResponse(session.id(), session.tenantId(), session.projectId(), session.teamId(),
+                    session.actor(),
                     session.status().name(), session.version(), session.createdAt(), session.updatedAt());
         }
     }

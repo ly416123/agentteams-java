@@ -2,6 +2,7 @@ package io.agentteams.controlplane.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.persistence.TaskListRecord;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskService;
 import java.time.Instant;
@@ -174,11 +175,13 @@ public final class TaskController {
         }
     }
 
-    public record TaskListResponse(UUID id, String title, String phase, int priority, String actor, String source,
-            Instant createdAt, Instant updatedAt, long version) {
-        static TaskListResponse from(TaskRecord task) {
-            return new TaskListResponse(task.id(), task.title(), task.phase().name(), task.priority(), task.actor(),
-                    task.source(), task.createdAt(), task.updatedAt(), task.version());
+    public record TaskListResponse(UUID id, String title, String phase, int priority,
+            String tenantId, String projectId, String team, String actor, String source,
+            UUID teamId, UUID workerId, Instant createdAt, Instant updatedAt, long version) {
+        static TaskListResponse from(TaskListRecord task) {
+            return new TaskListResponse(task.id(), task.title(), task.phase().name(), task.priority(),
+                    task.tenantId(), task.projectId(), task.team(), task.actor(), task.source(), task.teamId(),
+                    task.workerId(), task.createdAt(), task.updatedAt(), task.version());
         }
     }
 

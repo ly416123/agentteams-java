@@ -43,22 +43,29 @@ public class JdbcProjectRepository implements ProjectRepository {
 
     @Override
     public List<ProjectRecord> findProjects(String tenantId, String actor, CursorPageRequest.Position after, int limit,
-            CursorPageRequest.Direction direction) {
+            CursorPageRequest.Direction direction, String status, String query) {
         String order = direction == CursorPageRequest.Direction.ASC
                 ? " ORDER BY p.updated_at ASC, p.id ASC LIMIT ?"
                 : " ORDER BY p.updated_at DESC, p.id DESC LIMIT ?";
         String cursorClause = after == null ? "" : direction == CursorPageRequest.Direction.ASC
                 ? " AND (p.updated_at, p.id) > (?, ?)" : " AND (p.updated_at, p.id) < (?, ?)";
-        String sql = """
+        StringBuilder sql = new StringBuilder("""
                 SELECT p.id, p.tenant_id, p.name, p.status, p.created_by, p.created_at, p.updated_at, p.version
                   FROM projects p
                  WHERE p.tenant_id = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
                                 WHERE m.tenant_id = p.tenant_id AND m.project_id = p.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
-                """ + cursorClause + order;
-        if (after == null) return jdbc.query(sql, this::mapProject, tenantId, actor, limit);
-        return jdbc.query(sql, this::mapProject, tenantId, actor, Timestamp.from(after.updatedAt()), after.id(), limit);
+                """);
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, actor));
+        if (status != null && !status.isBlank()) { sql.append(" AND p.status = ?"); args.add(status.trim()); }
+        if (query != null && !query.isBlank()) {
+            sql.append(" AND p.name ILIKE ?"); args.add("%" + query.trim() + "%");
+        }
+        sql.append(cursorClause).append(order);
+        if (after != null) { args.add(Timestamp.from(after.updatedAt())); args.add(after.id()); }
+        args.add(limit);
+        return jdbc.query(sql.toString(), this::mapProject, args.toArray());
     }
 
     @Override

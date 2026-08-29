@@ -12,6 +12,8 @@ import io.agentteams.manager.security.ManagerRequestContext;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,6 +48,26 @@ class ManagerSessionServiceFacadeTest {
                 .isInstanceOf(io.agentteams.manager.security.ManagerAuthorizationException.class);
         assertThatThrownBy(() -> facade.events(session.id(), 0))
                 .isInstanceOf(io.agentteams.manager.security.ManagerAuthorizationException.class);
+    }
+
+    @Test
+    void acceptsIsoInstantCursorWithoutLosingSubMillisecondPrecision() {
+        InMemoryManagerSessionRepository repository = new InMemoryManagerSessionRepository();
+        ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, null,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        ManagerRequestContext.set(new ManagerPrincipal("actor-a", "tenant-a", "project-a", "team-a", Set.of()));
+        ManagerSessionRecord session = facade.createSession(
+                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "team-a", "actor-a"),
+                "session-key");
+        UUID cursorId = UUID.randomUUID();
+        String raw = "2026-08-26T00:00:00.000000001Z:" + cursorId;
+        String cursor = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                raw.getBytes(StandardCharsets.UTF_8));
+
+        ManagerSessionServiceFacade.SessionPage page = facade.listSessions(20, cursor);
+
+        assertThat(page.items()).extracting(ManagerSessionRecord::id).containsExactly(session.id());
+        assertThat(page.items().get(0).teamId()).isEqualTo("team-a");
     }
 
     @Test
@@ -284,11 +306,13 @@ class ManagerSessionServiceFacadeTest {
             return java.util.Optional.ofNullable(sessions.get(id));
         }
 
-        @Override public List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String actor,
+        @Override public List<ManagerSessionRecord> findSessions(String tenantId, String projectId, String teamId,
+                String actor,
                 Instant beforeUpdatedAt, UUID beforeId, int limit) {
             return sessions.values().stream()
                     .filter(session -> session.tenantId().equals(tenantId)
-                            && session.projectId().equals(projectId) && session.actor().equals(actor))
+                            && session.projectId().equals(projectId) && session.teamId().equals(teamId)
+                            && session.actor().equals(actor))
                     .filter(session -> beforeUpdatedAt == null
                             || session.updatedAt().isBefore(beforeUpdatedAt)
                             || (session.updatedAt().equals(beforeUpdatedAt) && session.id().compareTo(beforeId) < 0))

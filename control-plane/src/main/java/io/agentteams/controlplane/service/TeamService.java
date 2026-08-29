@@ -132,13 +132,17 @@ public final class TeamService {
     }
 
     public CursorPage<TeamRecord> list(CursorPageRequest request) {
+        return list(request, null, null);
+    }
+
+    public CursorPage<TeamRecord> list(CursorPageRequest request, String status, String query) {
         Objects.requireNonNull(request, "request");
+        if (resourceScopes == null) throw new IllegalStateException("resource scope repository is required");
         io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
                 .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
                         "authentication required"));
-        List<TeamRecord> rows = persistence.inTransaction(tx -> resourceScopes == null
-                ? tx.teams().findAll()
-                : tx.teams().findPage(principal, request.position(), request.pageSize() + 1, request.direction()));
+        List<TeamRecord> rows = persistence.inTransaction(tx -> tx.teams().findPage(principal, request.position(),
+                request.pageSize() + 1, request.direction(), status, query));
         return CursorPage.fromRows(rows, request.pageSize(),
                 team -> new CursorPageRequest.Position(team.updatedAt(), team.id()), Instant.now());
     }

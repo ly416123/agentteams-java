@@ -20,9 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/tasks")
 public final class TaskEventController {
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final Set<String> SENSITIVE = Set.of("token", "accesstoken", "refreshtoken", "secret",
-            "secretgeneration", "requestedsecretgeneration", "password", "authorization", "credential",
-            "apikey", "containerlog", "previousstablespec", "log", "logs");
+    private static final Set<String> SENSITIVE = Set.of("token", "accesstoken", "refreshtoken", "bearertoken",
+            "secret", "clientsecret", "secretgeneration", "requestedsecretgeneration", "password",
+            "authorization", "credential", "credentials", "apikey", "privatekey", "containerlog",
+            "previousstablespec", "spec", "input", "log", "logs");
     private final TaskService service;
 
     public TaskEventController(TaskService service) { this.service = service; }
@@ -31,6 +32,7 @@ public final class TaskEventController {
     public ResponseEntity<String> events(@PathVariable UUID taskId,
             @RequestParam(defaultValue = "0") long after,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId) {
+        if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative");
         long cursor = Math.max(after, parseCursor(lastEventId));
         List<DomainEventRecord> events = service.events(taskId, cursor);
         StringBuilder stream = new StringBuilder();
@@ -59,7 +61,7 @@ public final class TaskEventController {
             while (fields.hasNext()) {
                 var entry = fields.next();
                 if (SENSITIVE.contains(normalize(entry.getKey()))) {
-                    entry.setValue(JSON.getNodeFactory().textNode("[REDACTED]"));
+                    fields.remove();
                 } else redactNode(entry.getValue());
             }
         } else if (node.isArray()) node.forEach(TaskEventController::redactNode);

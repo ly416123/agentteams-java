@@ -24,9 +24,8 @@ public final class CursorPageRequest {
             throw new IllegalArgumentException("pageSize must be between 1 and " + MAX_PAGE_SIZE);
         }
         this.sort = blankToDefault(sort, "updatedAt");
-        if (!this.sort.equals("updatedAt") && !this.sort.equals("createdAt")
-                && !this.sort.equals("name") && !this.sort.equals("id")) {
-            throw new IllegalArgumentException("sort is not a stable supported field");
+        if (!this.sort.equals("updatedAt")) {
+            throw new IllegalArgumentException("sort must be updatedAt");
         }
         this.direction = Direction.parse(direction);
         if (this.cursor != null) {
@@ -60,7 +59,7 @@ public final class CursorPageRequest {
     public static String encode(Instant updatedAt, UUID id) {
         Objects.requireNonNull(updatedAt, "updatedAt");
         Objects.requireNonNull(id, "id");
-        String raw = updatedAt.toEpochMilli() + ":" + id;
+        String raw = updatedAt.toString() + ":" + id;
         return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -68,9 +67,10 @@ public final class CursorPageRequest {
         if (cursor == null || cursor.isBlank()) return null;
         try {
             String raw = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
-            String[] parts = raw.split(":", -1);
-            if (parts.length != 2) throw new IllegalArgumentException();
-            return new Position(Instant.ofEpochMilli(Long.parseLong(parts[0])), UUID.fromString(parts[1]));
+            int separator = raw.lastIndexOf(':');
+            if (separator <= 0 || separator == raw.length() - 1) throw new IllegalArgumentException();
+            return new Position(Instant.parse(raw.substring(0, separator)),
+                    UUID.fromString(raw.substring(separator + 1)));
         } catch (RuntimeException error) {
             throw new IllegalArgumentException("cursor is invalid", error);
         }

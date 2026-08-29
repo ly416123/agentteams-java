@@ -10,6 +10,7 @@ import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.persistence.DomainEventRecord;
 import io.agentteams.controlplane.api.CursorPage;
 import io.agentteams.controlplane.api.CursorPageRequest;
+import io.agentteams.controlplane.persistence.TaskListRecord;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceAction;
@@ -116,13 +117,13 @@ public final class TaskService {
         return task;
     }
 
-    public CursorPage<TaskRecord> list(CursorPageRequest request, TaskListFilter filter) {
+    public CursorPage<TaskListRecord> list(CursorPageRequest request, TaskListFilter filter) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(filter, "filter");
         io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
                 .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
                         "authentication required"));
-        java.util.List<TaskRecord> rows = persistence.inTransaction(tx -> tx.tasks().findPage(principal,
+        java.util.List<TaskListRecord> rows = persistence.inTransaction(tx -> tx.tasks().findPage(principal,
                 request.position(), request.pageSize() + 1, request.direction(), filter.phase(), filter.teamId(),
                 filter.workerId(), filter.actor(), filter.from(), filter.to(), filter.query()));
         return CursorPage.fromRows(rows, request.pageSize(),

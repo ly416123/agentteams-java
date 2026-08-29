@@ -56,27 +56,37 @@ public final class TeamRepository {
 
     public List<TeamRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
             CursorPageRequest.Direction direction) {
+        return findPage(principal, after, limit, direction, null, null);
+    }
+
+    public List<TeamRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction, String status, String query) {
         String order = direction == CursorPageRequest.Direction.ASC
                 ? " ORDER BY t.updated_at ASC, t.id ASC LIMIT ?"
                 : " ORDER BY t.updated_at DESC, t.id DESC LIMIT ?";
         String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
                 ? " AND (t.updated_at, t.id) > (?, ?)" : " AND (t.updated_at, t.id) < (?, ?)";
-        String sql = """
+        StringBuilder sql = new StringBuilder("""
                 SELECT t.id, t.name, t.display_name, t.status, t.created_at, t.updated_at, t.version
                  FROM teams t JOIN resource_scopes s ON s.resource_type = 'TEAM' AND s.resource_id = t.id
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
                                 WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
-                """ + cursor + order;
-        Object[] args = after == null
-                ? new Object[] {principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
-                    principal.subject(), limit}
-                : new Object[] {principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
-                    principal.subject(), JdbcSupport.timestamp(after.updatedAt()), after.id(), limit};
-        return jdbc.query(sql, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
+                """);
+        List<Object> values = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),
+                principal.scope().team(), principal.subject()));
+        if (status != null && !status.isBlank()) { sql.append(" AND t.status = ?"); values.add(status.trim()); }
+        if (query != null && !query.isBlank()) {
+            sql.append(" AND (t.name ILIKE ? OR t.display_name ILIKE ?)");
+            values.add("%" + query.trim() + "%"); values.add("%" + query.trim() + "%");
+        }
+        sql.append(cursor).append(order);
+        if (after != null) { values.add(JdbcSupport.timestamp(after.updatedAt())); values.add(after.id()); }
+        values.add(limit);
+        return jdbc.query(sql.toString(), (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
                 rs.getString("display_name"), rs.getString("status"), JdbcSupport.instant(rs, "created_at"),
-                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), args);
+                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version")), values.toArray());
     }
 
     public void upsert(TeamRecord team) {

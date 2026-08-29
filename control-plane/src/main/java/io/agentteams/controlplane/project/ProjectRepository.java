@@ -12,7 +12,12 @@ public interface ProjectRepository {
     Optional<ProjectRecord> findProjectByName(String tenantId, String name);
 
     List<ProjectRecord> findProjects(String tenantId, String actor, CursorPageRequest.Position after, int limit,
-            CursorPageRequest.Direction direction);
+            CursorPageRequest.Direction direction, String status, String query);
+
+    default List<ProjectRecord> findProjects(String tenantId, String actor, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction) {
+        return findProjects(tenantId, actor, after, limit, direction, null, null);
+    }
 
     void insertProject(ProjectRecord project);
 
