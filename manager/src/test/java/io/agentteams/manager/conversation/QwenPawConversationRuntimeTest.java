@@ -19,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -103,6 +104,92 @@ class QwenPawConversationRuntimeTest {
     }
 
     @Test
+    void classifiesConnectionRefusedAsWorkerUnavailable() throws Exception {
+        server.start();
+        int unusedPort = server.getAddress().getPort();
+        server.stop(0);
+        QwenPawConversationRuntime runtime = runtime(URI.create("http://127.0.0.1:" + unusedPort),
+                null, 8192, Duration.ofSeconds(2));
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("WORKER_UNAVAILABLE");
+        runtime.close();
+    }
+
+    @Test
+    void classifiesUnresolvedAddressAndDnsFailureAsWorkerUnavailable() {
+        assertThat(QwenPawConversationRuntime.classifyTransport(
+                new CompletionException(new java.nio.channels.UnresolvedAddressException())))
+                .isEqualTo(ConversationRuntimeException.Code.WORKER_UNAVAILABLE);
+        assertThat(QwenPawConversationRuntime.classifyTransport(
+                new CompletionException(new java.net.UnknownHostException("worker.invalid"))))
+                .isEqualTo(ConversationRuntimeException.Code.WORKER_UNAVAILABLE);
+    }
+
+    @Test
+    void classifiesFailedSseAsModelProviderUnavailableWithoutRemoteDetail() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", "data: {\"status\":\"failed\","
+                        + "\"error\":{\"message\":\"secret provider detail\"}}\n\n"));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        ConversationEvent failure = runtime.events(SESSION_ID, 1).get(0);
+        assertThat(failure.type()).isEqualTo("conversation.failed");
+        assertThat(failure.data()).contains("MODEL_PROVIDER_UNAVAILABLE")
+                .doesNotContain("secret provider detail");
+        runtime.close();
+    }
+
+    @Test
+    void timesOutWhenResponseHeadersArriveButSseBodyStaysIdle() throws Exception {
+        CountDownLatch responseReady = new CountDownLatch(1);
+        server.createContext("/api/console/chat", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            responseReady.countDown();
+            try {
+                Thread.sleep(2_000);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                null, 8192, Duration.ofMillis(100));
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+        assertThat(responseReady.await(5, TimeUnit.SECONDS)).isTrue();
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("TIMEOUT");
+        runtime.close();
+    }
+
+    @Test
+    void rejectsAnOverlongSseLineEvenWhenTotalResponseLimitAllowsIt() throws Exception {
+        String longLine = "data: {\"status\":\"in_progress\",\"text\":\""
+                + "a".repeat(70_000) + "\"}\n\n";
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", longLine));
+        server.start();
+        QwenPawConversationRuntime runtime = runtime(null, 1_000_000);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("PROTOCOL_ERROR");
+        runtime.close();
+    }
+
+    @Test
     void rejectsOversizedResponseAndDoesNotFollowRedirects() throws Exception {
         server.createContext("/api/console/chat", exchange -> {
             exchange.getResponseHeaders().set("Location", "/redirect-target");
@@ -177,9 +264,14 @@ class QwenPawConversationRuntimeTest {
     }
 
     private QwenPawConversationRuntime runtime(String token, long maxResponseBytes) {
+        return runtime(URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                token, maxResponseBytes, Duration.ofSeconds(2));
+    }
+
+    private QwenPawConversationRuntime runtime(URI endpoint, String token, long maxResponseBytes,
+            Duration requestTimeout) {
         ConversationRuntimeConfiguration configuration = new ConversationRuntimeConfiguration(
-                URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
-                "agent-a", token, Duration.ofSeconds(2), Duration.ofSeconds(2), maxResponseBytes,
+                endpoint, "agent-a", token, Duration.ofSeconds(2), requestTimeout, maxResponseBytes,
                 "agentteams", "console");
         return new QwenPawConversationRuntime(configuration,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2))

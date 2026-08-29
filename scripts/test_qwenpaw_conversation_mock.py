@@ -9,6 +9,8 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -93,12 +95,23 @@ class QwenPawConversationMockTest(unittest.TestCase):
         self.assertIn('"status":"cancelled"', result.get("body", ""))
 
     def test_kind_manifest_declares_the_conversation_mock_without_changing_openai_mock(self):
-        manifest = (ROOT / "deploy/kind-qwenpaw-openai-mock.yaml").read_text(encoding="utf-8")
+        manifest_path = ROOT / "deploy/kind-qwenpaw-openai-mock.yaml"
+        manifest = manifest_path.read_text(encoding="utf-8")
         self.assertIn("qwenpaw-conversation-mock", manifest)
         self.assertIn("conversation-server.py", manifest)
         self.assertIn("/health", manifest)
         self.assertIn("QWENPAW_CONVERSATION_MOCK_DELAY_SECONDS", manifest)
         self.assertIn("qwenpaw-openai-mock", manifest)
+        documents = list(yaml.safe_load_all(manifest))
+        configmaps = [document for document in documents if document.get("kind") == "ConfigMap"]
+        conversation_configmaps = [configmap for configmap in configmaps
+                                   if configmap.get("metadata", {}).get("name")
+                                   == "qwenpaw-conversation-mock"]
+        self.assertEqual(len(conversation_configmaps), 1)
+        self.assertEqual(
+            conversation_configmaps[0]["data"]["conversation-server.py"],
+            (ROOT / "scripts/qwenpaw-conversation-mock.py").read_text(encoding="utf-8"),
+        )
 
     def read_chat(self, session_id, prompt):
         request = urllib.request.Request(

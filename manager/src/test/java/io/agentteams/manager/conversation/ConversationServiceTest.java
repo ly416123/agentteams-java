@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class ConversationServiceTest {
@@ -42,6 +46,24 @@ class ConversationServiceTest {
 
         assertThat(replay).isEqualTo(first);
         assertThat(service.events(SESSION_ID, 0)).hasSize(3);
+    }
+
+    @Test
+    void idempotentReplayReadsEventsProducedAfterTheInitialAsyncSend() throws Exception {
+        DelayedRuntime runtime = new DelayedRuntime();
+        ConversationService service = new ConversationService(runtime);
+        service.create(CONTEXT);
+        service.start(SESSION_ID);
+
+        ConversationService.SendResult initial = service.send(SESSION_ID, "message-1", "hello");
+        assertThat(initial.events()).isEmpty();
+        assertThat(runtime.sendStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        runtime.release.countDown();
+        assertThat(runtime.completed.await(5, TimeUnit.SECONDS)).isTrue();
+
+        ConversationService.SendResult replay = service.send(SESSION_ID, "message-1", "hello");
+        assertThat(replay.events()).extracting(ConversationEvent::type)
+                .containsExactly("message.delta", "message.completed");
     }
 
     @Test
@@ -86,5 +108,52 @@ class ConversationServiceTest {
         service.create(CONTEXT);
         service.start(SESSION_ID);
         return service;
+    }
+
+    private static final class DelayedRuntime implements ConversationRuntimePort {
+        private final List<ConversationEvent> events = new ArrayList<>();
+        private final CountDownLatch sendStarted = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+        private final CountDownLatch completed = new CountDownLatch(1);
+
+        @Override
+        public void start(Context context) {
+            synchronized (events) {
+                events.add(ConversationEvent.of(SESSION_ID, 1, "conversation.started", "{}",
+                        java.time.Instant.EPOCH));
+            }
+        }
+
+        @Override
+        public void send(Message message) {
+            sendStarted.countDown();
+            Thread thread = new Thread(() -> {
+                try {
+                    release.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                synchronized (events) {
+                    events.add(ConversationEvent.of(SESSION_ID, 2, "message.delta",
+                            "{\"text\":\"hel\"}", java.time.Instant.EPOCH));
+                    events.add(ConversationEvent.of(SESSION_ID, 3, "message.completed",
+                            "{\"text\":\"hello\"}", java.time.Instant.EPOCH));
+                }
+                completed.countDown();
+            });
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        @Override
+        public List<ConversationEvent> events(UUID sessionId, long afterCursor) {
+            synchronized (events) {
+                return events.stream().filter(event -> event.cursor() > afterCursor).toList();
+            }
+        }
+
+        @Override
+        public void cancel(UUID sessionId) { }
     }
 }

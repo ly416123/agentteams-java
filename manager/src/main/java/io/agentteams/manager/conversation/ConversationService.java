@@ -72,7 +72,8 @@ public final class ConversationService {
                             ConversationRuntimeException.Code.IDEMPOTENCY_CONFLICT,
                             "message idempotency key was reused with different content");
                 }
-                return previous.result;
+                return new SendResult(sessionId, idempotencyKey,
+                        runtime.events(sessionId, previous.afterCursor));
             }
             if (state.status == Status.CANCELLED) {
                 throw new ConversationRuntimeException(ConversationRuntimeException.Code.CANCELLED,
@@ -86,7 +87,7 @@ public final class ConversationService {
             runtime.send(new ConversationRuntimePort.Message(sessionId, idempotencyKey, content));
             SendResult result = new SendResult(sessionId, idempotencyKey,
                     runtime.events(sessionId, afterCursor));
-            state.messages.put(idempotencyKey, new SendRecord(content, result));
+            state.messages.put(idempotencyKey, new SendRecord(content, afterCursor));
             return result;
         }
     }
@@ -145,6 +146,6 @@ public final class ConversationService {
         }
     }
 
-    private record SendRecord(String content, SendResult result) {
+    private record SendRecord(String content, long afterCursor) {
     }
 }

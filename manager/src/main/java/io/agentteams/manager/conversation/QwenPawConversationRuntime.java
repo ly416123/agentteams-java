@@ -4,14 +4,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.net.ConnectException;
+import java.net.NoRouteToHostException;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.UnresolvedAddressException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,15 +27,20 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /** Conversation runtime adapter for QwenPaw's HTTP/SSE console API. */
 public final class QwenPawConversationRuntime implements ConversationRuntimePort, AutoCloseable {
+    private static final int MAX_SSE_LINE_BYTES = 64 * 1024;
     private final ConversationRuntimeConfiguration configuration;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final Map<UUID, SessionState> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, RequestHandle> requests = new ConcurrentHashMap<>();
     private final ExecutorService readerExecutor;
+    private final ScheduledExecutorService timeoutExecutor;
 
     public QwenPawConversationRuntime(ConversationRuntimeConfiguration configuration) {
         this(configuration,
@@ -49,6 +58,11 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.readerExecutor = Executors.newCachedThreadPool(runnable -> {
             Thread thread = new Thread(runnable, "qwenpaw-conversation-sse-reader");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.timeoutExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "qwenpaw-conversation-sse-timeout");
             thread.setDaemon(true);
             return thread;
         });
@@ -155,6 +169,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         requests.values().forEach(RequestHandle::cancel);
         requests.clear();
         readerExecutor.shutdownNow();
+        timeoutExecutor.shutdownNow();
     }
 
     private void processResponse(SessionState state, RequestHandle handle,
@@ -170,46 +185,82 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             return;
         }
 
-        StringBuilder data = new StringBuilder();
         boolean terminal = false;
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                response.body(), StandardCharsets.UTF_8))) {
-            String line;
-            long bytes = 0;
-            while ((line = reader.readLine()) != null) {
-                bytes += line.getBytes(StandardCharsets.UTF_8).length + 1;
-                if (bytes > configuration.maxResponseBytes()) {
-                    throw new ResponseTooLargeException();
-                }
-                if (line.isEmpty()) {
-                    terminal = processSseData(state, data);
-                    data.setLength(0);
-                    if (terminal) {
-                        return;
-                    }
-                } else if (line.startsWith("data:")) {
-                    if (!data.isEmpty()) {
-                        data.append('\n');
-                    }
-                    data.append(line.substring("data:".length()).trim());
-                }
-            }
-            if (!data.isEmpty()) {
-                terminal = processSseData(state, data);
-            }
+        handle.armIdleTimeout(timeoutExecutor, configuration.requestTimeout());
+        try (InputStream body = response.body()) {
+            terminal = readSse(state, handle, body);
             if (!terminal && !handle.cancelled()) {
-                publishFailure(state, handle, ConversationRuntimeException.Code.CONNECTION_CLOSED);
+                publishFailure(state, handle, handle.timedOut()
+                        ? ConversationRuntimeException.Code.TIMEOUT
+                        : ConversationRuntimeException.Code.CONNECTION_CLOSED);
             }
         } catch (ResponseTooLargeException error) {
             publishFailure(state, handle, ConversationRuntimeException.Code.PROTOCOL_ERROR);
         } catch (IOException error) {
             if (!handle.cancelled()) {
-                publishFailure(state, handle, ConversationRuntimeException.Code.CONNECTION_CLOSED);
+                publishFailure(state, handle, handle.timedOut()
+                        ? ConversationRuntimeException.Code.TIMEOUT
+                        : ConversationRuntimeException.Code.CONNECTION_CLOSED);
             }
         } finally {
+            handle.cancelIdleTimeout();
             handle.stream = null;
             requests.remove(state.context.sessionId(), handle);
         }
+    }
+
+    private boolean readSse(SessionState state, RequestHandle handle, InputStream body)
+            throws IOException, ResponseTooLargeException {
+        StringBuilder data = new StringBuilder();
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        long totalBytes = 0;
+        int read;
+        while ((read = body.read(buffer)) != -1) {
+            handle.touch(timeoutExecutor, configuration.requestTimeout());
+            totalBytes += read;
+            if (totalBytes > configuration.maxResponseBytes()) {
+                throw new ResponseTooLargeException();
+            }
+            for (int index = 0; index < read; index++) {
+                byte value = buffer[index];
+                if (value == '\n') {
+                    if (processSseLine(state, data, line)) {
+                        return true;
+                    }
+                    line.reset();
+                } else {
+                    line.write(value);
+                    if (line.size() > MAX_SSE_LINE_BYTES) {
+                        throw new ResponseTooLargeException();
+                    }
+                }
+            }
+        }
+        if (line.size() > 0) {
+            processSseLine(state, data, line);
+        }
+        return !data.isEmpty() && processSseData(state, data);
+    }
+
+    private boolean processSseLine(SessionState state, StringBuilder data,
+            ByteArrayOutputStream line) {
+        String value = line.toString(StandardCharsets.UTF_8);
+        if (value.endsWith("\r")) {
+            value = value.substring(0, value.length() - 1);
+        }
+        if (value.isEmpty()) {
+            boolean terminal = processSseData(state, data);
+            data.setLength(0);
+            return terminal;
+        }
+        if (value.startsWith("data:")) {
+            if (!data.isEmpty()) {
+                data.append('\n');
+            }
+            data.append(value.substring("data:".length()).trim());
+        }
+        return false;
     }
 
     private boolean processSseData(SessionState state, StringBuilder data) {
@@ -331,12 +382,21 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         return ConversationRuntimeException.Code.HTTP_FAILURE;
     }
 
-    private static ConversationRuntimeException.Code classifyTransport(Throwable error) {
+    static ConversationRuntimeException.Code classifyTransport(Throwable error) {
         Throwable current = error;
-        while (current.getCause() != null) {
+        boolean timeout = false;
+        while (current != null) {
+            if (current instanceof ConnectException
+                    || current instanceof NoRouteToHostException
+                    || current instanceof UnresolvedAddressException
+                    || current instanceof UnknownHostException
+                    || current instanceof HttpConnectTimeoutException) {
+                return ConversationRuntimeException.Code.WORKER_UNAVAILABLE;
+            }
+            timeout |= current instanceof java.net.http.HttpTimeoutException;
             current = current.getCause();
         }
-        return current instanceof java.net.http.HttpTimeoutException
+        return timeout
                 ? ConversationRuntimeException.Code.TIMEOUT
                 : ConversationRuntimeException.Code.CONNECTION_CLOSED;
     }
@@ -357,6 +417,8 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         private volatile CompletableFuture<?> future;
         private volatile InputStream stream;
         private volatile boolean cancelled;
+        private volatile boolean timedOut;
+        private volatile ScheduledFuture<?> idleTimeout;
 
         private RequestHandle(UUID sessionId) {
             this.sessionId = sessionId;
@@ -366,8 +428,42 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             return cancelled;
         }
 
+        private boolean timedOut() {
+            return timedOut;
+        }
+
+        private void armIdleTimeout(ScheduledExecutorService scheduler, java.time.Duration timeout) {
+            cancelIdleTimeout();
+            idleTimeout = scheduler.schedule(() -> {
+                timedOut = true;
+                InputStream currentStream = stream;
+                if (currentStream != null) {
+                    try {
+                        currentStream.close();
+                    } catch (IOException ignored) {
+                        // Timeout cleanup is best effort.
+                    }
+                }
+            }, timeout.toMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        private void touch(ScheduledExecutorService scheduler, java.time.Duration timeout) {
+            if (!cancelled && !timedOut) {
+                armIdleTimeout(scheduler, timeout);
+            }
+        }
+
+        private void cancelIdleTimeout() {
+            ScheduledFuture<?> currentTimeout = idleTimeout;
+            if (currentTimeout != null) {
+                currentTimeout.cancel(false);
+                idleTimeout = null;
+            }
+        }
+
         private void cancel() {
             cancelled = true;
+            cancelIdleTimeout();
             CompletableFuture<?> currentFuture = future;
             if (currentFuture != null) {
                 currentFuture.cancel(true);

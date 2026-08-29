@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Runtime boundary for conversation execution. */
-public interface ConversationRuntimePort {
+public interface ConversationRuntimePort extends AutoCloseable {
     void start(Context context);
 
     void send(Message message);
@@ -13,6 +13,11 @@ public interface ConversationRuntimePort {
     List<ConversationEvent> events(UUID sessionId, long afterCursor);
 
     void cancel(UUID sessionId);
+
+    @Override
+    default void close() {
+        // In-memory runtimes do not own external resources.
+    }
 
     record Context(String project, String team, String worker, String task, UUID sessionId) {
         public Context {
