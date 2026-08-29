@@ -116,7 +116,11 @@ export type Worker = {
   capabilities?: string[];
   currentTaskId?: string;
   imageVersion?: string;
+  imageDigest?: string;
   configVersion?: string;
+  configRevision?: string;
+  secretGeneration?: string;
+  previousStableSpec?: string;
   lastHeartbeat?: string;
   unavailableReason?: string;
 };

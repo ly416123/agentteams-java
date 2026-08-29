@@ -1,23 +1,73 @@
 import { useState } from 'react';
-import type { Worker } from '../../api/types';
+import type { Worker, WorkerOperation } from '../../api/types';
 import { ApiError } from '../../api/httpClient';
-import { useWorkerAction } from '../../queries/useWorkerQueries';
+import {
+  useWorkerAction,
+  useWorkerRollback,
+  useWorkerRollout,
+} from '../../queries/useWorkerQueries';
+import type { WorkerRolloutRequest } from '../../api/workers';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 
-export function WorkerOperationPanel({ projectId, worker }: { projectId: string; worker: Worker }) {
+export function WorkerOperationPanel({
+  projectId,
+  worker,
+  operations = [],
+}: {
+  projectId: string;
+  worker: Worker;
+  operations?: WorkerOperation[];
+}) {
   const action = useWorkerAction(projectId, worker.id);
+  const rollout = useWorkerRollout(projectId, worker.id);
+  const rollback = useWorkerRollback(projectId, worker.id);
   const [conflict, setConflict] = useState(false);
   const [message, setMessage] = useState('');
+  const [retry, setRetry] = useState<(() => void) | null>(null);
+  const failedRollout = operations.find(
+    (operation) => operation.type === 'ROLLOUT' && operation.status === 'FAILED',
+  );
+  const pending = action.isPending || rollout.isPending || rollback.isPending;
+  const handleError = (error: unknown, retryAction: () => void) => {
+    if (error instanceof ApiError && error.status === 409) {
+      setRetry(() => retryAction);
+      setConflict(true);
+    }
+  };
   const run = (name: 'drain' | 'terminate') =>
     action.mutate(
       { action: name, expectedVersion: worker.version },
       {
         onSuccess: () => setMessage('操作已提交'),
-        onError: (error) => {
-          if (error instanceof ApiError && error.status === 409) setConflict(true);
-        },
+        onError: (error) => handleError(error, () => run(name)),
       },
     );
+  const submitRollout = () => {
+    const body: WorkerRolloutRequest = {
+      expectedVersion: worker.version,
+      imageDigest: worker.imageDigest || worker.imageVersion || `worker-${worker.id}`,
+      runtime: worker.runtime,
+      configRevision: worker.configRevision || worker.configVersion || `worker-${worker.version}`,
+      secretGeneration: worker.secretGeneration || `worker-${worker.version}`,
+      previousStableSpec: worker.previousStableSpec || '{}',
+      owner: 'console',
+      correlationId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${worker.id}`,
+    };
+    rollout.mutate(body, {
+      onSuccess: () => setMessage('操作已提交'),
+      onError: (error) => handleError(error, submitRollout),
+    });
+  };
+  const submitRollback = () => {
+    if (!failedRollout) return;
+    rollback.mutate(
+      { operationId: failedRollout.id, expectedVersion: failedRollout.version },
+      {
+        onSuccess: () => setMessage('操作已提交'),
+        onError: (error) => handleError(error, submitRollback),
+      },
+    );
+  };
   const unavailable = worker.phase !== 'READY';
   return (
     <>
@@ -38,22 +88,30 @@ export function WorkerOperationPanel({ projectId, worker }: { projectId: string;
         <div className="operation-actions">
           <button
             className="button button--ghost"
-            disabled={unavailable || action.isPending}
+            disabled={unavailable || pending}
             onClick={() => run('drain')}
           >
             Drain
           </button>
           <button
             className="button button--danger"
-            disabled={unavailable || action.isPending}
+            disabled={unavailable || pending}
             onClick={() => run('terminate')}
           >
             Terminate
           </button>
-          <button className="button button--ghost" disabled={unavailable}>
+          <button
+            className="button button--ghost"
+            disabled={unavailable || pending}
+            onClick={submitRollout}
+          >
             Rollout
           </button>
-          <button className="button button--ghost" disabled={unavailable}>
+          <button
+            className="button button--ghost"
+            disabled={unavailable || pending || !failedRollout}
+            onClick={submitRollback}
+          >
             Rollback
           </button>
         </div>
@@ -65,7 +123,9 @@ export function WorkerOperationPanel({ projectId, worker }: { projectId: string;
         onCancel={() => setConflict(false)}
         onConfirm={() => {
           setConflict(false);
-          run('drain');
+          const retryAction = retry;
+          setRetry(null);
+          retryAction?.();
         }}
       />
     </>

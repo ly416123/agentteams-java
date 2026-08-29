@@ -3,8 +3,11 @@ import {
   getWorker,
   listOperations,
   listWorkers,
+  rollbackWorker,
+  rolloutWorker,
   workerAction,
   type WorkerFilters,
+  type WorkerRolloutRequest,
 } from '../api/workers';
 import { queryKeys } from './queryKeys';
 function items<T>(data: T[] | { items: T[] } | undefined): T[] {
@@ -43,6 +46,36 @@ export function useWorkerAction(projectId: string, workerId: string) {
       action: Parameters<typeof workerAction>[1];
       expectedVersion: number;
     }) => workerAction(workerId, action, expectedVersion),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['workers', projectId] });
+      client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });
+      client.invalidateQueries({ queryKey: queryKeys.workerOperations(projectId, workerId) });
+    },
+  });
+}
+
+export function useWorkerRollout(projectId: string, workerId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: WorkerRolloutRequest) => rolloutWorker(workerId, body),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['workers', projectId] });
+      client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });
+      client.invalidateQueries({ queryKey: queryKeys.workerOperations(projectId, workerId) });
+    },
+  });
+}
+
+export function useWorkerRollback(projectId: string, workerId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      operationId,
+      expectedVersion,
+    }: {
+      operationId: string;
+      expectedVersion: number;
+    }) => rollbackWorker(workerId, operationId, expectedVersion),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['workers', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });

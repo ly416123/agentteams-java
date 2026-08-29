@@ -65,7 +65,11 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
             ))}
           </div>
         </section>
-        <WorkerOperationPanel projectId={projectId} worker={data} />
+        <WorkerOperationPanel
+          projectId={projectId}
+          worker={data}
+          operations={operations.data || []}
+        />
       </div>
       <section className="panel">
         <div className="section-heading">

@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import { rolloutWorker } from '../../src/api/workers';
 import { WorkerListPage } from '../../src/features/workers/WorkerListPage';
 import { WorkerDetailPage } from '../../src/features/workers/WorkerDetailPage';
 
@@ -57,6 +58,24 @@ vi.mock('../../src/api/workers', () => ({
     updatedAt: '2026-08-29T02:00:00Z',
     version: 1,
   }),
+  rolloutWorker: vi.fn().mockResolvedValue({
+    id: 'op-3',
+    agentId: 'worker-1',
+    type: 'ROLLOUT',
+    status: 'PENDING',
+    createdAt: '2026-08-29T02:00:00Z',
+    updatedAt: '2026-08-29T02:00:00Z',
+    version: 1,
+  }),
+  rollbackWorker: vi.fn().mockResolvedValue({
+    id: 'op-4',
+    agentId: 'worker-1',
+    type: 'ROLLBACK',
+    status: 'PENDING',
+    createdAt: '2026-08-29T02:00:00Z',
+    updatedAt: '2026-08-29T02:00:00Z',
+    version: 1,
+  }),
 }));
 
 function renderWithQuery(ui: React.ReactNode) {
@@ -83,5 +102,16 @@ describe('Worker pages', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Drain' }));
     expect(screen.getByText('操作已提交')).toBeInTheDocument();
     expect(screen.getByText('DRAIN')).toBeInTheDocument();
+  });
+
+  it('submits rollout with the current worker version', async () => {
+    renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
+    await screen.findByText('分析 Worker');
+    await userEvent.click(screen.getByRole('button', { name: 'Rollout' }));
+    expect(await screen.findByText('操作已提交')).toBeInTheDocument();
+    expect(rolloutWorker).toHaveBeenCalledWith(
+      'worker-1',
+      expect.objectContaining({ expectedVersion: 5 }),
+    );
   });
 });

@@ -2,6 +2,16 @@ import { apiClient, type HttpClient } from './httpClient';
 import type { Page, Worker, WorkerOperation } from './types';
 
 export type WorkerFilters = { search?: string; phase?: string; runtime?: string; cursor?: string };
+export type WorkerRolloutRequest = {
+  expectedVersion: number;
+  imageDigest: string;
+  runtime: string;
+  configRevision: string;
+  secretGeneration: string;
+  previousStableSpec: string;
+  owner: string;
+  correlationId: string;
+};
 export function listWorkers(
   projectId: string,
   filters: WorkerFilters = {},
@@ -30,7 +40,7 @@ export function workerAction(
 }
 export function rolloutWorker(
   workerId: string,
-  body: Record<string, unknown>,
+  body: WorkerRolloutRequest,
   client: HttpClient = apiClient,
 ) {
   return client.request<WorkerOperation>(`/api/v1/agents/${workerId}/operations/rollout`, {
