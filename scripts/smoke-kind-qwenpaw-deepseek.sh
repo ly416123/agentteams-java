@@ -19,6 +19,14 @@ if [[ -n "${AGENTTEAMS_API_TOKEN:-}" ]]; then
   API_AUTH_ARGS=(-H "Authorization: Bearer ${AGENTTEAMS_API_TOKEN}")
 fi
 
+curl_api() {
+  if (( ${#API_AUTH_ARGS[@]} > 0 )); then
+    curl "${API_AUTH_ARGS[@]}" "$@"
+  else
+    curl "$@"
+  fi
+}
+
 cleanup() {
   if [[ -n "${PORT_FORWARD_PID}" ]]; then
     kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
@@ -43,7 +51,7 @@ PORT_FORWARD_PID=$!
 BASE_URL="http://127.0.0.1:${LOCAL_PORT}"
 
 deadline=$((SECONDS + TIMEOUT_SECONDS))
-until curl --fail --silent "${API_AUTH_ARGS[@]}" "${BASE_URL}/actuator/health" >/dev/null; do
+until curl_api --fail --silent "${BASE_URL}/actuator/health" >/dev/null; do
   if (( SECONDS >= deadline )); then
     echo "Control Plane API did not become ready" >&2
     exit 1
@@ -57,19 +65,17 @@ TASK_BODY="$(jq -cn \
   --arg project "${SCOPE_PROJECT}" \
   --arg team "${SCOPE_TEAM}" \
   '{title:"kind-qwenpaw-deepseek",description:"DeepSeek QwenPaw end-to-end smoke",spec:{scope:{tenant:$tenant,project:$project,team:$team},taskType:"qwenpaw",inputJson:{prompt:"Reply with exactly QWENPAW_DEEPSEEK_SMOKE_OK and nothing else."},requiredCapabilities:["qwenpaw"]}}')"
-TASK_JSON="$(curl --fail --silent -X POST "${BASE_URL}/api/v1/tasks" \
-  "${API_AUTH_ARGS[@]}" \
+TASK_JSON="$(curl_api --fail --silent -X POST "${BASE_URL}/api/v1/tasks" \
   -H "Idempotency-Key: ${IDEMPOTENCY_KEY}" -H 'Content-Type: application/json' \
   --data-binary "${TASK_BODY}")"
 TASK_ID="$(jq -er '.id' <<<"${TASK_JSON}")"
 
-curl --fail --silent -X POST "${BASE_URL}/api/v1/tasks/${TASK_ID}/queue" \
-  "${API_AUTH_ARGS[@]}" \
+curl_api --fail --silent -X POST "${BASE_URL}/api/v1/tasks/${TASK_ID}/queue" \
   -H "Idempotency-Key: kind-qwenpaw-deepseek-queue-${RANDOM}-${SECONDS}" \
   -H 'Content-Type: application/json' --data-binary '{}' >/dev/null
 
 while :; do
-  TASK_JSON="$(curl --fail --silent "${API_AUTH_ARGS[@]}" "${BASE_URL}/api/v1/tasks/${TASK_ID}")"
+  TASK_JSON="$(curl_api --fail --silent "${BASE_URL}/api/v1/tasks/${TASK_ID}")"
   PHASE="$(jq -r '.phase' <<<"${TASK_JSON}")"
   case "${PHASE}" in
     SUCCEEDED)
