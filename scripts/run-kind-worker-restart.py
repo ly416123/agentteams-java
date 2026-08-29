@@ -209,6 +209,13 @@ def clear_mock_delay(namespace: str, deployment: str, timeout: float) -> None:
         pass
 
 
+def clear_mock_delay_runtime(mock_base_url: str, timeout: float) -> None:
+    api_request(f"{mock_base_url}/debug/delay", "POST", {"seconds": 0})
+    wait_until("runtime mock response delay cleared",
+               lambda: api_request(f"{mock_base_url}/debug/delay").get("seconds") == 0,
+               timeout)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
@@ -236,6 +243,7 @@ def main() -> int:
 
     port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
     mock_port_forward = None
+    mock_base_url = None
     base_url = f"http://127.0.0.1:{args.local_port}"
     task_id = None
     delay_configured = False
@@ -290,7 +298,7 @@ def main() -> int:
         # The delayed request proves the old Worker was in flight. Once that
         # pod is gone, remove the artificial delay so the replacement can
         # complete its recovered attempt within the smoke-test window.
-        clear_mock_delay(args.namespace, args.mock_deployment, args.timeout)
+        clear_mock_delay_runtime(mock_base_url, args.timeout)
         wait_until(
             "replacement Worker Pod",
             lambda: next((pod for pod in worker_pod_names(args.namespace, args.worker_deployment)

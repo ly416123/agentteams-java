@@ -47,7 +47,7 @@ class KindWorkerRestartContractTest(unittest.TestCase):
         source = SCRIPT.read_text(encoding="utf-8")
 
         deleted = source.index('run("delete", "pod", failed_worker_pod')
-        clear_delay = source.index("clear_mock_delay(", deleted)
+        clear_delay = source.index("clear_mock_delay_runtime(", deleted)
         replacement = source.index('"replacement Worker Pod"', deleted)
         self.assertLess(deleted, clear_delay)
         self.assertLess(clear_delay, replacement)
