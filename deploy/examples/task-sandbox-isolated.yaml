@@ -1,0 +1,14 @@
+apiVersion: agentteams.io/v1alpha1
+kind: TaskSandbox
+metadata:
+  name: task-sandbox-l5-isolated
+  namespace: agentteams
+spec:
+  taskId: "00000000-0000-0000-0000-000000000101"
+  attemptId: "00000000-0000-0000-0000-000000000201"
+  idempotencyKey: "sandbox:l5-isolated-example"
+  profile: ISOLATED
+  runtimeClassName: gvisor
+  image: ghcr.io/ly416123/agentteams-task-sandbox:latest
+  ttlSeconds: 300
+  template: python-untrusted
