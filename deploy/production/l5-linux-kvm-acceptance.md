@@ -83,7 +83,7 @@ KUBECTL=kubectl NAMESPACE=agentteams TIMEOUT=10m \
 3. 等待两个 CR 的 `status.phase` 变为 `READY`。超时会输出当前 phase/message，并进入清理。
 4. 按 Operator 标签发现生成的 Job 和 Pod，输出 Job template 与 Pod 的 `runtimeClassName`，并要求它们分别等于 `gvisor` 和 `kata-qemu`。
 5. 若权限和 runner 条件允许，通过 Pod 内 `uname -a` 输出 guest kernel；通过 Pod 所在 Node 的 `status.nodeInfo.kernelVersion` 输出 host kernel。若 `exec` 或 Node metadata 因 RBAC 不可用，脚本明确输出 `unavailable`，不会用另一侧的版本、固定字符串或猜测值伪造证据。
-6. 正常结束、失败或收到中断信号时，删除两个临时 CR，并等待 CR、Operator 生成的 Job/Service/Pod 清理完成。
+6. 正常结束或失败时，先通过 `spec.terminationRequested=true` 请求 Operator 清理两个临时 CR 的 Job/Service，再删除 CR 并等待 CR、Job/Service/Pod 清理完成；收到中断信号时也会尽力执行同一清理流程。
 
 ## 判据
 

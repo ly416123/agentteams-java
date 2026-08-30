@@ -88,19 +88,24 @@ cleanup() {
   if (( ${#SANDBOX_NAMES[@]} > 0 )); then
     for index in "${!SANDBOX_NAMES[@]}"; do
       sandbox_name="${SANDBOX_NAMES[${index}]}"
+      # Ask the Operator to terminate the sandbox before deleting the CR. This
+      # exercises the supported termination protocol and gives the controller
+      # a chance to delete its Job/Service and remove the finalizer cleanly.
+      kube -n "${NAMESPACE}" patch "tasksandbox/${sandbox_name}" \
+        --type=merge -p '{"spec":{"terminationRequested":true}}' \
+        >/dev/null 2>&1 || cleanup_status=1
+    done
+    for sandbox_name in "${SANDBOX_NAMES[@]}"; do
+      wait_for_delete "job/${sandbox_name}-job" || cleanup_status=1
+      wait_for_delete "service/${sandbox_name}" || cleanup_status=1
+    done
+    for index in "${!SANDBOX_NAMES[@]}"; do
+      sandbox_name="${SANDBOX_NAMES[${index}]}"
       kube -n "${NAMESPACE}" delete "tasksandbox/${sandbox_name}" \
         --ignore-not-found --wait=true --timeout="${TIMEOUT}" >/dev/null 2>&1 || cleanup_status=1
     done
   fi
 
-  # The Operator owns the Job and Service. Waiting for all three resource
-  # types makes an interrupted run leave no acceptance workload behind.
-  if (( ${#SANDBOX_NAMES[@]} > 0 )); then
-    for sandbox_name in "${SANDBOX_NAMES[@]}"; do
-      wait_for_delete "job/${sandbox_name}-job" || cleanup_status=1
-      wait_for_delete "service/${sandbox_name}" || cleanup_status=1
-    done
-  fi
   if (( ${#SANDBOX_TASK_IDS[@]} > 0 )); then
     for task_id in "${SANDBOX_TASK_IDS[@]}"; do
       wait_for_selector_delete \

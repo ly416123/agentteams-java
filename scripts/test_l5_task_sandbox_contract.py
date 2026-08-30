@@ -162,6 +162,10 @@ class L5TaskSandboxContractTest(unittest.TestCase):
             with self.subTest(crd=crd):
                 self.assertIn(f"crd/{crd}", script)
 
+    def test_acceptance_cleanup_uses_the_operator_termination_protocol(self):
+        script = ACCEPTANCE_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"terminationRequested":true', script)
+
 
 if __name__ == "__main__":
     unittest.main()
