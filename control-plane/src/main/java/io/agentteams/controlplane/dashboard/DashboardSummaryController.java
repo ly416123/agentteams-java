@@ -1,5 +1,7 @@
 package io.agentteams.controlplane.dashboard;
 
+import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.usage.UsageQueryService;
 import java.time.Instant;
 import java.util.List;
@@ -23,9 +25,9 @@ public final class DashboardSummaryController {
     public DashboardSummary summary(@RequestParam(name = "from", required = false) Instant from,
             @RequestParam(name = "to", required = false) Instant to,
             @RequestParam(name = "groupBy", required = false) String groupBy,
-            @RequestParam(name = "limit", required = false) Integer limit) {
-        UsageQueryService.UsageSummary result = groupBy == null && limit == null
-                ? usage.summarize(from, to) : usage.summarize(from, to, groupBy, limit);
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "projectId", required = false) String projectId) {
+        UsageQueryService.UsageSummary result = summarize(from, to, groupBy, limit, projectId);
         UsageQueryService.UsageTotals totals = result.totals();
         UsageQueryService.GroupBy grouping = UsageQueryService.GroupBy.parse(groupBy);
         boolean legacyGrouping = grouping == UsageQueryService.GroupBy.PROVIDER_MODEL;
@@ -35,6 +37,19 @@ public final class DashboardSummaryController {
                 legacyGrouping ? groups : List.of(),
                 legacyGrouping ? null : grouping.name().toLowerCase(java.util.Locale.ROOT),
                 legacyGrouping ? List.of() : groups);
+    }
+
+    private UsageQueryService.UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit,
+            String projectId) {
+        return PrincipalContext.current().map(principal -> {
+            String authenticatedProject = principal.scope().project();
+            if (projectId != null && !authenticatedProject.equals(projectId)) {
+                throw new AuthorizationException("project is outside the caller scope");
+            }
+            return usage.summarizeForScope(principal.scope().tenant(), authenticatedProject, from, to, groupBy,
+                    limit);
+        }).orElseGet(() -> groupBy == null && limit == null
+                ? usage.summarize(from, to) : usage.summarize(from, to, groupBy, limit));
     }
 
     public record DashboardSummary(Instant from, Instant to, long calls, long failures, long promptTokens,

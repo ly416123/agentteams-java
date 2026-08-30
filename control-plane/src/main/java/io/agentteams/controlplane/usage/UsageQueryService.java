@@ -87,9 +87,15 @@ public final class UsageQueryService {
      * dashboard jobs.
      */
     public UsageSummary summarizeForScope(String tenantId, String projectId, Instant from, Instant to) {
+        return summarizeForScope(tenantId, projectId, from, to, null, null);
+    }
+
+    /** Aggregates a project-owned scope while retaining the dashboard grouping contract. */
+    public UsageSummary summarizeForScope(String tenantId, String projectId, Instant from, Instant to,
+            String groupBy, Integer limit) {
         if (tenantId == null || tenantId.isBlank()) throw new IllegalArgumentException("tenantId is required");
         if (projectId == null || projectId.isBlank()) throw new IllegalArgumentException("projectId is required");
-        return summarize(from, to, null, null, ScopeFilter.explicit(tenantId, projectId));
+        return summarize(from, to, groupBy, limit, ScopeFilter.explicit(tenantId, projectId));
     }
 
     public UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit) {

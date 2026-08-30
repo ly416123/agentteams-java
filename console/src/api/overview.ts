@@ -4,8 +4,10 @@ import { listTeams } from './teams';
 import { listWorkers } from './workers';
 import type { DashboardSummary, Overview } from './types';
 
-export function getDashboardSummary(client: HttpClient = apiClient) {
-  return client.request<DashboardSummary>('/api/v1/dashboard/summary');
+export function getDashboardSummary(projectId: string, client: HttpClient = apiClient) {
+  return client.request<DashboardSummary>('/api/v1/dashboard/summary', {
+    query: { projectId },
+  });
 }
 
 type DashboardAlert = { rule: string; severity: string; actual: number; message: string };
@@ -20,7 +22,7 @@ export async function getOverview(
 ): Promise<Overview> {
   const [summaryResult, alertsResult, teamsResult, tasksResult, workersResult] =
     await Promise.allSettled([
-      getDashboardSummary(client),
+      getDashboardSummary(projectId, client),
       listDashboardAlerts(client),
       listTeams(projectId, {}, client),
       listTasks(projectId, {}, client),
@@ -64,6 +66,5 @@ export async function getOverview(
     })),
     usage: summary,
     errors: Object.keys(errors).length ? errors : undefined,
-    metricsUnavailable: true,
   };
 }

@@ -13,9 +13,11 @@ describe('API contracts', () => {
       requestStream: vi.fn(),
     };
 
-    await getDashboardSummary(client);
+    await getDashboardSummary('p-1', client);
 
-    expect(client.request).toHaveBeenCalledWith('/api/v1/dashboard/summary');
+    expect(client.request).toHaveBeenCalledWith('/api/v1/dashboard/summary', {
+      query: { projectId: 'p-1' },
+    });
   });
 
   it('normalizes the Project cursor page before the UI consumes it', async () => {
