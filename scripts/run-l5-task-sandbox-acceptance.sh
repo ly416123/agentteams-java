@@ -58,11 +58,17 @@ SANDBOX_TASK_IDS=()
 
 wait_for_delete() {
   local resource="$1"
-  if ! kube -n "${NAMESPACE}" get "${resource}" >/dev/null 2>&1; then
+  local get_output
+  if get_output="$(kube -n "${NAMESPACE}" get "${resource}" 2>&1)"; then
+    kube -n "${NAMESPACE}" wait --for=delete "${resource}" --timeout="${TIMEOUT}" \
+      >/dev/null
+    return $?
+  fi
+  if grep -qiE 'not[ -]?found' <<<"${get_output}"; then
     return 0
   fi
-  kube -n "${NAMESPACE}" wait --for=delete "${resource}" --timeout="${TIMEOUT}" \
-    >/dev/null
+  printf 'L5 cleanup: unable to inspect %s: %s\n' "${resource}" "${get_output}" >&2
+  return 1
 }
 
 wait_for_selector_delete() {
@@ -116,6 +122,9 @@ cleanup() {
 
   if (( cleanup_status == 0 )); then
     printf 'L5 cleanup: complete\n' >&2
+    if (( original_status == 0 )); then
+      printf '%s\n' 'L5_LINUX_KVM_ACCEPTANCE_OK: both profiles reached READY with verified Job/Pod runtimeClassName values.'
+    fi
   else
     printf 'L5_ACCEPTANCE_FAIL: cleanup did not confirm all generated resources were removed\n' >&2
   fi
@@ -252,5 +261,3 @@ print_runtime_evidence "${ISOLATED_NAME}" "${ISOLATED_TASK_ID}" \
   "${ISOLATED_ATTEMPT_ID}" gvisor
 print_runtime_evidence "${HARDENED_NAME}" "${HARDENED_TASK_ID}" \
   "${HARDENED_ATTEMPT_ID}" kata-qemu
-
-printf '%s\n' 'L5_LINUX_KVM_ACCEPTANCE_OK: both profiles reached READY with verified Job/Pod runtimeClassName values.'

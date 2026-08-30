@@ -324,7 +324,11 @@ Kind CI 只执行 CRD、Helm、RBAC、NetworkPolicy、Fake Provider 和状态机
 子资源的权限，不接触 Docker Socket。
 
 已验证：`mvn -q -Pintegration-tests verify` 退出码 0，Operator 测试、Sandbox
-安全契约、Helm lint/template、Kind 清单校验通过。当前 macOS 没有 Docker Socket，
-本地 Kind 和 Testcontainers 数据库实机测试未执行；真实 gVisor/Kata RuntimeClass
-需要独立 Linux/KVM 集群，不能用 Fake Provider 或静态渲染替代。下一验收入口是
-在具备该环境后执行计划中的 Kind 默认路径和 Linux/KVM RuntimeClass 验收。
+安全契约、Helm lint/template、Kind 清单校验通过。macOS 本地 Kind 只用于默认路径和
+契约验收；真实 gVisor/Kata RuntimeClass 已在独立 Ubuntu/KVM 节点
+`ly-macbookair7-2` 上通过仓库脚本验收：两个 profile 均达到 `READY`，Job/Pod 的
+`runtimeClassName` 分别为 `gvisor` 与 `kata-qemu`，并记录了真实 guest/host kernel。
+随后删除两个临时验收资源的生成 Job，均观察到 `status.phase=LOST`，并通过
+`terminationRequested=true` 完成清理。本次证据不覆盖节点故障恢复、RuntimeClass 缺失
+恢复、Attempt 自动恢复或 L6 预发布环境；这些仍需在受控环境中单独执行，不能由 Fake
+Provider、Kind 静态渲染或本次 RuntimeClass 冒烟替代。

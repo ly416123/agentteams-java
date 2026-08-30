@@ -87,12 +87,16 @@ KUBECTL=kubectl NAMESPACE=agentteams TIMEOUT=10m \
 
 ## 判据
 
-成功必须同时满足：
+脚本成功必须同时满足：
 
 - 输出 `TaskSandbox/... status.phase=READY` 两次；
 - 两个 profile 的 Job 和 Pod `runtimeClassName` 分别为 `gvisor` 与 `kata-qemu`；
 - 输出 `L5_LINUX_KVM_ACCEPTANCE_OK`；
 - 最后的清理输出为 `L5 cleanup: complete`，进程退出码为 `0`。
+
+成功标记只会在清理确认成功后输出；清理阶段的权限错误、API 错误或未确认删除都会使
+脚本以非零状态结束，不应依据中间日志片段判定验收成功。工作负载删除后的 `LOST` 状态
+验证属于额外的受控故障注入，不是该脚本当前的成功条件。
 
 guest/host kernel 行是证据增强项。由于非特权 Pod 或最小 RBAC 可能不允许 `kubectl exec`、Node metadata 读取，相关行可以是 `unavailable`；这不代表脚本伪造了内核结果，也不替代 runtimeClass 校验。
 

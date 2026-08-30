@@ -454,7 +454,7 @@ python3 scripts/run-kind-dashboard-alerts.py --timeout 180
 实际在 macOS/Colima Docker 环境执行通过：安装脚本退出码为 0，Task API 输出
 `KIND_TASK_API_OK`，Dashboard 告警输出 `KIND_DASHBOARD_ALERTS_OK`；Sandbox 默认仍不创建外部隔离运行时。
 
-- [ ] **步骤 4：执行独立 Linux/KVM RuntimeClass 验收。**
+- [x] **步骤 4：执行独立 Linux/KVM RuntimeClass 验收。**
 
 在具备对应运行时的专用环境运行：
 
@@ -463,13 +463,27 @@ kubectl get runtimeclass
 kubectl apply -f deploy/examples/task-sandbox-isolated.yaml
 kubectl apply -f deploy/examples/task-sandbox-hardened.yaml
 kubectl wait --for=jsonpath='{.status.phase}'=READY \
-  tasksandbox/task-sandbox-isolated --timeout=180s
+  -n agentteams tasksandbox/task-sandbox-l5-isolated --timeout=180s
 kubectl wait --for=jsonpath='{.status.phase}'=READY \
-  tasksandbox/task-sandbox-hardened --timeout=180s
-kubectl get pod -o custom-columns=NAME:.metadata.name,RUNTIME:.spec.runtimeClassName,STATUS:.status.phase
+  -n agentteams tasksandbox/task-sandbox-l5-hardened --timeout=180s
+kubectl -n agentteams get pod -o custom-columns=NAME:.metadata.name,RUNTIME:.spec.runtimeClassName,STATUS:.status.phase
 ```
 
 预期：ISOLATED 使用 gVisor，HARDENED 使用 Kata；未配置 RuntimeClass 的集群只通过 Fake Provider，不创建失败 Pod。
+
+实际验收记录（2026-08-30）：在 Ubuntu 26.04.1 LTS、x86_64、K3s v1.36.4+k3s1
+节点 `ly-macbookair7-2` 上，通过 `/usr/local/bin/kubectl` 和
+`/etc/rancher/k3s/k3s.yaml` 执行 `scripts/run-l5-task-sandbox-acceptance.sh`，结果为
+`L5_LINUX_KVM_ACCEPTANCE_OK`。两个 profile 均达到 `READY`，生成的 Job/Pod 分别确认使用
+`gvisor` 与 `kata-qemu`；guest kernel 分别为 `4.19.0-gvisor` 与 `6.18.35`，宿主机
+kernel 为 `7.0.0-30-generic`。脚本退出时已确认生成的 TaskSandbox、Job、Service 和 Pod
+全部清理完成。本次记录覆盖 RuntimeClass 与生命周期就绪性，不宣称节点故障、Pod 删除
+恢复或 L6 预发布验收已经完成。
+
+同日追加受控故障注入：对两个临时 TaskSandbox 删除 Operator 生成的 Job，两个资源均
+进入 `status.phase=LOST`；随后通过 `terminationRequested=true` 完成清理，远端检查结果为
+`L5_LOST_RECOVERY_ACCEPTANCE_OK`。该结果证明工作负载丢失的状态投影，不等同于节点故障
+恢复或 Attempt 自动恢复已完成。
 
 - [x] **步骤 5：同步规格验收结果并检查状态。**
 
@@ -477,7 +491,7 @@ kubectl get pod -o custom-columns=NAME:.metadata.name,RUNTIME:.spec.runtimeClass
 
 - [x] **步骤 6：提交任务 6。**
 
-> 当前验收状态：Colima 提供可用 Docker daemon，本地 Kind 默认路径、Task API、Dashboard 告警、QwenPaw Worker 和默认 Sandbox 关闭边界均已验证；真实 gVisor/Kata RuntimeClass 仍需要独立 Linux/KVM 集群，尚未执行，不能用 Fake Provider 或静态渲染结果替代。
+> 当前验收状态：Colima 提供可用 Docker daemon，本地 Kind 默认路径、Task API、Dashboard 告警、QwenPaw Worker 和默认 Sandbox 关闭边界均已验证；独立 Ubuntu/KVM 节点上的 gVisor/Kata RuntimeClass、TaskSandbox READY 以及工作负载删除后的 `LOST` 状态投影已通过。节点故障恢复、RuntimeClass 缺失恢复、Attempt 自动恢复和 L6 预发布验收仍需单独执行，不能用本次结果替代。
 
 ```bash
 git add docs/superpowers/specs/2026-08-25-task-sandbox-runtime-design.md \

@@ -166,6 +166,30 @@ class L5TaskSandboxContractTest(unittest.TestCase):
         script = ACCEPTANCE_SCRIPT.read_text(encoding="utf-8")
         self.assertIn('"terminationRequested":true', script)
 
+    def test_acceptance_reports_success_only_after_cleanup_succeeds(self):
+        script = ACCEPTANCE_SCRIPT.read_text(encoding="utf-8")
+        cleanup_start = script.index("cleanup() {")
+        cleanup_end = script.index("trap cleanup EXIT")
+        cleanup_block = script[cleanup_start:cleanup_end]
+        self.assertIn(
+            "if (( original_status == 0 )); then\n"
+            "      printf '%s\\n' 'L5_LINUX_KVM_ACCEPTANCE_OK",
+            cleanup_block,
+        )
+        self.assertNotIn(
+            "L5_LINUX_KVM_ACCEPTANCE_OK",
+            script[script.index("print_runtime_evidence \"${ISOLATED_NAME}\""):],
+        )
+
+    def test_acceptance_cleanup_distinguishes_not_found_from_api_errors(self):
+        script = ACCEPTANCE_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('get_output="$(kube -n "${NAMESPACE}" get "${resource}"', script)
+        self.assertIn(
+            "if grep -qiE 'not[ -]?found' <<<\"${get_output}\"; then",
+            script,
+        )
+        self.assertIn("cleanup_status=1", script)
+
 
 if __name__ == "__main__":
     unittest.main()

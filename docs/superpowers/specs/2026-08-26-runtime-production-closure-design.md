@@ -1,7 +1,7 @@
 # AgentTeams Java 运行时生产闭环设计
 
 **日期：** 2026-08-26
-**状态：** 批次 A L1-L4 已完成；L5/L6 受控环境验收独立管理
+**状态：** 批次 A L1-L4 已完成；L5 RuntimeClass/TaskSandbox READY 与工作负载丢失状态投影已在独立 Ubuntu/KVM 节点通过；节点故障恢复与 L6 受控环境验收独立管理
 **优先级：** P0
 **代码基线：** `fd721d3`
 
@@ -24,7 +24,7 @@
 - Control Plane 已支持 `fake` 与 Kubernetes Sandbox Provider，生命周期由带数据库租约的 Scheduler 驱动；
 - `KubernetesSandboxRuntime`、Provider 状态迁移、幂等 provision/renew/terminate 和观察逻辑已实现；
 - Operator 已具备 finalizer、删除收敛、Service/Job 资源管理和旧 generation 状态保护；
-- gVisor/Kata 真实 RuntimeClass、节点故障和生产外部依赖的 L5/L6 验收尚未在本仓库 CI 中执行。
+- gVisor/Kata 真实 RuntimeClass、TaskSandbox READY，以及删除生成 Job 后进入 `LOST` 的工作负载丢失状态投影，已在独立 Ubuntu/KVM 节点通过；节点故障恢复、RuntimeClass 缺失恢复、Attempt 自动恢复和生产外部依赖的 L5/L6 验收尚未在本仓库 CI 中执行。
 
 ### 2.2 AgentScope
 
