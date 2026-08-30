@@ -223,13 +223,13 @@ class TeamControllerTest {
     }
 
     @Test
-    void exposesTeamDeploymentListAndDetailWithTheExistingDeploymentDto() throws Exception {
+    void serializesDeploymentListAndDetailWithoutInternalMemberConfiguration() throws Exception {
         UUID teamId = UUID.randomUUID();
         UUID deploymentId = UUID.randomUUID();
         UUID agentId = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
         TeamDeployment deployment = TeamDeployment.create(deploymentId, teamId, 8,
-                List.of(new TeamDeployment.Member(agentId, "{}", "{}", UUID.randomUUID(), "SUCCEEDED", null)),
+                List.of(new TeamDeployment.Member(agentId, "{}", "{}", UUID.randomUUID(), "FAILED", "APPLY_FAILED")),
                 now, "deploy-key");
         when(deployments.list(teamId)).thenReturn(List.of(deployment));
         when(deployments.find(deploymentId, teamId)).thenReturn(deployment);
@@ -243,11 +243,21 @@ class TeamControllerTest {
                 .andExpect(jsonPath("$[0].teamId").value(teamId.toString()))
                 .andExpect(jsonPath("$[0].teamRevision").value(8))
                 .andExpect(jsonPath("$[0].status").value("PENDING"))
-                .andExpect(jsonPath("$[0].members[0].status").value("SUCCEEDED"));
+                .andExpect(jsonPath("$[0].members[0].agentId").value(agentId.toString()))
+                .andExpect(jsonPath("$[0].members[0].status").value("FAILED"))
+                .andExpect(jsonPath("$[0].members[0].failureCode").value("APPLY_FAILED"))
+                .andExpect(jsonPath("$[0].members[0].baseManifest").doesNotExist())
+                .andExpect(jsonPath("$[0].members[0].taskOverlay").doesNotExist())
+                .andExpect(jsonPath("$[0].members[0].bindingId").doesNotExist());
         mockMvc.perform(get("/api/v1/teams/{teamId}/deployments/{deploymentId}", teamId, deploymentId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(deploymentId.toString()))
-                .andExpect(jsonPath("$.members[0].agentId").value(agentId.toString()));
+                .andExpect(jsonPath("$.members[0].agentId").value(agentId.toString()))
+                .andExpect(jsonPath("$.members[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.members[0].failureCode").value("APPLY_FAILED"))
+                .andExpect(jsonPath("$.members[0].baseManifest").doesNotExist())
+                .andExpect(jsonPath("$.members[0].taskOverlay").doesNotExist())
+                .andExpect(jsonPath("$.members[0].bindingId").doesNotExist());
 
         verify(deployments).list(teamId);
         verify(deployments).find(deploymentId, teamId);

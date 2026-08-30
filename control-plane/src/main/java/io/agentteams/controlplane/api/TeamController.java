@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.api;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.agentteams.controlplane.persistence.TeamMemberRecord;
 import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
@@ -174,8 +175,8 @@ public final class TeamController {
     }
 
     @GetMapping("/{teamId}/deployments")
-    public List<DeploymentResponse> deployments(@PathVariable UUID teamId) {
-        return deployments.list(teamId).stream().map(DeploymentResponse::from).toList();
+    public List<TeamDeploymentSummaryResponse> deployments(@PathVariable UUID teamId) {
+        return deployments.list(teamId).stream().map(TeamDeploymentSummaryResponse::from).toList();
     }
 
     @GetMapping("/{teamId}/deployments/{deploymentId}")
@@ -262,10 +263,26 @@ public final class TeamController {
     }
 
     public record DeploymentResponse(UUID id, UUID teamId, long teamRevision, String status,
-            List<TeamDeployment.Member> members, Instant createdAt) {
+            List<DeploymentMemberResponse> members, Instant createdAt) {
         static DeploymentResponse from(TeamDeployment deployment) {
             return new DeploymentResponse(deployment.id(), deployment.teamId(), deployment.teamRevision(),
-                    deployment.status(), deployment.members(), deployment.createdAt());
+                    deployment.status(), DeploymentMemberResponse.from(deployment.members()), deployment.createdAt());
+        }
+    }
+
+    public record TeamDeploymentSummaryResponse(UUID id, UUID teamId, long teamRevision, String status,
+            List<DeploymentMemberResponse> members, Instant createdAt) {
+        static TeamDeploymentSummaryResponse from(TeamDeployment deployment) {
+            return new TeamDeploymentSummaryResponse(deployment.id(), deployment.teamId(), deployment.teamRevision(),
+                    deployment.status(), DeploymentMemberResponse.from(deployment.members()), deployment.createdAt());
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record DeploymentMemberResponse(UUID agentId, String status, String failureCode) {
+        static List<DeploymentMemberResponse> from(List<TeamDeployment.Member> members) {
+            return members.stream().map(member -> new DeploymentMemberResponse(member.agentId(), member.status(),
+                    member.failureCode())).toList();
         }
     }
 
