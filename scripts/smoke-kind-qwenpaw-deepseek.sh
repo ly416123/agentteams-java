@@ -10,14 +10,13 @@ SUCCESS_MARKER="QWENPAW_DEEPSEEK_SMOKE_OK"
 TMP_DIR="${TMPDIR:-/tmp}"
 PORT_FORWARD_LOG="${TMP_DIR}/agentteams-control-plane-smoke.log"
 PORT_FORWARD_PID=""
+KEYCLOAK_PORT="${KIND_KEYCLOAK_LOCAL_PORT:-18082}"
+KEYCLOAK_LOG="${TMP_DIR}/agentteams-qwenpaw-deepseek-keycloak.log"
+KEYCLOAK_PID=""
 API_AUTH_ARGS=()
 SCOPE_TENANT="${AGENTTEAMS_SCOPE_TENANT:-tenant-a}"
 SCOPE_PROJECT="${AGENTTEAMS_SCOPE_PROJECT:-project-a}"
 SCOPE_TEAM="${AGENTTEAMS_SCOPE_TEAM:-team-a}"
-
-if [[ -n "${AGENTTEAMS_API_TOKEN:-}" ]]; then
-  API_AUTH_ARGS=(-H "Authorization: Bearer ${AGENTTEAMS_API_TOKEN}")
-fi
 
 curl_api() {
   if (( ${#API_AUTH_ARGS[@]} > 0 )); then
@@ -28,11 +27,15 @@ curl_api() {
 }
 
 cleanup() {
+  if [[ -n "${KEYCLOAK_PID}" ]]; then
+    kill "${KEYCLOAK_PID}" >/dev/null 2>&1 || true
+    wait "${KEYCLOAK_PID}" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${PORT_FORWARD_PID}" ]]; then
     kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
     wait "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
   fi
-  rm -f "${PORT_FORWARD_LOG}"
+  rm -f "${PORT_FORWARD_LOG}" "${KEYCLOAK_LOG}"
 }
 trap cleanup EXIT
 
@@ -42,6 +45,39 @@ for command_name in curl jq kubectl; do
     exit 1
   }
 done
+
+if [[ -n "${AGENTTEAMS_API_TOKEN:-}" ]]; then
+  API_AUTH_ARGS=(-H "Authorization: Bearer ${AGENTTEAMS_API_TOKEN}")
+else
+  kubectl -n "${NAMESPACE}" get service/keycloak >/dev/null 2>&1 || {
+    echo "Keycloak is required when AGENTTEAMS_API_TOKEN is unset" >&2
+    exit 1
+  }
+  kubectl -n "${NAMESPACE}" port-forward service/keycloak \
+    "${KEYCLOAK_PORT}:8080" >"${KEYCLOAK_LOG}" 2>&1 &
+  KEYCLOAK_PID=$!
+  KEYCLOAK_URL="http://127.0.0.1:${KEYCLOAK_PORT}"
+  for attempt in $(seq 1 60); do
+    if curl --silent --fail \
+      "${KEYCLOAK_URL}/realms/agentteams/.well-known/openid-configuration" >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "${attempt}" == 60 ]]; then
+      echo "Keycloak did not become ready at ${KEYCLOAK_URL}" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  token_response="$(curl --silent --fail --show-error -X POST \
+    "${KEYCLOAK_URL}/realms/agentteams/protocol/openid-connect/token" \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode 'grant_type=password' \
+    --data-urlencode 'client_id=agentteams-api' \
+    --data-urlencode "username=${AGENTTEAMS_API_USERNAME:-alice}" \
+    --data-urlencode "password=${AGENTTEAMS_API_PASSWORD:-alice-dev}")"
+  TOKEN="$(jq -er '.access_token' <<<"${token_response}")"
+  API_AUTH_ARGS=(-H "Authorization: Bearer ${TOKEN}")
+fi
 
 kubectl -n "${NAMESPACE}" wait --for=condition=available \
   "deployment/${WORKER_NAME}" --timeout="${TIMEOUT_SECONDS}s" >/dev/null

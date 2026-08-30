@@ -350,6 +350,12 @@ Worker log instead of relying on the phase alone. On 2026-08-21, the Manager
 smoke, QwenPaw Provider test, three independent real tasks, and repeated
 Idempotency-Key creation were verified in the local Kind cluster.
 
+When OIDC API authentication is enabled, the task smoke honors
+`AGENTTEAMS_API_TOKEN` first. If it is unset, the script port-forwards the
+local Keycloak service and obtains a development `alice/alice-dev` token,
+without printing the token or the complete task response. Override the local
+Keycloak port with `KIND_KEYCLOAK_LOCAL_PORT` when needed.
+
 For the real Manager Conversation path, deploy the Manager with the QwenPaw
 Service endpoint and matching NetworkPolicy port, then run the authenticated
 acceptance script. It verifies real DeepSeek SSE deltas, terminal completion,
