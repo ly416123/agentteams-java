@@ -120,7 +120,7 @@ PY
     2>/dev/null || true)"
   kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
     psql -U agentteams -d agentteams -v ON_ERROR_STOP=1 -c \
-    "INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version) SELECT '${SCOPE_TENANT}', id, '${SMOKE_MEMBERSHIP_SUBJECT}', 'OPERATOR', 'ACTIVE', now(), now(), 0 FROM projects WHERE tenant_id='${SCOPE_TENANT}' AND name='${SCOPE_PROJECT}' ON CONFLICT (tenant_id, project_id, subject) DO UPDATE SET role='OPERATOR', status='ACTIVE', updated_at=now();" \
+    "INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version) SELECT '${SCOPE_TENANT}', id, '${SMOKE_MEMBERSHIP_SUBJECT}', 'ADMIN', 'ACTIVE', now(), now(), 0 FROM projects WHERE tenant_id='${SCOPE_TENANT}' AND name='${SCOPE_PROJECT}' ON CONFLICT (tenant_id, project_id, subject) DO UPDATE SET role='ADMIN', status='ACTIVE', updated_at=now();" \
     >/dev/null
   SMOKE_MEMBERSHIP_CHANGED="1"
 fi

@@ -33,7 +33,7 @@ class DeepSeekSmokeScriptContractTest(unittest.TestCase):
         self.assertIn('"username=${AGENTTEAMS_API_USERNAME:-alice}"', source)
         self.assertIn('"password=${AGENTTEAMS_API_PASSWORD:-alice-dev}"', source)
         self.assertIn('TOKEN="$(jq -er \'.access_token\' <<<"${token_response}")"', source)
-        self.assertIn("role='OPERATOR'", source)
+        self.assertIn("role='ADMIN'", source)
         self.assertIn("SMOKE_MEMBERSHIP_PREVIOUS_ROLE", source)
 
     def test_explicit_token_has_priority_and_keycloak_forward_is_cleaned_up(self):
