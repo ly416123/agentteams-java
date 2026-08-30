@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/httpClient';
-import { getTask, streamTaskEvents, taskAction } from '../../src/api/tasks';
+import { getTask, listTasks, streamTaskEvents, taskAction } from '../../src/api/tasks';
 import { TaskPage } from '../../src/features/tasks/TaskPage';
 import { TaskDetailPage } from '../../src/features/tasks/TaskDetailPage';
 
@@ -69,6 +69,15 @@ function renderWithQuery(ui: React.ReactNode) {
 }
 
 describe('Task pages', () => {
+  it('passes the current Project scope to the task query', async () => {
+    vi.mocked(listTasks).mockClear();
+
+    renderWithQuery(<TaskPage projectId="p-1" />);
+    await screen.findByText('生成周报');
+
+    expect(listTasks).toHaveBeenCalledWith('p-1', { q: '', phase: '', cursor: undefined });
+  });
+
   it('switches between board and table views with filters', async () => {
     renderWithQuery(<TaskPage projectId="p-1" />);
     expect(await screen.findByText('生成周报')).toBeInTheDocument();

@@ -19,9 +19,9 @@ export type CreateTaskRequest = {
   spec: { scope: TaskScope; teamId: string; workerId?: string; [key: string]: unknown };
 };
 
-function taskQuery(filters: TaskFilters) {
+function taskQuery(projectId: string, filters: TaskFilters) {
   return Object.fromEntries(
-    Object.entries(filters)
+    Object.entries({ projectId, ...filters })
       .map(([key, value]) => [key === 'creator' ? 'actor' : key, value])
       .filter(([, value]) => value !== undefined && value !== ''),
   );
@@ -32,9 +32,8 @@ export function listTasks(
   filters: TaskFilters = {},
   client: HttpClient = apiClient,
 ) {
-  void projectId;
   return client
-    .request<CursorPage<Task> | Task[]>('/api/v1/tasks', { query: taskQuery(filters) })
+    .request<CursorPage<Task> | Task[]>('/api/v1/tasks', { query: taskQuery(projectId, filters) })
     .then(normalizeCursorPage);
 }
 export function getTask(taskId: string, client: HttpClient = apiClient) {

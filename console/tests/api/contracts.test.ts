@@ -3,7 +3,7 @@ import { getDashboardSummary } from '../../src/api/overview';
 import { listProjects } from '../../src/api/projects';
 import { createTask, listTasks } from '../../src/api/tasks';
 import { listTeams } from '../../src/api/teams';
-import { listOperations } from '../../src/api/workers';
+import { listOperations, listWorkers } from '../../src/api/workers';
 
 describe('API contracts', () => {
   it('requests the DashboardSummaryController endpoint', async () => {
@@ -34,7 +34,7 @@ describe('API contracts', () => {
     expect(page.nextCursor).toBe('cursor-2');
   });
 
-  it('uses q for Task search to match the server query contract', async () => {
+  it('uses projectId and q for Task search to preserve Project scope', async () => {
     const client = {
       request: vi.fn().mockResolvedValue({ items: [] }),
       requestText: vi.fn(),
@@ -44,7 +44,26 @@ describe('API contracts', () => {
     await listTasks('p-1', { q: 'weekly report' }, client);
 
     expect(client.request).toHaveBeenCalledWith('/api/v1/tasks', {
-      query: { q: 'weekly report' },
+      query: { projectId: 'p-1', q: 'weekly report' },
+    });
+  });
+
+  it('uses projectId with Worker filters to preserve Project scope', async () => {
+    const client = {
+      request: vi.fn().mockResolvedValue({ items: [] }),
+      requestText: vi.fn(),
+      requestStream: vi.fn(),
+    };
+
+    await listWorkers('p-1', { search: 'analysis', phase: 'READY', cursor: 'cursor-1' }, client);
+
+    expect(client.request).toHaveBeenCalledWith('/api/v1/agents', {
+      query: {
+        projectId: 'p-1',
+        q: 'analysis',
+        status: 'READY',
+        cursor: 'cursor-1',
+      },
     });
   });
 

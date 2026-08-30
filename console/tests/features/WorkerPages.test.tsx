@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/httpClient';
-import { getWorker, rolloutWorker, workerAction } from '../../src/api/workers';
+import { getWorker, listWorkers, rolloutWorker, workerAction } from '../../src/api/workers';
 import { WorkerListPage } from '../../src/features/workers/WorkerListPage';
 import { WorkerDetailPage } from '../../src/features/workers/WorkerDetailPage';
 import { WorkerOperationPanel } from '../../src/features/workers/WorkerOperationPanel';
@@ -97,6 +97,19 @@ function renderWithQuery(ui: React.ReactNode) {
 }
 
 describe('Worker pages', () => {
+  it('passes the current Project scope to the worker query', async () => {
+    vi.mocked(listWorkers).mockClear();
+
+    renderWithQuery(<WorkerListPage projectId="p-1" />);
+    await screen.findByText('分析 Worker');
+
+    expect(listWorkers).toHaveBeenCalledWith('p-1', {
+      search: '',
+      phase: '',
+      cursor: undefined,
+    });
+  });
+
   it('lists runtime, capabilities, heartbeat and current task', async () => {
     renderWithQuery(<WorkerListPage projectId="p-1" />);
     expect(await screen.findByText('分析 Worker')).toBeInTheDocument();

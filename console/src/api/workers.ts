@@ -17,7 +17,12 @@ export function listWorkers(
 ) {
   return client
     .request<CursorPage<Worker> | Worker[]>('/api/v1/agents', {
-      query: { q: filters.search, status: filters.phase, cursor: filters.cursor },
+      query: {
+        projectId,
+        q: filters.search,
+        status: filters.phase,
+        cursor: filters.cursor,
+      },
     })
     .then(normalizeCursorPage);
 }
