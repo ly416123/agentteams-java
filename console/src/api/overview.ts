@@ -38,6 +38,9 @@ export async function getOverview(
   if (teamsResult.status === 'rejected') errors.teams = teamsResult.reason;
   if (tasksResult.status === 'rejected') errors.tasks = tasksResult.reason;
   if (workersResult.status === 'rejected') errors.workers = workersResult.reason;
+  if (summaryResult.status === 'rejected' && isForbidden(summaryResult.reason)) {
+    throw summaryResult.reason;
+  }
   const taskItems = tasks?.items || [];
   return {
     tasks: {
@@ -66,5 +69,10 @@ export async function getOverview(
     })),
     usage: summary,
     errors: Object.keys(errors).length ? errors : undefined,
+    metricsUnavailable: true,
   };
+}
+
+function isForbidden(error: unknown) {
+  return typeof error === 'object' && error !== null && 'status' in error && error.status === 403;
 }

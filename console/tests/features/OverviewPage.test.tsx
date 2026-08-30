@@ -35,6 +35,28 @@ describe('OverviewPage', () => {
     expect(screen.getByText('运行概览')).toBeInTheDocument();
   });
 
+  it('shows an explicit unavailable state for resource metrics without backend aggregates', async () => {
+    const { getOverview: mockedGetOverview } = await vi.importMock<typeof import('../../src/api/overview')>(
+      '../../src/api/overview',
+    );
+    mockedGetOverview.mockResolvedValueOnce({
+      tasks: { total: null, queued: null, running: null, succeeded: null, failed: null },
+      workers: { ready: null, connecting: null, unhealthy: null, draining: null },
+      teams: { total: null, active: null },
+      recentTasks: [],
+      alerts: [],
+      metricsUnavailable: true,
+    });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <OverviewPage projectId="p-1" />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findAllByText('后端尚未提供聚合统计')).toHaveLength(4);
+  });
+
   it('does not treat a paginated first page as global counts and isolates card failures', async () => {
     const client = {
       request: vi.fn((path: string) => {
@@ -71,5 +93,20 @@ describe('OverviewPage', () => {
     expect(overview.workers.ready).toBeNull();
     expect(overview.errors?.workers).toMatchObject({ status: 503 });
     expect(overview.recentTasks).toHaveLength(1);
+  });
+
+  it('fails closed instead of rendering partial data when dashboard scope is forbidden', async () => {
+    const client = {
+      request: vi.fn((path: string) => {
+        if (path === '/api/v1/dashboard/summary') return Promise.reject({ status: 403 });
+        return Promise.resolve({ items: [] });
+      }),
+      requestText: vi.fn(),
+      requestStream: vi.fn(),
+    };
+    const { getOverview: realGetOverview } =
+      await vi.importActual<typeof import('../../src/api/overview')>('../../src/api/overview');
+
+    await expect(realGetOverview('project-b', client as never)).rejects.toMatchObject({ status: 403 });
   });
 });

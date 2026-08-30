@@ -53,7 +53,7 @@ export function ErrorState({
         <button onClick={onBack}>{backLabel}</button>
       ) : status === 401 ? (
         <button onClick={onLogin || (() => window.location.assign('/login'))}>重新登录</button>
-      ) : (
+      ) : status === 403 ? null : (
         onRetry && <button onClick={onRetry}>{status === 409 ? '刷新后重试' : '重试'}</button>
       )}
     </div>

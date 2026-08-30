@@ -37,7 +37,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
         <EmptyState title="暂无概览数据" description="当前 Project 还没有可展示的运行数据。" />
       </div>
     );
-  const { tasks, workers, teams, alerts, errors, usage } = overview.data;
+  const { tasks, workers, teams, alerts, errors, usage, metricsUnavailable } = overview.data;
   return (
     <div className="page">
       <div className="page-heading">
@@ -57,6 +57,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           detail={`${formatCount(tasks.running)} 个执行中`}
           tone="info"
           error={errors?.tasks}
+          unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
         <Metric
@@ -65,6 +66,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           detail={`${formatCount(tasks.failed)} 个失败`}
           tone="success"
           error={errors?.tasks}
+          unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
         <Metric
@@ -73,6 +75,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           detail={`${formatCount(workers.connecting)} 个连接中`}
           tone="success"
           error={errors?.workers}
+          unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
         <Metric
@@ -81,6 +84,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           detail={`共 ${formatCount(teams.total)} 个 Team`}
           tone="neutral"
           error={errors?.teams}
+          unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
       </section>
@@ -154,6 +158,7 @@ function Metric({
   detail,
   tone,
   error,
+  unavailable,
   onRetry,
 }: {
   label: string;
@@ -161,14 +166,15 @@ function Metric({
   detail: string;
   tone: string;
   error?: unknown;
+  unavailable?: boolean;
   onRetry: () => void;
 }) {
   return (
     <div className="metric-card">
       <span className="metric-label">{label}</span>
-      <strong className="metric-value">{formatCount(value)}</strong>
+      <strong className="metric-value">{unavailable ? '—' : formatCount(value)}</strong>
       <span className={`metric-detail metric-detail--${tone}`}>
-        {detail}
+        {unavailable ? '后端尚未提供聚合统计' : detail}
       </span>
       {error !== undefined && <ErrorState error={error} onRetry={onRetry} />}
     </div>

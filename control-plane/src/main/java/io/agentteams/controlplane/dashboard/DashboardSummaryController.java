@@ -41,15 +41,13 @@ public final class DashboardSummaryController {
 
     private UsageQueryService.UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit,
             String projectId) {
-        return PrincipalContext.current().map(principal -> {
-            String authenticatedProject = principal.scope().project();
-            if (projectId != null && !authenticatedProject.equals(projectId)) {
-                throw new AuthorizationException("project is outside the caller scope");
-            }
-            return usage.summarizeForScope(principal.scope().tenant(), authenticatedProject, from, to, groupBy,
-                    limit);
-        }).orElseGet(() -> groupBy == null && limit == null
-                ? usage.summarize(from, to) : usage.summarize(from, to, groupBy, limit));
+        var principal = PrincipalContext.current()
+                .orElseThrow(() -> new AuthorizationException("authentication required"));
+        String authenticatedProject = principal.scope().project();
+        if (projectId != null && !authenticatedProject.equals(projectId)) {
+            throw new AuthorizationException("project is outside the caller scope");
+        }
+        return usage.summarizeForScope(principal.scope().tenant(), authenticatedProject, from, to, groupBy, limit);
     }
 
     public record DashboardSummary(Instant from, Instant to, long calls, long failures, long promptTokens,

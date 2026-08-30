@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.agentteams.controlplane.usage.UsageQueryService;
+import io.agentteams.controlplane.api.ApiErrorHandler;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -27,8 +28,10 @@ class DashboardSummaryControllerTest {
 
     @BeforeEach
     void setUp() {
-        PrincipalContext.clear();
-        mockMvc = MockMvcBuilders.standaloneSetup(new DashboardSummaryController(usage)).build();
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        mockMvc = MockMvcBuilders.standaloneSetup(new DashboardSummaryController(usage))
+                .setControllerAdvice(new ApiErrorHandler()).build();
     }
 
     @org.junit.jupiter.api.AfterEach
@@ -40,7 +43,8 @@ class DashboardSummaryControllerTest {
     void exposesCanonicalUsageTotalsAndProviderModelGroups() throws Exception {
         Instant from = Instant.parse("2026-08-23T00:00:00Z");
         Instant to = Instant.parse("2026-08-23T01:00:00Z");
-        when(usage.summarize(null, null)).thenReturn(new UsageQueryService.UsageSummary(from, to,
+        when(usage.summarizeForScope("tenant-a", "project-a", null, null, null, null))
+                .thenReturn(new UsageQueryService.UsageSummary(from, to,
                 new UsageQueryService.UsageTotals(3, 1, 10, 20, 12.5),
                 List.of(new UsageQueryService.UsageGroup("deepseek", "chat", 3, 1, 10, 20, 12.5))));
 
@@ -55,7 +59,8 @@ class DashboardSummaryControllerTest {
     void exposesRequestedOperationalDimensionWithoutChangingLegacyShape() throws Exception {
         Instant from = Instant.parse("2026-08-23T00:00:00Z");
         Instant to = Instant.parse("2026-08-23T01:00:00Z");
-        when(usage.summarize(from, to, "worker", 5)).thenReturn(new UsageQueryService.UsageSummary(from, to,
+        when(usage.summarizeForScope("tenant-a", "project-a", from, to, "worker", 5))
+                .thenReturn(new UsageQueryService.UsageSummary(from, to,
                 new UsageQueryService.UsageTotals(2, 0, 10, 20, 1.25),
                 List.of(new UsageQueryService.UsageGroup(null, null, 2, 0, 10, 20, 1.25,
                         15, null, "worker", "worker-a"))));
@@ -73,8 +78,6 @@ class DashboardSummaryControllerTest {
 
     @Test
     void scopesProjectDashboardToAuthenticatedTenantAndProject() throws Exception {
-        PrincipalContext.set(new Principal("alice",
-                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
         when(usage.summarizeForScope("tenant-a", "project-a", null, null, null, null))
                 .thenReturn(new UsageQueryService.UsageSummary(Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
                         new UsageQueryService.UsageTotals(2, 0, 10, 20, 1.25), List.of()));
@@ -82,5 +85,14 @@ class DashboardSummaryControllerTest {
         mockMvc.perform(get("/api/v1/dashboard/summary").param("projectId", "project-a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.calls").value(2));
+    }
+
+    @Test
+    void rejectsAnonymousDashboardReads() throws Exception {
+        PrincipalContext.clear();
+
+        mockMvc.perform(get("/api/v1/dashboard/summary"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 }
