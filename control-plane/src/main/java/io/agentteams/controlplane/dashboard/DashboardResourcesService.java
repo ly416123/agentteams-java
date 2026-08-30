@@ -12,13 +12,28 @@ import org.springframework.stereotype.Service;
 /** Aggregates project resources from their durable scope bindings for dashboard cards. */
 @Service
 public final class DashboardResourcesService {
+    static final String ACTIVE_MEMBERSHIP_SQL = """
+            SELECT EXISTS (
+                SELECT 1
+                  FROM project_memberships m
+                  JOIN projects p ON p.tenant_id = m.tenant_id AND p.id = m.project_id
+                 WHERE m.tenant_id = ?
+                   AND (p.name = ? OR p.id::text = ?)
+                   AND m.subject = ?
+                   AND m.status = 'ACTIVE'
+            )
+            """;
+
     private static final String SQL = """
             WITH visible_scopes AS (
                 SELECT resource_type, resource_id
                   FROM resource_scopes s
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
-                   AND EXISTS (SELECT 1 FROM project_memberships m
-                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                   AND EXISTS (SELECT 1
+                                FROM project_memberships m
+                                JOIN projects p ON p.tenant_id = m.tenant_id AND p.id = m.project_id
+                               WHERE m.tenant_id = s.tenant_id
+                                 AND (p.name = s.project_id OR p.id::text = s.project_id)
                                   AND m.subject = ? AND m.status = 'ACTIVE')
             )
             SELECT
@@ -60,6 +75,12 @@ public final class DashboardResourcesService {
     public Resources summarize() {
         Principal principal = PrincipalContext.current()
                 .orElseThrow(() -> new AuthorizationException("authentication required"));
+        boolean activeMembership = Boolean.TRUE.equals(jdbc.queryForObject(ACTIVE_MEMBERSHIP_SQL, Boolean.class,
+                principal.scope().tenant(), principal.scope().project(), principal.scope().project(),
+                principal.subject()));
+        if (!activeMembership) {
+            throw new AuthorizationException("active project membership required");
+        }
         Resources result = jdbc.queryForObject(SQL, (rs, row) -> new Resources(
                 new TaskCounts(rs.getLong("tasks_total"), rs.getLong("tasks_queued"),
                         rs.getLong("tasks_running"), rs.getLong("tasks_succeeded"), rs.getLong("tasks_failed")),

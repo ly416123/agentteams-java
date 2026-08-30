@@ -17,7 +17,8 @@
       { "name": "agent:read" },
       { "name": "agent:write" },
       { "name": "config:read" },
-      { "name": "config:write" }
+      { "name": "config:write" },
+      { "name": "usage:read" }
     ]
   },
   "clients": [
@@ -117,7 +118,7 @@
       "realmRoles": [
         "task:read", "task:create", "task:cancel", "task:retry", "task:pause",
         "task:approve", "task:reject", "artifact:read", "artifact:write",
-        "agent:read", "agent:write", "config:read", "config:write"
+        "agent:read", "agent:write", "config:read", "config:write", "usage:read"
       ]
     },
     {
