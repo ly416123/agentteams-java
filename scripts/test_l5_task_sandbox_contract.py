@@ -8,6 +8,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ACCEPTANCE_SCRIPT = ROOT / "scripts/run-l5-task-sandbox-acceptance.sh"
 EXAMPLES = {
     "isolated": ROOT / "deploy/examples/task-sandbox-isolated.yaml",
     "hardened": ROOT / "deploy/examples/task-sandbox-hardened.yaml",
@@ -151,6 +152,15 @@ class L5TaskSandboxContractTest(unittest.TestCase):
                 for value in _scalar_values(manifest):
                     if isinstance(value, str):
                         self.assertIsNone(CREDENTIAL_PATTERN.search(value))
+
+    def test_acceptance_checks_every_crd_required_by_the_operator(self):
+        script = ACCEPTANCE_SCRIPT.read_text(encoding="utf-8")
+        for crd in (
+                "teams.agentteams.io",
+                "workers.agentteams.io",
+                "tasksandboxes.agentteams.io"):
+            with self.subTest(crd=crd):
+                self.assertIn(f"crd/{crd}", script)
 
 
 if __name__ == "__main__":

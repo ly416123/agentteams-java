@@ -7,20 +7,28 @@ import java.util.Objects;
 public final class TaskSandboxSpec {
     private String taskId;
     private String attemptId;
+    private String idempotencyKey;
     private SandboxProfile profile;
     private String runtimeClassName;
     private String image;
     private int ttlSeconds;
+    private String template;
+    private String expiresAt;
+    private String terminationReason;
     private Map<String, String> resources;
     private boolean terminationRequested;
 
     public TaskSandboxSpec() {
         taskId = "";
         attemptId = "";
+        idempotencyKey = null;
         profile = SandboxProfile.NONE;
         runtimeClassName = "";
         image = "";
         ttlSeconds = 1800;
+        template = null;
+        expiresAt = null;
+        terminationReason = null;
         resources = Map.of();
         terminationRequested = false;
     }
@@ -38,10 +46,14 @@ public final class TaskSandboxSpec {
 
     public String taskId() { return taskId; }
     public String attemptId() { return attemptId; }
+    public String idempotencyKey() { return idempotencyKey; }
     public SandboxProfile profile() { return profile; }
     public String runtimeClassName() { return runtimeClassName; }
     public String image() { return image; }
     public int ttlSeconds() { return ttlSeconds; }
+    public String template() { return template; }
+    public String expiresAt() { return expiresAt; }
+    public String terminationReason() { return terminationReason; }
     public Map<String, String> resources() { return resources; }
     public boolean terminationRequested() { return terminationRequested; }
 
@@ -49,6 +61,8 @@ public final class TaskSandboxSpec {
     public void setTaskId(String value) { taskId = required(value, "taskId"); }
     public String getAttemptId() { return attemptId; }
     public void setAttemptId(String value) { attemptId = required(value, "attemptId"); }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String value) { idempotencyKey = optional(value); }
     public SandboxProfile getProfile() { return profile; }
     public void setProfile(SandboxProfile value) { profile = Objects.requireNonNull(value, "profile"); }
     public String getRuntimeClassName() { return runtimeClassName; }
@@ -62,6 +76,12 @@ public final class TaskSandboxSpec {
         }
         ttlSeconds = value;
     }
+    public String getTemplate() { return template; }
+    public void setTemplate(String value) { template = optional(value); }
+    public String getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(String value) { expiresAt = optional(value); }
+    public String getTerminationReason() { return terminationReason; }
+    public void setTerminationReason(String value) { terminationReason = optional(value); }
     public Map<String, String> getResources() { return resources; }
     public void setResources(Map<String, String> value) {
         resources = Map.copyOf(Objects.requireNonNull(value, "resources"));
@@ -74,5 +94,9 @@ public final class TaskSandboxSpec {
             throw new IllegalArgumentException(field + " must not be blank");
         }
         return value.trim();
+    }
+
+    private static String optional(String value) {
+        return value == null ? null : value.trim();
     }
 }

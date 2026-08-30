@@ -15,7 +15,7 @@
 1. `kubectl` 已安装并指向目标 K3s 集群，当前身份可访问目标命名空间、`RuntimeClass`、`TaskSandbox`、Job 和 Pod；若要收集完整证据，还需要读取 Node metadata，并允许对 sandbox Pod 执行 `uname -a`。
 2. 目标命名空间（默认 `agentteams`）已存在。
 3. `RuntimeClass/gvisor` 和 `RuntimeClass/kata-qemu` 均已存在，并已在节点上配置对应的 gVisor 与 Kata/QEMU handler。
-4. `tasksandboxes.agentteams.io` CRD 已安装。
+4. `teams.agentteams.io`、`workers.agentteams.io` 和 `tasksandboxes.agentteams.io` CRD 已安装；Operator 会同时 watch 这三个资源。
 5. Operator/controller 已就绪，且其 Deployment 带有标签 `app.kubernetes.io/name=agentteams-operator`。脚本按此标签发现控制器，不依赖固定 Deployment 名称。
 6. Operator 所配置的 sandbox runner 镜像已经由平台预置并可拉取。脚本不会安装或推送镜像。
 
@@ -78,7 +78,7 @@ KUBECTL=kubectl NAMESPACE=agentteams TIMEOUT=10m \
 
 脚本按以下顺序执行：
 
-1. fail-fast 检查 `kubectl`、目标命名空间、`gvisor`、`kata-qemu`、TaskSandbox CRD，以及带 Operator 标签的 controller Deployment readiness。
+1. fail-fast 检查 `kubectl`、目标命名空间、`gvisor`、`kata-qemu`、Team/Worker/TaskSandbox CRD，以及带 Operator 标签的 controller Deployment readiness。
 2. 应用仓库 `deploy/examples/task-sandbox-isolated.yaml` 和 `deploy/examples/task-sandbox-hardened.yaml` 两个临时 examples；它们分别使用 `profile: ISOLATED` / `gvisor` 与 `profile: HARDENED` / `kata-qemu`，TTL 均为 300 秒。脚本会拒绝修改已存在的同名 CR。
 3. 等待两个 CR 的 `status.phase` 变为 `READY`。超时会输出当前 phase/message，并进入清理。
 4. 按 Operator 标签发现生成的 Job 和 Pod，输出 Job template 与 Pod 的 `runtimeClassName`，并要求它们分别等于 `gvisor` 和 `kata-qemu`。

@@ -34,6 +34,13 @@ require_resource() {
     || fail "${description} is unavailable in namespace '${NAMESPACE}'"
 }
 
+require_cluster_resource() {
+  local resource="$1"
+  local description="$2"
+  kube get "${resource}" >/dev/null \
+    || fail "${description} is unavailable"
+}
+
 printf 'L5 Linux/KVM TaskSandbox acceptance: namespace=%s timeout=%s\n' \
   "${NAMESPACE}" "${TIMEOUT}"
 printf '%s\n' 'Scope: runtime acceptance only; no image, Control Plane, or production credential installation.'
@@ -120,8 +127,9 @@ kube -n "${NAMESPACE}" get namespace "${NAMESPACE}" >/dev/null \
   || fail "cannot access Kubernetes namespace '${NAMESPACE}'"
 require_resource runtimeclass/gvisor 'RuntimeClass gvisor'
 require_resource runtimeclass/kata-qemu 'RuntimeClass kata-qemu'
-kube get crd tasksandboxes.agentteams.io >/dev/null \
-  || fail 'TaskSandbox CRD tasksandboxes.agentteams.io is not installed'
+require_cluster_resource crd/teams.agentteams.io 'Team CRD teams.agentteams.io'
+require_cluster_resource crd/workers.agentteams.io 'Worker CRD workers.agentteams.io'
+require_cluster_resource crd/tasksandboxes.agentteams.io 'TaskSandbox CRD tasksandboxes.agentteams.io'
 
 operator_deployments="$(kube -n "${NAMESPACE}" get deployment \
   -l app.kubernetes.io/name=agentteams-operator -o name 2>/dev/null || true)"
@@ -133,7 +141,7 @@ if ! kube -n "${NAMESPACE}" wait deployment \
   --for=condition=Available --timeout="${TIMEOUT}" >/dev/null; then
   fail 'Operator/controller Deployment matched the label but did not become Available'
 fi
-printf 'Prerequisites: RuntimeClass gvisor, RuntimeClass kata-qemu, CRD, and labeled Operator/controller are ready.\n'
+printf 'Prerequisites: RuntimeClass gvisor, RuntimeClass kata-qemu, Team/Worker/TaskSandbox CRDs, and labeled Operator/controller are ready.\n'
 
 apply_example() {
   local example_path="$1"
