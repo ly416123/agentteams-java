@@ -13,5 +13,6 @@ describe('Console shell', () => {
 
     expect(screen.getByText('AgentTeams')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '登录' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '进入控制台' })).toHaveAttribute('href', '/console');
   });
 });

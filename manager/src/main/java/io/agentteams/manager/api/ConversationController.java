@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import io.agentteams.manager.conversation.ConversationEvent;
 import io.agentteams.manager.conversation.ConversationRuntimeException;
 import io.agentteams.manager.conversation.ConversationRuntimePort;
+import io.agentteams.manager.conversation.ConversationOwner;
 import io.agentteams.manager.conversation.ConversationService;
 import io.agentteams.manager.security.ManagerAuthorizationException;
 import io.agentteams.manager.security.ManagerPrincipal;
@@ -57,14 +58,30 @@ public final class ConversationController {
         requireScope(request.projectValue(), request.teamValue(), principal);
         ConversationRuntimePort.Context context = new ConversationRuntimePort.Context(
                 request.projectValue(), request.teamValue(), request.workerValue(), request.taskValue(), request.sessionId());
-        return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(service.createAndStart(context)));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(SessionResponse.from(service.createAndStart(context, idempotencyKey,
+                        new ConversationOwner(principal.tenantId(), principal.subject()))));
     }
 
     @GetMapping("/{sessionId}")
     public SessionResponse get(@PathVariable UUID sessionId) {
-        ConversationService.Conversation conversation = service.get(sessionId);
-        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        ConversationService.Conversation conversation = service.get(sessionId, owner(principal));
+        requireScope(conversation, principal);
         return SessionResponse.from(conversation);
+    }
+
+    @GetMapping("/{sessionId}/history")
+    public HistoryResponse history(@PathVariable UUID sessionId) {
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        ConversationService.Conversation conversation = service.get(sessionId, owner(principal));
+        requireScope(conversation, principal);
+        ConversationService.History history = service.history(sessionId, owner(principal));
+        return new HistoryResponse(
+                history.messages().stream().map(message -> new MessageHistoryResponse(
+                        message.idempotencyKey(), message.content(), message.startCursor(), message.endCursor(),
+                        message.status().name())).toList(),
+                history.events().stream().map(this::eventResponse).toList());
     }
 
     @PostMapping("/{sessionId}/messages")
@@ -75,11 +92,14 @@ public final class ConversationController {
         if (request == null || request.content() == null || request.content().isBlank()) {
             throw new IllegalArgumentException("content is required");
         }
-        ConversationService.Conversation conversation = service.get(sessionId);
-        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
-        ConversationService.SendResult result = service.send(sessionId, idempotencyKey, request.content());
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        ConversationService.Conversation conversation = service.get(sessionId, owner(principal));
+        requireScope(conversation, principal);
+        ConversationService.SendResult result = service.send(sessionId, idempotencyKey, request.content(),
+                request.expectedVersion(), owner(principal));
         return new MessageResponse(result.sessionId(), result.idempotencyKey(),
-                result.events().stream().map(this::eventResponse).toList());
+                result.events().stream().map(this::eventResponse).toList(),
+                SessionResponse.from(service.get(sessionId)));
     }
 
     @GetMapping(value = "/{sessionId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -88,11 +108,12 @@ public final class ConversationController {
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
         if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative");
         long cursor = Math.max(after, parseCursor(lastEventId));
-        ConversationService.Conversation conversation = service.get(sessionId);
-        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
-        waitForPendingMessage(sessionId);
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        ConversationService.Conversation conversation = service.get(sessionId, owner(principal));
+        requireScope(conversation, principal);
+        waitForPendingMessage(sessionId, owner(principal));
         StringBuilder stream = new StringBuilder();
-        for (ConversationEvent event : service.events(sessionId, cursor)) {
+        for (ConversationEvent event : service.events(sessionId, cursor, owner(principal))) {
             stream.append("id: ").append(event.cursor()).append('\n')
                     .append("event: ").append(event.type()).append('\n');
             for (String line : event.data().split("\\R", -1)) {
@@ -103,10 +124,10 @@ public final class ConversationController {
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(stream.toString());
     }
 
-    private void waitForPendingMessage(UUID sessionId) {
-        if (!service.hasPendingMessage(sessionId)) return;
+    private void waitForPendingMessage(UUID sessionId, ConversationOwner owner) {
+        if (!service.hasPendingMessage(sessionId, owner)) return;
         long deadline = System.nanoTime() + EVENT_WAIT_TIMEOUT_MILLIS * 1_000_000L;
-        while (service.hasPendingMessage(sessionId) && System.nanoTime() < deadline) {
+        while (service.hasPendingMessage(sessionId, owner) && System.nanoTime() < deadline) {
             try {
                 Thread.sleep(EVENT_POLL_INTERVAL_MILLIS);
             } catch (InterruptedException error) {
@@ -118,11 +139,29 @@ public final class ConversationController {
 
     @PostMapping("/{sessionId}/cancel")
     public SessionResponse cancel(@PathVariable UUID sessionId,
-            @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey) {
+            @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
+            @RequestBody(required = false) CancelRequest request) {
         requireKey(idempotencyKey);
-        ConversationService.Conversation conversation = service.get(sessionId);
-        requireScope(conversation.context().project(), conversation.context().team(), ManagerRequestContext.require());
-        return SessionResponse.from(service.cancel(sessionId, idempotencyKey));
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        ConversationService.Conversation conversation = service.get(sessionId, owner(principal));
+        requireScope(conversation, principal);
+        return SessionResponse.from(service.cancel(sessionId, idempotencyKey,
+                request == null ? null : request.expectedVersion(), owner(principal)));
+    }
+
+    private static ConversationOwner owner(ManagerPrincipal principal) {
+        return new ConversationOwner(principal.tenantId(), principal.subject());
+    }
+
+    private static void requireScope(ConversationService.Conversation conversation, ManagerPrincipal principal) {
+        ConversationRuntimePort.Context context = conversation.context();
+        ConversationOwner owner = conversation.owner();
+        boolean ownerMatches = owner != null && principal.tenantId().equals(owner.tenantId())
+                && principal.subject().equals(owner.subject());
+        if (!principal.projectId().equals(context.project()) || !principal.teamId().equals(context.team())
+                || !ownerMatches) {
+            throw new ManagerAuthorizationException("conversation scope does not match authenticated principal");
+        }
     }
 
     private static void requireScope(String project, String team, ManagerPrincipal principal) {
@@ -167,11 +206,20 @@ public final class ConversationController {
     }
     public record CancelRequest(Long expectedVersion) { }
 
-    public record SessionResponse(UUID sessionId, ConversationRuntimePort.Context context, String status) {
+    public record SessionResponse(UUID sessionId, ConversationRuntimePort.Context context, String status, long version) {
         static SessionResponse from(ConversationService.Conversation conversation) {
-            return new SessionResponse(conversation.sessionId(), conversation.context(), conversation.status().name());
+            return new SessionResponse(conversation.sessionId(), conversation.context(), conversation.status().name(),
+                    conversation.version());
         }
     }
     public record EventResponse(long id, String event, JsonNode data) { }
-    public record MessageResponse(UUID sessionId, String idempotencyKey, List<EventResponse> events) { }
+    public record MessageResponse(UUID sessionId, String idempotencyKey, List<EventResponse> events,
+            SessionResponse session) {
+        public MessageResponse(UUID sessionId, String idempotencyKey, List<EventResponse> events) {
+            this(sessionId, idempotencyKey, events, null);
+        }
+    }
+    public record HistoryResponse(List<MessageHistoryResponse> messages, List<EventResponse> events) { }
+    public record MessageHistoryResponse(String idempotencyKey, String content, long startCursor, Long endCursor,
+            String status) { }
 }

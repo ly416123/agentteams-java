@@ -7,6 +7,8 @@ import io.agentteams.manager.session.ManagerSessionServiceFacade;
 import io.agentteams.manager.conversation.ConversationRuntimeConfiguration;
 import io.agentteams.manager.conversation.ConversationRuntimePort;
 import io.agentteams.manager.conversation.ConversationService;
+import io.agentteams.manager.conversation.ConversationRepository;
+import io.agentteams.manager.conversation.JdbcConversationRepository;
 import io.agentteams.manager.conversation.FakeConversationRuntime;
 import io.agentteams.manager.conversation.QwenPawConversationRuntime;
 import java.net.URI;
@@ -130,6 +132,16 @@ public class ManagerApplication {
     }
 
     @Bean
+    ConversationRepository conversationRepository(JdbcTemplate jdbc) {
+        return new JdbcConversationRepository(jdbc);
+    }
+
+    @Bean(destroyMethod = "close")
+    ConversationService conversationService(ConversationRuntimePort runtime, ConversationRepository repository) {
+        return new ConversationService(runtime, repository);
+    }
+
+    /** Composition-test/local fallback that keeps the fake runtime constructor convenient. */
     ConversationService conversationService(ConversationRuntimePort runtime) {
         return new ConversationService(runtime);
     }

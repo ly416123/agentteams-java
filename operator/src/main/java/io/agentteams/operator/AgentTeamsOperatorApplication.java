@@ -14,23 +14,24 @@ public final class AgentTeamsOperatorApplication {
 
     public static void main(String[] args) {
         Operator operator = operatorFromEnvironment();
-        registerControllers(operator, observationReporterFromEnvironment(), recoveryFromEnvironment());
+        registerControllers(operator, observationReporterFromEnvironment(), recoveryFromEnvironment(),
+                directiveReaderFromEnvironment());
         operator.installShutdownHook();
         operator.start();
     }
 
     private static void registerControllers(Operator operator, WorkerOperationObservationReporter observations,
-            WorkerOperationRecovery recovery) {
+            WorkerOperationRecovery recovery, WorkerOperationDirectiveReader directives) {
         String namespace = System.getenv("AGENTTEAMS_OPERATOR_NAMESPACE");
         if (namespace == null || namespace.isBlank()) {
             operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations, recovery,
-                    new ObjectMapper()));
+                    new ObjectMapper(), directives));
             operator.register(new TeamReconciler(operator.getKubernetesClient()));
             operator.register(new TaskSandboxReconciler(operator.getKubernetesClient()));
             return;
         }
         operator.register(new WorkerReconciler(operator.getKubernetesClient(), observations, recovery,
-                        new ObjectMapper()),
+                        new ObjectMapper(), directives),
                 configuration -> configuration.settingNamespace(namespace));
         operator.register(new TeamReconciler(operator.getKubernetesClient()),
                 configuration -> configuration.settingNamespace(namespace));
@@ -57,6 +58,18 @@ public final class AgentTeamsOperatorApplication {
             return WorkerOperationRecovery.noop();
         }
         return new HttpWorkerOperationRecovery(HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NEVER).build(), new ObjectMapper(),
+                URI.create(endpoint.trim()), token, Duration.ofSeconds(3));
+    }
+
+    static WorkerOperationDirectiveReader directiveReaderFromEnvironment() {
+        String endpoint = System.getenv("AGENTTEAMS_CONTROL_PLANE_URL");
+        String token = System.getenv("AGENTTEAMS_OPERATOR_INTERNAL_TOKEN");
+        if (endpoint == null || endpoint.isBlank() || token == null || token.isBlank()) {
+            return WorkerOperationDirectiveReader.noop();
+        }
+        return new HttpWorkerOperationDirectiveReader(HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(3))
                 .followRedirects(HttpClient.Redirect.NEVER).build(), new ObjectMapper(),
                 URI.create(endpoint.trim()), token, Duration.ofSeconds(3));

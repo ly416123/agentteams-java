@@ -8,6 +8,13 @@
 
 **技术栈：** Docker multi-stage、nginx-unprivileged、Helm/Kubernetes YAML、Python 3 标准库与 PyYAML、GitHub Actions、Python unittest。
 
+## 本轮执行记录（2026-08-30）
+
+- `python3 scripts/validate-console-manifests.py` 和 `python3 scripts/validate-kind-manifests.py` 通过。
+- Console production build、Lint 和 Prettier 检查通过；L5 NodePort 页面已由 Playwright 实际访问。
+
+本记录不把本机验证扩大解释为生产 Kubernetes 发布或恢复验收。
+
 ---
 
 ## 文件职责

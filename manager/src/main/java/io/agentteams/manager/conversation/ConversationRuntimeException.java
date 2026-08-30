@@ -12,6 +12,7 @@ public final class ConversationRuntimeException extends RuntimeException {
         PROTOCOL_ERROR,
         CONNECTION_CLOSED,
         CANCELLED,
+        RECOVERY_REQUIRED,
         IDEMPOTENCY_CONFLICT,
         SESSION_NOT_FOUND,
         INVALID_STATE,

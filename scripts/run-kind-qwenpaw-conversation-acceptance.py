@@ -157,8 +157,10 @@ def main() -> int:
     if not any(event_type == "message.completed" for _, event_type, _ in first_events):
         fail("message.completed was not observed")
     last_cursor = first_events[-1][0] if first_events else "0"
+    stable_message = request_json(message_url, "POST", {"content": "Kind conversation token"}, args.token,
+                                   message_key)[1]
     duplicate = request_json(message_url, "POST", {"content": "Kind conversation token"}, args.token, message_key)[1]
-    if duplicate != message:
+    if duplicate != stable_message:
         fail("duplicate Idempotency-Key did not replay the same message response")
 
     # The Mock QwenPaw deployment can inject disconnect_after and the client

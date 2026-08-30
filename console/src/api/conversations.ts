@@ -18,6 +18,16 @@ export type ConversationMessageResponse = {
   events?: Array<{ id: number; event: string; data: unknown }>;
 };
 
+export type ConversationHistory = {
+  messages: Array<{
+    idempotencyKey: string;
+    content: string;
+    startCursor: number;
+    endCursor?: number;
+  }>;
+  events: Array<{ id: number; event: string; data: unknown }>;
+};
+
 export function createConversation(
   context: {
     projectId: string;
@@ -38,6 +48,10 @@ export function createConversation(
 
 export function getConversation(id: string, client: HttpClient = apiClient) {
   return client.request<Conversation>(`/api/v1/conversations/${id}`);
+}
+
+export function getConversationHistory(id: string, client: HttpClient = apiClient) {
+  return client.request<ConversationHistory>(`/api/v1/conversations/${id}/history`);
 }
 
 export function sendConversationMessage(

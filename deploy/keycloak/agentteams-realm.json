@@ -3,6 +3,30 @@
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,
+  "userProfile": {
+    "attributes": [
+      {
+        "name": "tenant",
+        "displayName": "Tenant",
+        "permissions": { "view": ["admin", "user"], "edit": ["admin"] },
+        "multivalued": false
+      },
+      {
+        "name": "project",
+        "displayName": "Project",
+        "permissions": { "view": ["admin", "user"], "edit": ["admin"] },
+        "multivalued": false
+      },
+      {
+        "name": "team",
+        "displayName": "Team",
+        "permissions": { "view": ["admin", "user"], "edit": ["admin"] },
+        "multivalued": false
+      }
+    ],
+    "groups": [],
+    "unmanagedAttributePolicy": "DISABLED"
+  },
   "roles": {
     "realm": [
       { "name": "task:read" },
@@ -18,7 +42,10 @@
       { "name": "agent:write" },
       { "name": "config:read" },
       { "name": "config:write" },
-      { "name": "usage:read" }
+      { "name": "usage:read" },
+      { "name": "quota:write" },
+      { "name": "team:read" },
+      { "name": "team:write" }
     ]
   },
   "clients": [
@@ -30,7 +57,17 @@
       "publicClient": true,
       "clientAuthenticatorType": "none",
       "directAccessGrantsEnabled": true,
-      "standardFlowEnabled": false,
+      "standardFlowEnabled": true,
+      "redirectUris": [
+        "http://192.168.1.16:30080/auth/callback",
+        "http://localhost:30080/auth/callback",
+        "http://127.0.0.1:30080/auth/callback"
+      ],
+      "webOrigins": [
+        "http://192.168.1.16:30080",
+        "http://localhost:30080",
+        "http://127.0.0.1:30080"
+      ],
       "protocolMappers": [
         {
           "name": "agentteams-api-audience",
@@ -118,7 +155,29 @@
       "realmRoles": [
         "task:read", "task:create", "task:cancel", "task:retry", "task:pause",
         "task:approve", "task:reject", "artifact:read", "artifact:write",
-        "agent:read", "agent:write", "config:read", "config:write", "usage:read"
+        "agent:read", "agent:write", "config:read", "config:write", "usage:read", "quota:write",
+        "team:read", "team:write"
+      ]
+    },
+    {
+      "username": "quota-admin",
+      "enabled": true,
+      "email": "quota-admin@agentteams.local",
+      "emailVerified": true,
+      "firstName": "Quota",
+      "lastName": "Acceptance",
+      "requiredActions": [],
+      "attributes": {
+        "tenant": ["tenant-a"],
+        "project": ["project-a"],
+        "team": ["team-a"]
+      },
+      "credentials": [
+        { "type": "password", "value": "quota-admin-dev", "temporary": false }
+      ],
+      "realmRoles": [
+        "task:read", "task:create", "agent:read", "agent:write", "team:read", "team:write",
+        "usage:read", "quota:write"
       ]
     },
     {

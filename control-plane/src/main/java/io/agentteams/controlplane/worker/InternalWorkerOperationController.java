@@ -57,6 +57,29 @@ public final class InternalWorkerOperationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/directive/{agentId}")
+    public ResponseEntity<ActiveOperationResponse> directive(
+            @PathVariable UUID agentId,
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token) {
+        authorize(token);
+        return operations.activeLifecycle(agentId, Instant.now())
+                .map(operation -> ResponseEntity.ok(ActiveOperationResponse.from(operation)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/{operationId}/terminate")
+    public ResponseEntity<WorkerOperationResponse> confirmTerminate(
+            @PathVariable UUID operationId,
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token,
+            @RequestBody TerminationConfirmationRequest request) {
+        authorize(token);
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new IllegalArgumentException("expectedVersion is required");
+        }
+        return ResponseEntity.accepted().body(WorkerOperationResponse.from(
+                operations.confirmTerminate(operationId, request.expectedVersion())));
+    }
+
     @GetMapping("/failed/{agentId}")
     public ResponseEntity<FailedOperationResponse> failed(
             @PathVariable UUID agentId,
@@ -181,4 +204,6 @@ public final class InternalWorkerOperationController {
     }
 
     public record RollbackRequest(Long expectedVersion) { }
+
+    public record TerminationConfirmationRequest(Long expectedVersion) { }
 }

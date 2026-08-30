@@ -158,6 +158,13 @@ public final class WorkerOperationService {
         return persistence.inTransaction(tx -> tx.workerOperations().findActiveByAgent(agentId, now));
     }
 
+    /** Returns the active lifecycle command consumed by the Kubernetes Operator. */
+    public java.util.Optional<WorkerOperation> activeLifecycle(UUID agentId, Instant now) {
+        Objects.requireNonNull(agentId, "agentId");
+        Objects.requireNonNull(now, "now");
+        return persistence.inTransaction(tx -> tx.workerOperations().findActiveLifecycleByAgent(agentId, now));
+    }
+
     /** Returns the oldest failed rollout that has not yet been confirmed rolled back. */
     public java.util.Optional<WorkerOperation> failed(UUID agentId, Instant now) {
         Objects.requireNonNull(agentId, "agentId");
@@ -200,6 +207,44 @@ public final class WorkerOperationService {
                 (repository, id, observedAt) -> repository.recordGatewayObservation(id, observation.online(),
                         observation.specDigest(), observation.runtime(), observation.configRevision(),
                         observation.secretGeneration(), observedAt));
+    }
+
+    /** Completes termination only after the Operator has observed zero replicas. */
+    public WorkerOperation confirmTerminate(UUID operationId, long expectedVersion) {
+        Objects.requireNonNull(operationId, "operationId");
+        Instant now = clock.instant();
+        return persistence.inTransaction(tx -> {
+            WorkerOperation current = tx.workerOperations().findByIdForUpdate(operationId)
+                    .orElseThrow(() -> new ResourceNotFoundException("worker operation", operationId));
+            if (current.type() != WorkerOperationType.TERMINATE
+                    || (current.status() != WorkerOperationStatus.PENDING
+                    && current.status() != WorkerOperationStatus.RUNNING)) {
+                throw new WorkerLifecycleConflictException("WORKER_TERMINATION_CONFIRMATION_NOT_ALLOWED");
+            }
+            if (current.version() != expectedVersion) {
+                throw new io.agentteams.controlplane.persistence.OptimisticLockFailure(
+                        "worker_operation", operationId, expectedVersion, current.version());
+            }
+            if (current.leaseExpiresAt() != null && !now.isBefore(current.leaseExpiresAt())) {
+                WorkerOperation failed = tx.workerOperations().updateStatus(operationId,
+                        WorkerOperationStatus.FAILED, "OPERATION_LEASE_EXPIRED", expectedVersion, now);
+                FoundationPersistenceService.appendEvent(tx, "worker_operation", operationId,
+                        "WorkerOperationLeaseExpired", "{\"operationId\":\"" + operationId + "\"}", now,
+                        failed.version());
+                return failed;
+            }
+            AgentRecord agent = tx.agents().findById(current.agentId())
+                    .orElseThrow(() -> new ResourceNotFoundException("agent", current.agentId()));
+            if (agent.phase() != AgentPhase.TERMINATED) {
+                throw new WorkerLifecycleConflictException("WORKER_NOT_TERMINATED");
+            }
+            WorkerOperation updated = tx.workerOperations().updateStatus(operationId,
+                    WorkerOperationStatus.SUCCEEDED, null, expectedVersion, now);
+            FoundationPersistenceService.appendEvent(tx, "worker_operation", operationId,
+                    "WorkerOperationSucceeded", "{\"operationId\":\"" + operationId
+                            + "\",\"type\":\"TERMINATE\"}", now, updated.version());
+            return updated;
+        });
     }
 
     private WorkerOperation confirmObservation(UUID operationId, long expectedVersion, Instant observedAt,
@@ -333,11 +378,14 @@ public final class WorkerOperationService {
                     correlationId, now);
             if (type == WorkerOperationType.DRAIN) {
                 tx.agents().updatePhase(agentId, AgentPhase.DRAINING, expectedAgentVersion, now);
+            } else if (type == WorkerOperationType.TERMINATE) {
+                tx.agents().updatePhase(agentId, AgentPhase.TERMINATED, expectedAgentVersion, now);
             }
             tx.workerOperations().insert(operation);
             FoundationPersistenceService.appendEvent(tx, "agent", agentId, "WorkerOperationRequested",
                     "{\"operationId\":\"" + operation.id() + "\",\"type\":\"" + type.name() + "\"}",
-                    now, type == WorkerOperationType.DRAIN ? current.version() + 1 : current.version());
+                    now, type == WorkerOperationType.DRAIN || type == WorkerOperationType.TERMINATE
+                            ? current.version() + 1 : current.version());
             return operation;
         });
     }
@@ -371,7 +419,11 @@ public final class WorkerOperationService {
     }
 
     private void requireVisible(UUID agentId) {
-        if (resourceScopes != null) {
+        // Public API requests carry a Principal and must stay inside the
+        // caller's resource scope. Trusted Operator/Gateway callbacks use the
+        // token-protected internal controller and intentionally have no user
+        // Principal, so they must not be rejected by the user boundary.
+        if (resourceScopes != null && PrincipalContext.current().isPresent()) {
             resourceScopes.requireVisible("WORKER", agentId);
         }
     }

@@ -160,6 +160,20 @@ requirement. Acceptance commands must fail with a non-zero exit code when
 Docker, Kind, kubectl, the required image, or Chrome is unavailable; an
 environmental `SKIPPED` result is not accepted as a passing result.
 
+The current local verification baseline (2026-08-30) uses Docker 29.5.2,
+Kind cluster `agentteams`, and the installed browser toolchain. The Console
+Playwright smoke passed (`1 passed`) and the deployed real QwenPaw conversation
+checks passed. A direct system-Chrome connector was not attached in the latest
+Codex session, so that connector-specific result remains explicitly
+unverified rather than being inferred from the Playwright result.
+
+The independent Ubuntu/KVM host `ly-MacBookAir7-2` also passed the real L5
+TaskSandbox acceptance: both `gvisor` and `kata-qemu` profiles reached `READY`,
+their generated Jobs/Pods used the expected RuntimeClass, guest and host
+kernels were observed, and cleanup completed with
+`L5_LINUX_KVM_ACCEPTANCE_OK`. Node-failure recovery and production L6 remain
+separate gates.
+
 ## Local infrastructure
 
 On macOS, the repository provides a Colima/Testcontainers bootstrap script:
@@ -379,10 +393,48 @@ AGENTTEAMS_API_BEARER_TOKEN="<Keycloak token>" \
 自动建立 Manager/Keycloak port-forward、获取本地 alice 测试令牌，并在结束时
 清理转发进程，不会输出令牌或 API Key。
 
+Conversation 会话、用户消息和事件已由 Manager 的 PostgreSQL repository 持久化，
+Console 页面加载时会读取 `/api/v1/conversations/{sessionId}/history`，再接续 SSE。
+可用下面的验收脚本真实滚动重启 Manager，并验证同一会话历史与消息幂等重放保持一致：
+
+```bash
+python3 scripts/run-kind-conversation-restart-acceptance.py \
+  --image ghcr.io/ly416123/agentteams-manager:latest
+```
+
+会话创建时会从已验证的 OIDC 身份持久化 `tenantId` 与 `subject`，读取、消息和取消
+操作会再次校验租户、项目和 Team 范围；服务端响应带有会话 `version`，消息和取消
+请求可通过 `expectedVersion` 防止并发覆盖。旧版本数据库会由 Manager Flyway
+迁移增加可为空的归属字段和版本初值；无法追溯归属的历史会话不会被当作通配资源放行。
+
+消息发送采用数据库 reservation：同一会话幂等键在跨 Manager 副本场景下只允许一个
+副本调用 Worker，消息状态会记录为 `RESERVED`、`COMPLETED`、`FAILED` 或
+`RECOVERY_REQUIRED`。Manager 重启发现未完成 reservation 时会 fail-closed，返回
+`CONVERSATION_RECOVERY_REQUIRED`，不会对无法确认是否已被 QwenPaw 接收的请求自动重发。
+QwenPaw SSE 的 `id:` 会作为可选的上游事件身份保存，并通过唯一约束去重；对外 SSE
+仍使用 Manager 的持久化 replay cursor。历史事件没有上游 ID 时不会伪造 exactly-once 语义。
+
+当前重启验收覆盖的是已完成消息的历史恢复与幂等重放。QwenPaw 运行中的请求仍
+依赖上游提供稳定的 operation/event cursor 才能实现真正 resume；在该协议补齐前，
+不能把 Manager 重启后的 in-flight 请求宣称为 exactly-once 或可自动续接。
+
+在本机 OIDC 集群中验收真实 Worker 的项目配额闭环，可执行：
+
+```bash
+AGENTTEAMS_AGENT_ID="$(kubectl -n agentteams get worker qwenpaw-worker -o jsonpath='{.spec.agentId}')" \
+  ./scripts/run-kind-oidc-worker-quota-admission.sh
+```
+
+该脚本使用 Keycloak 的本地 `quota-admin` 测试用户，绑定 `tenant-a/project-a`
+项目成员关系，开启目标 Worker 的远程配额并等待滚动更新，然后验证真实任务的
+配额 acquire/release、调用次数和 token 计数。它不会输出令牌或 API Key。
+
 The browser remains connected only to the AgentTeams Console/Conversation API;
-QwenPaw stays an internal service dependency. The Console Playwright check is
-run with the locally installed Chrome/Chromium browser, while the real
-Conversation acceptance above exercises the deployed Docker/Kind service path.
+QwenPaw stays an internal service dependency. The Console Playwright check
+exercises the browser page and the real Conversation acceptance exercises the
+deployed Docker/Kind service path. Direct system-Chrome automation is an
+additional connector-specific check and must be reported separately when that
+connector is not attached.
 
 Team CRD scheduling can be smoke-tested with two existing READY Agent UUIDs.
 The script creates a temporary Team CR, applies the stable `namespace/name`

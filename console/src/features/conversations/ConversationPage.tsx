@@ -3,13 +3,18 @@ import { Link } from 'react-router-dom';
 import {
   cancelConversation,
   createConversation,
+  getConversationHistory,
   getConversation,
   sendConversationMessage,
   type Conversation,
 } from '../../api/conversations';
 import { apiClient } from '../../api/httpClient';
 import { listTeams } from '../../api/teams';
-import { streamConversationEvents, type ConversationEvent } from '../../streams/conversationEvents';
+import {
+  conversationEventText,
+  streamConversationEvents,
+  type ConversationEvent,
+} from '../../streams/conversationEvents';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { ErrorState } from '../../components/ErrorState';
 
@@ -26,7 +31,10 @@ export function ConversationPage({
   const [streamState, setStreamState] = useState<
     'connecting' | 'connected' | 'reconnecting' | 'error'
   >('connecting');
-  const [error, setError] = useState<unknown>();
+  const [loadError, setLoadError] = useState<unknown>();
+  const [sendError, setSendError] = useState<unknown>();
+  const [cancelError, setCancelError] = useState<unknown>();
+  const [streamError, setStreamError] = useState<unknown>();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [teams, setTeams] = useState<{ id: string; displayName?: string }[]>([]);
   const [teamId, setTeamId] = useState('');
@@ -38,16 +46,51 @@ export function ConversationPage({
         .then((page) => {
           if (active) setTeams(page.items as typeof teams);
         })
-        .catch((nextError) => active && setError(nextError));
+        .catch((nextError) => active && setLoadError(nextError));
       return () => {
         active = false;
       };
     }
+    const streamController = new AbortController();
     void getConversation(conversationId)
       .then((next) => {
         if (!active) return;
         setConversation(next);
         setTeamId(next.teamId || '');
+        void Promise.resolve(getConversationHistory(conversationId))
+          .then((history) => {
+            if (!active || !history) return;
+            const historicalEvents = [
+              ...history.messages.map((message) => ({
+                id: `message-${message.idempotencyKey}`,
+                type: 'user.message',
+                data: message.content,
+                payload: { text: message.content },
+                order: message.startCursor + 0.5,
+              })),
+              ...history.events.map((event) => ({
+                id: String(event.id),
+                type: event.event,
+                data: typeof event.data === 'string' ? event.data : JSON.stringify(event.data),
+                payload:
+                  event.data && typeof event.data === 'object'
+                    ? (event.data as Record<string, unknown>)
+                    : { text: String(event.data ?? '') },
+                order: event.id,
+              })),
+            ].sort((left, right) => left.order - right.order);
+            setEvents((current) => {
+              const byId = new Map(current.map((item) => [item.id, item]));
+              historicalEvents.forEach((item) => byId.set(item.id, item));
+              return [...byId.values()].sort((left, right) => {
+                const leftOrder = 'order' in left ? Number(left.order) : Number.POSITIVE_INFINITY;
+                const rightOrder =
+                  'order' in right ? Number(right.order) : Number.POSITIVE_INFINITY;
+                return leftOrder - rightOrder;
+              });
+            });
+          })
+          .catch((nextError) => active && setLoadError(nextError));
         void streamConversationEvents(conversationId, {
           client: apiClient,
           onEvent: (event) =>
@@ -56,19 +99,25 @@ export function ConversationPage({
               current.some((item) => item.id === event.id) ? current : [...current, event],
             ),
           onState: (state) => active && setStreamState(state),
-        }).catch((nextError) => active && setError(nextError));
+          signal: streamController.signal,
+        }).catch((nextError) => {
+          if (active && !(nextError instanceof DOMException && nextError.name === 'AbortError')) {
+            setStreamError(nextError);
+          }
+        });
       })
-      .catch((nextError) => active && setError(nextError));
+      .catch((nextError) => active && setLoadError(nextError));
     return () => {
       active = false;
+      streamController.abort();
     };
   }, [conversationId, projectId]);
 
   if (!conversationId) {
-    if (error)
+    if (loadError)
       return (
         <div className="page">
-          <ErrorState error={error} />
+          <ErrorState error={loadError} />
         </div>
       );
     return (
@@ -86,7 +135,7 @@ export function ConversationPage({
                   .then(() => {
                     window.location.assign(`/${projectId}/conversations/${id}`);
                   })
-                  .catch(setError);
+                  .catch(setLoadError);
               }}
             >
               {team.displayName || team.id}
@@ -103,20 +152,21 @@ export function ConversationPage({
       </div>
     );
   }
-  if (error && !conversation)
+  if (loadError && !conversation)
     return (
       <div className="page">
-        <ErrorState error={error} />
+        <ErrorState error={loadError} />
       </div>
     );
   const status = conversation?.status || 'LOADING';
   const assistantText = events
     .filter((event) => event.type === 'message.delta')
-    .map((event) => String(event.payload.delta ?? event.payload.text ?? ''))
+    .map(conversationEventText)
     .join('');
   const send = () => {
     const message = content.trim();
     if (!message || !conversation || status === 'CANCELLED') return;
+    setSendError(undefined);
     setContent('');
     setEvents((current) => [
       ...current,
@@ -138,7 +188,10 @@ export function ConversationPage({
           current ? { ...current, version: result?.session?.version ?? current.version } : current,
         ),
       )
-      .catch(setError);
+      .catch((nextError) => {
+        setContent(message);
+        setSendError(nextError);
+      });
   };
   return (
     <div className="page conversation-page">
@@ -160,7 +213,7 @@ export function ConversationPage({
       )}
       {streamState === 'error' && (
         <ErrorState
-          error={error || new Error('事件流连接失败')}
+          error={streamError || new Error('事件流连接失败')}
           onRetry={() => window.location.reload()}
         />
       )}
@@ -178,11 +231,7 @@ export function ConversationPage({
               key={event.id}
             >
               <span className="eyebrow">{event.type}</span>
-              <p>
-                {String(
-                  event.payload.delta ?? event.payload.text ?? event.payload.message ?? event.data,
-                )}
-              </p>
+              <p>{String(conversationEventText(event) || event.data)}</p>
             </div>
           ))}
         {assistantText && (
@@ -193,6 +242,16 @@ export function ConversationPage({
         )}
       </section>
       {status === 'CANCELLED' && <div className="info-box">会话已取消</div>}
+      {Boolean(sendError) && (
+        <div role="alert" className="error-box">
+          发送失败：{String(sendError)}
+        </div>
+      )}
+      {Boolean(cancelError) && (
+        <div role="alert" className="error-box">
+          取消失败：{String(cancelError)}
+        </div>
+      )}
       <div className="conversation-composer">
         <textarea
           aria-label="输入消息"
@@ -225,6 +284,7 @@ export function ConversationPage({
         onCancel={() => setCancelOpen(false)}
         onConfirm={() => {
           setCancelOpen(false);
+          setCancelError(undefined);
           void cancelConversation(
             conversation?.id || conversation?.sessionId || conversationId,
             { expectedVersion: conversation?.version },
@@ -234,7 +294,7 @@ export function ConversationPage({
             .then((next) =>
               setConversation((current) => ({ ...current, ...next, status: 'CANCELLED' })),
             )
-            .catch(setError);
+            .catch(setCancelError);
         }}
       />
     </div>

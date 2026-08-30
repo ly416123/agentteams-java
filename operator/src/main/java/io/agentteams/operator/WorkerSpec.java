@@ -67,7 +67,7 @@ public final class WorkerSpec {
     public void setImage(String value) { image = requireText(value, "image"); }
     public int getReplicas() { return replicas; }
     public void setReplicas(int value) {
-        if (value < 1) throw new IllegalArgumentException("replicas must be positive");
+        if (value < 0) throw new IllegalArgumentException("replicas must not be negative");
         replicas = value;
     }
     public Map<String, String> getEnv() { return env; }

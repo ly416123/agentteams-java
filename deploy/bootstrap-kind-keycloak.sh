@@ -35,4 +35,4 @@ kubectl -n "${NAMESPACE}" wait --for=condition=ready pod \
   -l app.kubernetes.io/name=keycloak --timeout=60s
 
 echo "Keycloak 已就绪：service/keycloak:8080"
-echo "Realm: agentteams；测试用户: alice/alice-dev、reader/reader-dev、tenant-b-user/tenant-b-dev"
+echo "Realm: agentteams；测试用户: alice/alice-dev、quota-admin/quota-admin-dev、reader/reader-dev、tenant-b-user/tenant-b-dev"

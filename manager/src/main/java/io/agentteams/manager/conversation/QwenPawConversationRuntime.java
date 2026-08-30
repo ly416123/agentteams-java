@@ -301,6 +301,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             throws IOException, ResponseTooLargeException {
         StringBuilder data = new StringBuilder();
         StringBuilder eventType = new StringBuilder();
+        StringBuilder sourceEventId = new StringBuilder();
         ByteArrayOutputStream line = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         long totalBytes = 0;
@@ -314,7 +315,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             for (int index = 0; index < read; index++) {
                 byte value = buffer[index];
                 if (value == '\n') {
-                    if (processSseLine(state, data, eventType, line)) {
+                    if (processSseLine(state, data, eventType, sourceEventId, line)) {
                         return true;
                     }
                     line.reset();
@@ -327,21 +328,22 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             }
         }
         if (line.size() > 0) {
-            processSseLine(state, data, eventType, line);
+            processSseLine(state, data, eventType, sourceEventId, line);
         }
-        return !data.isEmpty() && processSseData(state, data, eventType.toString());
+        return !data.isEmpty() && processSseData(state, data, eventType.toString(), sourceEventId.toString());
     }
 
     private boolean processSseLine(SessionState state, StringBuilder data,
-            StringBuilder eventType, ByteArrayOutputStream line) {
+            StringBuilder eventType, StringBuilder sourceEventId, ByteArrayOutputStream line) {
         String value = line.toString(StandardCharsets.UTF_8);
         if (value.endsWith("\r")) {
             value = value.substring(0, value.length() - 1);
         }
         if (value.isEmpty()) {
-            boolean terminal = processSseData(state, data, eventType.toString());
+            boolean terminal = processSseData(state, data, eventType.toString(), sourceEventId.toString());
             data.setLength(0);
             eventType.setLength(0);
+            sourceEventId.setLength(0);
             return terminal;
         }
         if (value.startsWith("data:")) {
@@ -352,11 +354,15 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         } else if (value.startsWith("event:")) {
             eventType.setLength(0);
             eventType.append(value.substring("event:".length()).trim());
+        } else if (value.startsWith("id:")) {
+            sourceEventId.setLength(0);
+            sourceEventId.append(value.substring("id:".length()).trim());
         }
         return false;
     }
 
-    private boolean processSseData(SessionState state, StringBuilder data, String eventType) {
+    private boolean processSseData(SessionState state, StringBuilder data, String eventType, String sourceEventId) {
+        sourceEventId = sourceEventId == null || sourceEventId.isBlank() ? null : sourceEventId;
         if (data.isEmpty()) {
             if (!eventType.isEmpty() && !isSupportedEventType(eventType)) {
                 appendFailure(state, ConversationRuntimeException.Code.PROTOCOL_ERROR);
@@ -387,21 +393,25 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             case "task.created", "task.updated", "tool.started", "tool.completed" -> true;
             default -> false;
         }) {
-            appendIfNotCancelled(state, eventType, data.toString());
+            appendIfNotCancelled(state, eventType, data.toString(), sourceEventId);
+            // Keep the explicit legacy tool event contract: callers may use
+            // tool.completed as the terminal marker for custom runtimes. The
+            // official QwenPaw plugin path is represented as message.completed
+            // with type=data and is handled below as an intermediate event.
             return "tool.completed".equals(eventType);
         }
         if ("failed".equals(status)) {
-            appendFailure(state, ConversationRuntimeException.Code.MODEL_PROVIDER_UNAVAILABLE);
+            appendFailure(state, ConversationRuntimeException.Code.MODEL_PROVIDER_UNAVAILABLE, sourceEventId);
             return true;
         }
         if ("cancelled".equals(status)) {
-            appendFailure(state, ConversationRuntimeException.Code.CANCELLED);
+            appendFailure(state, ConversationRuntimeException.Code.CANCELLED, sourceEventId);
             return true;
         }
         String eventTypeValue = event.path("type").asText();
         if ("text".equals(eventTypeValue) && event.has("delta")) {
             if (event.path("delta").asBoolean(false)) {
-                appendIfNotCancelled(state, "message.delta", data.toString());
+                appendIfNotCancelled(state, "message.delta", data.toString(), sourceEventId);
             }
             // QwenPaw emits a delta=false content snapshot after the streamed
             // chunks. The snapshot is not a terminal response and must not be
@@ -416,7 +426,14 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                 // before it completes the enclosing response.
                 return false;
             }
-            appendIfNotCancelled(state, "message.completed", data.toString());
+            if (!"response".equals(object) && ("data".equals(eventTypeValue) || event.has("name")
+                    || event.has("tool"))) {
+                // Tool/plugin messages can be reported as message.completed by
+                // QwenPaw, but they do not complete the enclosing response.
+                appendIfNotCancelled(state, "message.delta", data.toString(), sourceEventId);
+                return false;
+            }
+            appendIfNotCancelled(state, "message.completed", data.toString(), sourceEventId);
             return true;
         }
         if (!eventType.isEmpty() && "conversation.started".equals(eventType)
@@ -427,7 +444,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
                 || event.path("delta").asBoolean(false)
                 || (!eventType.isEmpty() && "message.delta".equals(eventType))
                 || (eventType.isEmpty() && "in_progress".equals(status))) {
-            appendIfNotCancelled(state, "message.delta", data.toString());
+            appendIfNotCancelled(state, "message.delta", data.toString(), sourceEventId);
             return false;
         }
         if ("created".equals(status)) {
@@ -447,8 +464,12 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     }
 
     private void appendFailure(SessionState state, ConversationRuntimeException.Code code) {
+        appendFailure(state, code, null);
+    }
+
+    private void appendFailure(SessionState state, ConversationRuntimeException.Code code, String sourceEventId) {
         appendIfNotCancelled(state, "conversation.failed",
-                "{\"code\":\"" + code.name() + "\"}");
+                "{\"code\":\"" + code.name() + "\"}", sourceEventId);
     }
 
     private static boolean isSupportedEventType(String eventType) {
@@ -473,21 +494,29 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     }
 
     private void appendIfNotCancelled(SessionState state, String type, String data) {
+        appendIfNotCancelled(state, type, data, null);
+    }
+
+    private void appendIfNotCancelled(SessionState state, String type, String data, String sourceEventId) {
         synchronized (state) {
             if (!state.cancelled) {
-                append(state, type, data);
+                append(state, type, data, sourceEventId);
             }
         }
     }
 
     private void append(SessionState state, String type, String data) {
+        append(state, type, data, null);
+    }
+
+    private void append(SessionState state, String type, String data, String sourceEventId) {
         if (state.events.size() > configuration.maxEventsPerSession()
                 || (state.events.size() >= configuration.maxEventsPerSession()
                         && !isTerminalEvent(type))) {
             throw resourceExhausted("conversation event history limit reached");
         }
         state.events.add(ConversationEvent.of(state.context.sessionId(), state.events.size() + 1,
-                type, data, Instant.now()));
+                type, data, Instant.now(), sourceEventId));
     }
 
     private void clearRequest(SessionState state, RequestHandle handle) {

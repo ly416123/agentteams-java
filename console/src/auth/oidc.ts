@@ -7,6 +7,20 @@ type RuntimeConfig = {
   oidcClientId?: string;
 };
 
+/**
+ * The local LAN demo is intentionally served over HTTP. Web Crypto is not
+ * available for PKCE on a non-secure LAN origin, while HTTPS deployments and
+ * localhost remain PKCE-protected.
+ */
+export function shouldDisablePkce(
+  location: Pick<Location, 'protocol' | 'hostname'> = window.location,
+) {
+  return (
+    location.protocol === 'http:' &&
+    !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+  );
+}
+
 function runtimeConfig(): RuntimeConfig {
   return window.__AGENTTEAMS_CONFIG__ || {};
 }
@@ -62,6 +76,7 @@ export function oidcSettings(): UserManagerSettings {
     post_logout_redirect_uri: `${window.location.origin}/login`,
     response_type: 'code',
     scope: 'openid profile email',
+    disablePKCE: shouldDisablePkce(),
     automaticSilentRenew: true,
     userStore: new MemoryUserStore(),
   };

@@ -2,6 +2,7 @@ package io.agentteams.manager.api;
 
 import io.agentteams.manager.InvalidModelOutputException;
 import io.agentteams.manager.conversation.ConversationRuntimeException;
+import io.agentteams.manager.conversation.ConversationVersionConflictException;
 import io.agentteams.manager.ManagerToolConflictException;
 import io.agentteams.manager.ManagerToolTemporaryFailureException;
 import io.agentteams.manager.ModelCallAdmissionRejectedException;
@@ -95,6 +96,14 @@ public final class ManagerErrorHandler {
         return error(HttpStatus.CONFLICT, "SESSION_CANCELLED", "session is cancelled", request, Map.of());
     }
 
+    @ExceptionHandler(ConversationVersionConflictException.class)
+    ResponseEntity<ErrorResponse> conversationVersion(ConversationVersionConflictException error,
+            HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, "CONVERSATION_VERSION_CONFLICT",
+                "conversation version does not match", request,
+                Map.of("expectedVersion", error.expectedVersion(), "actualVersion", error.actualVersion()));
+    }
+
     @ExceptionHandler(ManagerSessionNotFoundException.class)
     ResponseEntity<ErrorResponse> notFound(ManagerSessionNotFoundException error, HttpServletRequest request) {
         return error(HttpStatus.NOT_FOUND, "NOT_FOUND", "session not found", request, Map.of());
@@ -102,15 +111,25 @@ public final class ManagerErrorHandler {
 
     @ExceptionHandler(DataAccessException.class)
     ResponseEntity<ErrorResponse> storage(DataAccessException error, HttpServletRequest request) {
+        LOG.warn("Manager storage failure type={} sqlState={}", error.getClass().getSimpleName(), sqlState(error));
         return error(HttpStatus.SERVICE_UNAVAILABLE, "TOOL_TEMPORARY_FAILURE",
                 "session storage is unavailable", request, Map.of());
+    }
+
+    private static String sqlState(DataAccessException error) {
+        Throwable cause = error;
+        while (cause != null) {
+            if (cause instanceof java.sql.SQLException sqlError) return sqlError.getSQLState();
+            cause = cause.getCause();
+        }
+        return "unknown";
     }
 
     @ExceptionHandler(ConversationRuntimeException.class)
     ResponseEntity<ErrorResponse> conversation(ConversationRuntimeException error, HttpServletRequest request) {
         HttpStatus status = switch (error.code()) {
             case SESSION_NOT_FOUND -> HttpStatus.NOT_FOUND;
-            case IDEMPOTENCY_CONFLICT, INVALID_STATE, CANCELLED -> HttpStatus.CONFLICT;
+            case IDEMPOTENCY_CONFLICT, INVALID_STATE, CANCELLED, RECOVERY_REQUIRED -> HttpStatus.CONFLICT;
             case WORKER_UNAVAILABLE, MODEL_PROVIDER_UNAVAILABLE, TIMEOUT, CONNECTION_CLOSED ->
                     HttpStatus.SERVICE_UNAVAILABLE;
             case RESOURCE_EXHAUSTED -> HttpStatus.TOO_MANY_REQUESTS;
@@ -121,6 +140,10 @@ public final class ManagerErrorHandler {
         }
         if (error.code() == ConversationRuntimeException.Code.SESSION_NOT_FOUND) {
             return error(status, "NOT_FOUND", "session not found", request, Map.of());
+        }
+        if (error.code() == ConversationRuntimeException.Code.RECOVERY_REQUIRED) {
+            return error(status, "CONVERSATION_RECOVERY_REQUIRED",
+                    "conversation message requires operator recovery before retry", request, Map.of());
         }
         return error(status, "CONVERSATION_" + error.code().name(), "conversation request failed", request, Map.of());
     }

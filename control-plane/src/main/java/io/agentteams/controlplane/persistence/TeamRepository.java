@@ -52,7 +52,9 @@ public final class TeamRepository {
                   JOIN resource_scopes s ON s.resource_type = 'TEAM' AND s.resource_id = t.id
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                                JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
+                                WHERE m.tenant_id = s.tenant_id
+                                  AND (m.project_id::text = s.project_id OR p.name = s.project_id)
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                  ORDER BY t.name, t.id
                 """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
@@ -78,7 +80,9 @@ public final class TeamRepository {
                  FROM teams t JOIN resource_scopes s ON s.resource_type = 'TEAM' AND s.resource_id = t.id
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                                JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
+                                WHERE m.tenant_id = s.tenant_id
+                                  AND (m.project_id::text = s.project_id OR p.name = s.project_id)
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                 """);
         List<Object> values = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),

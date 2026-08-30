@@ -202,6 +202,22 @@ class WorkerOperationServiceTest {
     }
 
     @Test
+    void terminatesTheCanonicalAgentAndCanBeConfirmedAfterOperatorStopsTheWorker() {
+        UUID agentId = UUID.randomUUID();
+        insertAgent(agentId, AgentPhase.READY);
+
+        operations.drain(agentId, 0, "terminate-real-drain-1");
+        WorkerOperation terminate = operations.terminate(agentId, 1, "terminate-real-1");
+
+        assertThat(persistence.findAgent(agentId)).get().extracting(AgentRecord::phase)
+                .isEqualTo(AgentPhase.TERMINATED);
+
+        WorkerOperation completed = operations.confirmTerminate(terminate.id(), terminate.version());
+
+        assertThat(completed.status()).isEqualTo(WorkerOperationStatus.SUCCEEDED);
+    }
+
+    @Test
     void commitsExpiredOperationRecoveryEvenWhenAssignmentFailsLater() {
         UUID agentId = UUID.randomUUID();
         insertAgent(agentId, AgentPhase.READY);

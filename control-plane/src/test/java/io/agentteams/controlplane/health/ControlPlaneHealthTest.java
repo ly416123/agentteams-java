@@ -49,4 +49,15 @@ class ControlPlaneHealthTest {
         assertThat(applicationYaml).contains("include: readinessState,db,nats");
         assertThat(applicationYaml).contains("probes:");
     }
+
+    @Test
+    void baselinesAnExistingLocalSchemaBeforeApplyingControlPlaneMigrations() throws IOException {
+        String applicationYaml;
+        try (InputStream stream = getClass().getClassLoader().getResourceAsStream("application.yml")) {
+            applicationYaml = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+
+        assertThat(applicationYaml).contains("baseline-on-migrate: true");
+        assertThat(applicationYaml).contains("baseline-version: 0");
+    }
 }

@@ -21,7 +21,7 @@ spec:
                 agentId: { type: string }
                 runtime: { type: string }
                 image: { type: string }
-                replicas: { type: integer, minimum: 1, default: 1 }
+                replicas: { type: integer, minimum: 0, default: 1 }
                 env: { type: object, additionalProperties: { type: string } }
                 tlsSecret: { type: string }
                 specDigest: { type: string }

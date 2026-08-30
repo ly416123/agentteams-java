@@ -7,6 +7,23 @@ export type ConversationEvent = {
   payload: Record<string, unknown>;
 };
 
+export function conversationEventText(event: ConversationEvent): string {
+  const payload = event.payload;
+  const direct = payload.text ?? payload.delta;
+  if (typeof direct === 'string') return direct;
+  if (typeof payload.content === 'string') return payload.content;
+  if (Array.isArray(payload.content)) {
+    return payload.content
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        const text = (part as { text?: unknown }).text;
+        return typeof text === 'string' ? text : '';
+      })
+      .join('');
+  }
+  return typeof payload.message === 'string' ? payload.message : '';
+}
+
 function parseFrame(frame: string): ConversationEvent | null {
   let id: string | undefined;
   let type = 'message.delta';
@@ -98,7 +115,9 @@ export async function streamConversationEvents(
       } finally {
         reader.releaseLock();
       }
-      if (attempt === maxAttempts) throw new Error('事件流已结束');
+      // The Manager endpoint may return a finite replay and close normally.
+      // Only transport/HTTP failures should consume reconnect attempts.
+      return;
     } catch (error) {
       if (signal.aborted) return;
       if (attempt === maxAttempts) {

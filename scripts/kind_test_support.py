@@ -39,9 +39,10 @@ class HttpResult:
 
 
 def api_request(url: str, method: str = "GET", body: dict | None = None,
-                idempotency_key: str | None = None, timeout: float = 15.0) -> HttpResult:
+                idempotency_key: str | None = None, timeout: float = 15.0,
+                accept: str = "application/json") -> HttpResult:
     payload = None if body is None else json.dumps(body).encode("utf-8")
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    headers = {"Accept": accept, "Content-Type": "application/json"}
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
     bearer = os.environ.get("AGENTTEAMS_API_BEARER_TOKEN", "").strip()

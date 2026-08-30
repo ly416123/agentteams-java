@@ -1,7 +1,7 @@
 # AgentTeams Java 剩余能力总体路线图设计
 
 **日期：** 2026-08-26
-**状态：** 已获用户确认；批次 A/B 第一纵切已完成，批次 C 的 HPA 与 Operator 行为测试仓库纵切已完成，外部平台验收仍待受控环境
+**状态：** 已获用户确认；批次 A/B/C 第一纵切及 Console/Conversation 管理闭环已完成，外部平台验收仍待受控环境
 **代码基线：** `2a9b553`
 **目标版本：** 生产可用基线后继续演进商业化能力
 
@@ -49,7 +49,7 @@
 
 | 工作流 | 优先级 | 包含能力 | 子规格 |
 |---|---|---|---|
-| W1 运行时生产闭环 | P0 | Kubernetes Sandbox、生命周期调度、gVisor/Kata、AgentScope Worker 路由、正式 Manager 服务 | `2026-08-26-runtime-production-closure-design.md`（L1-L4 已完成；L5/L6 待受控环境） |
+| W1 运行时生产闭环 | P0 | Kubernetes Sandbox、生命周期调度、gVisor/Kata、AgentScope Worker 路由、正式 Manager 服务 | `2026-08-26-runtime-production-closure-design.md`（L1-L5 RuntimeClass/TaskSandbox 已完成；节点故障恢复与 L6 待受控环境） |
 | W2 控制面治理闭环 | P0/P1 | Team 版本化绑定、Effective Config、Worker 运维、全资源 RBAC、成员生命周期、Secret 解析 | `2026-08-26-control-plane-governance-closure-design.md` |
 | W3 生产交付与可靠性 | P0/P1 | 外部依赖网络、镜像晋级、供应链、Ingress、证书、备份恢复和发布回滚 | `2026-08-26-production-delivery-reliability-design.md` |
 | W4 可观测与规模化 | P1 | Skill/MCP 生效闭环、预算预测、审计对账、配额压测、Operator/HPA/SLO | `2026-08-26-observability-scale-closure-design.md` |
@@ -59,7 +59,7 @@
 
 - W1 的批次 A 代码已进入 `main`，包括 Sandbox Provider、Operator 生命周期保护、AgentScope 路由、Manager 服务、Team Revision/Effective Config 和 Helm 安全契约。
 - 批次 A 的本地 Java/脚本/Helm 验证及 GitHub Actions `verify`、`kind-recovery`、`kind-oidc` 已通过。
-- W1 的 gVisor/Kata、外部 Secret Manager、外部 IdP、生产镜像签名和预发布环境恢复演练仍属于 L5/L6，不以 Kind 结果替代。
+- W1 的 gVisor/Kata RuntimeClass/TaskSandbox 已在独立 Ubuntu/KVM 节点完成 L5 真实验收；外部 Secret Manager、外部 IdP、生产镜像签名、节点故障恢复和预发布环境恢复演练仍待受控环境，不以 Kind 结果替代。
 - W2/W3 批次 B 第一纵切已进入 `main`：Worker 运维双确认/恢复调度、统一资源授权与项目成员生命周期、External Secrets Ready/metadata 解析、签名 Release Manifest/Chart 晋级、Ingress/Gateway API、三种 egress 模式和恢复安全闸门均已落库。
 - `main` 的 GitHub Actions CI `33124422786` 已通过 `verify`、`kind-oidc` 和 `kind-recovery`；本机 Colima Docker-backed Maven、脚本全量和 Helm 验证也已通过。生产 Canary、自动回滚、真实外部 Secret/IdP 和 L5/L6 恢复演练仍未完成，不以静态契约或 Kind 结果替代。
 - 批次 B 后续实施计划见 `docs/superpowers/plans/2026-08-27-batch-b-security-operations-plan.md`。
@@ -68,6 +68,7 @@
 - 批次 C 的 HPA 仓库纵切已进入 `main`：Control Plane、Gateway 和可选 Manager 提供默认关闭的 `autoscaling/v2` CPU HPA，启用时 Helm 强制校验 `resources.requests.cpu` 和副本范围，并配套 schema、生产 values 示例与契约测试；Metrics Server/Prometheus Adapter、实际扩缩容、拓扑故障和 L6 长压测仍待受控环境。
 - 批次 C 的 Operator 行为测试仓库纵切已进入 `main`：Worker/Team 覆盖首次创建、重复 reconcile、子资源篡改恢复、OwnerReference、状态投影和 generation 不变；TaskSandbox 已覆盖生命周期、删除、缺失子资源和旧 generation。Fabric8 Mock Server 已覆盖 Worker/Team status 409、429/500、持续错误和短暂 API 不可用，确认冲突交给 Java Operator SDK 默认重试链路；真实 Kind 故障注入和 Leader Election 验收仍待后续批次。
 - 模型价格目录自动同步第一纵切已进入 `main`：Control Plane 通过默认关闭的受限 HTTP 客户端拉取不含作用域的价格快照，仅写入部署显式配置的租户/项目，使用数据库租约、自然键和现有幂等审计链路去重，既不接受 payload 传入作用域，也不覆盖已有人工价格；真实价格源兼容性和 L6 长压测仍需在受控环境验证。
+- Console/Conversation 管理闭环已完成本地真实验收：登录入口、Project/Team/Worker/Task 管理页面、Conversation SSE 流式输出、重连、取消、幂等消息、跨 Manager 副本事件持久化和重启后的历史/幂等回放均已接入；Docker/Kind 真实 QwenPaw、Chromium E2E 和 158 项脚本回归通过。直接系统 Chrome 控制连接仍取决于当前浏览器连接器是否可用，不以 Playwright 结果冒充该连接器验收。
 
 ## 5. 统一架构决策
 

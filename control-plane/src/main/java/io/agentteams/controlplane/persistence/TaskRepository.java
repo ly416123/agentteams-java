@@ -67,7 +67,9 @@ public final class TaskRepository {
                     ON TRUE
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                WHERE m.tenant_id = s.tenant_id AND m.project_id::text = s.project_id
+                                JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
+                                WHERE m.tenant_id = s.tenant_id
+                                  AND (m.project_id::text = s.project_id OR p.name = s.project_id)
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                 """);
         List<Object> args = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),

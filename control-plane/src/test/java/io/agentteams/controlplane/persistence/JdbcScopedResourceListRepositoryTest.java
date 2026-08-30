@@ -36,6 +36,19 @@ class JdbcScopedResourceListRepositoryTest {
     }
 
     @Test
+    void scopedTeamListResolvesLogicalProjectNamesToProjectMemberships() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        new TeamRepository(jdbc).findPage(PRINCIPAL, null, 21, CursorPageRequest.Direction.DESC);
+
+        verify(jdbc).query(contains("JOIN projects p ON p.id = m.project_id"),
+                any(RowMapper.class), any(Object[].class));
+        verify(jdbc).query(contains("p.name = s.project_id"),
+                any(RowMapper.class), any(Object[].class));
+    }
+
+    @Test
     void agentListUsesPhaseAndSearchPredicatesAfterScopePredicates() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());

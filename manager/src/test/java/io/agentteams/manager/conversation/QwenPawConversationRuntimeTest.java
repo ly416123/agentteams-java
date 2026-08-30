@@ -78,11 +78,14 @@ class QwenPawConversationRuntimeTest {
     @Test
     void sendsOfficialRequestAndPublishesDeltaAndCompletedEvents() throws Exception {
         server.createContext("/api/console/chat", exchange -> {
-            captureRequest(exchange);
+                    captureRequest(exchange);
             writeResponse(exchange, 200, "text/event-stream",
-                    "data: {\"status\":\"created\"}\n\n"
+                    "id: frame-1\n"
+                            + "data: {\"status\":\"created\"}\n\n"
+                            + "id: frame-2\n"
                             + "data: {\"type\":\"message\",\"role\":\"assistant\","
                             + "\"content\":[{\"text\":\"hel\"}],\"status\":\"in_progress\"}\n\n"
+                            + "id: frame-3\n"
                             + "data: {\"id\":\"response-1\",\"status\":\"completed\","
                             + "\"object\":\"response\",\"output\":[{\"type\":\"message\","
                             + "\"role\":\"assistant\",\"content\":[{\"text\":\"hello\"}]}]}\n\n");
@@ -98,6 +101,8 @@ class QwenPawConversationRuntimeTest {
         assertThat(events).extracting(ConversationEvent::type)
                 .containsExactly("conversation.started", "message.delta", "message.completed");
         assertThat(events).extracting(ConversationEvent::cursor).containsExactly(1L, 2L, 3L);
+        assertThat(events).extracting(ConversationEvent::sourceEventId)
+                .containsExactly((String) null, "frame-2", "frame-3");
         assertThat(events.get(2).data()).contains("hello");
         assertThat(agentId.get()).isEqualTo("agent-a");
         assertThat(authorization.get()).isEqualTo("Bearer secret");
@@ -125,6 +130,7 @@ class QwenPawConversationRuntimeTest {
                             + "data: {\"type\":\"text\",\"delta\":true,\"object\":\"content\",\"text\":\"hello\"}\n\n"
                             + "data: {\"type\":\"text\",\"delta\":false,\"object\":\"content\",\"text\":\"hello\"}\n\n"
                             + "data: {\"id\":\"message-1\",\"type\":\"message\",\"object\":\"message\",\"status\":\"completed\"}\n\n"
+                            + "event: message.completed\ndata: {\"type\":\"data\",\"object\":\"content\",\"status\":\"completed\",\"name\":\"memory_search\"}\n\n"
                             + "data: {\"id\":\"response-1\",\"status\":\"completed\",\"object\":\"response\",\"output\":[]}\n\n");
         });
         server.start();
@@ -137,7 +143,7 @@ class QwenPawConversationRuntimeTest {
         List<ConversationEvent> events = runtime.events(SESSION_ID, 0);
         assertThat(events).extracting(ConversationEvent::type)
                 .containsExactly("conversation.started", "message.delta", "message.delta",
-                        "message.delta", "message.delta", "message.delta", "message.completed");
+                        "message.delta", "message.delta", "message.delta", "message.delta", "message.completed");
         assertThat(events).noneMatch(event -> event.type().equals("conversation.failed"));
         runtime.close();
     }

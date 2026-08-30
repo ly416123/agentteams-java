@@ -88,6 +88,19 @@ class ConversationControllerTest {
     }
 
     @Test
+    void createIdempotencyKeyCannotCreateASecondSessionAfterRetry() throws Exception {
+        createConversation();
+        UUID secondSession = UUID.fromString("00000000-0000-0000-0000-000000000102");
+
+        mvc.perform(post("/api/v1/conversations")
+                .header(IDEMPOTENCY_KEY, "create-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(createBody(secondSession, "project-a", "team-a")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONVERSATION_IDEMPOTENCY_CONFLICT"));
+    }
+
+    @Test
     void rejectsMissingAuthenticationAndOutOfScopeCreation() throws Exception {
         ManagerRequestContext.clear();
         mvc.perform(post("/api/v1/conversations")
@@ -150,6 +163,23 @@ class ConversationControllerTest {
     }
 
     @Test
+    void returnsConversationHistoryForReloadRecovery() throws Exception {
+        createConversation();
+        mvc.perform(post("/api/v1/conversations/{sessionId}/messages", SESSION_ID)
+                .header(IDEMPOTENCY_KEY, "message-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"hello\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/conversations/{sessionId}/history", SESSION_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages[0].idempotencyKey").value("message-key"))
+                .andExpect(jsonPath("$.messages[0].content").value("hello"))
+                .andExpect(jsonPath("$.events[0].event").value("conversation.started"))
+                .andExpect(jsonPath("$.events[2].event").value("message.completed"));
+    }
+
+    @Test
     void streamsEventsUsingTheGreatestAfterAndLastEventIdCursor() throws Exception {
         createConversation();
         mvc.perform(post("/api/v1/conversations/{sessionId}/messages", SESSION_ID)
@@ -190,6 +220,63 @@ class ConversationControllerTest {
         mvc.perform(get("/api/v1/conversations/{sessionId}", SESSION_ID))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("AUTHORIZATION_REJECTED"));
+    }
+
+    @Test
+    void preventsADifferentTenantFromReadingAnOtherwiseMatchingConversation() throws Exception {
+        createConversation();
+        ManagerRequestContext.set(new ManagerPrincipal("manager-b", "tenant-b", "project-a", "team-a",
+                Set.of("conversation:write")));
+
+        mvc.perform(get("/api/v1/conversations/{sessionId}", SESSION_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTHORIZATION_REJECTED"));
+    }
+
+    @Test
+    void preventsADifferentSubjectFromReadingAnOtherwiseMatchingConversation() throws Exception {
+        createConversation();
+        ManagerRequestContext.set(new ManagerPrincipal("manager-b", "tenant-a", "project-a", "team-a",
+                Set.of("conversation:write")));
+
+        mvc.perform(get("/api/v1/conversations/{sessionId}", SESSION_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTHORIZATION_REJECTED"));
+    }
+
+    @Test
+    void rejectsStaleConversationVersionAndReturnsTheCurrentVersion() throws Exception {
+        createConversation();
+
+        mvc.perform(post("/api/v1/conversations/{sessionId}/messages", SESSION_ID)
+                .header(IDEMPOTENCY_KEY, "message-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"hello\",\"expectedVersion\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.version").value(2));
+
+        mvc.perform(post("/api/v1/conversations/{sessionId}/messages", SESSION_ID)
+                .header(IDEMPOTENCY_KEY, "message-key-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"stale\",\"expectedVersion\":1}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONVERSATION_VERSION_CONFLICT"))
+                .andExpect(jsonPath("$.details.expectedVersion").value(1))
+                .andExpect(jsonPath("$.details.actualVersion").value(2));
+    }
+
+    @Test
+    void rejectsStaleConversationVersionForCancellation() throws Exception {
+        createConversation();
+
+        mvc.perform(post("/api/v1/conversations/{sessionId}/cancel", SESSION_ID)
+                .header(IDEMPOTENCY_KEY, "cancel-stale")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONVERSATION_VERSION_CONFLICT"))
+                .andExpect(jsonPath("$.details.expectedVersion").value(0))
+                .andExpect(jsonPath("$.details.actualVersion").value(1));
     }
 
     @Test
@@ -240,7 +327,11 @@ class ConversationControllerTest {
     }
 
     private static String createBody(String project, String team) {
-        return "{\"sessionId\":\"" + SESSION_ID + "\",\"project\":\"" + project
+        return createBody(SESSION_ID, project, team);
+    }
+
+    private static String createBody(UUID sessionId, String project, String team) {
+        return "{\"sessionId\":\"" + sessionId + "\",\"project\":\"" + project
                 + "\",\"team\":\"" + team + "\",\"worker\":\"worker-a\",\"task\":\"task-a\"}";
     }
 }

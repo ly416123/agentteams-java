@@ -118,6 +118,14 @@ public final class WorkerOperationRepository {
                 this::map, agentId, JdbcSupport.timestamp(now)).stream().findFirst();
     }
 
+    /** Returns the oldest non-expired lifecycle command for trusted operators. */
+    public Optional<WorkerOperation> findActiveLifecycleByAgent(UUID agentId, Instant now) {
+        return jdbc.query(select() + " WHERE agent_id = ?"
+                        + " AND status IN ('PENDING', 'RUNNING')"
+                        + " AND lease_expires_at > ? ORDER BY created_at, id LIMIT 1",
+                this::map, agentId, JdbcSupport.timestamp(now)).stream().findFirst();
+    }
+
     public Optional<WorkerOperation> findFailedRolloutByAgent(UUID agentId, Instant now) {
         return jdbc.query(select() + " WHERE agent_id = ? AND type = 'ROLLOUT'"
                         + " AND status = 'FAILED' ORDER BY updated_at, id LIMIT 1",

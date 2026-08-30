@@ -64,6 +64,7 @@ public final class HttpWorkerOperationRecovery implements WorkerOperationRecover
         try {
             HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(rollbackPath(operationId))
                     .timeout(requestTimeout).header(TOKEN_HEADER, internalToken)
+                    .header("Idempotency-Key", "operator-rollback-" + operationId + "-" + expectedVersion)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(
                             Map.of("expectedVersion", expectedVersion))))

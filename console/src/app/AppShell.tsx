@@ -22,7 +22,7 @@ export function AppShell() {
             在一个以 Project 为中心的工作台中，管理 Team、Task 与
             Worker，快速定位运行状态并安全执行操作。
           </p>
-          <Link className="button button--primary" to="/login">
+          <Link className="button button--primary" to="/console">
             进入控制台
           </Link>
         </section>

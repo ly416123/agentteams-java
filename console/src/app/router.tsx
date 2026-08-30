@@ -15,6 +15,7 @@ import { TaskPage } from '../features/tasks/TaskPage';
 import { WorkerDetailPage } from '../features/workers/WorkerDetailPage';
 import { WorkerListPage } from '../features/workers/WorkerListPage';
 import { ConversationPage } from '../features/conversations/ConversationPage';
+import { ConsoleEntryPage } from '../features/projects/ConsoleEntryPage';
 import { ConsoleLayout } from './AppShell';
 import { AppShell } from './AppShell';
 
@@ -30,6 +31,14 @@ export function AppRouter() {
             <Route path="/" element={<AppShell />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
+            <Route
+              path="/console"
+              element={
+                <RequireAuth>
+                  <ConsoleEntryPage />
+                </RequireAuth>
+              }
+            />
             <Route path="/:projectId/*" element={<ProtectedProjectRoutes />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

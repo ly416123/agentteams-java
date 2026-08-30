@@ -3,6 +3,7 @@ import {
   cancelConversation,
   createConversation,
   getConversation,
+  getConversationHistory,
   sendConversationMessage,
 } from '../../src/api/conversations';
 import type { HttpClient } from '../../src/api/httpClient';
@@ -64,5 +65,12 @@ describe('conversation API', () => {
     await getConversation('c-1', http);
 
     expect(http.request).toHaveBeenCalledWith('/api/v1/conversations/c-1');
+  });
+
+  it('reads durable conversation history for reload recovery', async () => {
+    const http = client();
+    await getConversationHistory('c-1', http);
+
+    expect(http.request).toHaveBeenCalledWith('/api/v1/conversations/c-1/history');
   });
 });

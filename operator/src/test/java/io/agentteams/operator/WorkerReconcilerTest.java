@@ -107,4 +107,18 @@ class WorkerReconcilerTest {
         assertThat(status.getObservedSpecDigest()).isEqualTo("sha256:old");
         assertThat(status.getObservedConfigRevision()).isEqualTo("runtime-10");
     }
+
+    @Test
+    void appliesTerminateDirectiveByScalingWorkerDeploymentToZero() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(11L).build());
+        worker.setSpec(new WorkerSpec("11111111-1111-1111-1111-111111111111", "qwenpaw",
+                "example/worker:v1", 1, Map.of(), ""));
+
+        WorkerReconciler.applyDirective(worker, new WorkerOperationDirective(
+                "22222222-2222-2222-2222-222222222222",
+                "11111111-1111-1111-1111-111111111111", "TERMINATE", "", "", "", ""));
+
+        assertThat(worker.getSpec().replicas()).isZero();
+    }
 }

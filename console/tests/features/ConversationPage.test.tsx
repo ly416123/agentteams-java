@@ -7,6 +7,7 @@ import { ConversationPage } from '../../src/features/conversations/ConversationP
 
 const mocks = vi.hoisted(() => ({
   getConversation: vi.fn(),
+  getConversationHistory: vi.fn(),
   createConversation: vi.fn(),
   sendConversationMessage: vi.fn(),
   cancelConversation: vi.fn(),
@@ -18,6 +19,8 @@ vi.mock('../../src/api/conversations', () => mocks);
 vi.mock('../../src/api/teams', () => ({ listTeams: mocks.listTeams }));
 vi.mock('../../src/streams/conversationEvents', () => ({
   streamConversationEvents: mocks.streamConversationEvents,
+  conversationEventText: (event: { payload: Record<string, unknown> }) =>
+    typeof event.payload.text === 'string' ? event.payload.text : String(event.payload.delta ?? ''),
 }));
 
 function renderPage(conversationId?: string, search = '') {
@@ -94,6 +97,50 @@ describe('ConversationPage', () => {
     );
     expect(await screen.findByText('会话已取消')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
+  });
+
+  it('restores durable user and assistant history after loading a conversation', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 2,
+    });
+    mocks.getConversationHistory.mockResolvedValue({
+      messages: [{ idempotencyKey: 'm-1', content: '历史问题', startCursor: 1, endCursor: 3 }],
+      events: [
+        { id: 1, event: 'conversation.started', data: {} },
+        { id: 2, event: 'message.delta', data: { text: '历史回答' } },
+      ],
+    });
+    mocks.streamConversationEvents.mockResolvedValue(undefined);
+
+    renderPage('c-1');
+
+    expect(await screen.findByText('历史问题')).toBeInTheDocument();
+    expect(await screen.findByText('历史回答')).toBeInTheDocument();
+    expect(mocks.getConversationHistory).toHaveBeenCalledWith('c-1');
+  });
+
+  it('shows send failures and restores the failed draft', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 1,
+    });
+    mocks.streamConversationEvents.mockResolvedValue(undefined);
+    mocks.sendConversationMessage.mockRejectedValue(new Error('发送失败'));
+
+    renderPage('c-1');
+    await screen.findByText('Team team-1');
+    await userEvent.type(screen.getByPlaceholderText('输入消息'), '请重试');
+    await userEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('发送失败');
+    expect(screen.getByPlaceholderText('输入消息')).toHaveValue('请重试');
   });
 
   it('offers an actionable team selection state when no team context exists', async () => {

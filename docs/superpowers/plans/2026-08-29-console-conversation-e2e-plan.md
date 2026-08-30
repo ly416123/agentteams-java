@@ -19,6 +19,13 @@
 - 真实 Worker 任务链路输出 `QWENPAW_DEEPSEEK_TASK_OK`；Docker/Colima、Kind 和 Google Chrome 均实际参与验收。
 - 原清单中的 `run-kind-console-conversation.py`、`conversation.spec.ts` 已由现有的 Python 真实验收入口、Vitest 对话测试和部署 Chrome 检查替代，避免重复维护两套协议客户端。
 
+### 本轮执行记录（2026-08-30）
+
+- QwenPaw amd64 镜像已通过主机并行分段下载、SHA-256 校验、LAN 上传和 K3s containerd 导入完成。
+- 真实 QwenPaw/DeepSeek Provider 配置成功，重启后仍保持 active model，Provider test 返回成功。
+- L5 Manager 已切换到 `http://qwenpaw:8088`；真实 Manager API 创建会话、发送消息、读取 SSE `message.delta`/`message.completed`、取消均通过。
+- Playwright 真实 OIDC 登录回跳通过；Console 组件测试、Java 全量测试和 Python 脚本测试通过。
+
 ---
 
 ## 文件清单

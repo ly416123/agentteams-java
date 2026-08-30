@@ -44,7 +44,7 @@
 - **缺失**：当前代码中未形成完整能力。
 - **可选**：对核心开源 AgentTeams 不构成阻塞，可在主线稳定后实现。
 
-> **状态同步规则（2026-08-25）**：本文早期路线段落保留了需求演进背景；其中与后续收口记录冲突的“缺失/待实现”描述已按当前代码修正。阅读时以本节矩阵及文档中日期较新的收口记录为准。当前已经落地的能力包括：真实模型调用价格与成本审计、Secret/endpoint 轮换后的原子重连、远程配额生产组装与 Kind 验收、AgentSpec resourceBindings 的 Worker ACK、Dashboard 多维聚合、持久化告警规则与 Kind 告警投递验收。
+> **状态同步规则（2026-08-30）**：本文早期路线段落保留了需求演进背景；其中与后续收口记录冲突的“缺失/待实现”描述已按当前代码修正。阅读时以本节矩阵及文档中日期较新的收口记录为准。当前已经落地的能力包括：真实模型调用价格与成本审计、Secret/endpoint 轮换后的原子重连、远程配额生产组装与 Kind 验收、AgentSpec resourceBindings 的 Worker ACK、Dashboard 多维聚合、持久化告警规则与 Kind 告警投递验收，以及 Console/Conversation 管理和真实 QwenPaw 对话验收。
 
 ## 3.1 当前执行进度（2026-08-25）
 
@@ -83,7 +83,7 @@
 
 前一轮加本轮改动已通过干净全量测试；当前回归口径以本文第 10 节最新结果为准。
 
-尚未宣称为完整商业版能力的部分：生产 Secret Manager/外部凭据轮换平台、Worker 优雅下线和完整管理 API、全资源 RBAC/成员生命周期集成、具体企业 Skill 沙箱与审批系统、Team 级 Skill/MCP 运行时绑定、预算/预测/最终账单、Worker 模板以及 Console/SDK。真实 DeepSeek/QwenPaw 供应商验收仍依赖可用凭据和外部网络，不作为本地默认依赖。
+尚未宣称为完整商业版能力的部分：生产 Secret Manager/外部凭据轮换平台、Worker 生产级优雅下线、全资源 RBAC/成员生命周期集成、具体企业 Skill 沙箱与审批系统、Team 级 Skill/MCP 运行时绑定、预算/预测/最终账单、Worker 模板以及 Java/TypeScript SDK。Console/Conversation 的本地 Docker/Kind 真实 QwenPaw 路径已经验收；生产供应商、外部网络和 L6 恢复仍需受控环境验证。
 
 推荐的依赖关键路径为：
 
@@ -102,7 +102,7 @@ Skill、MCP、Audit 可以在关键路径上并行建设，但 Skill/MCP 的最�
 | 能力域 | 当前项目 | 差距 | 优先级 |
 |---|---|---|---|
 | Model Provider/Model | **部分具备**。已有目录、启停/删除依赖检查、配置型/真实 HTTP 连接测试、项目级价格目录、AgentSpec 引用校验和成功模型调用成本审计；支持凭据/endpoint 轮换后的原子重连 | 缺少企业 Secret Manager、完整能力目录和 Worker 侧生效回执；真实供应商验收依赖外部凭据 | P0 |
-| Worker 生命周期 | **部分具备**。有 Agent 注册 API、Worker CRD/Operator、Gateway 注册/租约/重放和 mTLS 基础；配置绑定支持状态、ACK 幂等、失败重试、resourceBindings 校验和真实 Kind 回滚验收 | 缺少生产级优雅下线、完整 Worker/Team 管理 API 和跨版本部署运维闭环 | P0 |
+| Worker 生命周期 | **部分具备**。有 Agent 注册 API、Worker CRD/Operator、Gateway 注册/租约/重放和 mTLS 基础；配置绑定支持状态、ACK 幂等、失败重试、resourceBindings 校验和真实 Kind 回滚验收；Console 已具备 Worker/Team 管理入口 | 缺少生产级优雅下线、全量运维闭环和 L5/L6 长期运行验证 | P0 |
 | Worker Team | **部分具备**。已有 Team CRD、同步、调度和策略基础 | 缺少成员/管理员模型、Leader 配置、Team 级模型/文件/Skill/MCP 绑定及版本化发布 | P0 |
 | AgentSpec | **部分具备**。已有 AgentSpec v1、Schema 校验、Model/Skill/MCP 真实目录适配、配置修订、resourceBindings 和 Worker ACK/失败分类 | 缺少生产 Worker 优雅回滚的全链路管理、Team 级绑定和完整模板化生命周期 | P0 |
 | 用户/租户/项目/RBAC | **部分具备**。已有 OIDC/Keycloak、JWT scope、项目成员/角色表、统一 resource_scopes 和租户隔离查询 | 缺少全资源角色覆盖的集成矩阵、成员禁用/邀请/转移和完整成员审计 API | P0 |
@@ -114,7 +114,7 @@ Skill、MCP、Audit 可以在关键路径上并行建设，但 Skill/MCP 的最�
 | 渠道接入 | **部分具备**。当前已有 Matrix/Tuwunel 方向 | DingTalk 等商业渠道未接入；需要统一 Channel SPI 和异步投递语义 | P2 |
 | 配额、成本、计费 | **部分具备**。已有项目配额持久化、Manager/Runtime admission、远程 quota protobuf/gRPC、真实 Worker/Manager 生产组装、Kind 验收、价格目录和成本审计 | 缺少跨实例高并发压力验证、预算/预测告警和最终账单；真实账单属于云厂商扩展 | P1 |
 | 云实例/网络生命周期 | **缺失** | 本项目当前以 Helm/Kind/Kubernetes 部署为主，不负责云资源购买、VPC 和实例生命周期 | P2（可选） |
-| 控制台 UI/开放 SDK | **部分具备**。后端 API 和 Helm 运维入口已有 | 缺少统一 Web Console、前端权限模型和 Java/TypeScript SDK | P2 |
+| 控制台 UI/开放 SDK | **部分具备**。已有 OIDC 登录入口、Project/Team/Worker/Task/Conversation 管理页面、真实 API 接线、SSE 重连/取消和 Chromium E2E | 缺少 Java/TypeScript SDK、完整前端权限矩阵和生产浏览器连接器验收 | P2 |
 
 ## 4. 产品需求清单
 

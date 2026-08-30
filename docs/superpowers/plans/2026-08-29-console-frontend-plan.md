@@ -8,6 +8,14 @@
 
 **技术栈：** React、TypeScript、Vite、Ant Design、TanStack Query、React Router、`oidc-client-ts`、Vitest、Testing Library、Playwright、ESLint、Prettier。
 
+## 本轮执行记录（2026-08-30）
+
+- 修复 Console production build 缺少 Node 类型声明的问题，补充 `@types/node`。
+- `npm test -- --run`：79/79 通过；`npm run build`、`npm run lint`、`npm run format:check` 通过。
+- 使用 Ubuntu L5 NodePort 和真实 Keycloak 账号完成 Playwright OIDC 登录回跳及 Overview、Teams、Tasks、Workers、对话页面 SPA 导航验收；未发现 4xx/5xx 或页面运行时错误。
+
+本记录只标记本轮实际执行过的验证，不替代尚未单独执行的生产 IdP、外部 Secret 和多节点验收。
+
 ---
 
 ## 文件清单
@@ -148,3 +156,9 @@ it('renders the AgentTeams console shell', () => {
 - [ ] **步骤 2：运行组件测试。** `cd console && npm test -- --run`，预期全部通过。
 - [ ] **步骤 3：运行构建。** `cd console && npm run build`，预期生成 `console/dist`。
 - [ ] **步骤 4：Commit。** `git commit --allow-empty -m "test(console): 完成管理端 SPA 验证"`
+
+### 本轮修复记录（2026-08-30）
+
+- 首页“进入控制台”改为进入统一的 `/console` 入口；未认证时由统一鉴权守卫进入 OIDC，认证完成后加载首个授权 Project 并跳转到其 Overview。
+- 新增 `ConsoleEntryPage`，处理 Project 加载中、请求失败和无授权 Project 状态，避免登录回调落回公开首页形成登录循环。
+- 回归测试覆盖首页 CTA、OIDC 登录以及真实 L5 环境的最终 Project 路由；本地 79 个前端测试、构建、Lint、格式检查均通过，L5 Playwright 3/3 通过。
