@@ -55,6 +55,19 @@ public class TeamDeploymentRepository {
                 deployment.version()));
     }
 
+    public List<TeamDeployment> list(UUID teamId) {
+        return jdbc.query("""
+                SELECT id, team_id, team_revision, status, version, created_at, idempotency_key
+                  FROM team_deployments WHERE team_id = ?
+                 ORDER BY created_at DESC, id DESC
+                """, (rs, row) -> mapDeployment(rs), java.util.Objects.requireNonNull(teamId, "teamId"))
+                .stream()
+                .map(deployment -> new TeamDeployment(deployment.id(), deployment.teamId(),
+                        deployment.teamRevision(), deployment.status(), members(deployment.id()),
+                        deployment.createdAt(), deployment.idempotencyKey(), deployment.version()))
+                .toList();
+    }
+
     public Optional<TeamDeployment> findByIdempotencyKey(UUID teamId, String idempotencyKey) {
         return jdbc.query("""
                 SELECT id, team_id, team_revision, status, version, created_at, idempotency_key

@@ -3,6 +3,7 @@ import {
   normalizeCursorPage,
   type CursorPage,
   type Team,
+  type TeamDeployment,
   type TeamMember,
   type TeamPolicy,
   type TeamRevision,
@@ -49,4 +50,16 @@ export function updatePolicy(
 }
 export function listRevisions(teamId: string, client: HttpClient = apiClient) {
   return client.request<TeamRevision[]>(`/api/v1/teams/${teamId}/revisions`);
+}
+
+export function listDeployments(teamId: string, client: HttpClient = apiClient) {
+  return client.request<TeamDeployment[]>(`/api/v1/teams/${teamId}/deployments`);
+}
+
+export function getDeployment(
+  teamId: string,
+  deploymentId: string,
+  client: HttpClient = apiClient,
+) {
+  return client.request<TeamDeployment>(`/api/v1/teams/${teamId}/deployments/${deploymentId}`);
 }

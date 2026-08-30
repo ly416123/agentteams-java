@@ -173,6 +173,11 @@ public final class TeamController {
                 request == null ? "api" : actor(request.actor()), idempotencyKey));
     }
 
+    @GetMapping("/{teamId}/deployments")
+    public List<DeploymentResponse> deployments(@PathVariable UUID teamId) {
+        return deployments.list(teamId).stream().map(DeploymentResponse::from).toList();
+    }
+
     @GetMapping("/{teamId}/deployments/{deploymentId}")
     public DeploymentResponse deployment(@PathVariable UUID teamId, @PathVariable UUID deploymentId) {
         return DeploymentResponse.from(deployments.find(deploymentId, teamId));

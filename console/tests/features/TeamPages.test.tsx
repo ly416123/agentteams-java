@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TeamCreatePage } from '../../src/features/teams/TeamCreatePage';
 import { TeamDetailPage } from '../../src/features/teams/TeamDetailPage';
 import { TeamListPage } from '../../src/features/teams/TeamListPage';
+import { listDeployments } from '../../src/api/teams';
 
 vi.mock('../../src/api/teams', () => ({
   listTeams: vi.fn().mockResolvedValue([
@@ -95,7 +96,15 @@ vi.mock('../../src/api/teams', () => ({
 function renderWithQuery(ui: React.ReactNode) {
   return render(
     <MemoryRouter>
-      <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false } },
+          })
+        }
+      >
+        {ui}
+      </QueryClientProvider>
     </MemoryRouter>,
   );
 }
@@ -123,10 +132,30 @@ describe('Team pages', () => {
     renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
     expect(await screen.findByText('平台 Team')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: '版本与部署' }));
-    expect(screen.getByText(/后端暂未提供部署列表接口/)).toBeInTheDocument();
+    expect(await screen.findByText('Deployment #d-1')).toBeInTheDocument();
+    expect(screen.getByText('Revision 3')).toBeInTheDocument();
+    expect(screen.getByText('就绪')).toBeInTheDocument();
     for (const tab of ['成员 Agent', '策略', '运行记录']) {
       await userEvent.click(screen.getByRole('tab', { name: tab }));
       expect(screen.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
     }
+  });
+
+  it('shows an empty state when the Team has no deployments', async () => {
+    vi.mocked(listDeployments).mockResolvedValueOnce([]);
+    renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: '版本与部署' }));
+    expect(await screen.findByText('暂无部署')).toBeInTheDocument();
+    expect(screen.getByText(/发布 Team 版本后/)).toBeInTheDocument();
+  });
+
+  it('shows the API error and retry action when deployment loading fails', async () => {
+    vi.mocked(listDeployments).mockRejectedValue(new Error('deployment request failed'));
+    renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: '版本与部署' }));
+    expect(await screen.findByText('加载失败')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
   });
 });

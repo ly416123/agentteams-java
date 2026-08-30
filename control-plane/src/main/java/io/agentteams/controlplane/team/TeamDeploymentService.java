@@ -153,6 +153,11 @@ public final class TeamDeploymentService {
         return deployment;
     }
 
+    public List<TeamDeployment> list(UUID teamId) {
+        requireTeamScope(teamId);
+        return repository.list(Objects.requireNonNull(teamId, "teamId"));
+    }
+
     public void retry(UUID deploymentId, UUID teamId) {
         find(deploymentId, teamId);
         retry(deploymentId);

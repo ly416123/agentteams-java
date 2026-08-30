@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { getDashboardSummary } from '../../src/api/overview';
 import { listProjects } from '../../src/api/projects';
 import { createTask, listTasks } from '../../src/api/tasks';
-import { listTeams } from '../../src/api/teams';
+import { getDeployment, listDeployments, listTeams } from '../../src/api/teams';
 import { listOperations, listWorkers } from '../../src/api/workers';
 
 describe('API contracts', () => {
@@ -147,5 +147,22 @@ describe('API contracts', () => {
     expect(client.request).toHaveBeenCalledWith('/api/v1/teams/page', {
       query: { q: 'platform' },
     });
+  });
+
+  it('requests real Team deployment list and detail endpoints', async () => {
+    const client = {
+      request: vi.fn().mockResolvedValue([]),
+      requestText: vi.fn(),
+      requestStream: vi.fn(),
+    };
+
+    await listDeployments('team-1', client);
+    await getDeployment('team-1', 'deployment-1', client);
+
+    expect(client.request).toHaveBeenNthCalledWith(1, '/api/v1/teams/team-1/deployments');
+    expect(client.request).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/teams/team-1/deployments/deployment-1',
+    );
   });
 });

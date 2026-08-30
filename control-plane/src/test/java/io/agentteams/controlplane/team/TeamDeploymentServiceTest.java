@@ -87,6 +87,22 @@ class TeamDeploymentServiceTest {
     }
 
     @Test
+    void listsDeploymentsWithinTheAuthenticatedTeamScope() {
+        TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
+        ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
+        ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
+        UUID teamId = UUID.randomUUID();
+        TeamDeployment deployment = TeamDeployment.create(UUID.randomUUID(), teamId, 3,
+                List.of(new TeamDeployment.Member(UUID.randomUUID())), NOW, "deploy-key");
+        when(repository.list(teamId)).thenReturn(List.of(deployment));
+        TeamDeploymentService service = scopedService(repository, snapshots, deployments);
+
+        assertThat(service.list(teamId)).containsExactly(deployment);
+        verify(repository).list(teamId);
+        verify(scopes).requireVisible("TEAM", teamId);
+    }
+
+    @Test
     void partialFailureRetryOnlyReleasesFailedMemberBinding() {
         ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
         ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);

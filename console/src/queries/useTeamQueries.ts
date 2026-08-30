@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createTeam,
   getPolicy,
+  getDeployment,
   getTeam,
+  listDeployments,
   listMembers,
   listRevisions,
   listTeams,
@@ -45,6 +47,21 @@ export function useTeamRevisions(projectId: string, teamId: string) {
     queryKey: queryKeys.teamRevisions(projectId, teamId),
     queryFn: () => listRevisions(teamId),
     enabled: Boolean(projectId && teamId),
+  });
+}
+export function useTeamDeployments(projectId: string, teamId: string) {
+  return useQuery({
+    queryKey: queryKeys.teamDeployments(projectId, teamId),
+    queryFn: () => listDeployments(teamId),
+    enabled: Boolean(projectId && teamId),
+  });
+}
+
+export function useTeamDeployment(projectId: string, teamId: string, deploymentId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.teamDeployments(projectId, teamId), deploymentId],
+    queryFn: () => getDeployment(teamId, deploymentId),
+    enabled: Boolean(projectId && teamId && deploymentId),
   });
 }
 export function useCreateTeam(projectId: string) {

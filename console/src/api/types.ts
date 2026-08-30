@@ -92,7 +92,14 @@ export type TeamDeployment = {
   teamId: string;
   teamRevision: number;
   status: string;
-  members: Array<{ agentId: string; baseManifest: string; taskOverlay: string }>;
+  members: Array<{
+    agentId: string;
+    baseManifest?: string | null;
+    taskOverlay?: string | null;
+    bindingId?: string | null;
+    status: string;
+    failureCode?: string | null;
+  }>;
   createdAt: string;
 };
 

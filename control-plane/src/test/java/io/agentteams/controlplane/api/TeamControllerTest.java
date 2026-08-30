@@ -20,6 +20,7 @@ import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
 import io.agentteams.controlplane.service.TeamService;
 import io.agentteams.controlplane.team.TeamDeploymentService;
+import io.agentteams.controlplane.team.TeamDeployment;
 import io.agentteams.controlplane.team.TeamRevision;
 import io.agentteams.controlplane.team.TeamRevisionService;
 import io.agentteams.controlplane.team.TeamRevisionStatus;
@@ -219,5 +220,36 @@ class TeamControllerTest {
                 .andExpect(jsonPath("$.hasMore").value(true));
         verify(service).list(any(), org.mockito.ArgumentMatchers.eq("ACTIVE"),
                 org.mockito.ArgumentMatchers.eq("research"));
+    }
+
+    @Test
+    void exposesTeamDeploymentListAndDetailWithTheExistingDeploymentDto() throws Exception {
+        UUID teamId = UUID.randomUUID();
+        UUID deploymentId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        TeamDeployment deployment = TeamDeployment.create(deploymentId, teamId, 8,
+                List.of(new TeamDeployment.Member(agentId, "{}", "{}", UUID.randomUUID(), "SUCCEEDED", null)),
+                now, "deploy-key");
+        when(deployments.list(teamId)).thenReturn(List.of(deployment));
+        when(deployments.find(deploymentId, teamId)).thenReturn(deployment);
+
+        mockMvc = MockMvcBuilders.standaloneSetup(new TeamController(service, revisions, deployments))
+                .setControllerAdvice(new ApiErrorHandler()).build();
+
+        mockMvc.perform(get("/api/v1/teams/{teamId}/deployments", teamId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(deploymentId.toString()))
+                .andExpect(jsonPath("$[0].teamId").value(teamId.toString()))
+                .andExpect(jsonPath("$[0].teamRevision").value(8))
+                .andExpect(jsonPath("$[0].status").value("PENDING"))
+                .andExpect(jsonPath("$[0].members[0].status").value("SUCCEEDED"));
+        mockMvc.perform(get("/api/v1/teams/{teamId}/deployments/{deploymentId}", teamId, deploymentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(deploymentId.toString()))
+                .andExpect(jsonPath("$.members[0].agentId").value(agentId.toString()));
+
+        verify(deployments).list(teamId);
+        verify(deployments).find(deploymentId, teamId);
     }
 }
