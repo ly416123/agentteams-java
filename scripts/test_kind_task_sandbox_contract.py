@@ -65,7 +65,10 @@ class TaskSandboxHelmContractTest(unittest.TestCase):
         self.assertEqual(["workers", "teams"], main_rule["resources"])
         self.assertEqual(["get", "list", "watch"], main_rule["verbs"])
         self.assertEqual(["tasksandboxes"], sandbox_rule["resources"])
-        self.assertEqual(["get", "list", "watch"], sandbox_rule["verbs"])
+        self.assertEqual(
+            ["get", "list", "watch", "update", "patch"],
+            sandbox_rule["verbs"],
+        )
         self.assertEqual(
             ["workers/status", "teams/status"],
             status_rule["resources"],

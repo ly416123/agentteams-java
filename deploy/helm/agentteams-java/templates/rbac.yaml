@@ -9,7 +9,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["agentteams.io"]
     resources: ["tasksandboxes"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["agentteams.io"]
     resources: ["tasksandboxes/status"]
     verbs: ["get", "patch", "update"]
