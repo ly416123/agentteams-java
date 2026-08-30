@@ -13,6 +13,9 @@ PORT_FORWARD_PID=""
 KEYCLOAK_PORT="${KIND_KEYCLOAK_LOCAL_PORT:-18082}"
 KEYCLOAK_LOG="${TMP_DIR}/agentteams-qwenpaw-deepseek-keycloak.log"
 KEYCLOAK_PID=""
+SMOKE_MEMBERSHIP_SUBJECT=""
+SMOKE_MEMBERSHIP_PREVIOUS_ROLE=""
+SMOKE_MEMBERSHIP_CHANGED="0"
 API_AUTH_ARGS=()
 SCOPE_TENANT="${AGENTTEAMS_SCOPE_TENANT:-tenant-a}"
 SCOPE_PROJECT="${AGENTTEAMS_SCOPE_PROJECT:-project-a}"
@@ -27,6 +30,23 @@ curl_api() {
 }
 
 cleanup() {
+  if [[ "${SMOKE_MEMBERSHIP_CHANGED}" == "1" && -n "${SMOKE_MEMBERSHIP_SUBJECT}" ]]; then
+    DB_PASSWORD="$(kubectl -n "${NAMESPACE}" get secret agentteams-database \
+      -o jsonpath='{.data.password}' | base64 --decode 2>/dev/null || true)"
+    if [[ -n "${DB_PASSWORD}" ]]; then
+      if [[ -n "${SMOKE_MEMBERSHIP_PREVIOUS_ROLE}" ]]; then
+        kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+          psql -U agentteams -d agentteams -v ON_ERROR_STOP=1 -c \
+          "UPDATE project_memberships SET role='${SMOKE_MEMBERSHIP_PREVIOUS_ROLE}', updated_at=now() WHERE subject='${SMOKE_MEMBERSHIP_SUBJECT}' AND tenant_id='${SCOPE_TENANT}' AND project_id=(SELECT id FROM projects WHERE tenant_id='${SCOPE_TENANT}' AND name='${SCOPE_PROJECT}');" \
+          >/dev/null 2>&1 || true
+      else
+        kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+          psql -U agentteams -d agentteams -v ON_ERROR_STOP=1 -c \
+          "DELETE FROM project_memberships WHERE subject='${SMOKE_MEMBERSHIP_SUBJECT}' AND tenant_id='${SCOPE_TENANT}' AND project_id=(SELECT id FROM projects WHERE tenant_id='${SCOPE_TENANT}' AND name='${SCOPE_PROJECT}');" \
+          >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
   if [[ -n "${KEYCLOAK_PID}" ]]; then
     kill "${KEYCLOAK_PID}" >/dev/null 2>&1 || true
     wait "${KEYCLOAK_PID}" >/dev/null 2>&1 || true
@@ -39,7 +59,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command_name in curl jq kubectl; do
+for command_name in curl jq kubectl python3; do
   command -v "${command_name}" >/dev/null || {
     echo "${command_name} is required" >&2
     exit 1
@@ -77,6 +97,32 @@ else
     --data-urlencode "password=${AGENTTEAMS_API_PASSWORD:-alice-dev}")"
   TOKEN="$(jq -er '.access_token' <<<"${token_response}")"
   API_AUTH_ARGS=(-H "Authorization: Bearer ${TOKEN}")
+
+  SMOKE_MEMBERSHIP_SUBJECT="$(python3 - "${TOKEN}" <<'PY'
+import base64
+import json
+import sys
+
+payload = sys.argv[1].split('.')[1]
+payload += '=' * (-len(payload) % 4)
+print(json.loads(base64.urlsafe_b64decode(payload))['sub'])
+PY
+)"
+  [[ "${SMOKE_MEMBERSHIP_SUBJECT}" =~ ^[A-Za-z0-9._:-]{1,255}$ ]] || {
+    echo "OIDC token subject has an unexpected format" >&2
+    exit 1
+  }
+  DB_PASSWORD="$(kubectl -n "${NAMESPACE}" get secret agentteams-database \
+    -o jsonpath='{.data.password}' | base64 --decode)"
+  SMOKE_MEMBERSHIP_PREVIOUS_ROLE="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+    psql -U agentteams -d agentteams -At -c \
+    "SELECT role FROM project_memberships WHERE subject='${SMOKE_MEMBERSHIP_SUBJECT}' AND tenant_id='${SCOPE_TENANT}' AND project_id=(SELECT id FROM projects WHERE tenant_id='${SCOPE_TENANT}' AND name='${SCOPE_PROJECT}') LIMIT 1;" \
+    2>/dev/null || true)"
+  kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+    psql -U agentteams -d agentteams -v ON_ERROR_STOP=1 -c \
+    "INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version) SELECT '${SCOPE_TENANT}', id, '${SMOKE_MEMBERSHIP_SUBJECT}', 'OPERATOR', 'ACTIVE', now(), now(), 0 FROM projects WHERE tenant_id='${SCOPE_TENANT}' AND name='${SCOPE_PROJECT}' ON CONFLICT (tenant_id, project_id, subject) DO UPDATE SET role='OPERATOR', status='ACTIVE', updated_at=now();" \
+    >/dev/null
+  SMOKE_MEMBERSHIP_CHANGED="1"
 fi
 
 kubectl -n "${NAMESPACE}" wait --for=condition=available \
