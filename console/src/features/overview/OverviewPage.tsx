@@ -56,7 +56,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           value={tasks.total}
           detail={`${formatCount(tasks.running)} 个执行中`}
           tone="info"
-          error={errors?.tasks}
+          error={errors?.resources ?? errors?.tasks}
           unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
@@ -65,7 +65,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           value={tasks.succeeded}
           detail={`${formatCount(tasks.failed)} 个失败`}
           tone="success"
-          error={errors?.tasks}
+          error={errors?.resources ?? errors?.tasks}
           unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
@@ -74,7 +74,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           value={workers.ready}
           detail={`${formatCount(workers.connecting)} 个连接中`}
           tone="success"
-          error={errors?.workers}
+          error={errors?.resources}
           unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
@@ -83,7 +83,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           value={teams.active}
           detail={`共 ${formatCount(teams.total)} 个 Team`}
           tone="neutral"
-          error={errors?.teams}
+          error={errors?.resources}
           unavailable={metricsUnavailable}
           onRetry={() => void overview.refetch()}
         />
@@ -126,9 +126,18 @@ export function OverviewPage({ projectId }: { projectId: string }) {
             <ErrorState error={errors.summary} onRetry={() => void overview.refetch()} />
           ) : usage ? (
             <div className="usage-summary">
-              <div><span>调用次数</span><strong>{usage.calls}</strong></div>
-              <div><span>失败次数</span><strong>{usage.failures}</strong></div>
-              <div><span>估算成本</span><strong>${usage.estimatedCostUsd.toFixed(4)}</strong></div>
+              <div>
+                <span>调用次数</span>
+                <strong>{usage.calls}</strong>
+              </div>
+              <div>
+                <span>失败次数</span>
+                <strong>{usage.failures}</strong>
+              </div>
+              <div>
+                <span>估算成本</span>
+                <strong>${usage.estimatedCostUsd.toFixed(4)}</strong>
+              </div>
             </div>
           ) : (
             <EmptyState title="暂无调用数据" description="当前时间范围内没有模型调用记录。" />

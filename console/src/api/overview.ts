@@ -1,11 +1,15 @@
 import { apiClient, type HttpClient } from './httpClient';
 import { listTasks } from './tasks';
-import { listTeams } from './teams';
-import { listWorkers } from './workers';
-import type { DashboardSummary, Overview } from './types';
+import type { DashboardResources, DashboardSummary, Overview } from './types';
 
 export function getDashboardSummary(projectId: string, client: HttpClient = apiClient) {
   return client.request<DashboardSummary>('/api/v1/dashboard/summary', {
+    query: { projectId },
+  });
+}
+
+export function getDashboardResources(projectId: string, client: HttpClient = apiClient) {
+  return client.request<DashboardResources>('/api/v1/dashboard/resources', {
     query: { projectId },
   });
 }
@@ -20,45 +24,42 @@ export async function getOverview(
   projectId: string,
   client: HttpClient = apiClient,
 ): Promise<Overview> {
-  const [summaryResult, alertsResult, teamsResult, tasksResult, workersResult] =
-    await Promise.allSettled([
-      getDashboardSummary(projectId, client),
-      listDashboardAlerts(client),
-      listTeams(projectId, {}, client),
-      listTasks(projectId, {}, client),
-      listWorkers(projectId, {}, client),
-    ]);
+  const [summaryResult, alertsResult, resourcesResult, tasksResult] = await Promise.allSettled([
+    getDashboardSummary(projectId, client),
+    listDashboardAlerts(client),
+    getDashboardResources(projectId, client),
+    listTasks(projectId, {}, client),
+  ]);
   const summary = summaryResult.status === 'fulfilled' ? summaryResult.value : undefined;
   const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value : [];
-  const teams = teamsResult.status === 'fulfilled' ? teamsResult.value : undefined;
+  const resources = resourcesResult.status === 'fulfilled' ? resourcesResult.value : undefined;
   const tasks = tasksResult.status === 'fulfilled' ? tasksResult.value : undefined;
   const errors: Overview['errors'] = {};
   if (summaryResult.status === 'rejected') errors.summary = summaryResult.reason;
   if (alertsResult.status === 'rejected') errors.alerts = alertsResult.reason;
-  if (teamsResult.status === 'rejected') errors.teams = teamsResult.reason;
+  if (resourcesResult.status === 'rejected') errors.resources = resourcesResult.reason;
   if (tasksResult.status === 'rejected') errors.tasks = tasksResult.reason;
-  if (workersResult.status === 'rejected') errors.workers = workersResult.reason;
   if (summaryResult.status === 'rejected' && isForbidden(summaryResult.reason)) {
     throw summaryResult.reason;
   }
   const taskItems = tasks?.items || [];
   return {
     tasks: {
-      total: tasks?.total ?? null,
-      queued: null,
-      running: null,
-      succeeded: null,
-      failed: null,
+      total: resources?.tasks.total ?? null,
+      queued: resources?.tasks.queued ?? null,
+      running: resources?.tasks.running ?? null,
+      succeeded: resources?.tasks.succeeded ?? null,
+      failed: resources?.tasks.failed ?? null,
     },
     workers: {
-      ready: null,
-      connecting: null,
-      unhealthy: null,
-      draining: null,
+      ready: resources?.workers.ready ?? null,
+      connecting: resources?.workers.connecting ?? null,
+      unhealthy: resources?.workers.unhealthy ?? null,
+      draining: resources?.workers.draining ?? null,
     },
     teams: {
-      total: teams?.total ?? null,
-      active: null,
+      total: resources?.teams.total ?? null,
+      active: resources?.teams.active ?? null,
     },
     recentTasks: taskItems.slice(0, 5),
     alerts: alerts.map((alert, index) => ({
@@ -69,7 +70,7 @@ export async function getOverview(
     })),
     usage: summary,
     errors: Object.keys(errors).length ? errors : undefined,
-    metricsUnavailable: true,
+    metricsUnavailable: resourcesResult.status !== 'fulfilled',
   };
 }
 

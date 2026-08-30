@@ -160,6 +160,23 @@ export type DashboardSummary = {
   groups: DashboardGroup[];
 };
 
+export type DashboardResources = {
+  tasks: {
+    total: number;
+    queued: number;
+    running: number;
+    succeeded: number;
+    failed: number;
+  };
+  workers: {
+    ready: number;
+    connecting: number;
+    unhealthy: number;
+    draining: number;
+  };
+  teams: { total: number; active: number };
+};
+
 export type TaskEvent = {
   id: string;
   cursor?: string;
@@ -219,6 +236,6 @@ export type Overview = {
   recentTasks: Task[];
   alerts: Array<{ id: string; severity: string; message: string; createdAt: string }>;
   usage?: DashboardSummary;
-  errors?: Partial<Record<'summary' | 'alerts' | 'teams' | 'tasks' | 'workers', unknown>>;
+  errors?: Partial<Record<'summary' | 'alerts' | 'resources' | 'tasks', unknown>>;
   metricsUnavailable?: boolean;
 };

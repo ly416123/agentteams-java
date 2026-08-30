@@ -1,11 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getDashboardSummary } from '../../src/api/overview';
+import { getDashboardResources, getDashboardSummary } from '../../src/api/overview';
 import { listProjects } from '../../src/api/projects';
 import { createTask, listTasks } from '../../src/api/tasks';
 import { getDeployment, listDeployments, listTeams } from '../../src/api/teams';
 import { listOperations, listWorkers } from '../../src/api/workers';
 
 describe('API contracts', () => {
+  it('requests project-scoped dashboard resource aggregates', async () => {
+    const client = {
+      request: vi.fn().mockResolvedValue({
+        tasks: { total: 24, queued: 4, running: 3, succeeded: 15, failed: 2 },
+        workers: { ready: 5, connecting: 1, unhealthy: 0, draining: 1 },
+        teams: { total: 3, active: 2 },
+      }),
+      requestText: vi.fn(),
+      requestStream: vi.fn(),
+    };
+
+    await getDashboardResources('p-1', client);
+
+    expect(client.request).toHaveBeenCalledWith('/api/v1/dashboard/resources', {
+      query: { projectId: 'p-1' },
+    });
+  });
+
   it('requests the DashboardSummaryController endpoint', async () => {
     const client = {
       request: vi.fn().mockResolvedValue({ calls: 4 }),
