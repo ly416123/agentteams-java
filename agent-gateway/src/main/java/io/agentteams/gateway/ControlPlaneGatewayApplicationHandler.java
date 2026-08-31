@@ -9,6 +9,7 @@ import io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand;
 import io.agentteams.application.api.ExecutionEventPort.RejectionCommand;
 import io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand;
 import io.agentteams.application.api.ExecutionEventPort.ModelCallUsage;
+import io.agentteams.application.api.TaskExecutionObservationPort;
 import io.agentteams.contracts.v1.ArtifactRef;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.TaskAccepted;
@@ -30,16 +31,23 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
 
     private final ExecutionEventPort executionEvents;
     private final ConfigEventPort configEvents;
+    private final TaskExecutionObservationPort observations;
     private final Clock clock;
 
     public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents, Clock clock) {
-        this(executionEvents, command -> { }, clock);
+        this(executionEvents, command -> { }, TaskExecutionObservationPort.noop(), clock);
     }
 
     public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, Clock clock) {
+        this(executionEvents, configEvents, TaskExecutionObservationPort.noop(), clock);
+    }
+
+    public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, TaskExecutionObservationPort observations, Clock clock) {
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
         this.configEvents = Objects.requireNonNull(configEvents, "configEvents");
+        this.observations = Objects.requireNonNull(observations, "observations");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -92,11 +100,16 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
             return;
         }
         apply(connection, event.getMetadata(), ExecutionPhase.ACCEPTED, "", "", List.of());
+        observeAccepted(event.getMetadata());
     }
 
     @Override
     public void taskProgress(ConnectionRegistry.ConnectionSnapshot connection, TaskProgress event) {
         apply(connection, event.getMetadata(), ExecutionPhase.RUNNING, "", "", List.of());
+        EventMetadata metadata = event.getMetadata();
+        observations.progress(uuid(metadata.getTaskId(), "task_id"), uuid(metadata.getAttemptId(), "attempt_id"),
+                uuid(metadata.getEventId(), "event_id"), occurredAt(metadata), correlationId(metadata),
+                event.getPercent(), event.getStatus(), event.getMessage());
     }
 
     @Override
@@ -127,6 +140,10 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         apply(connection, metadata, ExecutionPhase.SUCCEEDED, "", "",
                 event.getArtifactsList().stream().map(artifact -> artifact(artifact, metadata, occurredAt)).toList(),
                 event.hasModelCall() ? modelCallUsage(event.getModelCall(), metadata, connection.agentId()) : null);
+        observations.completed(uuid(metadata.getTaskId(), "task_id"), uuid(metadata.getAttemptId(), "attempt_id"),
+                uuid(metadata.getEventId(), "event_id"), occurredAt, correlationId(metadata),
+                event.getResultJson().isEmpty() ? "task completed" : event.getResultJson().toStringUtf8(),
+                event.getArtifactsList().stream().map(artifact -> artifact(artifact, metadata, occurredAt)).toList());
     }
 
     @Override
@@ -136,6 +153,14 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
                 : event.getMessage() + "\n" + event.getDetails();
         apply(connection, metadata, ExecutionPhase.FAILED, event.getCode(), details, List.of(),
                 event.hasModelCall() ? modelCallUsage(event.getModelCall(), metadata, connection.agentId()) : null);
+        observations.failed(uuid(metadata.getTaskId(), "task_id"), uuid(metadata.getAttemptId(), "attempt_id"),
+                uuid(metadata.getEventId(), "event_id"), occurredAt(metadata), correlationId(metadata),
+                event.getCode(), details);
+    }
+
+    private void observeAccepted(EventMetadata metadata) {
+        observations.accepted(uuid(metadata.getTaskId(), "task_id"), uuid(metadata.getAttemptId(), "attempt_id"),
+                uuid(metadata.getEventId(), "event_id"), occurredAt(metadata), correlationId(metadata));
     }
 
     private void apply(ConnectionRegistry.ConnectionSnapshot connection, EventMetadata metadata,

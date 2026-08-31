@@ -15,6 +15,7 @@ import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
 import io.agentteams.application.api.ExecutionEventPort.ExecutionPhase;
 import io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand;
 import io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand;
+import io.agentteams.application.api.TaskExecutionObservationPort;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.TaskAccepted;
 import io.agentteams.contracts.v1.TaskCompleted;
@@ -62,6 +63,27 @@ class ControlPlaneGatewayApplicationHandlerTest {
         TaskExecutionCommand failure = commands.getAllValues().get(3);
         assertThat(failure.failureMessage()).doesNotContain("secret", "hidden")
                 .contains("[REDACTED]");
+    }
+
+    @Test
+    void emitsWorkerLifecycleObservationsAfterStateEventsAreAccepted() {
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
+        TaskExecutionObservationPort observations = mock(TaskExecutionObservationPort.class);
+        ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service,
+                command -> { }, observations, clock());
+
+        handler.taskAccepted(connection(), TaskAccepted.newBuilder().setMetadata(metadata("accepted-observation", 1))
+                .setAccepted(true).build());
+        handler.taskProgress(connection(), TaskProgress.newBuilder().setMetadata(metadata("progress-observation", 2))
+                .setPercent(45).setStatus("running").setMessage("phase started").build());
+        handler.taskCompleted(connection(), TaskCompleted.newBuilder().setMetadata(metadata("completed-observation", 3))
+                .setResultJson(ByteString.copyFromUtf8("{\"answer\":\"ok\"}")).build());
+
+        verify(observations).accepted(eq(TASK_ID), eq(ATTEMPT_ID), any(), eq(AT), eq("unknown"));
+        verify(observations).progress(eq(TASK_ID), eq(ATTEMPT_ID), any(), eq(AT), eq("unknown"), eq(45),
+                eq("running"), eq("phase started"));
+        verify(observations).completed(eq(TASK_ID), eq(ATTEMPT_ID), any(), eq(AT), eq("unknown"),
+                eq("{\"answer\":\"ok\"}"), any());
     }
 
     @Test
