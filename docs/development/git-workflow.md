@@ -46,6 +46,14 @@ mvn -q -Pintegration-tests verify
 
 L5 不得用本地 Kind、Fake Provider、静态模板或“环境不可用”替代。任一本地 Docker 或 L5 门禁未通过时，变更只能标记为“开发完成、待验收”，不得标记批次完成、不得进入主线集成；后续修改镜像、Operator、Helm 或运行时行为后必须重新执行受影响的 L5 场景。L6 仍按路线图使用独立的受控环境，不因本条约束自动纳入普通批量开发。
 
+### 执行平面并行开发边界
+
+执行平面允许并行推进的职责包括 MCP Connector 协议、Token Ledger、对话转任务、实时事件消费和 SDK 适配；这些任务必须通过已冻结的 Organization/Tenant、Sandbox Policy、MCP Connection 和任务过程契约接入。
+
+以下内容属于共享模型的串行变更：Organization/Tenant 主键与兼容映射、SandboxPolicy 字段和合并语义、MCP Connection 唯一键、任务过程事件 sequence 规则、事件可见性枚举。修改这些边界前，必须先更新架构规格、实现计划和对应迁移，再暂停依赖该模型的并行分支进行回归。
+
+本地统一门禁入口为 `bash scripts/enterprise-execution-contract.sh`。它覆盖应用契约、Control Plane、真实 Testcontainers 迁移、源码/发布契约、API 契约、Helm 和 diff 检查；涉及 Kubernetes、Operator、Worker、TaskSandbox 或 RuntimeClass 的变更，仍需追加 Ubuntu/KVM L5 真实验收。
+
 合并前至少检查以下内容：
 
 ```bash
