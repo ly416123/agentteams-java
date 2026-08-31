@@ -13,9 +13,16 @@ public record SandboxProvisionCommand(
         Duration ttl,
         String template,
         Instant requestedAt,
-        String idempotencyKey) {
+        String idempotencyKey,
+        SandboxPolicy policy) {
 
     private static final Duration MAX_TTL = Duration.ofHours(24);
+
+    public SandboxProvisionCommand(UUID taskId, UUID attemptId, SandboxProfile profile, Duration ttl,
+            String template, Instant requestedAt, String idempotencyKey) {
+        this(taskId, attemptId, profile, ttl, template, requestedAt, idempotencyKey,
+                new SandboxRequest(taskId, attemptId, profile, ttl, template, requestedAt, idempotencyKey).policy());
+    }
 
     public SandboxProvisionCommand {
         Objects.requireNonNull(taskId, "taskId must not be null");
@@ -23,6 +30,10 @@ public record SandboxProvisionCommand(
         Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(ttl, "ttl must not be null");
         Objects.requireNonNull(requestedAt, "requestedAt must not be null");
+        Objects.requireNonNull(policy, "policy must not be null");
+        if (policy.profile() != profile || !policy.ttl().equals(ttl)) {
+            throw new IllegalArgumentException("sandbox policy must match command profile and ttl");
+        }
         if (ttl.isZero() || ttl.isNegative() || ttl.compareTo(MAX_TTL) > 0) {
             throw new IllegalArgumentException("ttl must be greater than zero and no more than 24 hours");
         }
@@ -33,7 +44,7 @@ public record SandboxProvisionCommand(
     public static SandboxProvisionCommand from(SandboxRequest request) {
         Objects.requireNonNull(request, "request must not be null");
         return new SandboxProvisionCommand(request.taskId(), request.attemptId(), request.profile(), request.ttl(),
-                request.template(), request.requestedAt(), request.idempotencyKey());
+                request.template(), request.requestedAt(), request.idempotencyKey(), request.policy());
     }
 
     public Instant expiresAt() {

@@ -20,6 +20,7 @@ class SandboxRuntimeContractTest {
 
         assertEquals(SandboxProfile.NONE, request.profile());
         assertEquals(Duration.ofMinutes(30), request.ttl());
+        assertEquals(SandboxPolicy.defaults(), request.policy());
     }
 
     @Test

@@ -68,6 +68,18 @@ class SandboxProviderContractTest {
     }
 
     @Test
+    void provisionCommandCarriesTheResolvedSandboxPolicy() {
+        SandboxRequest request = SandboxRequest.of(TASK_ID, ATTEMPT_ID, SandboxProfile.ISOLATED,
+                Duration.ofMinutes(5), "python", NOW);
+
+        SandboxProvisionCommand command = SandboxProvisionCommand.from(request);
+
+        assertEquals(request.policy(), command.policy());
+        assertEquals(request.profile(), command.policy().profile());
+        assertEquals(request.ttl(), command.policy().ttl());
+    }
+
+    @Test
     void failureAndExceptionRedactSecretsAndBoundMessages() {
         String sensitive = "token=top-secret; " + "x".repeat(700);
 

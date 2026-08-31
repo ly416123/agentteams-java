@@ -178,6 +178,7 @@ public final class KubernetesSandboxRuntime implements SandboxRuntimePort {
         spec.put("template", command.template());
         spec.put("expiresAt", command.expiresAt().toString());
         spec.put("terminationRequested", false);
+        spec.put("policy", policySummary(command));
         setSpec(resource, spec);
         return resource;
     }
@@ -237,8 +238,29 @@ public final class KubernetesSandboxRuntime implements SandboxRuntimePort {
                 && command.profile().name().equals(text(spec.get("profile")))
                 && command.template().equals(text(spec.get("template")))
                 && command.expiresAt().toString().equals(text(spec.get("expiresAt")))
-                && properties.runtimeClassName(command.profile()).equals(text(spec.get("runtimeClassName")));
+                && properties.runtimeClassName(command.profile()).equals(text(spec.get("runtimeClassName")))
+                && samePolicy(spec.get("policy"), command);
         if (!same) throw conflict("TaskSandbox spec conflicts with the existing resource");
+    }
+
+    private static boolean samePolicy(Object existing, SandboxProvisionCommand command) {
+        return existing == null || policySummary(command).equals(existing);
+    }
+
+    private static Map<String, Object> policySummary(SandboxProvisionCommand command) {
+        var policy = command.policy();
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("provider", policy.provider());
+        summary.put("executionPlacement", policy.executionPlacement().name());
+        summary.put("cpuMillicores", policy.cpuMillicores());
+        summary.put("memoryMiB", policy.memoryMiB());
+        summary.put("ephemeralStorageMiB", policy.ephemeralStorageMiB());
+        summary.put("networkPolicy", policy.networkPolicy().name());
+        summary.put("allowedMcp", policy.allowedMcp());
+        summary.put("allowedDomains", policy.allowedDomains());
+        summary.put("allowSecretReferences", policy.allowSecretReferences());
+        if (policy.connectorId() != null) summary.put("connectorId", policy.connectorId());
+        return summary;
     }
 
     private void verifyUid(GenericKubernetesResource resource, SandboxProviderRef providerRef) {
