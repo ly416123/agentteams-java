@@ -77,6 +77,13 @@ agentteams:
       lease-duration: 30s
       batch-size: 16
       max-attempts: 5
+  artifact-retention:
+    successful-task-retention: 30d
+    failed-task-retention: 90d
+    temporary-upload-retention: 2h
+    legal-hold: false
+    batch-size: 100
+    cleanup-interval-ms: 300000
   sandbox:
     enabled: false
     provider: fake

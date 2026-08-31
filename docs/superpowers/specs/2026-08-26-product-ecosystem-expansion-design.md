@@ -159,6 +159,15 @@ public record ArtifactRetentionPolicy(
 - 审计保存对象键 hash、策略、操作者和结果，不保存预签名 URL；
 - 清理任务使用数据库 Scheduler Lease，多副本只执行一次。
 
+当前实现第一纵切已落在 `artifact_retention_project_policies`、
+`artifact_retention_task_overrides` 和 `artifact_retention_tombstones` 三张表：
+项目策略按现有 Task 的 tenant/project resource scope 解析，Task 覆盖优先于项目策略，
+部署默认策略作为最终回退；Tombstone 记录对象键 hash、策略来源和版本快照，实际删除仍通过
+现有 `ObjectStorage` Port 执行。删除成功保留 artifact 元数据并标记为 `DELETED`，失败以
+指数退避重试。当前临时窗口只覆盖已登记的非 `AVAILABLE` artifact，config upload 仍由
+既有专用生命周期清理任务负责。企业管理 API、Legal Hold 审批流和完整
+result-manifest/payload-ref 统一归档策略仍属于后续批次。
+
 ## 8. Sandbox Pool 与 CubeSandbox
 
 ### 8.1 Pool

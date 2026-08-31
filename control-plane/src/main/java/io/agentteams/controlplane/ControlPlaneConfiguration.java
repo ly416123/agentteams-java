@@ -16,6 +16,9 @@ import io.agentteams.controlplane.outbox.OutboxStore;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.artifact.ArtifactCompletionService;
 import io.agentteams.controlplane.artifact.ArtifactService;
+import io.agentteams.controlplane.artifact.ArtifactRetentionCleanupJob;
+import io.agentteams.controlplane.artifact.ArtifactRetentionPolicy;
+import io.agentteams.controlplane.artifact.ArtifactRetentionService;
 import io.agentteams.controlplane.config.ConfigLifecycleRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
@@ -531,6 +534,33 @@ public class ControlPlaneConfiguration {
     ArtifactCompletionService artifactCompletionService(FoundationPersistenceService persistence,
             ArtifactService artifacts, Clock clock) {
         return new ArtifactCompletionService(persistence, artifacts, clock);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({
+            io.agentteams.controlplane.artifact.ArtifactRetentionRepository.class, ObjectStorage.class})
+    ArtifactRetentionService artifactRetentionService(
+            io.agentteams.controlplane.artifact.ArtifactRetentionRepository repository, ObjectStorage storage,
+            Clock clock) {
+        return new ArtifactRetentionService(repository, storage, clock);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({ArtifactRetentionService.class,
+            SchedulerLeaseService.class})
+    ArtifactRetentionCleanupJob artifactRetentionCleanupJob(ArtifactRetentionService retention,
+            SchedulerLeaseService lease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.artifact-retention.successful-task-retention:30d}") java.time.Duration successfulRetention,
+            @Value("${agentteams.artifact-retention.failed-task-retention:90d}") java.time.Duration failedRetention,
+            @Value("${agentteams.artifact-retention.temporary-upload-retention:2h}") java.time.Duration temporaryRetention,
+            @Value("${agentteams.artifact-retention.legal-hold:false}") boolean legalHold,
+            @Value("${agentteams.artifact-retention.batch-size:100}") int batchSize) {
+        ArtifactRetentionPolicy fallback = new ArtifactRetentionPolicy(successfulRetention, failedRetention,
+                temporaryRetention, legalHold);
+        return new ArtifactRetentionCleanupJob(retention, lease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, fallback, batchSize);
     }
 
     @Bean

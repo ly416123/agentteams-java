@@ -8,7 +8,7 @@
 
 **技术栈：** Java 17、Spring Boot、Spring JDBC、PostgreSQL/Flyway、JUnit 5、AssertJ、Python 3 标准库、Bash、GitHub Actions、Docker Buildx、Helm。
 
-**执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口、Worker Template Registry 最小闭环，以及 Colima/Testcontainers 自动适配。随后已完成 Ubuntu/KVM L5 真实验收、批量功能双门禁约束、OpenAPI v1.0 与 Java/TypeScript SDK 核心客户端第一纵切、Webhook Channel SPI 出站第一纵切和 Matrix Channel 出站第一纵切。L6 真实验收、完整客户 Connector、企业审批、生产 Secret Manager、DingTalk Adapter 仍按路线图留在后续批次。
+**执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口、Worker Template Registry 最小闭环，以及 Colima/Testcontainers 自动适配。随后已完成 Ubuntu/KVM L5 真实验收、批量功能双门禁约束、OpenAPI v1.0 与 Java/TypeScript SDK 核心客户端第一纵切、Webhook Channel SPI 出站第一纵切、Matrix Channel 出站第一纵切和 Artifact 保留/合规清理第一纵切。L6 真实验收、完整客户 Connector、企业审批、生产 Secret Manager、DingTalk Adapter 仍按路线图留在后续批次。
 
 ## 下一阶段：公共 API 与 SDK 第一纵切
 
@@ -17,6 +17,14 @@
 - [x] 将 OpenAPI 契约、TypeScript 测试/构建和 Java SDK 纳入 CI 与 Maven 验证。
 - [x] 修复资源作用域收紧对未认证开发/内部集成调用的回归；OIDC 认证请求仍保持严格作用域校验。
 - [x] 完成 Channel SPI 的 Webhook 出站第一纵切和 Matrix 出站第一纵切；下一批扩展公共 API，并同步生成/维护双语言 SDK，继续推进 DingTalk Adapter。
+
+## 下一阶段：Artifact 保留与合规清理第一纵切
+
+- [x] 增加成功任务、失败任务、临时上传和 Legal Hold 的不可变策略值对象与默认配置。
+- [x] 增加项目默认策略和 Task 覆盖的持久化表，保留策略来源、版本和作用域。
+- [x] 采用数据库 Tombstone 记录删除意图，先持久化再异步删除对象；对象删除失败保留重试状态和退避时间。
+- [x] 使用数据库 Scheduler Lease 保护多副本清理任务；成功删除后将 artifact 标记为 `DELETED`，不破坏审计元数据和正常权限回收。
+- [x] 增加单元测试、Flyway 迁移、Spring 配置和 Helm 默认参数；本批仅影响 Control Plane/数据库/对象存储，不触发 L5 运行时验收。
 
 ## 后续批量开发强制门禁
 

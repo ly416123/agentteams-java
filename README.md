@@ -157,6 +157,18 @@ existing authorization boundary. JWKS caching and key refresh are delegated
 to Spring Security's Nimbus decoder; no OIDC client secret is stored in the
 application configuration.
 
+Artifact retention is enabled when object storage is enabled. The Control Plane
+uses deployment defaults of `30d` for successful tasks, `90d` for failed tasks,
+and `2h` for temporary uploads; project policies and Task overrides are stored
+separately. Cleanup first writes a database tombstone, then deletes the object
+through the storage port under a database scheduler lease. Failed deletions
+remain retryable, while Legal Hold creates a held tombstone and does not delete
+content. Artifact metadata is retained for audit and is marked `DELETED` only
+after the object deletion succeeds. The `2h` temporary window applies to tracked
+non-available artifact rows; the existing config-upload lifecycle keeps its
+dedicated pending-upload cleanup until the unified result-manifest/payload-ref
+retention model is delivered.
+
 ## Project environment and validation gate
 
 The primary local development environment is macOS with Colima and a working
