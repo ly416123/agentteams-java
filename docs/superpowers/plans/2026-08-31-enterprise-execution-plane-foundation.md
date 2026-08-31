@@ -14,7 +14,7 @@
 
 已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、Skill Manifest 能力声明解析与运行时策略收紧、Worker resourceBindings 的能力策略结构化校验和 RuntimeConfigSnapshot 传递、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
 
-本批次新增的治理状态迁移为 V65；本次新增 Token Ledger 迁移为 V66。本地全量 Maven 回归、66 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。最新 Worker/Runtime 配置传递变更已在 Ubuntu/KVM L5 主机 `192.168.122.55` 通过 gVisor/Kata 真实验收并完成清理。尚未宣称完成的后续项：完整客户 Connector、调度/定时任务、Webhook 投递、Manager/Worker 真实事件生产链路、Skill 能力策略与具体工具/网络运行时的最终执行拦截，以及 L6 生产验收。
+本批次新增的治理状态迁移为 V65；Token Ledger 迁移为 V66；定时任务迁移为 V67。本地全量 Maven 回归、67 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。最新 Worker/Runtime 配置传递变更已在 Ubuntu/KVM L5 主机 `192.168.122.55` 通过 gVisor/Kata 真实验收并完成清理。尚未宣称完成的后续项：完整客户 Connector、Webhook 投递、Manager/Worker 真实事件生产链路、Skill 能力策略与具体工具/网络运行时的最终执行拦截，以及 L6 生产验收。
 
 ---
 

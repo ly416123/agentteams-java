@@ -249,6 +249,111 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/scheduled-tasks:
+    get:
+      operationId: listScheduledTasks
+      tags: [ScheduledTasks]
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Scheduled task definitions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ScheduledTask' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      operationId: createScheduledTask
+      tags: [ScheduledTasks]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateScheduledTaskRequest' }
+      responses:
+        '201':
+          description: Created scheduled task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledTask' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/scheduled-tasks/{scheduleId}:
+    get:
+      operationId: getScheduledTask
+      tags: [ScheduledTasks]
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Scheduled task definition
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledTask' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/scheduled-tasks/{scheduleId}/pause:
+    post:
+      operationId: pauseScheduledTask
+      tags: [ScheduledTasks]
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleScopeRequest' }
+      responses:
+        '200':
+          description: Paused scheduled task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledTask' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/scheduled-tasks/{scheduleId}/resume:
+    post:
+      operationId: resumeScheduledTask
+      tags: [ScheduledTasks]
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleScopeRequest' }
+      responses:
+        '200':
+          description: Resumed scheduled task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledTask' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
 components:
   securitySchemes:
     BearerAuth:
@@ -291,6 +396,26 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ScheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    OrganizationId:
+      name: organizationId
+      in: query
+      required: true
+      schema: { type: string, minLength: 1 }
+    TenantId:
+      name: tenantId
+      in: query
+      required: true
+      schema: { type: string, minLength: 1 }
+    ProjectId:
+      name: projectId
+      in: query
+      required: false
+      schema: { type: string, minLength: 1 }
     Visibility:
       name: visibility
       in: query
@@ -411,6 +536,47 @@ components:
         priority: { type: integer }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        version: { type: integer, format: int64, minimum: 0 }
+    CreateScheduledTaskRequest:
+      type: object
+      required: [name, organizationId, tenantId, projectId, cronExpression, timeZone, title]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        organizationId: { type: string, minLength: 1 }
+        tenantId: { type: string, minLength: 1 }
+        projectId: { type: string, minLength: 1 }
+        cronExpression: { type: string, minLength: 1 }
+        timeZone: { type: string, minLength: 1 }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        description: { type: string }
+        spec: { type: object, additionalProperties: true }
+        actor: { type: string }
+        source: { type: string }
+    ScheduleScopeRequest:
+      type: object
+      required: [organizationId, tenantId, projectId]
+      additionalProperties: false
+      properties:
+        organizationId: { type: string, minLength: 1 }
+        tenantId: { type: string, minLength: 1 }
+        projectId: { type: string, minLength: 1 }
+    ScheduledTask:
+      type: object
+      required: [id, name, organizationId, tenantId, projectId, cronExpression, timeZone, title, enabled, nextRunAt, version]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        organizationId: { type: string }
+        tenantId: { type: string }
+        projectId: { type: string }
+        cronExpression: { type: string }
+        timeZone: { type: string }
+        title: { type: string }
+        enabled: { type: boolean }
+        nextRunAt: { type: string, format: date-time }
+        lastRunAt: { type: [string, 'null'], format: date-time }
+        lastTaskId: { type: [string, 'null'], format: uuid }
         version: { type: integer, format: int64, minimum: 0 }
     TaskListItem:
       allOf:

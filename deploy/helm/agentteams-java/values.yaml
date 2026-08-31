@@ -61,6 +61,10 @@ controlPlane:
     pollIntervalMs: 1000
     leaseDuration: 30s
     batchSize: 16
+  scheduledTasks:
+    enabled: true
+    pollIntervalMs: 1000
+    batchSize: 16
   usageBudget:
     scheduler:
       enabled: false

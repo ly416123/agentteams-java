@@ -64,6 +64,10 @@ agentteams:
     poll-interval-ms: 1000
     lease-duration: 30s
     batch-size: 16
+  scheduled-tasks:
+    enabled: true
+    poll-interval-ms: 1000
+    batch-size: 16
   sandbox:
     enabled: false
     provider: fake

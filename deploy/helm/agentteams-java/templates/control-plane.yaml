@@ -60,6 +60,12 @@ spec:
               value: {{ .Values.controlPlane.scheduler.leaseDuration | quote }}
             - name: AGENTTEAMS_SCHEDULER_BATCH_SIZE
               value: {{ .Values.controlPlane.scheduler.batchSize | quote }}
+            - name: AGENTTEAMS_SCHEDULED_TASKS_ENABLED
+              value: {{ .Values.controlPlane.scheduledTasks.enabled | quote }}
+            - name: AGENTTEAMS_SCHEDULED_TASKS_POLL_INTERVAL_MS
+              value: {{ .Values.controlPlane.scheduledTasks.pollIntervalMs | quote }}
+            - name: AGENTTEAMS_SCHEDULED_TASKS_BATCH_SIZE
+              value: {{ .Values.controlPlane.scheduledTasks.batchSize | quote }}
             - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_ENABLED
               value: {{ .Values.controlPlane.usageBudget.scheduler.enabled | quote }}
             - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_POLL_INTERVAL_MS
