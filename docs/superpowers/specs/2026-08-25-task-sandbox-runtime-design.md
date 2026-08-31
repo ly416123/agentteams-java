@@ -326,7 +326,8 @@ Kind CI 只执行 CRD、Helm、RBAC、NetworkPolicy、Fake Provider 和状态机
 已验证：`mvn -q -Pintegration-tests verify` 退出码 0，Operator 测试、Sandbox
 安全契约、Helm lint/template、Kind 清单校验通过。macOS 本地 Kind 只用于默认路径和
 契约验收；真实 gVisor/Kata RuntimeClass 已在独立 Ubuntu/KVM 节点
-`ly-macbookair7-2` 上通过仓库脚本验收：两个 profile 均达到 `READY`，Job/Pod 的
+`ly-macbookair7-2`（`192.168.122.55`）上通过仓库脚本验收：两个 profile 均达到
+`READY`，Job/Pod 的
 `runtimeClassName` 分别为 `gvisor` 与 `kata-qemu`，并记录了真实 guest/host kernel。
 随后删除两个临时验收资源的生成 Job，均观察到 `status.phase=LOST`，并通过
 `terminationRequested=true` 完成清理。本次证据不覆盖节点故障恢复、RuntimeClass 缺失

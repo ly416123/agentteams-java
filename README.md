@@ -193,8 +193,9 @@ checks passed. A direct system-Chrome connector was not attached in the latest
 Codex session, so that connector-specific result remains explicitly
 unverified rather than being inferred from the Playwright result.
 
-The independent Ubuntu/KVM host `ly-MacBookAir7-2` also passed the real L5
-TaskSandbox acceptance: both `gvisor` and `kata-qemu` profiles reached `READY`,
+The independent Ubuntu/KVM L5 host is `ly-MacBookAir7-2` at
+`192.168.122.55`. It also passed the real L5 TaskSandbox acceptance: both
+`gvisor` and `kata-qemu` profiles reached `READY`,
 their generated Jobs/Pods used the expected RuntimeClass, guest and host
 kernels were observed, and cleanup completed with
 `L5_LINUX_KVM_ACCEPTANCE_OK`. Node-failure recovery and production L6 remain
