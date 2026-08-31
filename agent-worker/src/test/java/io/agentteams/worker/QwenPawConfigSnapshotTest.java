@@ -114,7 +114,8 @@ class QwenPawConfigSnapshotTest {
                 + "\"skillCapabilities\":{\"profile\":\"ISOLATED\",\"cpuMillicores\":750,"
                 + "\"memoryMiB\":768,\"ephemeralStorageMiB\":2048,\"ttlSeconds\":600,"
                 + "\"networkPolicy\":\"RESTRICTED\",\"allowedMcp\":[\"github\"],"
-                + "\"allowedDomains\":[\"api.github.com\"],\"allowSecretReferences\":false}}]}";
+                + "\"allowedDomains\":[\"api.github.com\"],\"allowedTools\":[\"search\"],"
+                + "\"allowSecretReferences\":false}}]}";
         String manifestSha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(manifest.getBytes(StandardCharsets.UTF_8)));
         ConfigChanged changed = ConfigChanged.newBuilder()
@@ -128,6 +129,8 @@ class QwenPawConfigSnapshotTest {
         assertThat(snapshot.skillCapabilities()).containsKey("SKILL|skill-a|1|sha256:abc");
         assertThat(snapshot.skillCapabilities().get("SKILL|skill-a|1|sha256:abc").networkPolicy())
                 .isEqualTo(io.agentteams.application.api.SandboxPolicy.NetworkPolicy.RESTRICTED);
+        assertThat(snapshot.skillCapabilities().get("SKILL|skill-a|1|sha256:abc").allowedTools())
+                .containsExactly("search");
     }
 
     @Test

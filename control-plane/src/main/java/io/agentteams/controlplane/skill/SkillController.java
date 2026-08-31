@@ -203,12 +203,13 @@ public final class SkillController {
 
     public record SkillCapabilitySummary(String profile, int cpuMillicores, int memoryMiB,
             int ephemeralStorageMiB, long ttlSeconds, String networkPolicy, List<String> allowedMcp,
-            List<String> allowedDomains, boolean allowSecretReferences) {
+            List<String> allowedDomains, List<String> allowedTools, boolean allowSecretReferences) {
 
         static SkillCapabilitySummary from(io.agentteams.application.api.SkillCapabilityPolicy policy) {
             return new SkillCapabilitySummary(policy.profile().name(), policy.cpuMillicores(), policy.memoryMiB(),
                     policy.ephemeralStorageMiB(), policy.ttl().toSeconds(), policy.networkPolicy().name(),
                     policy.allowedMcp().stream().sorted().toList(), policy.allowedDomains().stream().sorted().toList(),
+                    policy.allowedTools().stream().sorted().toList(),
                     policy.allowSecretReferences());
         }
     }

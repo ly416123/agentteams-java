@@ -218,6 +218,39 @@ class ConfiguredAgentScopeHarnessFactoryTest {
         assertThat(factory.activeSkillCapabilities()).containsEntry(key, policy);
     }
 
+    @Test
+    void passesActivatedSkillPoliciesToTheMcpRuntimeBoundary() throws Exception {
+        AtomicReference<List<io.agentteams.application.api.SkillCapabilityPolicy>> received = new AtomicReference<>();
+        McpRuntimePort port = new McpRuntimePort() {
+            @Override public void configure(io.agentscope.core.tool.Toolkit toolkit,
+                    List<io.agentteams.runtime.RuntimeMcpServer> servers) { }
+
+            @Override public void configure(io.agentscope.core.tool.Toolkit toolkit,
+                    List<io.agentteams.runtime.RuntimeMcpServer> servers,
+                    List<io.agentteams.application.api.SkillCapabilityPolicy> policies) {
+                received.set(List.copyOf(policies));
+            }
+        };
+        ConfiguredAgentScopeHarnessFactory factory = new ConfiguredAgentScopeHarnessFactory(
+                new TestModel(), AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(),
+                        Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC), root), root, port);
+        var policy = new io.agentteams.application.api.SkillCapabilityPolicy(
+                io.agentteams.application.api.SandboxProfile.ISOLATED, 500, 512, 1024,
+                java.time.Duration.ofMinutes(5), java.util.Set.of("server-7"),
+                java.util.Set.of("mcp.example.test"), java.util.Set.of("search"), false,
+                io.agentteams.application.api.SandboxPolicy.NetworkPolicy.RESTRICTED);
+        factory.applyConfig(new RuntimeConfigSnapshot(2, "sha-2", Map.of(), Map.of(), Map.of(),
+                Map.of("MCP|server-7|7|sha256:policy", new io.agentteams.runtime.RuntimeMcpServer(
+                        "server-7", 7, "STREAMABLE_HTTP", "https://mcp.example.test/http", null,
+                        "sha256:policy")),
+                Map.of("SKILL|skill-a|2|sha256:skill", policy)));
+
+        var harness = factory.create(task("attempt-mcp-policy", "lease-mcp-policy"), context());
+
+        assertThat(received.get()).containsExactly(policy);
+        harness.close();
+    }
+
     private static final class ReadySandboxRuntime implements SandboxRuntimePort {
         @Override
         public SandboxStatus inspect(String providerSandboxId) {

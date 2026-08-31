@@ -61,7 +61,8 @@ class ResourceBindingLoaderTest {
                   "skillCapabilities":{"profile":"ISOLATED","cpuMillicores":750,
                   "memoryMiB":768,"ephemeralStorageMiB":2048,"ttlSeconds":600,
                   "networkPolicy":"RESTRICTED","allowedMcp":["github"],
-                  "allowedDomains":["api.github.com"],"allowSecretReferences":false}}]}
+                  "allowedDomains":["api.github.com"],"allowedTools":["search"],
+                  "allowSecretReferences":false}}]}
                 """));
 
         assertThat(result.successful()).isTrue();
@@ -72,6 +73,7 @@ class ResourceBindingLoaderTest {
         assertThat(capabilities.networkPolicy())
                 .isEqualTo(io.agentteams.application.api.SandboxPolicy.NetworkPolicy.RESTRICTED);
         assertThat(capabilities.allowedMcp()).containsExactly("github");
+        assertThat(capabilities.allowedTools()).containsExactly("search");
     }
 
     @Test

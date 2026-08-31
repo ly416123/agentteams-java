@@ -144,6 +144,8 @@ public final class AgentSpecDeploymentService {
                         policy.allowedMcp().stream().sorted().forEach(allowedMcp::add);
                         var allowedDomains = capabilities.putArray("allowedDomains");
                         policy.allowedDomains().stream().sorted().forEach(allowedDomains::add);
+                        var allowedTools = capabilities.putArray("allowedTools");
+                        policy.allowedTools().stream().sorted().forEach(allowedTools::add);
                     }
                     node.put("workerId", workerId.toString());
                     node.put("teamRef", teamRef);

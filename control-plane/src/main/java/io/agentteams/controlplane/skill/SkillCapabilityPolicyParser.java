@@ -15,7 +15,7 @@ import java.util.Objects;
 public final class SkillCapabilityPolicyParser {
     private static final SetOfFields CAPABILITY_FIELDS = new SetOfFields(
             "profile", "cpuMillicores", "memoryMiB", "ephemeralStorageMiB", "ttlSeconds",
-            "networkPolicy", "allowedMcp", "allowedDomains", "allowSecretReferences");
+            "networkPolicy", "allowedMcp", "allowedDomains", "allowedTools", "allowSecretReferences");
 
     private final ObjectMapper objectMapper;
 
@@ -61,6 +61,7 @@ public final class SkillCapabilityPolicyParser {
                 Duration.ofSeconds(positiveInt(capabilities, "ttlSeconds", (int) defaults.ttl().toSeconds())),
                 stringSet(capabilities, "allowedMcp"),
                 stringSet(capabilities, "allowedDomains"),
+                stringSet(capabilities, "allowedTools"),
                 booleanValue(capabilities, "allowSecretReferences", false),
                 enumValue(capabilities, "networkPolicy", SandboxPolicy.NetworkPolicy.class,
                         defaults.networkPolicy()));
@@ -70,6 +71,7 @@ public final class SkillCapabilityPolicyParser {
         SandboxPolicy policy = SandboxPolicy.defaults();
         return new SkillCapabilityPolicy(policy.profile(), policy.cpuMillicores(), policy.memoryMiB(),
                 policy.ephemeralStorageMiB(), policy.ttl(), policy.allowedMcp(), policy.allowedDomains(),
+                java.util.Set.of(),
                 policy.allowSecretReferences(), policy.networkPolicy());
     }
 

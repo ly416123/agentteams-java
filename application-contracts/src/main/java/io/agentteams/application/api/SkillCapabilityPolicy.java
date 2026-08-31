@@ -7,14 +7,22 @@ import java.util.Set;
 /** Capabilities a Skill requests; the effective sandbox policy remains authoritative. */
 public record SkillCapabilityPolicy(SandboxProfile profile, int cpuMillicores, int memoryMiB,
         int ephemeralStorageMiB, Duration ttl, Set<String> allowedMcp, Set<String> allowedDomains,
-        boolean allowSecretReferences, SandboxPolicy.NetworkPolicy networkPolicy) {
+        Set<String> allowedTools, boolean allowSecretReferences, SandboxPolicy.NetworkPolicy networkPolicy) {
 
     /** Compatibility constructor for manifests created before networkPolicy became explicit. */
     public SkillCapabilityPolicy(SandboxProfile profile, int cpuMillicores, int memoryMiB,
             int ephemeralStorageMiB, Duration ttl, Set<String> allowedMcp, Set<String> allowedDomains,
             boolean allowSecretReferences) {
         this(profile, cpuMillicores, memoryMiB, ephemeralStorageMiB, ttl, allowedMcp, allowedDomains,
-                allowSecretReferences, SandboxPolicy.NetworkPolicy.DENY_ALL);
+                Set.of(), allowSecretReferences, SandboxPolicy.NetworkPolicy.DENY_ALL);
+    }
+
+    /** Compatibility constructor for callers that already provide an explicit network policy. */
+    public SkillCapabilityPolicy(SandboxProfile profile, int cpuMillicores, int memoryMiB,
+            int ephemeralStorageMiB, Duration ttl, Set<String> allowedMcp, Set<String> allowedDomains,
+            boolean allowSecretReferences, SandboxPolicy.NetworkPolicy networkPolicy) {
+        this(profile, cpuMillicores, memoryMiB, ephemeralStorageMiB, ttl, allowedMcp, allowedDomains,
+                Set.of(), allowSecretReferences, networkPolicy);
     }
 
     public SkillCapabilityPolicy {
@@ -23,6 +31,7 @@ public record SkillCapabilityPolicy(SandboxProfile profile, int cpuMillicores, i
         Objects.requireNonNull(networkPolicy, "networkPolicy");
         allowedMcp = names(allowedMcp, "allowedMcp");
         allowedDomains = names(allowedDomains, "allowedDomains");
+        allowedTools = names(allowedTools, "allowedTools");
         if (cpuMillicores <= 0 || cpuMillicores > SandboxPolicy.MAX_CPU_MILLICORES
                 || memoryMiB <= 0 || memoryMiB > SandboxPolicy.MAX_MEMORY_MIB
                 || ephemeralStorageMiB <= 0 || ephemeralStorageMiB > SandboxPolicy.MAX_EPHEMERAL_STORAGE_MIB) {

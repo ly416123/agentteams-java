@@ -1,6 +1,7 @@
 package io.agentteams.application.api;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Duration;
@@ -8,6 +9,16 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class SkillCapabilityPolicyTest {
+
+    @Test
+    void exposesAnExplicitMcpToolAllowlist() {
+        SkillCapabilityPolicy policy = new SkillCapabilityPolicy(
+                SandboxProfile.ISOLATED, 500, 512, 1024, Duration.ofMinutes(5),
+                Set.of("github"), Set.of("api.github.com"), Set.of("search"), false,
+                SandboxPolicy.NetworkPolicy.RESTRICTED);
+
+        assertEquals(Set.of("search"), policy.allowedTools());
+    }
 
     @Test
     void acceptsCapabilitiesWithinTheEffectiveSandboxPolicy() {

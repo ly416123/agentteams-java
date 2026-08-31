@@ -127,7 +127,7 @@ class AgentSpecDeploymentServiceTest {
                         reference.type() == AgentSpecReferenceType.SKILL
                                 ? new io.agentteams.application.api.SkillCapabilityPolicy(SandboxProfile.ISOLATED,
                                         500, 512, 1024, Duration.ofMinutes(10), java.util.Set.of(), java.util.Set.of(),
-                                        false, SandboxPolicy.NetworkPolicy.RESTRICTED)
+                                        java.util.Set.of("search"), false, SandboxPolicy.NetworkPolicy.RESTRICTED)
                                 : null));
         AgentSpecDeploymentService service = new AgentSpecDeploymentService(specs, snapshots, deployments,
                 new ObjectMapper(), null, new CatalogAgentSpecReferenceValidator(catalog));
@@ -149,6 +149,8 @@ class AgentSpecDeploymentServiceTest {
                 .isEqualTo("ISOLATED");
         assertThat(root.path("resourceBindings").get(1).path("skillCapabilities").path("networkPolicy").asText())
                 .isEqualTo("RESTRICTED");
+        assertThat(root.path("resourceBindings").get(1).path("skillCapabilities").path("allowedTools").toString())
+                .isEqualTo("[\"search\"]");
         assertThat(root.path("resourceBindings").get(1).path("workerId").asText()).isEqualTo(workerId.toString());
         assertThat(root.path("resourceBindings").get(1).path("teamRef").asText()).isEqualTo("research");
         assertThat(root.path("resourceBindings").get(2).path("type").asText()).isEqualTo("MCP");

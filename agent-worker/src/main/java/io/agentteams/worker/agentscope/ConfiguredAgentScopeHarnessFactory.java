@@ -157,7 +157,7 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
             List<RuntimeMcpServer> mcpServers = activeMcpServers.get();
             if (!mcpServers.isEmpty()) {
                 Toolkit toolkit = new Toolkit();
-                mcpRuntime.configure(toolkit, mcpServers);
+                mcpRuntime.configure(toolkit, mcpServers, activeSkillCapabilities.get().values().stream().toList());
                 builder.toolkit(toolkit);
             }
             Path skillRoot = activeSkillRoot.get();

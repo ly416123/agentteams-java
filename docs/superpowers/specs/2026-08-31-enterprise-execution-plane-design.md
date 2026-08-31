@@ -106,7 +106,7 @@ Skill 是可管理、可版本化、可审核的企业资源，不等同于一�
 - 发布、禁用、撤销和版本回滚；
 - Organization、Tenant、Project、Team 和 Agent 的可见性及绑定；
 - Skill 对 Model、MCP、Secret、网络和 Sandbox 的能力声明；
-- 运行时资源限制、允许的工具和出站域名；
+- 运行时资源限制、允许的工具和出站域名；Worker 在注册 MCP 工具时按所有激活 Skill 的交集执行 MCP、工具、域名和 Secret 拦截；
 - Skill 使用审计、版本归因和成本归因。
 
 Skill 的运行边界如下：
@@ -122,6 +122,8 @@ Skill Catalog / Skill Version
           |
   Sandbox + MCP Gateway
 ```
+
+当前 Worker 的 AgentScope 会话对多个 Skill 共用一个 Toolkit，因此运行时采用交集策略，避免“任一 Skill 放行”造成权限扩大。无能力声明的历史配置继续保持兼容；有能力声明但未明确允许的 MCP、工具、域名或 Secret 默认拒绝。通用 Sandbox 网络出口仍由最终 Sandbox Provider 的 NetworkPolicy 执行，Worker 侧拦截负责 MCP 客户端边界。
 
 已发布 Skill Version 不可修改。AgentSpec、Team Revision 和 Worker Template 只能引用明确的 `skillId + version + digest`，运行时再次校验可见性、审核状态、资源能力和当前企业策略。Skill 包、Manifest、扫描结果和运行时日志不得包含 Secret 明文。
 

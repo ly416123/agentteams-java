@@ -23,7 +23,8 @@ class SkillCapabilityPolicyParserTest {
         var policy = parser.parse("""
                 {"capabilities":{"profile":"ISOLATED","cpuMillicores":750,"memoryMiB":768,
                 "ephemeralStorageMiB":2048,"ttlSeconds":600,"networkPolicy":"RESTRICTED",
-                "allowedMcp":["github"],"allowedDomains":["api.github.com"]}}
+                "allowedMcp":["github"],"allowedDomains":["api.github.com"],
+                "allowedTools":["search"]}}
                 """);
 
         assertThat(policy.profile()).isEqualTo(SandboxProfile.ISOLATED);
@@ -34,6 +35,7 @@ class SkillCapabilityPolicyParserTest {
         assertThat(policy.networkPolicy()).isEqualTo(SandboxPolicy.NetworkPolicy.RESTRICTED);
         assertThat(policy.allowedMcp()).containsExactly("github");
         assertThat(policy.allowedDomains()).containsExactly("api.github.com");
+        assertThat(policy.allowedTools()).containsExactly("search");
         assertThat(policy.allowSecretReferences()).isFalse();
     }
 

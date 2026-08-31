@@ -14,8 +14,8 @@ import java.util.Set;
 /** Parses the sanitized Skill capability summary carried by a Worker manifest. */
 final class SkillCapabilityPolicyLoader {
     private static final Set<String> FIELDS = Set.of("profile", "cpuMillicores", "memoryMiB",
-            "ephemeralStorageMiB", "ttlSeconds", "networkPolicy", "allowedMcp", "allowedDomains",
-            "allowSecretReferences");
+        "ephemeralStorageMiB", "ttlSeconds", "networkPolicy", "allowedMcp", "allowedDomains",
+            "allowedTools", "allowSecretReferences");
 
     private SkillCapabilityPolicyLoader() {
     }
@@ -35,7 +35,7 @@ final class SkillCapabilityPolicyLoader {
                 positiveInt(node, "memoryMiB", defaults.memoryMiB()),
                 positiveInt(node, "ephemeralStorageMiB", defaults.ephemeralStorageMiB()),
                 Duration.ofSeconds(positiveInt(node, "ttlSeconds", (int) defaults.ttl().toSeconds())),
-                stringSet(node, "allowedMcp"), stringSet(node, "allowedDomains"),
+                stringSet(node, "allowedMcp"), stringSet(node, "allowedDomains"), stringSet(node, "allowedTools"),
                 booleanValue(node, "allowSecretReferences", false),
                 enumValue(node, "networkPolicy", SandboxPolicy.NetworkPolicy.class, defaults.networkPolicy()));
     }
