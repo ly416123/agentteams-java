@@ -37,6 +37,7 @@ public final class ContextAssemblyService {
         for (MemoryRecord memory : repository.find(context.organizationId(), context.tenantId()).stream()
                 .sorted(java.util.Comparator.comparing(MemoryRecord::updatedAt).reversed())
                 .toList()) {
+            if (memory.governanceStatus() != MemoryRecord.GovernanceStatus.ACTIVE) continue;
             if (memory.expiresAt() != null && !memory.expiresAt().isAfter(now)) continue;
             try {
                 policies.requireReadable(memory.policy(), context);

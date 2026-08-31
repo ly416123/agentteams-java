@@ -28,6 +28,22 @@ class ContextAssemblyServiceTest {
         assertThat(result.estimatedTokens()).isLessThanOrEqualTo(4);
     }
 
+    @Test
+    void excludesFrozenAndDeletedMemoriesFromModelContext() {
+        MemoryRecord frozen = memory("frozen", MemoryPolicy.Scope.USER_PRIVATE, "user-1", null, null)
+                .withGovernanceStatus(MemoryRecord.GovernanceStatus.FROZEN,
+                        Instant.parse("2026-08-31T00:00:01Z"));
+        MemoryRecord deleted = memory("deleted", MemoryPolicy.Scope.USER_PRIVATE, "user-1", null, null)
+                .withGovernanceStatus(MemoryRecord.GovernanceStatus.DELETED,
+                        Instant.parse("2026-08-31T00:00:01Z"));
+        MemoryRepository repository = new InMemoryMemoryRepository(List.of(frozen, deleted));
+
+        ContextAssemblyService.AssembledContext result = new ContextAssemblyService(repository,
+                new MemoryPolicyService()).assemble(CONTEXT, 20);
+
+        assertThat(result.snippets()).isEmpty();
+    }
+
     private static MemoryRecord memory(String summary, MemoryPolicy.Scope scope, String subject,
             String project, String team) {
         MemoryPolicy policy = new MemoryPolicy(scope, "org-1", "tenant-1", project, team, subject,

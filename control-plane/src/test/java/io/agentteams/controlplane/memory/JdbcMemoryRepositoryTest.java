@@ -20,13 +20,13 @@ class JdbcMemoryRepositoryTest {
     @Test
     void persistsRetentionAndRequiresOrganizationTenantPredicates() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
-        when(jdbc.update(anyString(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any(), any())).thenReturn(1);
+        when(jdbc.update(anyString(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any())).thenReturn(1);
         MemoryRecord memory = memory();
 
         assertThat(new JdbcMemoryRepository(jdbc).save(memory)).isEqualTo(memory);
         verify(jdbc).update(org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("retention_seconds")
-                        && sql.contains("ON CONFLICT (id)")), any(), any(), any(), any(), any(), any(), any(), any(),
+                        && sql.contains("ON CONFLICT (id)")), any(), any(), any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
