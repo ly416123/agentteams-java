@@ -8,7 +8,7 @@
 
 **技术栈：** Java 17、Spring Boot、Spring JDBC、PostgreSQL/Flyway、JUnit 5、AssertJ、Python 3 标准库、Bash、GitHub Actions、Docker Buildx、Helm。
 
-**执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口和 Worker Template Registry 最小闭环。L6 真实验收、企业审批、生产 Secret Manager、SDK、Console 和 Webhook Adapter 仍按本计划留在后续批次。
+**执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口、Worker Template Registry 最小闭环，以及 Colima/Testcontainers 自动适配。Java、Python、Helm、Console 和 API 契约验证均已通过。L6 真实验收、企业审批、生产 Secret Manager、SDK 和 Webhook Adapter 仍按本计划留在后续批次。
 
 ---
 
@@ -39,39 +39,39 @@ SDK、Console 页面和 Webhook Adapter 不在本批修改范围内；它们使�
 - 修改：`scripts/fixtures/release-manifest-valid.json`
 - 修改：`scripts/fixtures/release-manifest-invalid.json`
 
-- [ ] **步骤 1：编写失败的指纹测试。** 测试排序稳定、内容变化导致指纹变化、排除目录不影响指纹、未跟踪文件不会被纳入计算、空仓库和缺失路径返回非零错误。
+- [x] **步骤 1：编写失败的指纹测试。** 测试排序稳定、内容变化导致指纹变化、排除目录不影响指纹、未跟踪文件不会被纳入计算、空仓库和缺失路径返回非零错误。
 
-- [ ] **步骤 2：运行指纹测试确认正确失败。**
+- [x] **步骤 2：运行指纹测试确认正确失败。**
 
   运行：`python3 -m unittest scripts/test_source_fingerprint.py -v`
 
   预期：因 `scripts/source-fingerprint.py` 不存在而失败，不能出现 Python 语法错误。
 
-- [ ] **步骤 3：实现最小 canonical fingerprint 工具。** 提供 `fingerprint` 子命令输出 64 位小写十六进制值，提供 `verify` 子命令比较期望值；所有文件路径使用 Git 的 POSIX 路径，拒绝仓库根目录之外的路径。
+- [x] **步骤 3：实现最小 canonical fingerprint 工具。** 提供 `fingerprint` 子命令输出 64 位小写十六进制值，提供 `verify` 子命令比较期望值；所有文件路径使用 Git 的 POSIX 路径，拒绝仓库根目录之外的路径。
 
-- [ ] **步骤 4：运行指纹测试确认通过。**
+- [x] **步骤 4：运行指纹测试确认通过。**
 
   运行：`python3 -m unittest scripts/test_source_fingerprint.py -v`
 
   预期：全部测试通过，输出包含 `OK`。
 
-- [ ] **步骤 5：先写 Release Manifest 负向测试。** 增加 `source_fingerprint` 字段、组件级 `source_fingerprint` 字段和每个组件的 `build_context`；测试缺失、大小写错误、组件值不一致以及 Manifest fingerprint 与当前 checkout 不一致均被拒绝。
+- [x] **步骤 5：先写 Release Manifest 负向测试。** 增加 `source_fingerprint` 字段、组件级 `source_fingerprint` 字段和每个组件的 `build_context`；测试缺失、大小写错误、组件值不一致以及 Manifest fingerprint 与当前 checkout 不一致均被拒绝。
 
-- [ ] **步骤 6：运行 Release 契约测试确认正确失败。**
+- [x] **步骤 6：运行 Release 契约测试确认正确失败。**
 
   运行：`python3 -m unittest scripts/test_batch_b_release_contract.py -v`
 
   预期：fixture 尚未增加新字段时，失败原因是缺失源码指纹字段。
 
-- [ ] **步骤 7：接入发布和晋级流程。** Release workflow 在 Buildx 前执行干净工作树检查并计算 fingerprint；每个镜像加入 `org.opencontainers.image.source`、`org.opencontainers.image.revision` 和 `io.agentteams.source-fingerprint` label；CycloneDX、SLSA predicate 和 Manifest 写入同一 fingerprint。Promote workflow 重新计算 checkout fingerprint，并校验 Manifest、Chart provenance 和组件 fingerprint 一致，失败时 fail-closed。
+- [x] **步骤 7：接入发布和晋级流程。** Release workflow 在 Buildx 前执行干净工作树检查并计算 fingerprint；每个镜像加入 `org.opencontainers.image.source`、`org.opencontainers.image.revision` 和 `io.agentteams.source-fingerprint` label；CycloneDX、SLSA predicate 和 Manifest 写入同一 fingerprint。Promote workflow 重新计算 checkout fingerprint，并校验 Manifest、Chart provenance 和组件 fingerprint 一致，失败时 fail-closed。
 
-- [ ] **步骤 8：运行契约测试确认通过。**
+- [x] **步骤 8：运行契约测试确认通过。**
 
   运行：`python3 -m unittest scripts/test_source_fingerprint.py scripts/test_batch_b_release_contract.py -v`
 
   预期：全部测试通过。
 
-- [ ] **步骤 9：提交任务 1。**
+- [x] **步骤 9：提交任务 1。**
 
   运行：`git diff --check && git add scripts .github/workflows/release.yml .github/workflows/promote.yml && git commit -m "ci(发布): 强制校验源码构建指纹"`
 
@@ -93,47 +93,47 @@ SDK、Console 页面和 Webhook Adapter 不在本批修改范围内；它们使�
 - 修改：`control-plane/src/test/java/io/agentteams/controlplane/team/TeamRevisionRepositoryTest.java`
 - 修改：`control-plane/src/test/java/io/agentteams/controlplane/config/EffectiveConfigComposerTest.java`
 
-- [ ] **步骤 1：编写绑定值对象和 Effective Config 失败测试。** 覆盖空类型、空资源 ID、非正 revision、空 digest、重复绑定；覆盖相同 canonical 输入得到相同 digest、绑定顺序变化不改变 digest、旧绑定不能覆盖新 binding revision。
+- [x] **步骤 1：编写绑定值对象和 Effective Config 失败测试。** 覆盖空类型、空资源 ID、非正 revision、空 digest、重复绑定；覆盖相同 canonical 输入得到相同 digest、绑定顺序变化不改变 digest、旧绑定不能覆盖新 binding revision。
 
-- [ ] **步骤 2：运行定向测试确认失败。**
+- [x] **步骤 2：运行定向测试确认失败。**
 
   运行：`mvn -q -pl control-plane -Dtest=TeamRevisionServiceTest,TeamRevisionRepositoryTest,EffectiveConfigComposerTest test`
 
   预期：因绑定字段和请求行为尚未存在而失败。
 
-- [ ] **步骤 3：实现绑定值对象和 canonical 排序。** 增加严格校验的 `TeamResourceBinding`，在 Team Revision 和 Effective Config provenance 中使用不可变列表；canonicalizer 按类型、资源 ID、revision、digest 排序并去重，重复键但 digest 不同直接拒绝。
+- [x] **步骤 3：实现绑定值对象和 canonical 排序。** 增加严格校验的 `TeamResourceBinding`，在 Team Revision 和 Effective Config provenance 中使用不可变列表；canonicalizer 按类型、资源 ID、revision、digest 排序并去重，重复键但 digest 不同直接拒绝。
 
-- [ ] **步骤 4：运行定向测试确认通过。**
+- [x] **步骤 4：运行定向测试确认通过。**
 
   运行：`mvn -q -pl control-plane -Dtest=TeamRevisionServiceTest,EffectiveConfigComposerTest test`
 
   预期：新增单元测试和既有测试全部通过。
 
-- [ ] **步骤 5：编写 JDBC 迁移和 Repository 失败测试。** 绑定表使用 `(team_id, team_revision, resource_type, resource_id)` 唯一键，保存 revision/digest；加载 Team Revision 必须按稳定顺序返回绑定；rollback 必须复制绑定。
+- [x] **步骤 5：编写 JDBC 迁移和 Repository 失败测试。** 绑定表使用 `(team_id, team_revision, resource_type, resource_id)` 唯一键，保存 revision/digest；加载 Team Revision 必须按稳定顺序返回绑定；rollback 必须复制绑定。
 
-- [ ] **步骤 6：运行 JDBC 测试确认迁移缺失。**
+- [x] **步骤 6：运行 JDBC 测试确认迁移缺失。**
 
   运行：`mvn -q -pl control-plane -Dtest=TeamRevisionRepositoryTest test`
 
   预期：新增持久化测试因绑定表不存在而失败。
 
-- [ ] **步骤 7：实现迁移和事务内绑定持久化。** `createDraft`、`createRollback`、publish CAS 和绑定读取保持同一事务；不修改已发布 revision；旧数据库升级后既有 revision 的绑定为空列表。
+- [x] **步骤 7：实现迁移和事务内绑定持久化。** `createDraft`、`createRollback`、publish CAS 和绑定读取保持同一事务；不修改已发布 revision；旧数据库升级后既有 revision 的绑定为空列表。
 
-- [ ] **步骤 8：运行 JDBC 和模块测试确认通过。**
+- [x] **步骤 8：运行 JDBC 和模块测试确认通过。**
 
   运行：`mvn -q -pl control-plane -Dtest=TeamRevisionRepositoryTest,TeamRevisionServiceTest,EffectiveConfigComposerTest test`
 
   预期：全部通过；Docker 不可用时必须保留明确失败证据，不得把测试改成静默跳过。
 
-- [ ] **步骤 9：补齐 Team Controller 请求/响应和 API 契约测试。** 创建 Draft、更新 Draft、review、publish、rollback 的请求体支持 bindings，响应返回稳定绑定摘要但不返回 Secret value、credentialRef 内容或完整外部响应。
+- [x] **步骤 9：补齐 Team Controller 请求/响应和 API 契约测试。** 创建 Draft、更新 Draft、review、publish、rollback 的请求体支持 bindings，响应返回稳定绑定摘要但不返回 Secret value、credentialRef 内容或完整外部响应。
 
-- [ ] **步骤 10：运行 API 契约和全模块测试。**
+- [x] **步骤 10：运行 API 契约和全模块测试。**
 
   运行：`mvn -q -pl control-plane test && python3 scripts/validate-api-contract.py`
 
   预期：Java 测试和 API 契约均退出 0。
 
-- [ ] **步骤 11：提交任务 2。**
+- [x] **步骤 11：提交任务 2。**
 
   运行：`git diff --check && git add control-plane docs && git commit -m "feat(团队): 收口 Team 资源绑定与有效配置"`
 
@@ -162,39 +162,39 @@ SDK、Console 页面和 Webhook Adapter 不在本批修改范围内；它们使�
 - 创建：`control-plane/src/test/java/io/agentteams/controlplane/template/JdbcWorkerTemplateRepositoryTest.java`
 - 创建：`control-plane/src/test/java/io/agentteams/controlplane/api/WorkerTemplateControllerTest.java`
 
-- [ ] **步骤 1：编写模板领域失败测试。** 覆盖名称和 scope 校验、canonical JSON digest、已发布 revision 不可变、非法状态转换、重复实例化返回同一实例、不同请求复用同一幂等键被拒绝。
+- [x] **步骤 1：编写模板领域失败测试。** 覆盖名称和 scope 校验、canonical JSON digest、已发布 revision 不可变、非法状态转换、重复实例化返回同一实例、不同请求复用同一幂等键被拒绝。
 
-- [ ] **步骤 2：运行定向测试确认失败。**
+- [x] **步骤 2：运行定向测试确认失败。**
 
   运行：`mvn -q -pl control-plane -Dtest=WorkerTemplateServiceTest,WorkerTemplateControllerTest test`
 
   预期：因模板类型和服务尚不存在而失败。
 
-- [ ] **步骤 3：实现内存领域服务。** 服务只处理状态机、canonical JSON、digest、幂等请求哈希和当前主体 scope；所有模板资源引用交给已有 AgentSpecReferenceValidator 和 ResourceAuthorizationService 校验。
+- [x] **步骤 3：实现内存领域服务。** 服务只处理状态机、canonical JSON、digest、幂等请求哈希和当前主体 scope；所有模板资源引用交给已有 AgentSpecReferenceValidator 和 ResourceAuthorizationService 校验。
 
-- [ ] **步骤 4：运行定向测试确认通过。**
+- [x] **步骤 4：运行定向测试确认通过。**
 
   运行：`mvn -q -pl control-plane -Dtest=WorkerTemplateServiceTest,WorkerTemplateControllerTest test`
 
   预期：模板领域和 Controller 单元测试全部通过。
 
-- [ ] **步骤 5：编写 JDBC 迁移和 Repository 失败测试。** 验证空库迁移、scope 内名称唯一、revision 不可修改、实例幂等唯一键、升级记录和事务回滚。
+- [x] **步骤 5：编写 JDBC 迁移和 Repository 失败测试。** 验证空库迁移、scope 内名称唯一、revision 不可修改、实例幂等唯一键、升级记录和事务回滚。
 
-- [ ] **步骤 6：实现迁移和 JDBC Repository。** 所有写入使用数据库唯一约束和事务；实例化先持久化模板实例意图，再调用 AgentSpec Service，失败时记录稳定失败状态，不产生第二个 AgentSpec；升级只允许从已发布的新模板 revision 进入。
+- [x] **步骤 6：实现迁移和 JDBC Repository。** 所有写入使用数据库唯一约束和事务；实例化先持久化模板实例意图，再调用 AgentSpec Service，失败时记录稳定失败状态，不产生第二个 AgentSpec；升级只允许从已发布的新模板 revision 进入。
 
-- [ ] **步骤 7：运行 JDBC/Testcontainers 定向测试。**
+- [x] **步骤 7：运行 JDBC/Testcontainers 定向测试。**
 
   运行：`mvn -q -pl control-plane -Dtest=JdbcWorkerTemplateRepositoryTest test`
 
   预期：Docker 可用时所有测试通过；Docker 不可用时测试必须以非零退出并保留诊断。
 
-- [ ] **步骤 8：实现公共 HTTP API。** 提供模板 CRUD、revision 创建、review、publish、instantiate、instance upgrade 和查询接口；写接口强制 `Idempotency-Key`，状态命令使用 `expectedVersion`；错误复用现有 `ApiErrorHandler`。
+- [x] **步骤 8：实现公共 HTTP API。** 提供模板 CRUD、revision 创建、review、publish、instantiate、instance upgrade 和查询接口；写接口强制 `Idempotency-Key`，状态命令使用 `expectedVersion`；错误复用现有 `ApiErrorHandler`。
 
-- [ ] **步骤 9：补充 API 正负向测试。** 覆盖跨项目访问、未发布 revision 实例化、AgentSpec 引用不存在、Skill/MCP digest 不匹配、重复实例化和版本冲突。
+- [x] **步骤 9：补充 API 正负向测试。** 覆盖跨项目访问、未发布 revision 实例化、AgentSpec 引用不存在、Skill/MCP digest 不匹配、重复实例化和版本冲突。
 
-- [ ] **步骤 10：同步商业规格和 README。** 将 Template Registry 标记为仓库侧已实现，明确企业审批、真实外部 Skill 扫描和 L6 仍不属于本批完成条件；补充最小 curl/API 示例。
+- [x] **步骤 10：同步商业规格和 README。** 将 Template Registry 标记为仓库侧已实现，明确企业审批、真实外部 Skill 扫描和 L6 仍不属于本批完成条件；补充最小 curl/API 示例。
 
-- [ ] **步骤 11：运行完整验证并提交任务 3。**
+- [x] **步骤 11：运行完整验证并提交任务 3。**
 
   运行：`mvn -q test && python3 -m unittest discover -s scripts -p 'test_*.py' && helm lint deploy/helm/agentteams-java && git diff --check`
 
@@ -202,7 +202,7 @@ SDK、Console 页面和 Webhook Adapter 不在本批修改范围内；它们使�
 
 ## 集成检查点
 
-- [ ] 任务 1 完成后先运行源码指纹和发布契约测试，再进入任务 2。
-- [ ] 任务 2 完成后运行 Control Plane 全量测试，确认 Team Revision 和 Effective Config 的旧调用方兼容。
-- [ ] 任务 3 完成后运行 Maven、Python、Helm、Console 构建/lint；任何失败都在当前分支修复，不把失败留给后续 SDK 或 Console 分支。
-- [ ] 最终只报告实际运行过的命令和退出码；不把 L6、真实外部审批、真实企业 Secret Manager 或最终账单描述为本批已完成。
+- [x] 任务 1 完成后先运行源码指纹和发布契约测试，再进入任务 2。
+- [x] 任务 2 完成后运行 Control Plane 全量测试，确认 Team Revision 和 Effective Config 的旧调用方兼容。
+- [x] 任务 3 完成后运行 Maven、Python、Helm、Console 构建/lint；任何失败都在当前分支修复，不把失败留给后续 SDK 或 Console 分支。
+- [x] 最终只报告实际运行过的命令和退出码；不把 L6、真实外部审批、真实企业 Secret Manager 或最终账单描述为本批已完成。
