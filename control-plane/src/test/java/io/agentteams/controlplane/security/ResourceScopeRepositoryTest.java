@@ -14,10 +14,10 @@ class ResourceScopeRepositoryTest {
     void clearPrincipal() { PrincipalContext.clear(); }
 
     @Test
-    void visibilityIsFalseWithoutAnAuthenticatedPrincipal() {
+    void unauthenticatedDevelopmentCallsKeepLegacyVisibilityCompatibility() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
 
-        assertThat(new ResourceScopeRepository(jdbc).visible("TEAM", UUID.randomUUID())).isFalse();
+        assertThat(new ResourceScopeRepository(jdbc).visible("TEAM", UUID.randomUUID())).isTrue();
         verifyNoInteractions(jdbc);
     }
 }

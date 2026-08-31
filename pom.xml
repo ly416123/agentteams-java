@@ -23,6 +23,7 @@
         <module>manager</module>
         <module>operator</module>
         <module>integration-tests</module>
+        <module>sdk/java</module>
     </modules>
 
     <properties>

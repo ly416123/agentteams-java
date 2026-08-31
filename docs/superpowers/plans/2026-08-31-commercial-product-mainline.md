@@ -8,7 +8,15 @@
 
 **技术栈：** Java 17、Spring Boot、Spring JDBC、PostgreSQL/Flyway、JUnit 5、AssertJ、Python 3 标准库、Bash、GitHub Actions、Docker Buildx、Helm。
 
-**执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口、Worker Template Registry 最小闭环，以及 Colima/Testcontainers 自动适配。Java、Python、Helm、Console 和 API 契约验证均已通过。L6 真实验收、企业审批、生产 Secret Manager、SDK 和 Webhook Adapter 仍按本计划留在后续批次。
+**执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口、Worker Template Registry 最小闭环，以及 Colima/Testcontainers 自动适配。随后已完成 Ubuntu/KVM L5 真实验收、批量功能双门禁约束，以及 OpenAPI v1.0 与 Java/TypeScript SDK 核心客户端第一纵切。L6 真实验收、企业审批、生产 Secret Manager 和 Webhook Adapter 仍按路线图留在后续批次。
+
+## 下一阶段：公共 API 与 SDK 第一纵切
+
+- [x] 冻结 Project/Task 核心公共接口的 OpenAPI 3.1 v1.0 契约，明确 Bearer 鉴权、游标分页、幂等请求头和统一错误结构。
+- [x] 增加 Java 17 与 TypeScript 核心客户端，默认只重试读请求；写请求只有在调用方明确确认幂等安全时才允许重试。
+- [x] 将 OpenAPI 契约、TypeScript 测试/构建和 Java SDK 纳入 CI 与 Maven 验证。
+- [x] 修复资源作用域收紧对未认证开发/内部集成调用的回归；OIDC 认证请求仍保持严格作用域校验。
+- [ ] 下一批扩展公共 API，并同步生成/维护双语言 SDK；Console、Channel 和 Webhook Adapter 继续按产品路线推进。
 
 ## 后续批量开发强制门禁
 

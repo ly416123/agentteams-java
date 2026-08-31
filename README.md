@@ -60,6 +60,14 @@ POST /api/v1/worker-templates/{id}/instances/{instanceId}/upgrade/{revision}
 现有 AgentSpec/Worker 服务边界创建，不直接操作 Kubernetes。企业审批、外部
 Skill/MCP/Secret 深度校验和 L6 真实验收不属于当前纵切完成条件。
 
+## Public API 与 SDK（v1.0 第一纵切）
+
+公共契约位于 [`openapi/agentteams-public.yaml`](openapi/agentteams-public.yaml)，当前冻结
+Project/Task 核心接口、游标分页、Bearer 鉴权、`Idempotency-Key` 和统一错误结构。
+Java 17 与 TypeScript 客户端分别位于 [`sdk/java`](sdk/java) 和
+[`sdk/typescript`](sdk/typescript)；它们只访问公共 API，不暴露 Kubernetes、Matrix
+AppService 或其他内部接口。
+
 ## Git development workflow
 
 `main` is the only integration and release baseline. New work must branch from

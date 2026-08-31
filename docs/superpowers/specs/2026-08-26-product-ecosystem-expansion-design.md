@@ -1,7 +1,7 @@
 # AgentTeams Java 产品生态扩展设计
 
 **日期：** 2026-08-26
-**状态：** Worker Template Registry 最小可用闭环已实现；SDK、Console、Channel 仍待后续批次
+**状态：** Worker Template Registry 最小可用闭环已实现；OpenAPI v1.0 与 Java/TypeScript SDK 核心客户端第一纵切已实现；Console 扩展、Channel 仍待后续批次
 **优先级：** P2/P3
 **依赖：** P0 生产主路径和 P1 治理接口稳定
 
@@ -60,6 +60,8 @@ public record WorkerTemplateRevision(
 实例化复用 AgentSpec 发布和部署服务，不直接操作 Kubernetes。
 
 ## 4. OpenAPI 与 SDK
+
+当前第一纵切已冻结 `openapi/agentteams-public.yaml`，覆盖 Project/Task 核心公共读写接口、统一游标分页、错误结构、Bearer 鉴权和幂等请求头。`sdk/java` 与 `sdk/typescript` 提供对应的核心客户端；内部控制面、Matrix AppService 和 Kubernetes API 不进入公共契约。后续新增公共接口必须先更新 OpenAPI 契约，再同步两个 SDK 和破坏性变更检查。
 
 ### 4.1 API 稳定化
 
