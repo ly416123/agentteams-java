@@ -19,6 +19,9 @@
 5. Operator/controller 已就绪，且其 Deployment 带有标签 `app.kubernetes.io/name=agentteams-operator`。脚本按此标签发现控制器，不依赖固定 Deployment 名称。
 6. Operator 所配置的 sandbox runner 镜像已经由平台预置并可拉取。脚本不会安装或推送镜像。
 
+当前项目的受控 L5 验收主机为 Ubuntu/K3s 主机 `ly-MacBookAir7-2`
+（`192.168.122.55`）。除非另有说明，本文中的远程执行示例均以该主机为目标。
+
 如果是在本项目的 Intel 开发机上做一次受控验收，可先在仓库根目录构建
 linux/amd64 的 Operator 和 runner 镜像，再通过 K3s 的 containerd 导入；这一步
 需要 Ubuntu 上的 root 权限，但不需要任何生产凭证：
@@ -34,8 +37,8 @@ docker save -o /tmp/agentteams-l5-images.tar \
   ghcr.io/ly416123/agentteams-operator:l5 \
   ghcr.io/ly416123/agentteams-task-sandbox:latest
 gzip /tmp/agentteams-l5-images.tar
-scp /tmp/agentteams-l5-images.tar.gz ly@192.168.1.16:/tmp/
-ssh -tt ly@192.168.1.16 \
+scp /tmp/agentteams-l5-images.tar.gz ly@192.168.122.55:/tmp/
+ssh -tt ly@192.168.122.55 \
   'sudo k3s ctr -n k8s.io images import /tmp/agentteams-l5-images.tar.gz'
 ```
 
@@ -48,10 +51,12 @@ Operator Deployment 必须将镜像配置为对应的 `:l5` 标签并使用
 
 ## 本机 SSH 执行
 
-以下命令从本机 SSH 到 Ubuntu/K3s 主机执行。`ly` 和 `192.168.1.16` 仅为示例，不包含密钥或密码：
+以下命令从本机 SSH 到项目背景中的 Ubuntu/K3s L5 主机执行。
+`ly` 是当前验收记录使用的远程用户，不包含密钥或密码；如果部署环境不同，
+请替换为实际用户和主机地址：
 
 ```bash
-ssh ly@192.168.1.16 \
+ssh ly@192.168.122.55 \
   'cd /opt/agentteams-java && \
    KUBECTL=kubectl NAMESPACE=agentteams TIMEOUT=10m \
    ./scripts/run-l5-task-sandbox-acceptance.sh'

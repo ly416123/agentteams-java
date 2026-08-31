@@ -11,6 +11,10 @@ public interface TaskMetricsPort {
     void taskLeaseExpired();
     void taskLeaseReleased();
 
+    default void taskConsistencyIssue() { }
+    default void taskConsistencyResolved() { }
+    default void taskConsistencyScanFailed() { }
+
     default void outboxPublished() { }
     default void outboxRetried() { }
     default void outboxDeadLettered() { }

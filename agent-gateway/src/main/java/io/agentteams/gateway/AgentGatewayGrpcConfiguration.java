@@ -6,6 +6,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.QuotaReservationPort;
+import io.agentteams.application.api.TaskExecutionObservationPort;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.Nats;
@@ -212,9 +213,11 @@ public class AgentGatewayGrpcConfiguration {
     @ConditionalOnBean(ExecutionEventPort.class)
     @ConditionalOnMissingBean(GatewayApplicationHandler.class)
     public GatewayApplicationHandler controlPlaneGatewayApplicationHandler(
-            ExecutionEventPort executionEvents, ObjectProvider<ConfigEventPort> configEvents, Clock clock) {
+            ExecutionEventPort executionEvents, ObjectProvider<ConfigEventPort> configEvents,
+            ObjectProvider<TaskExecutionObservationPort> observations, Clock clock) {
         ConfigEventPort available = configEvents.getIfAvailable(() -> command -> { });
-        return new ControlPlaneGatewayApplicationHandler(executionEvents, available, clock);
+        TaskExecutionObservationPort observationPort = observations.getIfAvailable(TaskExecutionObservationPort::noop);
+        return new ControlPlaneGatewayApplicationHandler(executionEvents, available, observationPort, clock);
     }
 
     @Bean

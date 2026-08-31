@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.security;
 
 import java.util.Optional;
+import java.util.Objects;
 
 /** Request-scoped identity bridge shared by HTTP adapters and application services. */
 public final class PrincipalContext {
@@ -18,6 +19,13 @@ public final class PrincipalContext {
 
     public static String actorOr(String fallback) {
         return CURRENT.get() == null ? fallback : CURRENT.get().subject();
+    }
+
+    /** Resolves the authenticated legacy scope into the unified execution context. */
+    public static Optional<ExecutionContext> executionContext(ExecutionContextResolver resolver) {
+        Objects.requireNonNull(resolver, "resolver");
+        Principal principal = CURRENT.get();
+        return principal == null ? Optional.empty() : Optional.of(resolver.resolve(principal));
     }
 
     /** No-op for internal/unauthenticated development calls; strict for OIDC requests. */

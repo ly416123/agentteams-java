@@ -38,15 +38,28 @@ public final class TeamRevisionService {
 
     public TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlayJson,
             List<UUID> memberAgentIds, String actor, String idempotencyKey, Instant now) {
+        return createDraft(teamId, leaderAgentId, overlayJson, memberAgentIds, List.of(), actor, idempotencyKey, now);
+    }
+
+    public TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlayJson,
+            List<UUID> memberAgentIds, List<TeamResourceBinding> resourceBindings, String actor,
+            String idempotencyKey, Instant now) {
         requireTeamScope(teamId);
         Objects.requireNonNull(memberAgentIds, "memberAgentIds");
+        Objects.requireNonNull(resourceBindings, "resourceBindings");
         if (memberAgentIds.isEmpty()) throw new IllegalArgumentException("members must not be empty");
         if (!memberAgentIds.contains(leaderAgentId)) {
             throw new IllegalArgumentException("leader must be included in members");
         }
         String overlay = canonicalObject(overlayJson);
-        return repository.createDraft(teamId, leaderAgentId, overlay, sha256(overlay), null, actor, now,
-                memberAgentIds, requireKey(idempotencyKey));
+        List<TeamResourceBinding> bindings = TeamResourceBindings.canonicalize(resourceBindings);
+        String digest = revisionDigest(overlay, bindings);
+        if (bindings.isEmpty()) {
+            return repository.createDraft(teamId, leaderAgentId, overlay, digest, null, actor, now,
+                    memberAgentIds, requireKey(idempotencyKey));
+        }
+        return repository.createDraft(teamId, leaderAgentId, overlay, digest, null, actor, now,
+                memberAgentIds, bindings, requireKey(idempotencyKey));
     }
 
     public TeamRevision updateOverlay(UUID teamId, long revisionNumber, String overlayJson,
@@ -68,9 +81,10 @@ public final class TeamRevisionService {
         String overlay = canonicalObject(overlayJson);
         String key = requireKey(idempotencyKey);
         return repository.update(new TeamRevision(teamId, revisionNumber, current.leaderAgentId(), overlay,
-                sha256(overlay), current.status(), current.rollbackOfRevision(), actor, now, expectedVersion,
-                current.memberAgentIds()), key, requestHash("UPDATE", teamId, revisionNumber, expectedVersion,
-                        overlay, actor));
+                revisionDigest(overlay, current.resourceBindings()), current.status(), current.rollbackOfRevision(),
+                actor, now, expectedVersion, current.memberAgentIds(), current.resourceBindings()), key,
+                requestHash("UPDATE", teamId, revisionNumber, expectedVersion,
+                        overlay + "\u0000" + TeamResourceBindings.canonicalText(current.resourceBindings()), actor));
     }
 
     public TeamRevision review(UUID teamId, long revisionNumber, long expectedVersion, String idempotencyKey) {
@@ -162,6 +176,10 @@ public final class TeamRevisionService {
         } catch (NoSuchAlgorithmException error) {
             throw new IllegalStateException("SHA-256 is unavailable", error);
         }
+    }
+
+    private static String revisionDigest(String overlay, List<TeamResourceBinding> bindings) {
+        return sha256(overlay + "\u0000" + TeamResourceBindings.canonicalText(bindings));
     }
 
     private static String requireKey(String key) {

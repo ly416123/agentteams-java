@@ -80,6 +80,13 @@ jobs:
           npm --prefix console run lint
       - name: Validate Console deployment manifests
         run: python3 scripts/validate-console-manifests.py
+      - name: Validate public OpenAPI and SDKs
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts/test_public_openapi_contract.py -v
+          npm --prefix sdk/typescript ci
+          npm --prefix sdk/typescript test
+          npm --prefix sdk/typescript run build
       - name: Set up Java
         uses: actions/setup-java@v5
         with:

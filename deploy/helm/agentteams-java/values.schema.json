@@ -159,6 +159,50 @@
             "batchSize": { "type": "integer", "minimum": 1 }
           }
         },
+        "scheduledTasks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "pollIntervalMs": { "type": "integer", "minimum": 1 },
+            "batchSize": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        },
+        "webhook": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "transport": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "timeout": { "type": "string", "minLength": 1 }
+              }
+            },
+            "scheduler": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "pollIntervalMs": { "type": "integer", "minimum": 1 },
+                "leaseDuration": { "type": "string", "minLength": 1 },
+                "batchSize": { "type": "integer", "minimum": 1, "maximum": 1000 },
+                "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 20 }
+              }
+            }
+          }
+        },
+        "taskStateConsistency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "reconcileIntervalMs": { "type": "integer", "minimum": 1 },
+            "leaseDuration": { "type": "string", "minLength": 1 },
+            "lookback": { "type": "string", "minLength": 1 },
+            "batchSize": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        },
         "usageBudget": {
           "type": "object",
           "additionalProperties": false,
@@ -251,6 +295,13 @@
                 "hsTokenKey": { "type": "string", "minLength": 1 }
               }
             }
+          }
+        },
+        "tokenLedger": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "internalToken": { "type": "string" }
           }
         },
         "env": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }

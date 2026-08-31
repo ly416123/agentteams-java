@@ -28,10 +28,11 @@ public class SkillRepository {
         }
         jdbc.update("""
                 INSERT INTO skills (id, name, display_name, description, visibility, lifecycle,
-                                    created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    created_at, updated_at, version, organization_id, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, skill.id(), skill.name(), skill.displayName(), skill.description(), skill.visibility(),
-                skill.lifecycle(), timestamp(skill.createdAt()), timestamp(skill.updatedAt()), skill.version());
+                skill.lifecycle(), timestamp(skill.createdAt()), timestamp(skill.updatedAt()), skill.version(),
+                skill.organizationId(), skill.tenantId());
         return skill;
     }
 
@@ -45,20 +46,22 @@ public class SkillRepository {
         jdbc.update("""
                 INSERT INTO skill_versions (id, skill_id, version, digest, manifest, visibility, lifecycle,
                                             created_at, updated_at, record_version, security_scan_status, review_status,
-                                            package_storage_key, package_size_bytes, package_sha256, package_upload_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            package_storage_key, package_size_bytes, package_sha256, package_upload_status,
+                                            organization_id, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, skillVersion.id(), skillVersion.skillId(), skillVersion.version(), skillVersion.digest(),
                 json(skillVersion.manifestJson()), skillVersion.visibility(), skillVersion.lifecycle(),
                 timestamp(skillVersion.createdAt()), timestamp(skillVersion.updatedAt()), skillVersion.recordVersion(),
                 skillVersion.securityScanStatus(), skillVersion.reviewStatus(), skillVersion.packageStorageKey(),
-                skillVersion.packageSizeBytes(), skillVersion.packageSha256(), skillVersion.packageUploadStatus());
+                skillVersion.packageSizeBytes(), skillVersion.packageSha256(), skillVersion.packageUploadStatus(),
+                skillVersion.organizationId(), skillVersion.tenantId());
         return skillVersion;
     }
 
     public List<SkillRecord> findAll() {
         return jdbc.query("""
                 SELECT id, name, display_name, description, visibility, lifecycle,
-                       created_at, updated_at, version
+                       created_at, updated_at, version, organization_id, tenant_id
                   FROM skills ORDER BY name, id
                 """, this::mapSkill);
     }
@@ -66,7 +69,7 @@ public class SkillRepository {
     public Optional<SkillRecord> findById(UUID id) {
         return jdbc.query("""
                 SELECT id, name, display_name, description, visibility, lifecycle,
-                       created_at, updated_at, version
+                       created_at, updated_at, version, organization_id, tenant_id
                   FROM skills WHERE id = ?
                 """, this::mapSkill, id).stream().findFirst();
     }
@@ -75,7 +78,8 @@ public class SkillRepository {
         return jdbc.query("""
                 SELECT id, skill_id, version, digest, manifest::text, visibility, lifecycle,
                        created_at, updated_at, record_version, security_scan_status, review_status,
-                       package_storage_key, package_size_bytes, package_sha256, package_upload_status
+                       package_storage_key, package_size_bytes, package_sha256, package_upload_status,
+                       organization_id, tenant_id
                   FROM skill_versions WHERE skill_id = ? ORDER BY created_at, id
                 """, this::mapVersion, skillId);
     }
@@ -84,7 +88,8 @@ public class SkillRepository {
         return jdbc.query("""
                 SELECT id, skill_id, version, digest, manifest::text, visibility, lifecycle,
                        created_at, updated_at, record_version, security_scan_status, review_status,
-                       package_storage_key, package_size_bytes, package_sha256, package_upload_status
+                       package_storage_key, package_size_bytes, package_sha256, package_upload_status,
+                       organization_id, tenant_id
                   FROM skill_versions WHERE id = ?
                 """, this::mapVersion, id).stream().findFirst();
     }
@@ -206,7 +211,7 @@ public class SkillRepository {
         return new SkillRecord(rs.getObject("id", UUID.class), rs.getString("name"),
                 rs.getString("display_name"), rs.getString("description"), rs.getString("visibility"),
                 rs.getString("lifecycle"), instant(rs, "created_at"), instant(rs, "updated_at"),
-                rs.getLong("version"));
+                rs.getLong("version"), rs.getString("organization_id"), rs.getString("tenant_id"));
     }
 
     private SkillVersionRecord mapVersion(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
@@ -217,7 +222,7 @@ public class SkillRepository {
                 rs.getString("security_scan_status"), rs.getString("review_status"),
                 rs.getString("package_storage_key"),
                 (Long) rs.getObject("package_size_bytes"), rs.getString("package_sha256"),
-                rs.getString("package_upload_status"));
+                rs.getString("package_upload_status"), rs.getString("organization_id"), rs.getString("tenant_id"));
     }
 
     private static SqlParameterValue json(String value) {

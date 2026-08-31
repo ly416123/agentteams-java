@@ -69,6 +69,7 @@
 - 批次 C 的 Operator 行为测试仓库纵切已进入 `main`：Worker/Team 覆盖首次创建、重复 reconcile、子资源篡改恢复、OwnerReference、状态投影和 generation 不变；TaskSandbox 已覆盖生命周期、删除、缺失子资源和旧 generation。Fabric8 Mock Server 已覆盖 Worker/Team status 409、429/500、持续错误和短暂 API 不可用，确认冲突交给 Java Operator SDK 默认重试链路；真实 Kind 故障注入和 Leader Election 验收仍待后续批次。
 - 模型价格目录自动同步第一纵切已进入 `main`：Control Plane 通过默认关闭的受限 HTTP 客户端拉取不含作用域的价格快照，仅写入部署显式配置的租户/项目，使用数据库租约、自然键和现有幂等审计链路去重，既不接受 payload 传入作用域，也不覆盖已有人工价格；真实价格源兼容性和 L6 长压测仍需在受控环境验证。
 - Console/Conversation 管理闭环已完成本地真实验收：登录入口、Project/Team/Worker/Task 管理页面、Conversation SSE 流式输出、重连、取消、幂等消息、跨 Manager 副本事件持久化和重启后的历史/幂等回放均已接入；Docker/Kind 真实 QwenPaw、Chromium E2E 和 158 项脚本回归通过。直接系统 Chrome 控制连接仍取决于当前浏览器连接器是否可用，不以 Playwright 结果冒充该连接器验收。
+- W5 的 Worker Template Registry 最小纵切已进入当前开发分支：模板 scope 与名称唯一、不可变 revision、Review/Publish/Deprecated 状态机、幂等实例化、AgentSpec/Worker 创建适配边界和实例升级 API 已落库；外部 Skill/MCP/Secret 深度校验、企业审批、生产就地升级/回滚以及 SDK/Console 仍不在本批范围内。L6 真实验收继续留在主线之外。
 
 ## 5. 统一架构决策
 
@@ -142,7 +143,7 @@ W2 Team Revision / Effective Config
 | L5 | Linux/KVM | gVisor、Kata、RuntimeClass、Pod 删除、节点故障和真实隔离 |
 | L6 | 生产预发布环境 | 外部 IdP、Secret Manager、托管数据库/NATS/S3、证书轮换、备份恢复、镜像晋级和回滚 |
 
-L1-L4 应进入默认 CI 或可复现的专用 CI。L5/L6 使用受控环境和人工审批，不向仓库注入生产凭据。
+L1-L4 应进入默认 CI 或可复现的专用 CI。L5/L6 使用受控环境和人工审批，不向仓库注入生产凭据。后续批量功能只要涉及运行时、Kubernetes、Operator、Worker、TaskSandbox、RuntimeClass、镜像、Helm 或部署链路，就必须在本地 Docker/Kind 通过后追加 L5 真实验收；不得用 Fake Provider、静态模板或环境不可用替代。
 
 ## 8. Definition of Done
 
@@ -155,7 +156,7 @@ L1-L4 应进入默认 CI 或可复现的专用 CI。L5/L6 使用受控环境和�
 5. 重复请求、消息重放、进程重启和并发竞争不会产生重复副作用；
 6. 日志、错误、诊断和 CI Artifact 不包含 Secret、JWT、完整 Prompt/Response；
 7. Helm 和生产配置示例同步；
-8. 对应 L1-L4 验收通过，涉及的 L5/L6 验收有真实结果；
+8. 对应 L1-L4 验收通过；涉及运行时、Kubernetes、Operator、Worker、TaskSandbox、RuntimeClass、镜像、Helm 或部署链路的批量功能，还必须有 Ubuntu/KVM L5 的成功标记、运行时证据和清理结果；
 9. README、架构地图、商业差距矩阵和实施计划状态同步；
 10. 提交保持单一职责，并通过敏感信息扫描和 `git diff --check`。
 

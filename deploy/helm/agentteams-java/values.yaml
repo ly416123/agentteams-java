@@ -61,6 +61,25 @@ controlPlane:
     pollIntervalMs: 1000
     leaseDuration: 30s
     batchSize: 16
+  scheduledTasks:
+    enabled: true
+    pollIntervalMs: 1000
+    batchSize: 16
+  webhook:
+    transport:
+      timeout: 10s
+    scheduler:
+      enabled: true
+      pollIntervalMs: 1000
+      leaseDuration: 30s
+      batchSize: 16
+      maxAttempts: 5
+  taskStateConsistency:
+    enabled: true
+    reconcileIntervalMs: 60000
+    leaseDuration: 30s
+    lookback: 24h
+    batchSize: 100
   usageBudget:
     scheduler:
       enabled: false
@@ -98,6 +117,10 @@ controlPlane:
       authEnabled: false
       hsTokenSecret: ""
       hsTokenKey: hs-token
+  tokenLedger:
+    # Required only when a separately deployed Manager/Worker settlement bridge
+    # is enabled. Keep empty by default so the internal API fails closed.
+    internalToken: ""
   env:
     SPRING_PROFILES_ACTIVE: k8s
     AGENTTEAMS_NATS_ENABLED: "true"
@@ -105,6 +128,12 @@ controlPlane:
     AGENTTEAMS_CONFIG_SNAPSHOT_RETENTION_COUNT: "5"
     AGENTTEAMS_CONFIG_SNAPSHOT_CLEANUP_BATCH_SIZE: "25"
     AGENTTEAMS_CONFIG_SNAPSHOT_CLEANUP_INTERVAL_MS: "300000"
+    AGENTTEAMS_ARTIFACT_RETENTION_SUCCESSFUL_TASK_RETENTION: "30d"
+    AGENTTEAMS_ARTIFACT_RETENTION_FAILED_TASK_RETENTION: "90d"
+    AGENTTEAMS_ARTIFACT_RETENTION_TEMPORARY_UPLOAD_RETENTION: "2h"
+    AGENTTEAMS_ARTIFACT_RETENTION_LEGAL_HOLD: "false"
+    AGENTTEAMS_ARTIFACT_RETENTION_BATCH_SIZE: "100"
+    AGENTTEAMS_ARTIFACT_RETENTION_CLEANUP_INTERVAL_MS: "300000"
 gateway:
   replicas: 2
   autoscaling:

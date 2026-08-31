@@ -125,6 +125,45 @@ class TeamRevisionServiceTest {
     }
 
     @Test
+    void draftStoresCanonicalResourceBindingsAndIncludesThemInDigest() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        UUID teamId = UUID.randomUUID();
+        UUID leaderAgentId = UUID.randomUUID();
+        TeamResourceBinding binding = new TeamResourceBinding(TeamResourceType.SKILL, UUID.randomUUID(), "12",
+                "sha256:skill");
+        when(repository.createDraft(eq(teamId), eq(leaderAgentId), eq("{}"), any(), eq(null), eq("alice"),
+                eq(NOW), eq(List.of(leaderAgentId)), eq(List.of(binding)), eq("binding-key")))
+                .thenAnswer(invocation -> new TeamRevision(teamId, 1, leaderAgentId, "{}",
+                        invocation.getArgument(3, String.class), TeamRevisionStatus.DRAFT, null, "alice", NOW, 0,
+                        List.of(leaderAgentId), invocation.getArgument(8)));
+        TeamRevisionService service = new TeamRevisionService(repository, repository::validatePublish, scopes);
+
+        TeamRevision created = service.createDraft(teamId, leaderAgentId, "{}", List.of(leaderAgentId),
+                List.of(binding), "alice", "binding-key", NOW);
+
+        assertThat(created.resourceBindings()).containsExactly(binding);
+        assertThat(created.digest()).hasSize(64);
+        verify(repository).createDraft(eq(teamId), eq(leaderAgentId), eq("{}"), any(), eq(null), eq("alice"),
+                eq(NOW), eq(List.of(leaderAgentId)), eq(List.of(binding)), eq("binding-key"));
+    }
+
+    @Test
+    void conflictingBindingKeyIsRejectedBeforePersistence() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        UUID leaderAgentId = UUID.randomUUID();
+        UUID resourceId = UUID.randomUUID();
+        List<TeamResourceBinding> bindings = List.of(
+                new TeamResourceBinding(TeamResourceType.MODEL, resourceId, "1", "sha256:one"),
+                new TeamResourceBinding(TeamResourceType.MODEL, resourceId, "1", "sha256:two"));
+
+        assertThatThrownBy(() -> new TeamRevisionService(repository, repository::validatePublish, scopes)
+                .createDraft(UUID.randomUUID(), leaderAgentId, "{}", List.of(leaderAgentId), bindings,
+                        "alice", "conflict-key", NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("binding");
+        verify(repository, never()).createDraft(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void publishDelegatesCasAndIdempotencyToOneRepositoryOperationAfterValidation() {
         TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
         TeamRevisionPublishValidator validator = mock(TeamRevisionPublishValidator.class);

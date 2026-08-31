@@ -16,6 +16,8 @@ import io.agentteams.application.api.SandboxObservation;
 import io.agentteams.application.api.SandboxProviderPhase;
 import io.agentteams.application.api.SandboxProviderRef;
 import io.agentteams.application.api.SandboxProvisionReceipt;
+import io.agentteams.application.api.SandboxProvisionCommand;
+import io.agentteams.application.api.SandboxPolicy;
 import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.application.api.SandboxTerminationReason;
@@ -70,6 +72,11 @@ class SandboxLifecycleServiceTest {
                 any(Instant.class), eq(1L), isNull(), isNull(), isNull(), eq(5L), eq(now))).thenReturn(bound);
 
         new SandboxLifecycleService(persistence, runtime).provisionRequested(now, 1);
+
+        ArgumentCaptor<SandboxProvisionCommand> command = ArgumentCaptor.forClass(SandboxProvisionCommand.class);
+        verify(runtime).ensureProvisioned(command.capture());
+        assertEquals(SandboxProfile.ISOLATED, command.getValue().policy().profile());
+        assertEquals(Duration.ofMinutes(5), command.getValue().policy().ttl());
 
         ArgumentCaptor<Long> expectedVersion = ArgumentCaptor.forClass(Long.class);
         verify(repository).updateProviderBinding(any(UUID.class), anyString(), anyString(), anyString(),

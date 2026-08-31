@@ -79,7 +79,7 @@ public final class JdbcSupport {
                 || normalized.equals("deepseekaccesstoken");
     }
 
-    static String jsonArray(List<String> values) {
+    public static String jsonArray(List<String> values) {
         try {
             return OBJECT_MAPPER.writeValueAsString(values);
         } catch (java.io.IOException error) {
@@ -87,7 +87,7 @@ public final class JdbcSupport {
         }
     }
 
-    static List<String> stringArray(String value) {
+    public static List<String> stringArray(String value) {
         try {
             return OBJECT_MAPPER.readValue(value, new TypeReference<List<String>>() { });
         } catch (java.io.IOException error) {

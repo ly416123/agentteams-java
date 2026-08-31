@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
+import io.agentteams.application.api.SandboxPolicy;
+import io.agentteams.application.api.SandboxProfile;
+import io.agentteams.application.api.SkillCapabilityPolicy;
+import java.time.Duration;
+import java.util.Set;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +42,19 @@ class RuntimeConfigSnapshotTest {
         assertThat(snapshot.mcpServers()).containsEntry("MCP|server-a|7", server);
         assertThat(snapshot.values()).doesNotContainValue("MCP_SERVER_TOKEN");
         assertThat(snapshot.mcpServers()).isUnmodifiable();
+    }
+
+    @Test
+    void carriesSkillCapabilityPoliciesAlongsideMaterializedSkills() {
+        SkillCapabilityPolicy policy = new SkillCapabilityPolicy(SandboxProfile.ISOLATED, 750, 768, 2048,
+                Duration.ofMinutes(10), Set.of("github"), Set.of("api.github.com"), false,
+                SandboxPolicy.NetworkPolicy.RESTRICTED);
+        RuntimeConfigSnapshot snapshot = new RuntimeConfigSnapshot(3, "sha-3", Map.of(), Map.of(),
+                Map.of("SKILL|code-review|2|sha256:skill", Path.of("/tmp/config/skills/code-review")),
+                Map.of(), Map.of("SKILL|code-review|2|sha256:skill", policy));
+
+        assertThat(snapshot.skillCapabilities()).containsEntry("SKILL|code-review|2|sha256:skill", policy);
+        assertThat(snapshot.skillCapabilities()).isUnmodifiable();
     }
 
     @Test

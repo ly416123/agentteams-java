@@ -73,6 +73,24 @@ class SkillServiceTest {
     }
 
     @Test
+    void createsVersionWithInheritedOrganizationAndTenantScope() {
+        UUID skillId = UUID.randomUUID();
+        SkillRecord skill = new SkillRecord(skillId, "code-review", "Code Review", "", "PRIVATE", "DRAFT",
+                NOW, NOW, 0, "org-1", "tenant-1");
+        when(repository.findById(skillId)).thenReturn(Optional.of(skill));
+        when(repository.createVersion(any(SkillVersionRecord.class), eq("version-key"), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        SkillVersionRecord version = service.createVersion(skillId, "version-key",
+                new SkillService.VersionInput("1.0.0", validDigest(),
+                        "{\"name\":\"code-review\",\"description\":\"Reviews code\","
+                                + "\"entry\":\"SKILL.md\",\"sizeBytes\":128}", null));
+
+        assertThat(version.organizationId()).isEqualTo("org-1");
+        assertThat(version.tenantId()).isEqualTo("tenant-1");
+    }
+
+    @Test
     void rejectsNonObjectManifestBeforePersistence() {
         UUID skillId = UUID.randomUUID();
         when(repository.findById(skillId)).thenReturn(java.util.Optional.of(new SkillRecord(skillId, "skill",
@@ -82,6 +100,22 @@ class SkillServiceTest {
                 new SkillService.VersionInput("1.0.0", validDigest(), "[]", null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("manifest must be a JSON object");
+
+        verify(repository, never()).createVersion(any(), any(), any());
+    }
+
+    @Test
+    void rejectsMalformedSkillCapabilityDeclarationBeforeVersionPersistence() {
+        UUID skillId = UUID.randomUUID();
+        when(repository.findById(skillId)).thenReturn(Optional.of(new SkillRecord(skillId, "skill",
+                "Skill", "", "PRIVATE", "DRAFT", NOW, NOW, 0)));
+
+        assertThatThrownBy(() -> service.createVersion(skillId, "version-key",
+                new SkillService.VersionInput("1.0.0", validDigest(),
+                        "{\"name\":\"skill\",\"description\":\"desc\",\"entry\":\"SKILL.md\","
+                                + "\"sizeBytes\":1,\"capabilities\":{\"networkPolicy\":\"internet\"}}", null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("networkPolicy");
 
         verify(repository, never()).createVersion(any(), any(), any());
     }

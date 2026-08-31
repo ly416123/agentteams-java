@@ -7,6 +7,7 @@ import io.agentteams.runtime.RuntimeMcpServer;
 import io.modelcontextprotocol.client.transport.customizer.McpSyncHttpClientRequestCustomizer;
 import java.net.URI;
 import java.net.http.HttpRequest;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -26,12 +27,25 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
 
     @Override
     public void configure(Toolkit toolkit, List<RuntimeMcpServer> servers) {
+        configure(toolkit, servers, List.of());
+    }
+
+    @Override
+    public void configure(Toolkit toolkit, List<RuntimeMcpServer> servers,
+            List<io.agentteams.application.api.SkillCapabilityPolicy> policies) {
         Objects.requireNonNull(toolkit, "toolkit");
         if (servers == null || servers.isEmpty()) return;
+        SkillRuntimePolicy runtimePolicy = SkillRuntimePolicy.from(
+                policies == null ? List.of() : policies);
         for (RuntimeMcpServer server : servers) {
+            if (!runtimePolicy.allows(server)) continue;
             try {
                 McpClientWrapper client = Objects.requireNonNull(clients.create(server, credentials), "MCP client");
-                toolkit.registration().mcpClient(client).apply();
+                Toolkit.ToolRegistration registration = toolkit.registration().mcpClient(client);
+                if (runtimePolicy.constrained()) {
+                    registration.enableTools(new ArrayList<>(runtimePolicy.allowedTools()));
+                }
+                registration.apply();
             } catch (RuntimeException error) {
                 throw new IllegalStateException("MCP_RUNTIME_UNAVAILABLE");
             }

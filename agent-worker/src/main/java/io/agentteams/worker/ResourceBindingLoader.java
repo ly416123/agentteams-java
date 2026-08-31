@@ -61,6 +61,15 @@ public final class ResourceBindingLoader {
             String transport = optionalText(node, "transport", failures);
             String endpoint = optionalText(node, "endpoint", failures);
             String credentialRef = optionalText(node, "credentialRef", failures);
+            io.agentteams.application.api.SkillCapabilityPolicy skillCapabilities = null;
+            JsonNode capabilityNode = node.get("skillCapabilities");
+            if (capabilityNode != null && !capabilityNode.isNull()) {
+                try {
+                    skillCapabilities = SkillCapabilityPolicyLoader.load(capabilityNode);
+                } catch (IllegalArgumentException error) {
+                    failures.add(capabilityFailureCode(error));
+                }
+            }
             if (type != null) {
                 type = type.toUpperCase(Locale.ROOT);
                 if (!SUPPORTED_TYPES.contains(type)) {
@@ -69,7 +78,7 @@ public final class ResourceBindingLoader {
             }
             if (failures.isEmpty()) {
                 ResourceBinding binding = new ResourceBinding(type, reference, revision, digest, artifactRef, sizeBytes,
-                        serverId, transport, endpoint, credentialRef);
+                        serverId, transport, endpoint, credentialRef, skillCapabilities);
                 bindings.add(binding);
                 acknowledgements.add(BindingAck.success(binding));
             } else {
@@ -111,16 +120,36 @@ public final class ResourceBindingLoader {
         return value.asLong();
     }
 
+    private static String capabilityFailureCode(IllegalArgumentException error) {
+        String message = error.getMessage();
+        if (message == null || message.isBlank()) return "INVALID_SKILL_CAPABILITIES";
+        int separator = message.indexOf(" must ");
+        if (separator > 0) {
+            String field = message.substring(0, separator).replace("skillCapabilities.", "");
+            field = field.replace("MiB", "_MIB").replace("Mcp", "_MCP")
+                    .replaceAll("([a-z])([A-Z])", "$1_$2");
+            return "INVALID_SKILL_CAPABILITIES_" + field.toUpperCase(Locale.ROOT);
+        }
+        return "INVALID_SKILL_CAPABILITIES";
+    }
+
     public record ResourceBinding(String type, String reference, String revision, String digest,
             String artifactRef, long sizeBytes, String serverId, String transport, String endpoint,
-            String credentialRef) {
+            String credentialRef, io.agentteams.application.api.SkillCapabilityPolicy skillCapabilities) {
         public ResourceBinding(String type, String reference, String revision, String digest) {
-            this(type, reference, revision, digest, null, -1, null, null, null, null);
+            this(type, reference, revision, digest, null, -1, null, null, null, null, null);
         }
 
         public ResourceBinding(String type, String reference, String revision, String digest,
                 String artifactRef, long sizeBytes) {
-            this(type, reference, revision, digest, artifactRef, sizeBytes, null, null, null, null);
+            this(type, reference, revision, digest, artifactRef, sizeBytes, null, null, null, null, null);
+        }
+
+        public ResourceBinding(String type, String reference, String revision, String digest,
+                String artifactRef, long sizeBytes, String serverId, String transport, String endpoint,
+                String credentialRef) {
+            this(type, reference, revision, digest, artifactRef, sizeBytes, serverId, transport, endpoint,
+                    credentialRef, null);
         }
 
         public ResourceBinding {

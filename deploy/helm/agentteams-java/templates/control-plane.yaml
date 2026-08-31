@@ -47,6 +47,8 @@ spec:
               value: {{ .Values.observability.tracing.otlpEndpoint | quote }}
             - name: AGENTTEAMS_STORAGE_ENABLED
               value: {{ .Values.storage.enabled | quote }}
+            - name: AGENTTEAMS_TOKEN_LEDGER_INTERNAL_TOKEN
+              value: {{ .Values.controlPlane.tokenLedger.internalToken | quote }}
             - name: POD_NAME
               valueFrom:
                 fieldRef: { fieldPath: metadata.name }
@@ -58,6 +60,34 @@ spec:
               value: {{ .Values.controlPlane.scheduler.leaseDuration | quote }}
             - name: AGENTTEAMS_SCHEDULER_BATCH_SIZE
               value: {{ .Values.controlPlane.scheduler.batchSize | quote }}
+            - name: AGENTTEAMS_SCHEDULED_TASKS_ENABLED
+              value: {{ .Values.controlPlane.scheduledTasks.enabled | quote }}
+            - name: AGENTTEAMS_SCHEDULED_TASKS_POLL_INTERVAL_MS
+              value: {{ .Values.controlPlane.scheduledTasks.pollIntervalMs | quote }}
+            - name: AGENTTEAMS_SCHEDULED_TASKS_BATCH_SIZE
+              value: {{ .Values.controlPlane.scheduledTasks.batchSize | quote }}
+            - name: AGENTTEAMS_WEBHOOK_TRANSPORT_TIMEOUT
+              value: {{ .Values.controlPlane.webhook.transport.timeout | quote }}
+            - name: AGENTTEAMS_WEBHOOK_SCHEDULER_ENABLED
+              value: {{ .Values.controlPlane.webhook.scheduler.enabled | quote }}
+            - name: AGENTTEAMS_WEBHOOK_SCHEDULER_POLL_INTERVAL_MS
+              value: {{ .Values.controlPlane.webhook.scheduler.pollIntervalMs | quote }}
+            - name: AGENTTEAMS_WEBHOOK_SCHEDULER_LEASE_DURATION
+              value: {{ .Values.controlPlane.webhook.scheduler.leaseDuration | quote }}
+            - name: AGENTTEAMS_WEBHOOK_SCHEDULER_BATCH_SIZE
+              value: {{ .Values.controlPlane.webhook.scheduler.batchSize | quote }}
+            - name: AGENTTEAMS_WEBHOOK_SCHEDULER_MAX_ATTEMPTS
+              value: {{ .Values.controlPlane.webhook.scheduler.maxAttempts | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_ENABLED
+              value: {{ .Values.controlPlane.taskStateConsistency.enabled | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_RECONCILE_INTERVAL_MS
+              value: {{ .Values.controlPlane.taskStateConsistency.reconcileIntervalMs | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_LEASE_DURATION
+              value: {{ .Values.controlPlane.taskStateConsistency.leaseDuration | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_LOOKBACK
+              value: {{ .Values.controlPlane.taskStateConsistency.lookback | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_BATCH_SIZE
+              value: {{ .Values.controlPlane.taskStateConsistency.batchSize | quote }}
             - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_ENABLED
               value: {{ .Values.controlPlane.usageBudget.scheduler.enabled | quote }}
             - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_POLL_INTERVAL_MS

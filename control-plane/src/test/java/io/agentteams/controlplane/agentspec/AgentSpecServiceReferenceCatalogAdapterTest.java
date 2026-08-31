@@ -16,9 +16,12 @@ import io.agentteams.controlplane.skill.SkillPackageStorageService;
 import io.agentteams.controlplane.skill.SkillRepository;
 import io.agentteams.controlplane.skill.SkillService;
 import io.agentteams.controlplane.skill.SkillVersionRecord;
+import io.agentteams.application.api.SandboxPolicy;
+import io.agentteams.application.api.SandboxProfile;
 import io.agentteams.controlplane.storage.ObjectStorage;
 import java.net.URL;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -92,6 +95,27 @@ class AgentSpecServiceReferenceCatalogAdapterTest {
             assertThat(metadata.lifecycle()).isEqualTo("PUBLISHED");
             assertThat(metadata.revision()).isEqualTo("2.1.0");
             assertThat(metadata.digest()).isEqualTo("sha256:abc");
+        });
+    }
+
+    @Test
+    void skillAdapterCarriesTheParsedCapabilityPolicyIntoTheBindingMetadata() {
+        UUID skillId = UUID.randomUUID();
+        SkillRecord skill = new SkillRecord(skillId, "code-review", "Code Review", "review",
+                "PRIVATE", "PUBLISHED", NOW, NOW, 4);
+        SkillVersionRecord version = new SkillVersionRecord(UUID.randomUUID(), skillId, "2.1.0", "sha256:abc",
+                "{\"name\":\"code-review\",\"capabilities\":{\"profile\":\"ISOLATED\","
+                        + "\"networkPolicy\":\"RESTRICTED\"}}", "PRIVATE", "PUBLISHED", NOW, NOW, 2);
+        when(skills.listSkills()).thenReturn(List.of(skill));
+        when(skills.listVersions(skillId)).thenReturn(List.of(version));
+
+        AgentSpecReferenceCatalogPort adapter = new AgentSpecSkillServiceReferenceCatalogAdapter(skills,
+                (type, id, scope) -> true);
+
+        assertThat(adapter.find("code-review@2.1.0", SCOPE)).hasValueSatisfying(metadata -> {
+            assertThat(metadata.skillCapabilities()).isNotNull();
+            assertThat(metadata.skillCapabilities().profile()).isEqualTo(SandboxProfile.ISOLATED);
+            assertThat(metadata.skillCapabilities().networkPolicy()).isEqualTo(SandboxPolicy.NetworkPolicy.RESTRICTED);
         });
     }
 

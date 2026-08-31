@@ -1,29 +1,35 @@
 {
   "schema_version": 1,
   "git_sha": "0123456789abcdef0123456789abcdef01234567",
+  "source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "chart_source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "chart_version": "0.1.0",
   "environment": "production",
   "components": {
     "control-plane": {
       "image": "ghcr.io/ly416123/agentteams-control-plane:v1.0.0",
+      "source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "sbom": "https://github.com/example/sbom",
       "signature": "https://github.com/example/signature",
       "provenance": "https://github.com/example/provenance"
     },
     "gateway": {
       "image": "ghcr.io/ly416123/agentteams-agent-gateway@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "sbom": "https://github.com/example/sbom",
       "signature": "https://github.com/example/signature",
       "provenance": "https://github.com/example/provenance"
     },
     "operator": {
       "image": "ghcr.io/ly416123/agentteams-operator@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "sbom": "https://github.com/example/sbom",
       "signature": "https://github.com/example/signature",
       "provenance": "https://github.com/example/provenance"
     },
     "worker": {
       "image": "ghcr.io/ly416123/agentteams-agent-worker@sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "sbom": "https://github.com/example/sbom",
       "signature": "https://github.com/example/signature",
       "provenance": "https://github.com/example/provenance"

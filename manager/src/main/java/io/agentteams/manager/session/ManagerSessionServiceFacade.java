@@ -132,7 +132,8 @@ public class ManagerSessionServiceFacade {
         Set<String> verifiedPermissions = ManagerRequestContext.current()
                 .map(ManagerPrincipal::permissions).orElse(permissions);
         ManagerToolRegistry.ToolContext context = new ManagerToolRegistry.ToolContext(verifiedPermissions, approved,
-                session.tenantId(), session.projectId(), null, taskId, teamId, "create_task", null, null);
+                session.tenantId(), session.projectId(), null, taskId, teamId, "create_task", null, null,
+                session.id().toString());
         Object result;
         try {
             result = modelService.handleCreateTask(content, context);

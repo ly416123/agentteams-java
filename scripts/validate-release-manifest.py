@@ -16,6 +16,7 @@ COMPONENTS = ("control-plane", "gateway", "operator", "worker")
 ENVIRONMENTS = {"staging", "production"}
 SHA256_IMAGE = re.compile(r"^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$")
 GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+SOURCE_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 
@@ -38,7 +39,8 @@ def https_reference(value: Any, path: str) -> None:
 
 
 def validate_manifest(data: Any, expected_git_sha: str | None = None,
-                     expected_environment: str | None = None) -> None:
+                     expected_environment: str | None = None,
+                     expected_source_fingerprint: str | None = None) -> None:
     if not isinstance(data, dict):
         raise ManifestError("manifest must be a JSON object")
 
@@ -50,6 +52,16 @@ def validate_manifest(data: Any, expected_git_sha: str | None = None,
         raise ManifestError("git_sha must be 40 lowercase hexadecimal characters")
     if expected_git_sha and git_sha != expected_git_sha:
         raise ManifestError("git_sha does not match the requested commit")
+
+    source_fingerprint = required(data, "source_fingerprint", "source_fingerprint")
+    if not isinstance(source_fingerprint, str) or not SOURCE_FINGERPRINT.fullmatch(source_fingerprint):
+        raise ManifestError("source_fingerprint must be 64 lowercase hexadecimal characters")
+    if expected_source_fingerprint and source_fingerprint != expected_source_fingerprint:
+        raise ManifestError("source_fingerprint does not match the requested checkout")
+
+    chart_source_fingerprint = required(data, "chart_source_fingerprint", "chart_source_fingerprint")
+    if chart_source_fingerprint != source_fingerprint:
+        raise ManifestError("chart_source_fingerprint does not match source_fingerprint")
 
     chart_version = required(data, "chart_version", "chart_version")
     if not isinstance(chart_version, str) or not SEMVER.fullmatch(chart_version):
@@ -73,6 +85,17 @@ def validate_manifest(data: Any, expected_git_sha: str | None = None,
             raise ManifestError(
                 f"components.{component_name}.image must be pinned by a lowercase sha256 digest"
             )
+        component_source_fingerprint = required(
+            component, "source_fingerprint", f"components.{component_name}.source_fingerprint")
+        if (not isinstance(component_source_fingerprint, str)
+                or not SOURCE_FINGERPRINT.fullmatch(component_source_fingerprint)):
+            raise ManifestError(
+                f"components.{component_name}.source_fingerprint must be 64 lowercase hexadecimal characters"
+            )
+        if component_source_fingerprint != source_fingerprint:
+            raise ManifestError(
+                f"components.{component_name}.source_fingerprint does not match source_fingerprint"
+            )
         for field in ("sbom", "signature", "provenance"):
             https_reference(required(component, field, f"components.{component_name}.{field}"),
                             f"components.{component_name}.{field}")
@@ -90,10 +113,11 @@ def main() -> None:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--git-sha")
     parser.add_argument("--environment", choices=sorted(ENVIRONMENTS))
+    parser.add_argument("--source-fingerprint")
     args = parser.parse_args()
     try:
         data = json.loads(args.manifest.read_text(encoding="utf-8"))
-        validate_manifest(data, args.git_sha, args.environment)
+        validate_manifest(data, args.git_sha, args.environment, args.source_fingerprint)
     except (OSError, json.JSONDecodeError, ManifestError) as exc:
         print(f"RELEASE_MANIFEST_FAIL: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

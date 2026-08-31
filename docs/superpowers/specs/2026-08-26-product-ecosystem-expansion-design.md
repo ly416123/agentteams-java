@@ -1,7 +1,7 @@
 # AgentTeams Java 产品生态扩展设计
 
 **日期：** 2026-08-26
-**状态：** 等待书面规格审查
+**状态：** Worker Template Registry 最小可用闭环、OpenAPI v1.0 与 Java/TypeScript SDK 核心客户端已实现；Console 管理闭环已实现；Channel SPI 已完成 Webhook 和 Matrix 出站第一纵切，DingTalk 适配器仍待后续批次
 **优先级：** P2/P3
 **依赖：** P0 生产主路径和 P1 治理接口稳定
 
@@ -53,13 +53,15 @@ public record WorkerTemplateRevision(
 - `POST /api/v1/worker-templates`；
 - `POST /api/v1/worker-templates/{id}/revisions`；
 - `POST /api/v1/worker-templates/{id}/revisions/{revision}/publish`；
-- `POST /api/v1/worker-templates/{id}/revisions/{revision}/instantiate`；
-- `POST /api/v1/worker-template-instances/{id}/upgrade`；
+- `POST /api/v1/worker-templates/{id}/revisions/{revision}/instances`；
+- `POST /api/v1/worker-templates/{id}/instances/{instanceId}/upgrade/{revision}`；
 - `GET` 列表、详情、revision 和实例状态。
 
 实例化复用 AgentSpec 发布和部署服务，不直接操作 Kubernetes。
 
 ## 4. OpenAPI 与 SDK
+
+当前第一纵切已冻结 `openapi/agentteams-public.yaml`，覆盖 Project/Task 核心公共读写接口、统一游标分页、错误结构、Bearer 鉴权和幂等请求头。`sdk/java` 与 `sdk/typescript` 提供对应的核心客户端；内部控制面、Matrix AppService 和 Kubernetes API 不进入公共契约。后续新增公共接口必须先更新 OpenAPI 契约，再同步两个 SDK 和破坏性变更检查。
 
 ### 4.1 API 稳定化
 
@@ -127,6 +129,8 @@ public record ChannelMessage(
         String correlationId) {}
 ```
 
+当前 Webhook 第一纵切通过 `WebhookChannelAdapter` 实现该 Port：发送只创建持久化投递记录，复用现有 leader-only scheduler、HMAC、重试、死信和事件 ID 去重；适配器在入队前强制校验 Organization/Tenant/Project 绑定、启用状态和事件白名单。Matrix 第一纵切通过 `MatrixChannelAdapter` 复用现有 Matrix Outbox 与 `MatrixDeliveryService`，新增独立的 room 绑定表，将 Organization/Tenant/Project、事件白名单和启用状态作为发送前约束，并使用调用方消息 ID 保证幂等入队。两类 Channel 适配器只返回稳定的 `QUEUED/DUPLICATE` 回执，不拥有 Task 状态，也不返回 Secret。
+
 Inbound Adapter 只负责验证供应商签名、去重、身份绑定和转换为平台命令；Outbound Adapter 从持久化 Outbox 消费。Channel 不拥有 Task 状态。
 
 ### 6.2 首批 Adapter
@@ -154,6 +158,15 @@ public record ArtifactRetentionPolicy(
 - 对象删除失败保留待重试记录；
 - 审计保存对象键 hash、策略、操作者和结果，不保存预签名 URL；
 - 清理任务使用数据库 Scheduler Lease，多副本只执行一次。
+
+当前实现第一纵切已落在 `artifact_retention_project_policies`、
+`artifact_retention_task_overrides` 和 `artifact_retention_tombstones` 三张表：
+项目策略按现有 Task 的 tenant/project resource scope 解析，Task 覆盖优先于项目策略，
+部署默认策略作为最终回退；Tombstone 记录对象键 hash、策略来源和版本快照，实际删除仍通过
+现有 `ObjectStorage` Port 执行。删除成功保留 artifact 元数据并标记为 `DELETED`，失败以
+指数退避重试。当前临时窗口只覆盖已登记的非 `AVAILABLE` artifact，config upload 仍由
+既有专用生命周期清理任务负责。企业管理 API、Legal Hold 审批流和完整
+result-manifest/payload-ref 统一归档策略仍属于后续批次。
 
 ## 8. Sandbox Pool 与 CubeSandbox
 

@@ -397,10 +397,14 @@ public final class QwenPawWorker implements AutoCloseable {
             }
             Map<String, Path> skillDirectories = new LinkedHashMap<>();
             Map<String, RuntimeMcpServer> mcpServers = new LinkedHashMap<>();
+            Map<String, io.agentteams.application.api.SkillCapabilityPolicy> skillCapabilities = new LinkedHashMap<>();
             for (ResourceBindingLoader.ResourceBinding binding : resourceBindings.bindings()) {
                 if (binding.artifactRef() != null) {
                     if (skills == null) throw new IllegalArgumentException("Skill artifact fetcher is required");
                     skillDirectories.put(binding.key(), skills.materialize(binding, versionDirectory));
+                }
+                if ("SKILL".equals(binding.type()) && binding.skillCapabilities() != null) {
+                    skillCapabilities.put(binding.key(), binding.skillCapabilities());
                 }
                 if ("MCP".equals(binding.type())) {
                     if (binding.serverId() == null || binding.transport() == null || binding.endpoint() == null) {
@@ -428,7 +432,7 @@ public final class QwenPawWorker implements AutoCloseable {
                 stagedFiles.put(file.getPath(), files.fetch(file, versionDirectory));
             }
             return new RuntimeConfigSnapshot(changed.getConfigVersion(), changed.getManifestSha256(), values,
-                    stagedFiles, skillDirectories, mcpServers);
+                    stagedFiles, skillDirectories, mcpServers, skillCapabilities);
         } catch (IOException error) {
             throw new IllegalArgumentException("configuration manifest must be valid JSON", error);
         }

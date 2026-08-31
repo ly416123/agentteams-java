@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import io.agentteams.controlplane.team.TeamResourceBinding;
+import io.agentteams.controlplane.team.TeamResourceBindings;
 
 /** Composes Team configuration without allowing an overlay to weaken security. */
 public final class EffectiveConfigComposer {
@@ -30,9 +32,15 @@ public final class EffectiveConfigComposer {
         applyOverlay(result, object(request.teamOverlay(), "teamOverlay"));
         applyOverlay(result, object(request.taskOverlay(), "taskOverlay"));
         String canonical = ConfigManifestCanonicalizer.normalize(result.toString());
+        List<TeamResourceBinding> resourceBindings;
+        try {
+            resourceBindings = TeamResourceBindings.canonicalize(request.resourceBindings());
+        } catch (IllegalArgumentException error) {
+            throw new EffectiveConfigConflictException("EFFECTIVE_CONFIG_BINDING_CONFLICT", error.getMessage());
+        }
         return new EffectiveConfig(canonical, sha256(canonical),
                 new ConfigProvenance(request.agentBaseSnapshotId(), request.agentId(), request.teamId(),
-                        request.teamRevision(), request.taskId(), request.bindingDigests(), "v1"));
+                        request.teamRevision(), request.taskId(), request.bindingDigests(), resourceBindings, "v1"));
     }
 
     private static void applyOverlay(ObjectNode target, ObjectNode overlay) {

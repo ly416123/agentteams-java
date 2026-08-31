@@ -64,6 +64,32 @@ agentteams:
     poll-interval-ms: 1000
     lease-duration: 30s
     batch-size: 16
+  scheduled-tasks:
+    enabled: true
+    poll-interval-ms: 1000
+    batch-size: 16
+  webhook:
+    transport:
+      timeout: ${AGENTTEAMS_WEBHOOK_TRANSPORT_TIMEOUT:10s}
+    scheduler:
+      enabled: true
+      poll-interval-ms: 1000
+      lease-duration: 30s
+      batch-size: 16
+      max-attempts: 5
+  artifact-retention:
+    successful-task-retention: 30d
+    failed-task-retention: 90d
+    temporary-upload-retention: 2h
+    legal-hold: false
+    batch-size: 100
+    cleanup-interval-ms: 300000
+  task-state-consistency:
+    enabled: true
+    reconcile-interval-ms: 60000
+    lease-duration: 30s
+    lookback: 24h
+    batch-size: 100
   sandbox:
     enabled: false
     provider: fake
@@ -106,6 +132,8 @@ agentteams:
       max-response-bytes: 262144
       max-quotes: 1000
       targets: []
+  token-ledger:
+    internal-token: ${AGENTTEAMS_TOKEN_LEDGER_INTERNAL_TOKEN:}
   security:
     api:
       enabled: false

@@ -60,12 +60,12 @@ class FoundationRepositoryIT {
 
     @BeforeEach
     void migrate() {
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false)
                 .load()
                 .clean();
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load()
                 .migrate();
@@ -163,12 +163,12 @@ class FoundationRepositoryIT {
 
     @Test
     void backfillsOnlyRecoverableHistoricalUsageDimensions() {
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false)
                 .load()
                 .clean();
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .target("54")
                 .load()
@@ -222,7 +222,7 @@ class FoundationRepositoryIT {
         insertLegacyAudit(recoverableAuditId, taskId.toString(), occurredAt, "a");
         insertLegacyAudit(unknownAuditId, "not-a-task-id", occurredAt, "b");
 
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load()
                 .migrate();

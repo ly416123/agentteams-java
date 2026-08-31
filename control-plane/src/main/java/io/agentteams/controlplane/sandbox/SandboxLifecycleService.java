@@ -3,6 +3,7 @@ package io.agentteams.controlplane.sandbox;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.application.api.SandboxObservation;
+import io.agentteams.application.api.SandboxPolicy;
 import io.agentteams.application.api.SandboxProvisionCommand;
 import io.agentteams.application.api.SandboxProviderException;
 import io.agentteams.application.api.SandboxProviderPhase;
@@ -42,18 +43,25 @@ public final class SandboxLifecycleService {
 
     private final FoundationPersistenceService persistence;
     private final SandboxRuntimePort runtime;
+    private final SandboxPolicyService policyService;
     private final SandboxRuntimeProperties properties;
     private final String operationOwner;
 
     public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime) {
-        this(persistence, runtime, new SandboxRuntimeProperties(), "sandbox-lifecycle");
+        this(persistence, runtime, new SandboxRuntimeProperties(), "sandbox-lifecycle", new SandboxPolicyService());
     }
 
     public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime,
             SandboxRuntimeProperties properties, String operationOwner) {
+        this(persistence, runtime, properties, operationOwner, new SandboxPolicyService());
+    }
+
+    public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime,
+            SandboxRuntimeProperties properties, String operationOwner, SandboxPolicyService policyService) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.properties = Objects.requireNonNull(properties, "properties");
+        this.policyService = Objects.requireNonNull(policyService, "policyService");
         if (operationOwner == null || operationOwner.isBlank()) {
             throw new IllegalArgumentException("operationOwner must not be blank");
         }
@@ -276,8 +284,11 @@ public final class SandboxLifecycleService {
 
     private SandboxRequest toRequest(TaskSandboxRecord record) {
         Duration ttl = Duration.between(record.requestedAt(), record.expiresAt());
-        return SandboxRequest.of(record.taskId(), record.attemptId(), record.profile(), ttl, record.template(),
-                record.requestedAt());
+        SandboxRequest request = SandboxRequest.of(record.taskId(), record.attemptId(), record.profile(), ttl,
+                record.template(), record.requestedAt());
+        SandboxPolicy effective = policyService.resolve(request.policy());
+        return new SandboxRequest(request.taskId(), request.attemptId(), request.profile(), request.ttl(),
+                request.template(), request.requestedAt(), request.idempotencyKey(), effective);
     }
 
     private SandboxProviderRef providerRef(TaskSandboxRecord record) {

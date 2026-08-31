@@ -34,6 +34,15 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
+      - name: Verify clean source context and calculate fingerprint
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "$(git ls-files --others --exclude-standard)"
+          source_fingerprint="$(python3 scripts/source-fingerprint.py fingerprint --root .)"
+          echo "SOURCE_FINGERPRINT=$source_fingerprint" >> "$GITHUB_ENV"
+
       - name: Run release verification gates
         run: |
           set -euo pipefail
@@ -78,6 +87,8 @@ jobs:
               --platform linux/amd64 \
               --file "$dockerfile" \
               --tag "$image:$RELEASE_TAG" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --label "io.agentteams.source-fingerprint=$SOURCE_FINGERPRINT" \
               --provenance=true \
               --sbom=true \
               --metadata-file "$metadata" \
@@ -91,20 +102,24 @@ jobs:
             jq -n \
               --arg name "$image" \
               --arg digest "$digest" \
+              --arg source_fingerprint "$SOURCE_FINGERPRINT" \
               '{bomFormat:"CycloneDX", specVersion:"1.5", version:1,
                 metadata:{component:{type:"container", name:$name, version:$digest}},
-                components:[{type:"container", name:$name, version:$digest}]}' \
+                components:[{type:"container", name:$name, version:$digest,
+                  properties:[{name:"io.agentteams.source-fingerprint", value:$source_fingerprint}]}]}' \
               > "$sbom"
             jq -n \
               --arg subject "$image@$digest" \
               --arg digest "${digest#sha256:}" \
               --arg git_sha "$GITHUB_SHA" \
+              --arg source_fingerprint "$SOURCE_FINGERPRINT" \
               --arg workflow "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/release.yml" \
               '{_type:"https://in-toto.io/Statement/v1",
                 subject:[{name:$subject, digest:{sha256:$digest}}],
                 predicateType:"https://slsa.dev/provenance/v1",
                 predicate:{buildDefinition:{buildType:$workflow,
-                  externalParameters:{gitSha:$git_sha}, resolvedDependencies:[]},
+                  externalParameters:{gitSha:$git_sha, sourceFingerprint:$source_fingerprint,
+                    resolvedDependencies:[]},
                   runDetails:{builder:{id:$workflow}, metadata:{invocationId:$git_sha}}}}' \
               > "$provenance"
             cosign sign --yes "$image@$digest"
@@ -114,8 +129,10 @@ jobs:
             jq -n \
               --arg image "$image@$digest" \
               --arg component "$component" \
+              --arg source_fingerprint "$SOURCE_FINGERPRINT" \
               --arg repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
               '{component:$component, image:$image,
+                source_fingerprint:$source_fingerprint,
                 sbom:($repository + "/attestations/" + $component + "-sbom"),
                 signature:($repository + "/attestations/" + $component + "-signature"),
                 provenance:($repository + "/attestations/" + $component + "-provenance")}' \
@@ -130,13 +147,15 @@ jobs:
           chart_version="${RELEASE_TAG#v}"
           jq -n \
             --arg git_sha "$GITHUB_SHA" \
+            --arg source_fingerprint "$SOURCE_FINGERPRINT" \
             --arg chart_version "$chart_version" \
             --arg repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --slurpfile control_plane "$RUNNER_TEMP/release/control-plane.json" \
             --slurpfile gateway "$RUNNER_TEMP/release/gateway.json" \
             --slurpfile operator "$RUNNER_TEMP/release/operator.json" \
             --slurpfile worker "$RUNNER_TEMP/release/worker.json" \
-            '{schema_version:1, git_sha:$git_sha, chart_version:$chart_version,
+            '{schema_version:1, git_sha:$git_sha, source_fingerprint:$source_fingerprint,
+              chart_source_fingerprint:$source_fingerprint, chart_version:$chart_version,
               environment:"production",
               components:{
                 "control-plane":$control_plane[0], gateway:$gateway[0],
@@ -149,7 +168,8 @@ jobs:
           python3 scripts/validate-release-manifest.py \
             --manifest release-manifest.json \
             --git-sha "$GITHUB_SHA" \
-            --environment production
+            --environment production \
+            --source-fingerprint "$SOURCE_FINGERPRINT"
           cosign sign-blob --yes --output-signature release-manifest.json.sig release-manifest.json
 
       - name: Package and sign Helm chart

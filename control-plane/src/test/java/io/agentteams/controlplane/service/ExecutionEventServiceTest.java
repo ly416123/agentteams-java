@@ -39,12 +39,12 @@ class ExecutionEventServiceTest {
 
     @BeforeEach
     void resetDatabase() {
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false)
                 .load()
                 .clean();
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load()
                 .migrate();

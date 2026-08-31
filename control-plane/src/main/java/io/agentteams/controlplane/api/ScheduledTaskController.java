@@ -1,0 +1,114 @@
+package io.agentteams.controlplane.api;
+
+import io.agentteams.controlplane.schedule.ScheduledTaskDefinition;
+import io.agentteams.controlplane.schedule.ScheduledTaskScope;
+import io.agentteams.controlplane.schedule.ScheduledTaskService;
+import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.controlplane.security.PrincipalContext;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/** Tenant-scoped schedule management; every trigger becomes a normal Task. */
+@RestController
+@RequestMapping("/api/v1/scheduled-tasks")
+public final class ScheduledTaskController {
+    private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
+    private final ScheduledTaskService service;
+
+    public ScheduledTaskController(ScheduledTaskService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public ResponseEntity<ScheduleResponse> create(
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody CreateScheduleRequest request) {
+        requireKey(idempotencyKey);
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        requireCallerScope(request.tenantId(), request.projectId());
+        ScheduledTaskDefinition created = service.create(request.toServiceRequest());
+        return ResponseEntity.status(201).body(ScheduleResponse.from(created));
+    }
+
+    @GetMapping
+    public List<ScheduleResponse> list(@RequestParam String organizationId, @RequestParam String tenantId,
+            @RequestParam(required = false) String projectId) {
+        requireCallerScope(tenantId, projectId);
+        return service.list(new ScheduledTaskScope(organizationId, tenantId, projectId)).stream()
+                .map(ScheduleResponse::from).toList();
+    }
+
+    @GetMapping("/{id}")
+    public ScheduleResponse get(@PathVariable UUID id, @RequestParam String organizationId,
+            @RequestParam String tenantId, @RequestParam(required = false) String projectId) {
+        requireCallerScope(tenantId, projectId);
+        return ScheduleResponse.from(service.find(new ScheduledTaskScope(organizationId, tenantId, projectId), id));
+    }
+
+    @PostMapping("/{id}/pause")
+    public ScheduleResponse pause(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String operationKey,
+            @RequestBody ScopeRequest request) {
+        requireKey(operationKey);
+        requireCallerScope(request.tenantId(), request.projectId());
+        return ScheduleResponse.from(service.pause(request.scope(), id, operationKey));
+    }
+
+    @PostMapping("/{id}/resume")
+    public ScheduleResponse resume(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String operationKey,
+            @RequestBody ScopeRequest request) {
+        requireKey(operationKey);
+        requireCallerScope(request.tenantId(), request.projectId());
+        return ScheduleResponse.from(service.resume(request.scope(), id, operationKey));
+    }
+
+    private static void requireKey(String value) {
+        if (value == null || value.isBlank() || value.length() > 255) {
+            throw new IllegalArgumentException("Idempotency-Key is required and must be at most 255 characters");
+        }
+    }
+
+    private static void requireCallerScope(String tenantId, String projectId) {
+        PrincipalContext.current().ifPresent(principal -> {
+            if (!principal.scope().tenant().equals(tenantId)
+                    || (projectId != null && !principal.scope().project().equals(projectId))) {
+                throw new AuthorizationException("schedule is outside the caller scope");
+            }
+        });
+    }
+
+    public record CreateScheduleRequest(String name, String organizationId, String tenantId, String projectId,
+            String cronExpression, String timeZone, String title, String description, com.fasterxml.jackson.databind.JsonNode spec,
+            String actor, String source) {
+        ScheduledTaskService.CreateRequest toServiceRequest() {
+            return new ScheduledTaskService.CreateRequest(name,
+                    new ScheduledTaskScope(organizationId, tenantId, projectId), cronExpression, timeZone,
+                    title, description, spec == null || spec.isNull() ? "{}" : spec.toString(), actor, source);
+        }
+    }
+
+    public record ScopeRequest(String organizationId, String tenantId, String projectId) {
+        ScheduledTaskScope scope() { return new ScheduledTaskScope(organizationId, tenantId, projectId); }
+    }
+
+    public record ScheduleResponse(UUID id, String name, String organizationId, String tenantId, String projectId,
+            String cronExpression, String timeZone, String title, boolean enabled, Instant nextRunAt,
+            Instant lastRunAt, UUID lastTaskId, long version) {
+        static ScheduleResponse from(ScheduledTaskDefinition value) {
+            return new ScheduleResponse(value.id(), value.name(), value.scope().organizationId(),
+                    value.scope().tenantId(), value.scope().projectId(), value.cronExpression(), value.timeZone(),
+                    value.title(), value.enabled(), value.nextRunAt(), value.lastRunAt(), value.lastTaskId(), value.version());
+        }
+    }
+}

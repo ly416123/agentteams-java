@@ -20,6 +20,8 @@ public class SkillService {
 
     private static final String PRIVATE = "PRIVATE";
     private static final String DRAFT = "DRAFT";
+    private static final SkillCapabilityPolicyParser CAPABILITY_POLICY_PARSER =
+            new SkillCapabilityPolicyParser();
     private final SkillRepository repository;
     private final IdempotencyService idempotency;
     private final Clock clock;
@@ -105,7 +107,7 @@ public class SkillService {
         String visibility = visibility(input.visibility());
         Instant now = clock.instant();
         SkillRecord skill = new SkillRecord(UUID.randomUUID(), name, displayName, description, visibility, DRAFT,
-                now, now, 0);
+                now, now, 0, input.organizationId(), input.tenantId());
         SkillRecord created = repository.createSkill(skill, key,
                 idempotency.requestHash(name, displayName, description, visibility));
         bindIfAuthenticated(created.id());
@@ -132,10 +134,12 @@ public class SkillService {
         String digest = required(input.digest(), "digest");
         String manifest = manifest(input.manifestJson());
         packageValidator.validate(version, digest, manifest);
+        CAPABILITY_POLICY_PARSER.parse(manifest);
         String visibility = visibility(input.visibility() == null ? skill.visibility() : input.visibility());
         Instant now = clock.instant();
         SkillVersionRecord skillVersion = new SkillVersionRecord(UUID.randomUUID(), skillId, version, digest,
-                manifest, visibility, DRAFT, now, now, 0);
+                manifest, visibility, DRAFT, now, now, 0, "NOT_SCANNED", "PENDING", null, null, null,
+                "NOT_STARTED", skill.organizationId(), skill.tenantId());
         return repository.createVersion(skillVersion, key,
                 idempotency.requestHash(skillId.toString(), version, digest, manifest, visibility));
     }
@@ -157,6 +161,7 @@ public class SkillService {
             throw new SkillPackageValidationException("skill package upload must be completed before publishing");
         }
         packageValidator.validate(version.version(), version.digest(), version.manifestJson());
+        CAPABILITY_POLICY_PARSER.parse(version.manifestJson());
         if (packageStorage != null && packageStorage.archiveScanningAvailable()) {
             SkillSecurityScanner.ScanResult archiveScan = packageStorage.scanCompletedPackage(skillId, versionId);
             version = persistAndResolveScan(skillId, versionId, version, archiveScan, "skill package security scan");
@@ -191,7 +196,11 @@ public class SkillService {
         return repository.disable(skillId, versionId, clock.instant());
     }
 
-    public record SkillInput(String name, String displayName, String description, String visibility) {
+    public record SkillInput(String name, String displayName, String description, String visibility,
+            String organizationId, String tenantId) {
+        public SkillInput(String name, String displayName, String description, String visibility) {
+            this(name, displayName, description, visibility, null, null);
+        }
     }
 
     public record VersionInput(String version, String digest, String manifestJson, String visibility) {

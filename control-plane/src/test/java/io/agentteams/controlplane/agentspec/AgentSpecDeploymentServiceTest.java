@@ -19,6 +19,9 @@ import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
+import io.agentteams.application.api.SandboxPolicy;
+import io.agentteams.application.api.SandboxProfile;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.Optional;
@@ -120,6 +123,11 @@ class AgentSpecDeploymentServiceTest {
                         reference.type() == AgentSpecReferenceType.MCP
                                 ? new McpRuntimeMetadata("2d85e034-1486-4df0-b4b9-6d8e622ace61",
                                         "STREAMABLE_HTTP", "https://mcp.example.test/http", "MCP_SERVER_TOKEN")
+                                : null,
+                        reference.type() == AgentSpecReferenceType.SKILL
+                                ? new io.agentteams.application.api.SkillCapabilityPolicy(SandboxProfile.ISOLATED,
+                                        500, 512, 1024, Duration.ofMinutes(10), java.util.Set.of(), java.util.Set.of(),
+                                        java.util.Set.of("search"), false, SandboxPolicy.NetworkPolicy.RESTRICTED)
                                 : null));
         AgentSpecDeploymentService service = new AgentSpecDeploymentService(specs, snapshots, deployments,
                 new ObjectMapper(), null, new CatalogAgentSpecReferenceValidator(catalog));
@@ -137,6 +145,12 @@ class AgentSpecDeploymentServiceTest {
         assertThat(root.path("resourceBindings").get(1).path("artifactRef").asText())
                 .isEqualTo("https://objects.example.test/skill.tar.gz");
         assertThat(root.path("resourceBindings").get(1).path("sizeBytes").asLong()).isEqualTo(12L);
+        assertThat(root.path("resourceBindings").get(1).path("skillCapabilities").path("profile").asText())
+                .isEqualTo("ISOLATED");
+        assertThat(root.path("resourceBindings").get(1).path("skillCapabilities").path("networkPolicy").asText())
+                .isEqualTo("RESTRICTED");
+        assertThat(root.path("resourceBindings").get(1).path("skillCapabilities").path("allowedTools").toString())
+                .isEqualTo("[\"search\"]");
         assertThat(root.path("resourceBindings").get(1).path("workerId").asText()).isEqualTo(workerId.toString());
         assertThat(root.path("resourceBindings").get(1).path("teamRef").asText()).isEqualTo("research");
         assertThat(root.path("resourceBindings").get(2).path("type").asText()).isEqualTo("MCP");

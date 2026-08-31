@@ -10,6 +10,7 @@ import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
 import io.agentteams.runtime.RuntimeMcpServer;
+import io.agentteams.application.api.SkillCapabilityPolicy;
 import io.agentteams.runtime.RuntimeTask;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -37,6 +38,8 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
     private final AtomicReference<Path> activeSkillRoot = new AtomicReference<>();
     private final AtomicReference<List<RuntimeMcpServer>> activeMcpServers =
             new AtomicReference<>(List.of());
+    private final AtomicReference<Map<String, SkillCapabilityPolicy>> activeSkillCapabilities =
+            new AtomicReference<>(Map.of());
     private final McpRuntimePort mcpRuntime;
 
     public ConfiguredAgentScopeHarnessFactory(String modelId, Path workspaceRoot) {
@@ -112,10 +115,15 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
         }
         activeSkillRoot.set(root);
         activeMcpServers.set(snapshot.mcpServers().values().stream().toList());
+        activeSkillCapabilities.set(snapshot.skillCapabilities());
     }
 
     int bindingCount() {
         return bindings.size();
+    }
+
+    Map<String, SkillCapabilityPolicy> activeSkillCapabilities() {
+        return activeSkillCapabilities.get();
     }
 
     @Override
@@ -149,7 +157,7 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
             List<RuntimeMcpServer> mcpServers = activeMcpServers.get();
             if (!mcpServers.isEmpty()) {
                 Toolkit toolkit = new Toolkit();
-                mcpRuntime.configure(toolkit, mcpServers);
+                mcpRuntime.configure(toolkit, mcpServers, activeSkillCapabilities.get().values().stream().toList());
                 builder.toolkit(toolkit);
             }
             Path skillRoot = activeSkillRoot.get();

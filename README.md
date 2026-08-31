@@ -42,6 +42,32 @@ Integration tests use the `integration-tests` profile:
 mvn -q -Pintegration-tests verify
 ```
 
+## Worker Template Registry（当前第一纵切）
+
+Control Plane 已提供模板的 scope 内唯一创建、不可变 revision、Review/Publish
+生命周期、幂等实例化和实例升级入口。当前公共 API 为：
+
+```text
+POST /api/v1/worker-templates
+POST /api/v1/worker-templates/{id}/revisions
+POST /api/v1/worker-templates/{id}/revisions/{revision}/review
+POST /api/v1/worker-templates/{id}/revisions/{revision}/publish
+POST /api/v1/worker-templates/{id}/revisions/{revision}/instances
+POST /api/v1/worker-templates/{id}/instances/{instanceId}/upgrade/{revision}
+```
+
+写操作使用 `Idempotency-Key`；状态变更使用 `expectedVersion`。模板实例通过
+现有 AgentSpec/Worker 服务边界创建，不直接操作 Kubernetes。企业审批、外部
+Skill/MCP/Secret 深度校验和 L6 真实验收不属于当前纵切完成条件。
+
+## Public API 与 SDK（v1.0 第一纵切）
+
+公共契约位于 [`openapi/agentteams-public.yaml`](openapi/agentteams-public.yaml)，当前冻结
+Project/Task 核心接口、游标分页、Bearer 鉴权、`Idempotency-Key` 和统一错误结构。
+Java 17 与 TypeScript 客户端分别位于 [`sdk/java`](sdk/java) 和
+[`sdk/typescript`](sdk/typescript)；它们只访问公共 API，不暴露 Kubernetes、Matrix
+AppService 或其他内部接口。
+
 ## Git development workflow
 
 `main` is the only integration and release baseline. New work must branch from
@@ -131,15 +157,41 @@ existing authorization boundary. JWKS caching and key refresh are delegated
 to Spring Security's Nimbus decoder; no OIDC client secret is stored in the
 application configuration.
 
+Artifact retention is enabled when object storage is enabled. The Control Plane
+uses deployment defaults of `30d` for successful tasks, `90d` for failed tasks,
+and `2h` for temporary uploads; project policies and Task overrides are stored
+separately. Cleanup first writes a database tombstone, then deletes the object
+through the storage port under a database scheduler lease. Failed deletions
+remain retryable, while Legal Hold creates a held tombstone and does not delete
+content. Artifact metadata is retained for audit and is marked `DELETED` only
+after the object deletion succeeds. The `2h` temporary window applies to tracked
+non-available artifact rows; the existing config-upload lifecycle keeps its
+dedicated pending-upload cleanup until the unified result-manifest/payload-ref
+retention model is delivered.
+
+Task state consistency is protected at two layers. The `tasks.phase` state remains
+authoritative, while `task_runs` is a monotonic projection whose terminal state,
+identity, and completion timestamp cannot be regressed by late observations. A
+leader-only reconciliation job scans recent runs, compares Task/Run/Attempt/Lease,
+process-event, subtask, and result-manifest facts, and records idempotent findings
+in `task_state_consistency_issues`. Findings are resolved when a later scan no
+longer observes the drift. The first slice is diagnostic only: it does not rewrite
+Task state or delete process evidence. Operators can read OPEN findings through the
+token-protected internal endpoint
+`GET /internal/v1/task-state-consistency/issues?limit=100`.
+
 ## Project environment and validation gate
 
 The primary local development environment is macOS with Colima and a working
 Docker daemon. This project workspace has Docker Engine available locally,
 Chrome available for browser validation, and an existing Kind cluster named
 `agentteams`. `deploy/dev-env.sh` selects the `colima` Docker context and
-exports the Docker endpoint used by Testcontainers. Docker-backed tests are
-therefore part of the normal local verification path, not an optional CI-only
-substitute.
+exports the Docker endpoint used by Kind and other CLI commands. For Maven
+tests, the root `pom.xml` automatically activates the `colima-testcontainers`
+profile when the Colima socket exists, and injects the endpoint plus the
+container-visible socket override into Surefire/Failsafe. Docker-backed tests
+are therefore part of the normal local verification path, not an optional
+CI-only substitute.
 
 Before pushing a code or deployment change to GitHub Actions, load the local
 environment and complete the Docker-backed verification successfully:
@@ -149,6 +201,11 @@ source deploy/dev-env.sh
 docker info
 mvn -q -Pintegration-tests verify
 ```
+
+`source deploy/dev-env.sh` remains necessary for Kind and explicit Docker CLI
+commands. Maven/Surefire Testcontainers tests can be run directly with
+`mvn -q test`; no `DOCKER_HOST` or `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`
+export is required when the Colima socket is present.
 
 If the local Docker daemon or Testcontainers endpoint is unavailable, pure
 Java tests may still be useful for diagnosis, but the change must not be
@@ -167,12 +224,23 @@ checks passed. A direct system-Chrome connector was not attached in the latest
 Codex session, so that connector-specific result remains explicitly
 unverified rather than being inferred from the Playwright result.
 
-The independent Ubuntu/KVM host `ly-MacBookAir7-2` also passed the real L5
-TaskSandbox acceptance: both `gvisor` and `kata-qemu` profiles reached `READY`,
+The independent Ubuntu/KVM L5 host is `ly-MacBookAir7-2` at
+`192.168.122.55`. It also passed the real L5 TaskSandbox acceptance: both
+`gvisor` and `kata-qemu` profiles reached `READY`,
 their generated Jobs/Pods used the expected RuntimeClass, guest and host
 kernels were observed, and cleanup completed with
 `L5_LINUX_KVM_ACCEPTANCE_OK`. Node-failure recovery and production L6 remain
 separate gates.
+
+For every subsequent batch feature, local Docker-backed verification is
+required. If the change touches Kubernetes, Operator, Worker, TaskSandbox,
+RuntimeClass, images, Helm, runtime routing, lifecycle, or deployment paths,
+the same change must also pass the real Ubuntu/KVM L5 acceptance on this host,
+including runtime evidence and cleanup confirmation. A local Kind/Fake Provider
+result or an unavailable L5 environment cannot be reported as a pass; until
+both gates pass, the batch remains `development complete, acceptance pending`
+and cannot be integrated into the mainline. L6 remains a separate controlled
+environment gate.
 
 ## Local infrastructure
 
@@ -293,6 +361,10 @@ provider/model and its credentials must be configured through QwenPaw before a
 real model task can complete. Worker readiness only proves the Agent channel
 is connected, and the bootstrap script intentionally does not invent external
 credentials.
+
+### Channel 出站扩展
+
+企业事件出站统一经过 Channel SPI。当前 Webhook 适配器只做租户绑定校验并写入持久化投递记录，实际 HTTP 投递复用已有 leader-only scheduler、HMAC、重试、死信和事件 ID 去重；Matrix 适配器复用 Matrix Outbox 与 delivery service，并通过独立 room 绑定表做 Organization/Tenant/Project、事件白名单和启用状态校验。两类适配器都不会拥有 Task 状态，也不会返回 Secret；后续 DingTalk 适配器必须复用同一 Port 和 Outbox 边界。
 
 ### AgentScope 灰度与回滚
 

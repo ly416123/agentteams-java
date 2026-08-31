@@ -14,13 +14,19 @@ public final class MatrixOutboundRepository {
 
     public UUID enqueue(String roomId, String eventType, String body, Instant now) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
+        enqueue(id, roomId, eventType, body, now);
+        return id;
+    }
+
+    /** Enqueues a caller-owned id so Channel retries remain idempotent across process restarts. */
+    public boolean enqueue(UUID id, String roomId, String eventType, String body, Instant now) {
+        return jdbc.update("""
                 INSERT INTO matrix_outbox_messages(id, room_id, event_type, body, status, attempts,
                     next_attempt_at, created_at, updated_at)
                 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?)
+                ON CONFLICT (id) DO NOTHING
                 """, id, roomId, eventType, body, java.sql.Timestamp.from(now),
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
-        return id;
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now)) == 1;
     }
 
     public List<MatrixOutboundMessage> claimDue(Instant now, int limit) {

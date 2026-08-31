@@ -45,3 +45,8 @@ Thumbs.db
 # Python acceptance-test bytecode
 **/__pycache__/
 *.pyc
+
+# TypeScript SDK local verification output
+sdk/typescript/node_modules/
+sdk/typescript/dist/
+sdk/typescript/.vite/

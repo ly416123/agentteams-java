@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.matrix;
 
+import io.agentteams.controlplane.channel.MatrixChannelAdapter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -32,6 +33,17 @@ public class MatrixAppServiceConfiguration {
     @Bean
     MatrixOutboundRepository matrixOutboundRepository(JdbcTemplate jdbcTemplate) {
         return new MatrixOutboundRepository(jdbcTemplate);
+    }
+
+    @Bean
+    MatrixChannelBindingRepository matrixChannelBindingRepository(JdbcTemplate jdbcTemplate) {
+        return new JdbcMatrixChannelBindingRepository(jdbcTemplate);
+    }
+
+    @Bean
+    MatrixChannelAdapter matrixChannelAdapter(MatrixChannelBindingRepository bindings,
+            MatrixOutboundRepository outbound, Clock clock) {
+        return new MatrixChannelAdapter(bindings, outbound, clock);
     }
 
     @Bean

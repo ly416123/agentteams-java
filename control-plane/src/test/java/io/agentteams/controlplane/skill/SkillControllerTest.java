@@ -107,4 +107,25 @@ class SkillControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(versionId.toString()));
     }
+
+    @Test
+    void versionResponseReturnsManifestSummaryWithoutArbitrarySecretFields() throws Exception {
+        UUID skillId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        SkillVersionRecord version = new SkillVersionRecord(versionId, skillId, "1.0.0", "sha256:abc",
+                "{\"name\":\"code-review\",\"description\":\"Reviews code\",\"entry\":\"SKILL.md\","
+                        + "\"sizeBytes\":128,\"env\":{\"TOKEN\":\"secret\"},\"credentials\":\"secret\","
+                        + "\"capabilities\":{\"profile\":\"ISOLATED\",\"ttlSeconds\":600}}",
+                "PRIVATE", "PUBLISHED", now, now, 1);
+        when(service.listVersions(skillId)).thenReturn(List.of(version));
+
+        mockMvc.perform(get("/api/v1/skills/{skillId}/versions", skillId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].manifest.name").value("code-review"))
+                .andExpect(jsonPath("$[0].manifest.env").doesNotExist())
+                .andExpect(jsonPath("$[0].manifest.credentials").doesNotExist())
+                .andExpect(jsonPath("$[0].capabilities.profile").value("ISOLATED"))
+                .andExpect(jsonPath("$[0].capabilities.ttlSeconds").value(600));
+    }
 }

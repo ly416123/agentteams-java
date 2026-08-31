@@ -130,6 +130,23 @@ public final class AgentSpecDeploymentService {
                             node.put("credentialRef", binding.mcpRuntime().credentialRef());
                         }
                     }
+                    if (binding.skillCapabilities() != null) {
+                        var capabilities = node.putObject("skillCapabilities");
+                        var policy = binding.skillCapabilities();
+                        capabilities.put("profile", policy.profile().name());
+                        capabilities.put("cpuMillicores", policy.cpuMillicores());
+                        capabilities.put("memoryMiB", policy.memoryMiB());
+                        capabilities.put("ephemeralStorageMiB", policy.ephemeralStorageMiB());
+                        capabilities.put("ttlSeconds", policy.ttl().toSeconds());
+                        capabilities.put("networkPolicy", policy.networkPolicy().name());
+                        capabilities.put("allowSecretReferences", policy.allowSecretReferences());
+                        var allowedMcp = capabilities.putArray("allowedMcp");
+                        policy.allowedMcp().stream().sorted().forEach(allowedMcp::add);
+                        var allowedDomains = capabilities.putArray("allowedDomains");
+                        policy.allowedDomains().stream().sorted().forEach(allowedDomains::add);
+                        var allowedTools = capabilities.putArray("allowedTools");
+                        policy.allowedTools().stream().sorted().forEach(allowedTools::add);
+                    }
                     node.put("workerId", workerId.toString());
                     node.put("teamRef", teamRef);
                     ObjectNode bindingScope = node.putObject("scope");

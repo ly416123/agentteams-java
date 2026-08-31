@@ -55,7 +55,7 @@ public class ManagerApplication {
             ObjectMapper mapper) {
         ControlPlaneCreateTaskTool createTask = new ControlPlaneCreateTaskTool(taskCommands, mapper);
         return new ManagerToolRegistry(Map.of("create_task", new ManagerToolRegistry.Tool(
-                "task:create", false, input -> createTask.create((CreateTaskIntent) input))));
+                "task:create", false, (input, context) -> createTask.create((CreateTaskIntent) input, context))));
     }
 
     @Bean

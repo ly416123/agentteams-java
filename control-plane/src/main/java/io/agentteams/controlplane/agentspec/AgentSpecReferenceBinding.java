@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.agentspec;
 
+import io.agentteams.application.api.SkillCapabilityPolicy;
 import java.util.Objects;
 
 /** Immutable resource binding captured when an AgentSpec is validated or published. */
@@ -13,7 +14,15 @@ public record AgentSpecReferenceBinding(
         String digest,
         String artifactRef,
         Long sizeBytes,
-        McpRuntimeMetadata mcpRuntime) {
+        McpRuntimeMetadata mcpRuntime,
+        SkillCapabilityPolicy skillCapabilities) {
+
+    /** Compatibility constructor for bindings that predate Skill capability propagation. */
+    public AgentSpecReferenceBinding(AgentSpecReferenceType type, String reference, String tenantId,
+            String projectId, String teamId, String revision, String digest, String artifactRef, Long sizeBytes,
+            McpRuntimeMetadata mcpRuntime) {
+        this(type, reference, tenantId, projectId, teamId, revision, digest, artifactRef, sizeBytes, mcpRuntime, null);
+    }
 
     public AgentSpecReferenceBinding {
         Objects.requireNonNull(type, "type");
@@ -46,7 +55,7 @@ public record AgentSpecReferenceBinding(
                 ? AgentSpecReferenceDigest.derived(reference, metadata.revision()) : metadata.digest();
         return new AgentSpecReferenceBinding(reference.type(), reference.value(), metadata.tenantId(),
                 metadata.projectId(), metadata.teamId(), metadata.revision(), digest,
-                metadata.artifactRef(), metadata.sizeBytes(), metadata.mcpRuntime());
+                metadata.artifactRef(), metadata.sizeBytes(), metadata.mcpRuntime(), metadata.skillCapabilities());
     }
 
     /** Compatibility constructor for bindings that carry artifact metadata only. */

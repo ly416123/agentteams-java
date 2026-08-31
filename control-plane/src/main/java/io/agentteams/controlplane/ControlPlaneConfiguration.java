@@ -16,6 +16,9 @@ import io.agentteams.controlplane.outbox.OutboxStore;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.artifact.ArtifactCompletionService;
 import io.agentteams.controlplane.artifact.ArtifactService;
+import io.agentteams.controlplane.artifact.ArtifactRetentionCleanupJob;
+import io.agentteams.controlplane.artifact.ArtifactRetentionPolicy;
+import io.agentteams.controlplane.artifact.ArtifactRetentionService;
 import io.agentteams.controlplane.config.ConfigLifecycleRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
@@ -64,6 +67,8 @@ import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcSecurityProperties;
 import io.agentteams.controlplane.security.SecretResolver;
 import io.agentteams.controlplane.security.ValidationOnlySecretResolver;
+import io.agentteams.controlplane.security.ExecutionContextResolver;
+import io.agentteams.controlplane.security.JdbcExecutionContextDirectory;
 import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
 import io.agentteams.controlplane.service.ValidationOnlyModelProviderConnectionProbe;
 import io.agentteams.controlplane.dashboard.DashboardAlertDeliveryService;
@@ -83,6 +88,17 @@ import io.agentteams.controlplane.service.ModelPriceSyncPort;
 import io.agentteams.controlplane.service.ModelPriceSyncProperties;
 import io.agentteams.controlplane.service.ModelPriceSyncScheduler;
 import io.agentteams.controlplane.service.ModelPriceSyncService;
+import io.agentteams.controlplane.task.TaskStateConsistencyChecker;
+import io.agentteams.controlplane.task.TaskStateConsistencyJob;
+import io.agentteams.controlplane.task.TaskStateConsistencyRepository;
+import io.agentteams.controlplane.task.TaskStateConsistencyService;
+import io.agentteams.controlplane.webhook.WebhookDeliveryScheduler;
+import io.agentteams.controlplane.webhook.WebhookDeliveryService;
+import io.agentteams.controlplane.channel.WebhookChannelAdapter;
+import io.agentteams.controlplane.webhook.WebhookSecretResolver;
+import io.agentteams.controlplane.webhook.WebhookHmacTransport;
+import io.agentteams.controlplane.webhook.WebhookRepository;
+import io.agentteams.controlplane.webhook.WebhookTransport;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -177,6 +193,11 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
+    ExecutionContextResolver executionContextResolver(JdbcExecutionContextDirectory directory) {
+        return new ExecutionContextResolver(directory);
+    }
+
+    @Bean
     ConfigSnapshotService configSnapshotService(ConfigSnapshotRepository repository, Clock clock) {
         return new ConfigSnapshotService(repository, clock);
     }
@@ -206,6 +227,58 @@ public class ControlPlaneConfiguration {
     @Bean
     SchedulerLeaseService schedulerLeaseService(SchedulerLeaseRepository repository) {
         return new SchedulerLeaseService(repository);
+    }
+
+    @Bean
+    io.agentteams.controlplane.schedule.ScheduledTaskRepository scheduledTaskRepository(DataSource dataSource) {
+        return new io.agentteams.controlplane.schedule.JdbcScheduledTaskRepository(
+                new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "agentteams.scheduled-tasks.enabled", havingValue = "true", matchIfMissing = true)
+    io.agentteams.controlplane.schedule.ScheduledTaskScheduler scheduledTaskScheduler(
+            io.agentteams.controlplane.schedule.ScheduledTaskRepository schedules, TaskService tasks,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.scheduled-tasks.batch-size:16}") int batchSize) {
+        return new io.agentteams.controlplane.schedule.ScheduledTaskScheduler(schedules, tasks, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(WebhookSecretResolver.class)
+    WebhookSecretResolver webhookSecretResolver() {
+        return secretRef -> {
+            throw new IllegalStateException("Webhook secret resolver is not configured: " + secretRef);
+        };
+    }
+
+    @Bean
+    WebhookTransport webhookTransport(WebhookSecretResolver secrets,
+            @Value("${agentteams.webhook.transport.timeout:10s}") java.time.Duration timeout) {
+        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(timeout).followRedirects(java.net.http.HttpClient.Redirect.NEVER).build();
+        return new WebhookHmacTransport(client, secrets, timeout);
+    }
+
+    @Bean
+    WebhookChannelAdapter webhookChannelAdapter(WebhookRepository repository, Clock clock) {
+        return new WebhookChannelAdapter(repository, clock);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "agentteams.webhook.scheduler.enabled", havingValue = "true", matchIfMissing = true)
+    WebhookDeliveryScheduler webhookDeliveryScheduler(WebhookDeliveryService delivery,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.webhook.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.webhook.scheduler.batch-size:16}") int batchSize) {
+        return new WebhookDeliveryScheduler(delivery, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
     }
 
     @Bean
@@ -465,6 +538,52 @@ public class ControlPlaneConfiguration {
     ArtifactCompletionService artifactCompletionService(FoundationPersistenceService persistence,
             ArtifactService artifacts, Clock clock) {
         return new ArtifactCompletionService(persistence, artifacts, clock);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({
+            io.agentteams.controlplane.artifact.ArtifactRetentionRepository.class, ObjectStorage.class})
+    ArtifactRetentionService artifactRetentionService(
+            io.agentteams.controlplane.artifact.ArtifactRetentionRepository repository, ObjectStorage storage,
+            Clock clock) {
+        return new ArtifactRetentionService(repository, storage, clock);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({ArtifactRetentionService.class,
+            SchedulerLeaseService.class})
+    ArtifactRetentionCleanupJob artifactRetentionCleanupJob(ArtifactRetentionService retention,
+            SchedulerLeaseService lease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.artifact-retention.successful-task-retention:30d}") java.time.Duration successfulRetention,
+            @Value("${agentteams.artifact-retention.failed-task-retention:90d}") java.time.Duration failedRetention,
+            @Value("${agentteams.artifact-retention.temporary-upload-retention:2h}") java.time.Duration temporaryRetention,
+            @Value("${agentteams.artifact-retention.legal-hold:false}") boolean legalHold,
+            @Value("${agentteams.artifact-retention.batch-size:100}") int batchSize) {
+        ArtifactRetentionPolicy fallback = new ArtifactRetentionPolicy(successfulRetention, failedRetention,
+                temporaryRetention, legalHold);
+        return new ArtifactRetentionCleanupJob(retention, lease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, fallback, batchSize);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.task-state-consistency.enabled", havingValue = "true", matchIfMissing = true)
+    TaskStateConsistencyService taskStateConsistencyService(TaskStateConsistencyRepository repository,
+            TaskMetricsPort metrics) {
+        return new TaskStateConsistencyService(repository, new TaskStateConsistencyChecker(), metrics);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.task-state-consistency.enabled", havingValue = "true", matchIfMissing = true)
+    TaskStateConsistencyJob taskStateConsistencyJob(TaskStateConsistencyService service,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.task-state-consistency.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.task-state-consistency.lookback:24h}") java.time.Duration lookback,
+            @Value("${agentteams.task-state-consistency.batch-size:100}") int batchSize) {
+        return new TaskStateConsistencyJob(service, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, lookback, batchSize);
     }
 
     @Bean

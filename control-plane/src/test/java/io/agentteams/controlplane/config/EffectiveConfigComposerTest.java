@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 import java.util.List;
+import io.agentteams.controlplane.team.TeamResourceBinding;
+import io.agentteams.controlplane.team.TeamResourceType;
 import org.junit.jupiter.api.Test;
 
 class EffectiveConfigComposerTest {
@@ -72,6 +74,36 @@ class EffectiveConfigComposerTest {
         assertThat(result.provenance().agentBaseSnapshotId()).isEqualTo(complete.agentBaseSnapshotId());
         assertThat(result.provenance().bindingDigests()).containsExactly("sha256:skill");
         assertThat(result.provenance().taskId()).isEqualTo(TASK_ID);
+    }
+
+    @Test
+    void canonicalizesResourceBindingsAndRetainsRevisionAndDigestInProvenance() {
+        UUID modelId = UUID.randomUUID();
+        TeamResourceBinding model = new TeamResourceBinding(TeamResourceType.MODEL, modelId, "9", "sha256:model");
+        TeamResourceBinding skill = new TeamResourceBinding(TeamResourceType.SKILL, UUID.randomUUID(), "3",
+                "sha256:skill");
+        EffectiveConfig first = new EffectiveConfigComposer().compose(new EffectiveConfigRequest(
+                UUID.randomUUID(), AGENT_ID, TEAM_ID, 7, TASK_ID, List.of(), List.of(skill, model), "{}", "{}", "{}"));
+        EffectiveConfig second = new EffectiveConfigComposer().compose(new EffectiveConfigRequest(
+                first.provenance().agentBaseSnapshotId(), AGENT_ID, TEAM_ID, 7, TASK_ID, List.of(), List.of(model, skill),
+                "{}", "{}", "{}"));
+
+        assertThat(first.sha256()).isEqualTo(second.sha256());
+        assertThat(first.provenance().resourceBindings()).containsExactly(model, skill);
+    }
+
+    @Test
+    void rejectsConflictingBindingDigestForSameRevision() {
+        UUID resourceId = UUID.randomUUID();
+        List<TeamResourceBinding> bindings = List.of(
+                new TeamResourceBinding(TeamResourceType.MCP_SERVER, resourceId, "4", "sha256:old"),
+                new TeamResourceBinding(TeamResourceType.MCP_SERVER, resourceId, "4", "sha256:new"));
+
+        assertThatThrownBy(() -> new EffectiveConfigComposer().compose(new EffectiveConfigRequest(
+                UUID.randomUUID(), AGENT_ID, TEAM_ID, 7, TASK_ID, List.of(), bindings, "{}", "{}", "{}")))
+                .isInstanceOf(EffectiveConfigConflictException.class)
+                .extracting(error -> ((EffectiveConfigConflictException) error).code())
+                .isEqualTo("EFFECTIVE_CONFIG_BINDING_CONFLICT");
     }
 
     private static EffectiveConfigRequest request(String base, String team, String task) {

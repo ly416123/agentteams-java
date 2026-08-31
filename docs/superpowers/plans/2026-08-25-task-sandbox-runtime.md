@@ -472,7 +472,7 @@ kubectl -n agentteams get pod -o custom-columns=NAME:.metadata.name,RUNTIME:.spe
 预期：ISOLATED 使用 gVisor，HARDENED 使用 Kata；未配置 RuntimeClass 的集群只通过 Fake Provider，不创建失败 Pod。
 
 实际验收记录（2026-08-30）：在 Ubuntu 26.04.1 LTS、x86_64、K3s v1.36.4+k3s1
-节点 `ly-macbookair7-2` 上，通过 `/usr/local/bin/kubectl` 和
+节点 `ly-macbookair7-2`（`192.168.122.55`）上，通过 `/usr/local/bin/kubectl` 和
 `/etc/rancher/k3s/k3s.yaml` 执行 `scripts/run-l5-task-sandbox-acceptance.sh`，结果为
 `L5_LINUX_KVM_ACCEPTANCE_OK`。两个 profile 均达到 `READY`，生成的 Job/Pod 分别确认使用
 `gvisor` 与 `kata-qemu`；guest kernel 分别为 `4.19.0-gvisor` 与 `6.18.35`，宿主机
