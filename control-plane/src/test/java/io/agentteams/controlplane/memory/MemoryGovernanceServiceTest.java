@@ -94,4 +94,18 @@ class MemoryGovernanceServiceTest {
 
         verify(repository, never()).save(any());
     }
+
+    @Test
+    void replaysAnIdenticalGovernanceOperationWithoutWritingAgain() {
+        MemoryGovernanceOperation existing = new MemoryGovernanceOperation(UUID.randomUUID(), memory.id(), "org-1",
+                "tenant-1", "CONFIRM", "user confirmed", "user-1", "key-1", NOW);
+        when(repository.findOperation("key-1")).thenReturn(Optional.of(existing));
+
+        MemoryRecord replayed = service.confirm(CONTEXT, memory.id(), new MemoryGovernanceActor("user-1", false),
+                "user confirmed", "key-1");
+
+        assertThat(replayed).isSameAs(memory);
+        verify(repository, never()).save(any());
+        verify(repository, never()).recordOperation(any());
+    }
 }

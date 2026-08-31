@@ -10,6 +10,12 @@
 
 **执行边界：** 本计划只完成架构基础契约和最小可验证闭环；不实现完整客户 Connector、不接入 CubeSandbox/Firecracker、不实现计费支付、不进行 L6 生产验收。
 
+## 当前执行状态（2026-08-31）
+
+已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
+
+本批次新增的治理状态迁移为 V65；本地全量 Maven 回归、65 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。尚未宣称完成的后续项：完整客户 Connector、Token Ledger、调度/定时任务、Webhook 投递、Manager/Worker 真实事件生产链路、Skill 能力策略与各运行时的深度接入，以及需要真实运行时变更时的 L5 Ubuntu 验收。
+
 ---
 
 ## 文件边界

@@ -67,7 +67,7 @@ public final class MemoryGovernanceService {
             String idempotencyKey, String operation, java.util.function.UnaryOperator<MemoryRecord> update) {
         MemoryRecord memory = load(context, memoryId);
         requirePermitted(memory, actor);
-        record(context, memory, actor, reason, idempotencyKey, operation);
+        if (!record(context, memory, actor, reason, idempotencyKey, operation)) return memory;
         return repository.save(update.apply(memory));
     }
 
@@ -98,7 +98,7 @@ public final class MemoryGovernanceService {
         }
     }
 
-    private void record(ExecutionContext context, MemoryRecord memory, MemoryGovernanceActor actor, String reason,
+    private boolean record(ExecutionContext context, MemoryRecord memory, MemoryGovernanceActor actor, String reason,
             String idempotencyKey, String operation) {
         if (reason == null || reason.isBlank()) throw new IllegalArgumentException("reason must not be blank");
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
@@ -113,11 +113,12 @@ public final class MemoryGovernanceService {
                     || !value.reason().equals(reason.trim()) || !value.actor().equals(actor.subjectId())) {
                 throw new IllegalArgumentException("memory governance idempotency key conflict");
             }
-            return;
+            return false;
         }
         repository.recordOperation(new MemoryGovernanceOperation(UUID.randomUUID(), memory.id(),
                 context.organizationId(), context.tenantId(), operation, reason.trim(), actor.subjectId(),
                 idempotencyKey.trim(), clock.instant()));
+        return true;
     }
 
     private static MemoryPolicy withConsent(MemoryPolicy policy, MemoryPolicy.Consent consent) {
