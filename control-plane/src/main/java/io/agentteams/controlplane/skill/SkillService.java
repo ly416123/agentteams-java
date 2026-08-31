@@ -105,7 +105,7 @@ public class SkillService {
         String visibility = visibility(input.visibility());
         Instant now = clock.instant();
         SkillRecord skill = new SkillRecord(UUID.randomUUID(), name, displayName, description, visibility, DRAFT,
-                now, now, 0);
+                now, now, 0, input.organizationId(), input.tenantId());
         SkillRecord created = repository.createSkill(skill, key,
                 idempotency.requestHash(name, displayName, description, visibility));
         bindIfAuthenticated(created.id());
@@ -191,7 +191,11 @@ public class SkillService {
         return repository.disable(skillId, versionId, clock.instant());
     }
 
-    public record SkillInput(String name, String displayName, String description, String visibility) {
+    public record SkillInput(String name, String displayName, String description, String visibility,
+            String organizationId, String tenantId) {
+        public SkillInput(String name, String displayName, String description, String visibility) {
+            this(name, displayName, description, visibility, null, null);
+        }
     }
 
     public record VersionInput(String version, String digest, String manifestJson, String visibility) {

@@ -46,7 +46,7 @@ public final class SkillController {
         requireIdempotencyKey(idempotencyKey);
         return ResponseEntity.status(201).body(SkillResponse.from(service.createSkill(idempotencyKey,
                 new SkillService.SkillInput(request.name(), request.displayName(), request.description(),
-                        request.visibility()))));
+                        request.visibility(), request.organizationId(), request.tenantId()))));
     }
 
     @GetMapping
@@ -129,7 +129,11 @@ public final class SkillController {
         return ResponseEntity.badRequest().body(new ApiError("SKILL_PACKAGE_INVALID", error.getMessage()));
     }
 
-    public record CreateSkillRequest(String name, String displayName, String description, String visibility) {
+    public record CreateSkillRequest(String name, String displayName, String description, String visibility,
+            String organizationId, String tenantId) {
+        public CreateSkillRequest(String name, String displayName, String description, String visibility) {
+            this(name, displayName, description, visibility, null, null);
+        }
     }
 
     public record CreateVersionRequest(String version, String digest, JsonNode manifest, String visibility) {
@@ -153,11 +157,13 @@ public final class SkillController {
     }
 
     public record SkillResponse(UUID id, String name, String displayName, String description, String visibility,
-            String lifecycle, Instant createdAt, Instant updatedAt, long version) {
+            String lifecycle, Instant createdAt, Instant updatedAt, long version, String organizationId,
+            String tenantId) {
 
         static SkillResponse from(SkillRecord skill) {
             return new SkillResponse(skill.id(), skill.name(), skill.displayName(), skill.description(),
-                    skill.visibility(), skill.lifecycle(), skill.createdAt(), skill.updatedAt(), skill.version());
+                    skill.visibility(), skill.lifecycle(), skill.createdAt(), skill.updatedAt(), skill.version(),
+                    skill.organizationId(), skill.tenantId());
         }
     }
 

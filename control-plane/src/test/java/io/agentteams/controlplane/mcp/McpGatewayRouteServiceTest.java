@@ -46,6 +46,16 @@ class McpGatewayRouteServiceTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
     }
 
+    @Test
+    void rejectsInvalidOrSecretBearingHealthSummaries() {
+        assertThatThrownBy(() -> new McpGatewayRoute(UUID.randomUUID(), CONNECTION_ID, "tenant-1/connector-1", 1,
+                McpGatewayRoute.Status.ACTIVE, Instant.now(), "not-json", Instant.now(), Instant.now()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new McpGatewayRoute(UUID.randomUUID(), CONNECTION_ID, "tenant-1/connector-1", 1,
+                McpGatewayRoute.Status.ACTIVE, Instant.now(), "{\"token\":\"secret\"}", Instant.now(), Instant.now()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private static McpConnection connection() {
         return new McpConnection(CONNECTION_ID, "internal", McpConnectivityMode.CUSTOMER_CONNECTOR,
                 "org-1", "tenant-1", "connector://mcp", "secret://mcp", Set.of("query"), true,

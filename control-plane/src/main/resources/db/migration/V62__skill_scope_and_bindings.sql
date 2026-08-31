@@ -6,6 +6,12 @@ ALTER TABLE skill_versions
     ADD COLUMN organization_id TEXT,
     ADD COLUMN tenant_id TEXT;
 
+ALTER TABLE skills
+    ADD CONSTRAINT skills_scope_pair_check CHECK ((organization_id IS NULL) = (tenant_id IS NULL));
+
+ALTER TABLE skill_versions
+    ADD CONSTRAINT skill_versions_scope_pair_check CHECK ((organization_id IS NULL) = (tenant_id IS NULL));
+
 CREATE INDEX skills_scope_idx ON skills (organization_id, tenant_id, visibility, lifecycle, name);
 CREATE INDEX skill_versions_scope_idx ON skill_versions (organization_id, tenant_id, lifecycle, updated_at DESC);
 

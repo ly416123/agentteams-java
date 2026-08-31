@@ -20,7 +20,9 @@ public record SkillVersionRecord(
         String packageStorageKey,
         Long packageSizeBytes,
         String packageSha256,
-        String packageUploadStatus) {
+        String packageUploadStatus,
+        String organizationId,
+        String tenantId) {
 
     public SkillVersionRecord {
         Objects.requireNonNull(id, "id");
@@ -57,6 +59,9 @@ public record SkillVersionRecord(
         if (packageUploadStatus.equals("COMPLETED") && packageStorageKey == null) {
             throw new IllegalArgumentException("COMPLETED package must have storage metadata");
         }
+        if ((organizationId == null) != (tenantId == null)) {
+            throw new IllegalArgumentException("organizationId and tenantId must be supplied together");
+        }
     }
 
     public SkillVersionRecord(UUID id, UUID skillId, String version, String digest, String manifestJson,
@@ -64,7 +69,7 @@ public record SkillVersionRecord(
         this(id, skillId, version, digest, manifestJson, visibility, lifecycle, createdAt, updatedAt, recordVersion,
                 "PUBLISHED".equals(lifecycle) ? "PASSED" : "NOT_SCANNED",
                 "PUBLISHED".equals(lifecycle) ? "APPROVED" : "PENDING",
-                null, null, null, "NOT_STARTED");
+                null, null, null, "NOT_STARTED", null, null);
     }
 
     /** Compatibility constructor for callers that already provide scan/review state. */
@@ -73,6 +78,15 @@ public record SkillVersionRecord(
             String securityScanStatus, String reviewStatus) {
         this(id, skillId, version, digest, manifestJson, visibility, lifecycle, createdAt, updatedAt, recordVersion,
                 securityScanStatus, reviewStatus, null, null, null, "NOT_STARTED");
+    }
+
+    public SkillVersionRecord(UUID id, UUID skillId, String version, String digest, String manifestJson,
+            String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion,
+            String securityScanStatus, String reviewStatus, String packageStorageKey, Long packageSizeBytes,
+            String packageSha256, String packageUploadStatus) {
+        this(id, skillId, version, digest, manifestJson, visibility, lifecycle, createdAt, updatedAt, recordVersion,
+                securityScanStatus, reviewStatus, packageStorageKey, packageSizeBytes, packageSha256,
+                packageUploadStatus, null, null);
     }
 
     private static void requireText(String value, String field) {
