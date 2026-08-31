@@ -15,6 +15,9 @@ import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.task.TaskProcessEventService;
 import io.agentteams.controlplane.task.TaskProgressService;
 import io.agentteams.controlplane.task.TaskResultManifestService;
+import io.agentteams.controlplane.task.TaskDecisionRecordService;
+import io.agentteams.controlplane.task.TaskTreeNode;
+import io.agentteams.controlplane.task.TaskTreeService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -61,6 +64,27 @@ class TaskProcessControllerTest {
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/result", TASK_ID, RUN_ID))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void exposesTaskTreeAndDecisionSummaries() throws Exception {
+        TaskProcessEventService events = Mockito.mock(TaskProcessEventService.class);
+        TaskProgressService progress = Mockito.mock(TaskProgressService.class);
+        TaskResultManifestService results = Mockito.mock(TaskResultManifestService.class);
+        TaskTreeService tree = Mockito.mock(TaskTreeService.class);
+        TaskDecisionRecordService decisions = Mockito.mock(TaskDecisionRecordService.class);
+        ExecutionContextResolver resolver = Mockito.mock(ExecutionContextResolver.class);
+        Principal principal = new Principal("user-1", new AuthorizationService.Scope("tenant-1", "project-1", "team-1"), Set.of());
+        PrincipalContext.set(principal);
+        when(resolver.resolve(principal)).thenReturn(CONTEXT);
+        when(tree.find(CONTEXT, RUN_ID)).thenReturn(List.of(new TaskTreeNode(TASK_ID, null, 0, "RUNNING", List.of(),
+                Instant.parse("2026-08-31T00:00:00Z"))));
+        when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
+
+        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, tree, decisions, resolver)).build();
+
+        mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/tree", TASK_ID, RUN_ID)).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/decisions", TASK_ID, RUN_ID)).andExpect(status().isOk());
     }
 
     private static TaskProcessEvent event() {

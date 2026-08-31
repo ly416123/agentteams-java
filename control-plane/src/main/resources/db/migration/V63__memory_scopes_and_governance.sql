@@ -12,6 +12,7 @@ CREATE TABLE memories (
     sensitivity TEXT NOT NULL DEFAULT 'NORMAL',
     consent_status TEXT NOT NULL DEFAULT 'CANDIDATE',
     source TEXT NOT NULL,
+    retention_seconds BIGINT NOT NULL,
     expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
@@ -29,6 +30,7 @@ CREATE TABLE memories (
     CONSTRAINT memories_scope_not_blank CHECK (length(btrim(organization_id)) > 0 AND length(btrim(tenant_id)) > 0),
     CONSTRAINT memories_content_ref_not_blank CHECK (length(btrim(content_ref)) > 0),
     CONSTRAINT memories_source_not_blank CHECK (length(btrim(source)) > 0),
+    CONSTRAINT memories_retention_positive CHECK (retention_seconds > 0),
     CONSTRAINT memories_version_non_negative CHECK (version >= 0)
 );
 
