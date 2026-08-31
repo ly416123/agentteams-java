@@ -24,18 +24,27 @@ public final class ControlPlaneCreateTaskTool {
     }
 
     public TaskCreationResult create(CreateTaskIntent intent) {
-        Objects.requireNonNull(intent, "intent");
-        return taskCommands.create(idempotencyKey(intent), new TaskCommandPort.TaskCreateCommand(intent.title(),
-                intent.description(), spec(intent, ManagerRequestContext.require()), "manager", "manager"));
+        return create(intent, null);
     }
 
-    private String spec(CreateTaskIntent intent, ManagerPrincipal principal) {
+    public TaskCreationResult create(CreateTaskIntent intent, ManagerToolRegistry.ToolContext context) {
+        Objects.requireNonNull(intent, "intent");
+        return taskCommands.create(idempotencyKey(intent), new TaskCommandPort.TaskCreateCommand(intent.title(),
+                intent.description(), spec(intent, ManagerRequestContext.require(), context), "manager", "manager"));
+    }
+
+    private String spec(CreateTaskIntent intent, ManagerPrincipal principal, ManagerToolRegistry.ToolContext context) {
         ObjectNode root = mapper.createObjectNode();
         root.put("taskType", "manager-request");
         ObjectNode scope = root.putObject("scope");
         scope.put("tenant", principal.tenantId());
         scope.put("project", principal.projectId());
         scope.put("team", principal.teamId());
+        if (context != null && context.sessionId() != null) {
+            // The session identifier is metadata only; the user prompt remains outside the task spec.
+            // It lets Control Plane correlate Manager planning facts with the first execution run.
+            root.put("managerSessionId", context.sessionId());
+        }
         ObjectNode input = root.putObject("inputJson");
         input.put("description", intent.description());
         ArrayNode capabilities = root.putArray("requiredCapabilities");

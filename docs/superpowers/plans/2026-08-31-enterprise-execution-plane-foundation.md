@@ -14,7 +14,7 @@
 
 已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、Skill Manifest 能力声明解析与运行时策略收紧、Worker resourceBindings 的能力策略结构化校验和 RuntimeConfigSnapshot 传递、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
 
-本批次新增的治理状态迁移为 V65；Token Ledger 迁移为 V66；定时任务迁移为 V67；Webhook 投递迁移为 V68。本地全量 Maven 回归、68 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。最新 Worker/Runtime 配置传递变更已在 Ubuntu/KVM L5 主机 `192.168.122.55` 通过 gVisor/Kata 真实验收并完成清理。本阶段已完成 Webhook 订阅、HMAC 投递、去重、重试/死信和 leader-only 调度基础；本批次进一步把 Gateway 收到的 Worker 接受、进度、成功和失败事件接入 V64 Run/过程事件/结果清单投影，并同步生成 Webhook outbox。当前实现对有 `resource_scopes` 的任务启用企业投影，未绑定统一租户作用域的历史内部任务继续 fail-closed 不外发。尚未宣称完成的后续项：Manager 会话到任务树/决策记录的真实生产接线、完整客户 Connector、Skill 能力策略与具体工具/网络运行时的最终执行拦截，以及 L6 生产验收。
+本批次新增的治理状态迁移为 V65；Token Ledger 迁移为 V66；定时任务迁移为 V67；Webhook 投递迁移为 V68。本地全量 Maven 回归、68 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。最新 Worker/Runtime 配置传递变更已在 Ubuntu/KVM L5 主机 `192.168.122.55` 通过 gVisor/Kata 真实验收并完成清理。本阶段已完成 Webhook 订阅、HMAC 投递、去重、重试/死信和 leader-only 调度基础；本批次进一步把 Gateway 收到的 Worker 接受、进度、成功和失败事件接入 V64 Run/过程事件/结果清单投影，并同步生成 Webhook outbox。当前实现对有 `resource_scopes` 的任务启用企业投影，未绑定统一租户作用域的历史内部任务继续 fail-closed 不外发。Manager 会话到任务树/决策记录的生产接线也已完成：Manager 会话 ID 作为非敏感元数据进入任务规格，Control Plane 在 Worker 首次接受时投影根节点、受控决策摘要和 `task.planned` 事件。尚未宣称完成的后续项：完整客户 Connector、Skill 能力策略与具体工具/网络运行时的最终执行拦截，以及 L6 生产验收。
 
 ---
 
@@ -379,7 +379,7 @@
 
 - [ ] **步骤 8：接入 Manager、Worker 和 SDK 事件边界。**
 
-  Manager Conversation 事件通过 `taskId`、`runId` 和 `correlationId` 关联到 Task 过程；Worker 只上报结构化阶段、工具、进度和 Artifact 引用；公共 Java/TypeScript SDK 消费 REST、SSE 和 Webhook 契约，不暴露 NATS 主题。当前已完成 Worker → Gateway → Control Plane 的接受/进度/成功/失败生产接线及结果清单、Webhook outbox 投影；Manager 的任务树和决策记录生产接线仍待完成。
+  Manager Conversation 事件通过 `taskId`、`runId` 和 `correlationId` 关联到 Task 过程；Worker 只上报结构化阶段、工具、进度和 Artifact 引用；公共 Java/TypeScript SDK 消费 REST、SSE 和 Webhook 契约，不暴露 NATS 主题。当前已完成 Worker → Gateway → Control Plane 的接受/进度/成功/失败生产接线、Manager 会话元数据关联、任务树/决策摘要投影及结果清单、Webhook outbox 投影。
 
 - [ ] **步骤 9：运行任务过程和端到端回归。**
 

@@ -34,12 +34,15 @@ class ControlPlaneCreateTaskToolTest {
         ManagerRequestContext.set(new ManagerPrincipal("alice", "tenant-a", "project-a", "team-a",
                 Set.of("task:create")), "signed-bearer-token");
 
-        TaskCreationResult actual = new ControlPlaneCreateTaskTool(service, new ObjectMapper()).create(intent);
+        TaskCreationResult actual = new ControlPlaneCreateTaskTool(service, new ObjectMapper()).create(intent,
+                new ManagerToolRegistry.ToolContext(Set.of("task:create"), false, "tenant-a", "project-a",
+                        null, null, "team-a", "create_task", null, null, UUID.randomUUID().toString()));
 
         assertThat(actual).isSameAs(expected);
         verify(service).create(argThat(key -> key.startsWith("manager-")), argThat(input ->
                 input.title().equals("Login")
                         && input.specJson().contains("requiredCapabilities")
+                        && input.specJson().contains("managerSessionId")
                         && input.specJson().contains("\"tenant\":\"tenant-a\"")
                         && input.specJson().contains("\"project\":\"project-a\"")
                         && input.specJson().contains("\"team\":\"team-a\"")));

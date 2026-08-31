@@ -11,9 +11,13 @@ import io.agentteams.application.api.TaskResultManifest;
 import io.agentteams.controlplane.outbox.EventEnvelope;
 import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.task.JdbcTaskRunObservationRepository;
+import io.agentteams.controlplane.task.TaskDecisionRecord;
+import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskProcessEventService;
 import io.agentteams.controlplane.task.TaskRunObservationRepository;
 import io.agentteams.controlplane.task.TaskResultManifestService;
+import io.agentteams.controlplane.task.TaskTreeNode;
+import io.agentteams.controlplane.task.TaskTreeService;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
 import io.agentteams.controlplane.webhook.WebhookScope;
 import java.nio.charset.StandardCharsets;
@@ -36,28 +40,51 @@ public final class ControlPlaneTaskExecutionObservationAdapter implements TaskEx
     private final TaskProcessEventService processEvents;
     private final TaskResultManifestService results;
     private final WebhookDeliveryService webhooks;
+    private final TaskTreeService taskTree;
+    private final TaskDecisionRecordService decisions;
 
     @Autowired
     public ControlPlaneTaskExecutionObservationAdapter(JdbcTaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
+            WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions) {
+        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, taskTree, decisions);
+    }
+
+    /** Compatibility constructor for composition tests that only exercise Worker lifecycle facts. */
+    public ControlPlaneTaskExecutionObservationAdapter(JdbcTaskRunObservationRepository runs,
+            TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks) {
-        this((TaskRunObservationRepository) runs, processEvents, results, webhooks);
+        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, null, null);
     }
 
     ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks) {
+        this(runs, processEvents, results, webhooks, null, null);
+    }
+
+    ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
+            TaskProcessEventService processEvents, TaskResultManifestService results,
+            WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions) {
         this.runs = Objects.requireNonNull(runs, "runs");
         this.processEvents = Objects.requireNonNull(processEvents, "processEvents");
         this.results = Objects.requireNonNull(results, "results");
         this.webhooks = Objects.requireNonNull(webhooks, "webhooks");
+        if ((taskTree == null) != (decisions == null)) {
+            throw new IllegalArgumentException("task tree and decision services must be supplied together");
+        }
+        this.taskTree = taskTree;
+        this.decisions = decisions;
     }
 
     @Override
     @Transactional
     public void accepted(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId) {
-        recordProcess(taskId, runId, eventId, occurredAt, correlationId, "task.started",
+        ExecutionContext context = recordProcess(taskId, runId, eventId, occurredAt, correlationId, "task.started",
                 payload("status", "RUNNING"), "RUNNING");
+        if (context != null && taskTree != null) {
+            projectManagerPlan(context, taskId, runId, occurredAt, correlationId);
+        }
     }
 
     @Override
@@ -119,6 +146,44 @@ public final class ControlPlaneTaskExecutionObservationAdapter implements TaskEx
         enqueueWebhook(context, "task.process", event.eventId(), runId, sequence, occurredAt,
                 body, correlationId);
         return context;
+    }
+
+    private void projectManagerPlan(ExecutionContext context, UUID taskId, UUID runId, Instant occurredAt,
+            String correlationId) {
+        Optional<TaskRunObservationRepository.TaskPlanningSnapshot> planning = runs.planningForTask(taskId);
+        if (planning.isEmpty() || !"manager".equalsIgnoreCase(planning.get().source())) return;
+        TaskRunObservationRepository.TaskPlanningSnapshot snapshot = planning.get();
+        JsonNode spec = parseObject(snapshot.specJson());
+        if (!"manager-request".equals(spec.path("taskType").asText())) return;
+
+        taskTree.upsert(context, runId,
+                new TaskTreeNode(taskId, null, 0, "PENDING", List.of(), occurredAt));
+        String sessionId = safeText(spec.path("managerSessionId").asText(null), "unassociated");
+        JsonNode capabilities = spec.path("requiredCapabilities");
+        int capabilityCount = capabilities.isArray() ? capabilities.size() : 0;
+        decisions.append(context, new TaskDecisionRecord(
+                UUID.nameUUIDFromBytes(("manager-decision:" + runId).getBytes(StandardCharsets.UTF_8)), taskId, runId,
+                TaskEventVisibility.REQUESTER, safeText(snapshot.title(), "manager task"), "create_task",
+                "validated manager request", "manager session " + sessionId + "; capabilities " + capabilityCount,
+                null, occurredAt));
+
+        ObjectNode body = JSON.createObjectNode().put("source", "manager").put("sessionId", sessionId)
+                .put("capabilityCount", capabilityCount);
+        UUID plannedEventId = UUID.nameUUIDFromBytes(("task-planned:" + runId).getBytes(StandardCharsets.UTF_8));
+        long sequence = runs.nextSequence(runId);
+        TaskProcessEvent event = new TaskProcessEvent(plannedEventId, taskId, runId, sequence, "task.planned",
+                TaskEventVisibility.REQUESTER, occurredAt, correlationId, body.toString(), null);
+        processEvents.append(context, event);
+        enqueueWebhook(context, "task.process", event.eventId(), runId, sequence, occurredAt, body, correlationId);
+    }
+
+    private static JsonNode parseObject(String json) {
+        try {
+            JsonNode node = JSON.readTree(json);
+            return node != null && node.isObject() ? node : JSON.createObjectNode();
+        } catch (Exception ignored) {
+            return JSON.createObjectNode();
+        }
     }
 
     private void enqueueWebhook(ExecutionContext context, String eventType, UUID eventId, UUID aggregateId,

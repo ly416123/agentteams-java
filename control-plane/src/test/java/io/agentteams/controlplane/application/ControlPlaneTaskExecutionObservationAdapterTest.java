@@ -10,8 +10,10 @@ import static org.mockito.Mockito.when;
 import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
 import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.task.TaskProcessEventService;
+import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskRunObservationRepository;
 import io.agentteams.controlplane.task.TaskResultManifestService;
+import io.agentteams.controlplane.task.TaskTreeService;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
 import java.time.Instant;
 import java.util.List;
@@ -80,5 +82,30 @@ class ControlPlaneTaskExecutionObservationAdapterTest {
         adapter.progress(TASK_ID, RUN_ID, EVENT_ID, NOW, "corr-1", 10, "running", "ignored");
 
         verifyNoInteractions(process, webhooks);
+    }
+
+    @Test
+    void firstWorkerAcceptanceProjectsManagerPlanIntoTheActualRun() {
+        TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
+        TaskProcessEventService process = mock(TaskProcessEventService.class);
+        TaskTreeService tree = mock(TaskTreeService.class);
+        TaskDecisionRecordService decisions = mock(TaskDecisionRecordService.class);
+        WebhookDeliveryService webhooks = mock(WebhookDeliveryService.class);
+        UUID sessionId = UUID.randomUUID();
+        when(runs.contextForTask(TASK_ID)).thenReturn(Optional.of(CONTEXT));
+        when(runs.nextSequence(RUN_ID)).thenReturn(0L, 1L);
+        when(runs.planningForTask(TASK_ID)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskPlanningSnapshot("Build report", "Generate a report",
+                        "manager", "{\"taskType\":\"manager-request\",\"managerSessionId\":\""
+                                + sessionId + "\",\"requiredCapabilities\":[\"java\"]}")));
+        ControlPlaneTaskExecutionObservationAdapter adapter = new ControlPlaneTaskExecutionObservationAdapter(
+                runs, process, mock(TaskResultManifestService.class), webhooks, tree, decisions);
+
+        adapter.accepted(TASK_ID, RUN_ID, EVENT_ID, NOW, "corr-manager");
+
+        verify(tree).upsert(org.mockito.ArgumentMatchers.eq(CONTEXT), org.mockito.ArgumentMatchers.eq(RUN_ID), any());
+        verify(decisions).append(org.mockito.ArgumentMatchers.eq(CONTEXT), any());
+        verify(process, org.mockito.Mockito.times(2)).append(any(), any());
+        verify(webhooks, org.mockito.Mockito.times(2)).enqueue(any(), any(), any());
     }
 }

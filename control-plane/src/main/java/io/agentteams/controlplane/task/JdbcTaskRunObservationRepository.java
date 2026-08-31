@@ -41,6 +41,17 @@ public final class JdbcTaskRunObservationRepository implements TaskRunObservatio
     }
 
     @Override
+    public Optional<TaskPlanningSnapshot> planningForTask(UUID taskId) {
+        Objects.requireNonNull(taskId, "taskId");
+        return jdbc.query("""
+                SELECT title, description, source, spec::text AS spec_json
+                  FROM tasks
+                 WHERE id = ?
+                """, (rs, row) -> new TaskPlanningSnapshot(rs.getString("title"), rs.getString("description"),
+                rs.getString("source"), rs.getString("spec_json")), taskId).stream().findFirst();
+    }
+
+    @Override
     public void ensureRun(ExecutionContext context, UUID taskId, UUID runId, String status, Instant at) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(taskId, "taskId");
