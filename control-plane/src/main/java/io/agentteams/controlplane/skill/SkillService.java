@@ -135,7 +135,8 @@ public class SkillService {
         String visibility = visibility(input.visibility() == null ? skill.visibility() : input.visibility());
         Instant now = clock.instant();
         SkillVersionRecord skillVersion = new SkillVersionRecord(UUID.randomUUID(), skillId, version, digest,
-                manifest, visibility, DRAFT, now, now, 0);
+                manifest, visibility, DRAFT, now, now, 0, "NOT_SCANNED", "PENDING", null, null, null,
+                "NOT_STARTED", skill.organizationId(), skill.tenantId());
         return repository.createVersion(skillVersion, key,
                 idempotency.requestHash(skillId.toString(), version, digest, manifest, visibility));
     }
