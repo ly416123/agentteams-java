@@ -64,6 +64,8 @@ import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcSecurityProperties;
 import io.agentteams.controlplane.security.SecretResolver;
 import io.agentteams.controlplane.security.ValidationOnlySecretResolver;
+import io.agentteams.controlplane.security.ExecutionContextResolver;
+import io.agentteams.controlplane.security.JdbcExecutionContextDirectory;
 import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
 import io.agentteams.controlplane.service.ValidationOnlyModelProviderConnectionProbe;
 import io.agentteams.controlplane.dashboard.DashboardAlertDeliveryService;
@@ -174,6 +176,11 @@ public class ControlPlaneConfiguration {
     @Bean
     ConfigSnapshotRepository configSnapshotRepository(DataSource dataSource) {
         return new ConfigSnapshotRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    ExecutionContextResolver executionContextResolver(JdbcExecutionContextDirectory directory) {
+        return new ExecutionContextResolver(directory);
     }
 
     @Bean
