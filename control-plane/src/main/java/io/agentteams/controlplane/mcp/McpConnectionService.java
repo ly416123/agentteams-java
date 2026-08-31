@@ -15,12 +15,25 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** Tenant-aware MCP connection registry used as the seam for the JDBC implementation. */
 public final class McpConnectionService {
+    private final McpConnectionRepository repository;
     private final Map<UUID, McpConnection> connections = new LinkedHashMap<>();
     private final Map<String, McpConnection> idempotency = new LinkedHashMap<>();
 
+    public McpConnectionService() {
+        this(null);
+    }
+
+    @Autowired
+    public McpConnectionService(McpConnectionRepository repository) {
+        this.repository = repository;
+    }
+
+    @Transactional
     public synchronized McpConnectionView create(String idempotencyKey, CreateInput input,
             ExecutionContext context, Instant now) {
         String key = required(idempotencyKey, "idempotencyKey");
@@ -29,6 +42,28 @@ public final class McpConnectionService {
         CreateInput normalized = normalize(input);
         validateOwnership(normalized, context);
         String requestHash = hash(normalized);
+        if (repository != null) {
+            Optional<McpConnection> existing = repository.findByIdempotencyKey(key);
+            if (existing.isPresent()) {
+                if (!existing.get().requestHash().equals(requestHash)) {
+                    throw new IllegalArgumentException("idempotency key is already bound to a different request");
+                }
+                return view(existing.get());
+            }
+            McpConnection connection = new McpConnection(UUID.randomUUID(), normalized.name(), normalized.mode(),
+                    normalized.organizationId(), normalized.tenantId(), normalized.endpointRef(),
+                    normalized.credentialRef(), normalized.allowedTools(), Boolean.TRUE.equals(normalized.enabled()),
+                    normalized.connectorId(), key, requestHash, now);
+            if (!repository.insert(connection)) {
+                McpConnection winner = repository.findByIdempotencyKey(key)
+                        .orElseThrow(() -> new IllegalStateException("MCP idempotency record disappeared"));
+                if (!winner.requestHash().equals(requestHash)) {
+                    throw new IllegalArgumentException("idempotency key is already bound to a different request");
+                }
+                return view(winner);
+            }
+            return view(connection);
+        }
         McpConnection existing = idempotency.get(key);
         if (existing != null) {
             if (!existing.requestHash().equals(requestHash)) {
@@ -46,11 +81,13 @@ public final class McpConnectionService {
     }
 
     public synchronized Optional<McpConnectionView> get(UUID id, ExecutionContext context) {
+        if (repository != null) return repository.find(Objects.requireNonNull(id, "id"), context).map(this::view);
         McpConnection connection = connections.get(Objects.requireNonNull(id, "id"));
         return connection != null && visible(connection, context) ? Optional.of(view(connection)) : Optional.empty();
     }
 
     public synchronized List<McpConnectionView> list(ExecutionContext context) {
+        if (repository != null) return repository.find(context).stream().map(this::view).toList();
         return connections.values().stream().filter(connection -> visible(connection, context)).map(this::view).toList();
     }
 
