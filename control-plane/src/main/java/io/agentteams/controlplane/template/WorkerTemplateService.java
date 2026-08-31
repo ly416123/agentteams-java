@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -24,6 +25,7 @@ public final class WorkerTemplateService {
     private final ResourceScopeRepository resourceScopes;
     private final Clock clock;
 
+    @Autowired
     public WorkerTemplateService(WorkerTemplateRepository repository, TemplateInstanceProvisioner provisioner,
             ResourceScopeRepository resourceScopes) {
         this(repository, provisioner, resourceScopes, Clock.systemUTC());

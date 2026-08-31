@@ -30,7 +30,7 @@ git worktree add ../agentteams-java-<task-name> -b codex/<task-name> origin/main
 
 ## 合并与同步
 
-提交会触发 GitHub Actions 前，必须先在本机 Docker 环境完成与项目范围匹配的验证。当前项目背景是 macOS + Colima，统一通过 `deploy/dev-env.sh` 配置 Docker context 和 Testcontainers endpoint：
+提交会触发 GitHub Actions 前，必须先在本机 Docker 环境完成与项目范围匹配的验证。当前项目背景是 macOS + Colima；Maven 根 `pom.xml` 会在检测到 Colima socket 后自动为 Surefire/Failsafe 配置 Testcontainers endpoint，`deploy/dev-env.sh` 继续负责 Docker CLI、Kind 等显式命令：
 
 ```bash
 source deploy/dev-env.sh

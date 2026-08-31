@@ -2,6 +2,7 @@ package io.agentteams.controlplane.template;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Modifier;
 import java.time.Instant;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -77,5 +78,10 @@ class JdbcWorkerTemplateRepositoryTest {
                 NOW.plusSeconds(1), 1);
         assertThat(repository.updateInstance(completed, 0).status()).isEqualTo("SUCCEEDED");
         assertThat(repository.findInstanceByIdempotency(templateId, "instance-key")).contains(completed);
+    }
+
+    @Test
+    void repositoryRemainsProxyableForSpringExceptionTranslation() {
+        assertThat(Modifier.isFinal(JdbcWorkerTemplateRepository.class.getModifiers())).isFalse();
     }
 }

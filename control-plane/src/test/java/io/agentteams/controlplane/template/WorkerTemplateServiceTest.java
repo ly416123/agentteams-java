@@ -21,6 +21,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 class WorkerTemplateServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-31T00:00:00Z");
@@ -88,6 +89,13 @@ class WorkerTemplateServiceTest {
 
         assertThat(result).isSameAs(existing);
         verify(provisioner, never()).provision(any(), any(), any());
+    }
+
+    @Test
+    void marksTheSpringInjectionConstructor() throws NoSuchMethodException {
+        assertThat(WorkerTemplateService.class.getConstructor(WorkerTemplateRepository.class,
+                TemplateInstanceProvisioner.class, ResourceScopeRepository.class)
+                .isAnnotationPresent(Autowired.class)).isTrue();
     }
 
     @Test

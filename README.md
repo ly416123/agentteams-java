@@ -155,9 +155,12 @@ The primary local development environment is macOS with Colima and a working
 Docker daemon. This project workspace has Docker Engine available locally,
 Chrome available for browser validation, and an existing Kind cluster named
 `agentteams`. `deploy/dev-env.sh` selects the `colima` Docker context and
-exports the Docker endpoint used by Testcontainers. Docker-backed tests are
-therefore part of the normal local verification path, not an optional CI-only
-substitute.
+exports the Docker endpoint used by Kind and other CLI commands. For Maven
+tests, the root `pom.xml` automatically activates the `colima-testcontainers`
+profile when the Colima socket exists, and injects the endpoint plus the
+container-visible socket override into Surefire/Failsafe. Docker-backed tests
+are therefore part of the normal local verification path, not an optional
+CI-only substitute.
 
 Before pushing a code or deployment change to GitHub Actions, load the local
 environment and complete the Docker-backed verification successfully:
@@ -167,6 +170,11 @@ source deploy/dev-env.sh
 docker info
 mvn -q -Pintegration-tests verify
 ```
+
+`source deploy/dev-env.sh` remains necessary for Kind and explicit Docker CLI
+commands. Maven/Surefire Testcontainers tests can be run directly with
+`mvn -q test`; no `DOCKER_HOST` or `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`
+export is required when the Colima socket is present.
 
 If the local Docker daemon or Testcontainers endpoint is unavailable, pure
 Java tests may still be useful for diagnosis, but the change must not be
