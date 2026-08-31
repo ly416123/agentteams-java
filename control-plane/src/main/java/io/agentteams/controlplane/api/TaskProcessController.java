@@ -12,6 +12,10 @@ import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.task.TaskProcessEventService;
 import io.agentteams.controlplane.task.TaskProgressService;
 import io.agentteams.controlplane.task.TaskResultManifestService;
+import io.agentteams.controlplane.task.TaskDecisionRecord;
+import io.agentteams.controlplane.task.TaskDecisionRecordService;
+import io.agentteams.controlplane.task.TaskTreeNode;
+import io.agentteams.controlplane.task.TaskTreeService;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -21,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /** HTTP read boundary for task execution progress, process events and result metadata. */
 @RestController
@@ -29,13 +34,30 @@ public final class TaskProcessController {
     private final TaskProcessEventService events;
     private final TaskProgressService progress;
     private final TaskResultManifestService results;
+    private final TaskTreeService tree;
+    private final TaskDecisionRecordService decisions;
     private final ExecutionContextResolver contextResolver;
 
+    @Autowired
+    public TaskProcessController(TaskProcessEventService events, TaskProgressService progress,
+            TaskResultManifestService results, TaskTreeService tree, TaskDecisionRecordService decisions,
+            ExecutionContextResolver contextResolver) {
+        this.events = Objects.requireNonNull(events, "events");
+        this.progress = Objects.requireNonNull(progress, "progress");
+        this.results = Objects.requireNonNull(results, "results");
+        this.tree = Objects.requireNonNull(tree, "tree");
+        this.decisions = Objects.requireNonNull(decisions, "decisions");
+        this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver");
+    }
+
+    /** Compatibility constructor for callers that only consume the original three read projections. */
     public TaskProcessController(TaskProcessEventService events, TaskProgressService progress,
             TaskResultManifestService results, ExecutionContextResolver contextResolver) {
         this.events = Objects.requireNonNull(events, "events");
         this.progress = Objects.requireNonNull(progress, "progress");
         this.results = Objects.requireNonNull(results, "results");
+        this.tree = null;
+        this.decisions = null;
         this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver");
     }
 
@@ -60,6 +82,29 @@ public final class TaskProcessController {
         TaskEventVisibility requested = visibleLevel(visibility);
         return results.get(context(), taskId, runId, Set.of(requested))
                 .orElseThrow(() -> new ResourceNotFoundException("task result", runId));
+    }
+
+    @GetMapping("/{taskId}/runs/{runId}/tree")
+    public List<TaskTreeNode> tree(@PathVariable UUID taskId, @PathVariable UUID runId) {
+        return requireTree().find(context(), runId).stream().filter(node -> node.taskId().equals(taskId)
+                || taskId.equals(node.parentTaskId())).toList();
+    }
+
+    @GetMapping("/{taskId}/runs/{runId}/decisions")
+    public List<TaskDecisionRecord> decisions(@PathVariable UUID taskId, @PathVariable UUID runId,
+            @RequestParam(defaultValue = "REQUESTER") String visibility) {
+        TaskEventVisibility requested = visibleLevel(visibility);
+        return requireDecisions().find(context(), taskId, runId, Set.of(requested));
+    }
+
+    private TaskTreeService requireTree() {
+        if (tree == null) throw new IllegalStateException("task tree projection is not configured");
+        return tree;
+    }
+
+    private TaskDecisionRecordService requireDecisions() {
+        if (decisions == null) throw new IllegalStateException("task decision projection is not configured");
+        return decisions;
     }
 
     private ExecutionContext context() {
