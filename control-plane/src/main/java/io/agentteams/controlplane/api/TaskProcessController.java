@@ -17,12 +17,19 @@ import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +75,21 @@ public final class TaskProcessController {
         if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative");
         TaskEventVisibility requested = visibleLevel(visibility);
         return events.replay(context(), taskId, runId, after, Set.of(requested), 100);
+    }
+
+    @GetMapping(value = "/{taskId}/runs/{runId}/process-events/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<String> processEventsStream(@PathVariable UUID taskId, @PathVariable UUID runId,
+            @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
+            @RequestParam(defaultValue = "REQUESTER") String visibility) {
+        long after = parseCursor(lastEventId);
+        TaskEventVisibility requested = visibleLevel(visibility);
+        StringBuilder stream = new StringBuilder();
+        for (TaskProcessEvent event : events.replay(context(), taskId, runId, after, Set.of(requested), 100)) {
+            stream.append("id: ").append(event.sequence()).append('\n')
+                    .append("event: ").append(event.eventType()).append('\n')
+                    .append("data: ").append(json(event)).append("\n\n");
+        }
+        return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(stream.toString());
     }
 
     @GetMapping("/{taskId}/runs/{runId}/progress")
@@ -119,5 +141,35 @@ public final class TaskProcessController {
             throw new AuthorizationException("only requester-visible task process data is available to this API");
         }
         return visibility;
+    }
+
+    private static long parseCursor(String value) {
+        if (value == null || value.isBlank()) return 0;
+        try {
+            long cursor = Long.parseLong(value);
+            if (cursor < 0) throw new NumberFormatException();
+            return cursor;
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException("Last-Event-ID must be non-negative");
+        }
+    }
+
+    private static String json(TaskProcessEvent event) {
+        try {
+            Map<String, Object> envelope = new LinkedHashMap<>();
+            envelope.put("eventId", event.eventId());
+            envelope.put("taskId", event.taskId());
+            envelope.put("runId", event.runId());
+            envelope.put("sequence", event.sequence());
+            envelope.put("eventType", event.eventType());
+            envelope.put("visibility", event.visibility());
+            envelope.put("occurredAt", event.occurredAt().toString());
+            envelope.put("correlationId", event.correlationId());
+            envelope.put("payload", event.payload());
+            envelope.put("payloadRef", event.payloadRef());
+            return new ObjectMapper().writeValueAsString(envelope);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("task process event cannot be serialized", error);
+        }
     }
 }

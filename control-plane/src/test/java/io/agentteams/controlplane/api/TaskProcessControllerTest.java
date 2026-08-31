@@ -67,6 +67,26 @@ class TaskProcessControllerTest {
     }
 
     @Test
+    void supportsSseReplayUsingLastEventId() throws Exception {
+        TaskProcessEventService events = Mockito.mock(TaskProcessEventService.class);
+        TaskProgressService progress = Mockito.mock(TaskProgressService.class);
+        TaskResultManifestService results = Mockito.mock(TaskResultManifestService.class);
+        ExecutionContextResolver resolver = Mockito.mock(ExecutionContextResolver.class);
+        Principal principal = new Principal("user-1", new AuthorizationService.Scope("tenant-1", "project-1", "team-1"), Set.of());
+        PrincipalContext.set(principal);
+        when(resolver.resolve(principal)).thenReturn(CONTEXT);
+        when(events.replay(CONTEXT, TASK_ID, RUN_ID, 3, Set.of(TaskEventVisibility.REQUESTER), 100))
+                .thenReturn(List.of(event()));
+
+        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, resolver)).build();
+        mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/process-events/stream", TASK_ID, RUN_ID)
+                        .header("Last-Event-ID", "3"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith("text/event-stream"));
+    }
+
+    @Test
     void exposesTaskTreeAndDecisionSummaries() throws Exception {
         TaskProcessEventService events = Mockito.mock(TaskProcessEventService.class);
         TaskProgressService progress = Mockito.mock(TaskProgressService.class);
