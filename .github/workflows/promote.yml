@@ -36,6 +36,9 @@ jobs:
     steps:
       - name: Check out deployment definitions
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
 
       - name: Download the existing release manifest
         env:
@@ -61,9 +64,17 @@ jobs:
       - name: Validate manifest and target environment
         run: |
           set -euo pipefail
+          release_git_sha="$(jq -er '.git_sha' "$RUNNER_TEMP/release/release-manifest.json")"
+          test "$(git rev-parse HEAD)" = "$release_git_sha"
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "$(git ls-files --others --exclude-standard)"
+          source_fingerprint="$(python3 scripts/source-fingerprint.py fingerprint --root .)"
           python3 scripts/validate-release-manifest.py \
             --manifest "$RUNNER_TEMP/release/release-manifest.json" \
-            --environment "${{ inputs.environment }}"
+            --git-sha "$release_git_sha" \
+            --environment "${{ inputs.environment }}" \
+            --source-fingerprint "$source_fingerprint"
 
       - name: Install Cosign
         run: |
