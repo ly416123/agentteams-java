@@ -10,6 +10,9 @@ import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskAssignmentService;
 import io.agentteams.controlplane.service.WorkerLifecycleConflictException;
 import io.agentteams.domain.agent.AgentPhase;
@@ -38,9 +41,9 @@ class WorkerOperationServiceTest {
 
     @BeforeEach
     void resetDatabase() {
-        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration").dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false).load().clean();
-        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration").dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load().migrate();
         org.postgresql.ds.PGSimpleDataSource dataSource = new org.postgresql.ds.PGSimpleDataSource();
         dataSource.setURL(POSTGRES.getJdbcUrl());
@@ -250,10 +253,14 @@ class WorkerOperationServiceTest {
         ResourceScopeRepository scopes = org.mockito.Mockito.mock(ResourceScopeRepository.class);
         WorkerOperationService scopedOperations = new WorkerOperationService(persistence,
                 java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC), Duration.ofMinutes(2), scopes);
-
-        scopedOperations.drain(agentId, 0, "scoped-drain");
-
-        org.mockito.Mockito.verify(scopes).requireVisible("WORKER", agentId);
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), java.util.Set.of()));
+        try {
+            scopedOperations.drain(agentId, 0, "scoped-drain");
+            org.mockito.Mockito.verify(scopes).requireVisible("WORKER", agentId);
+        } finally {
+            PrincipalContext.clear();
+        }
     }
 
     @Test

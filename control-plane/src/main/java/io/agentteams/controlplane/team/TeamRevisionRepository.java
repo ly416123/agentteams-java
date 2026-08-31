@@ -48,7 +48,8 @@ public class TeamRevisionRepository {
                         assertRequestHash(teamId, idempotencyKey, requestHash);
                         return existing.get();
                     }
-                    jdbc.update("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", teamId.toString());
+                    jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))",
+                            (rs, row) -> true, teamId.toString());
                     long revision = lockedNextRevision(teamId);
                     jdbc.update("""
                             INSERT INTO team_revisions(team_id, revision, leader_agent_id, overlay, digest, status,
@@ -92,7 +93,8 @@ public class TeamRevisionRepository {
                 throw new TeamRevisionConflictException("rollback target version or status is stale");
             }
             validator.validate(lockedTarget);
-            jdbc.update("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", teamId.toString());
+            jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))",
+                    (rs, row) -> true, teamId.toString());
             long revision = lockedNextRevision(teamId);
             jdbc.update("""
                     INSERT INTO team_revisions(team_id, revision, leader_agent_id, overlay, digest, status,

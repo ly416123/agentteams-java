@@ -42,6 +42,24 @@ Integration tests use the `integration-tests` profile:
 mvn -q -Pintegration-tests verify
 ```
 
+## Worker Template Registry（当前第一纵切）
+
+Control Plane 已提供模板的 scope 内唯一创建、不可变 revision、Review/Publish
+生命周期、幂等实例化和实例升级入口。当前公共 API 为：
+
+```text
+POST /api/v1/worker-templates
+POST /api/v1/worker-templates/{id}/revisions
+POST /api/v1/worker-templates/{id}/revisions/{revision}/review
+POST /api/v1/worker-templates/{id}/revisions/{revision}/publish
+POST /api/v1/worker-templates/{id}/revisions/{revision}/instances
+POST /api/v1/worker-templates/{id}/instances/{instanceId}/upgrade/{revision}
+```
+
+写操作使用 `Idempotency-Key`；状态变更使用 `expectedVersion`。模板实例通过
+现有 AgentSpec/Worker 服务边界创建，不直接操作 Kubernetes。企业审批、外部
+Skill/MCP/Secret 深度校验和 L6 真实验收不属于当前纵切完成条件。
+
 ## Git development workflow
 
 `main` is the only integration and release baseline. New work must branch from

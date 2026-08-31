@@ -38,9 +38,9 @@ class TeamCrdSynchronizerTest {
 
     @BeforeEach
     void resetDatabase() {
-        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration").dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false).load().clean();
-        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration").dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load().migrate();
         org.postgresql.ds.PGSimpleDataSource dataSource = new org.postgresql.ds.PGSimpleDataSource();
         dataSource.setURL(POSTGRES.getJdbcUrl());

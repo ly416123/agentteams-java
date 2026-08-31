@@ -1,7 +1,7 @@
 # AgentTeams Java 产品生态扩展设计
 
 **日期：** 2026-08-26
-**状态：** 等待书面规格审查
+**状态：** Worker Template Registry 最小可用闭环已实现；SDK、Console、Channel 仍待后续批次
 **优先级：** P2/P3
 **依赖：** P0 生产主路径和 P1 治理接口稳定
 
@@ -53,8 +53,8 @@ public record WorkerTemplateRevision(
 - `POST /api/v1/worker-templates`；
 - `POST /api/v1/worker-templates/{id}/revisions`；
 - `POST /api/v1/worker-templates/{id}/revisions/{revision}/publish`；
-- `POST /api/v1/worker-templates/{id}/revisions/{revision}/instantiate`；
-- `POST /api/v1/worker-template-instances/{id}/upgrade`；
+- `POST /api/v1/worker-templates/{id}/revisions/{revision}/instances`；
+- `POST /api/v1/worker-templates/{id}/instances/{instanceId}/upgrade/{revision}`；
 - `GET` 列表、详情、revision 和实例状态。
 
 实例化复用 AgentSpec 发布和部署服务，不直接操作 Kubernetes。

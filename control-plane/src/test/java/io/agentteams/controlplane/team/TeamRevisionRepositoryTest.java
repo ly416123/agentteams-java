@@ -27,9 +27,11 @@ class TeamRevisionRepositoryTest {
 
     @BeforeEach
     void resetDatabase() {
-        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false).load().clean();
-        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load().migrate();
         org.postgresql.ds.PGSimpleDataSource dataSource = new org.postgresql.ds.PGSimpleDataSource();
         dataSource.setURL(POSTGRES.getJdbcUrl());
@@ -102,21 +104,24 @@ class TeamRevisionRepositoryTest {
                     jdbc.update("""
                             INSERT INTO agents(id, name, phase, runtime, capabilities, metadata, created_at, updated_at)
                             VALUES (?, ?, 'READY', 'qwenpaw', '{}'::jsonb, '{}'::jsonb, ?, ?)
-                            """, leaderAgentId, "agent-" + leaderAgentId, NOW, NOW);
+                            """, leaderAgentId, "agent-" + leaderAgentId, java.sql.Timestamp.from(NOW),
+                            java.sql.Timestamp.from(NOW));
                     jdbc.update("""
                             INSERT INTO teams(id, name, display_name, status, created_at, updated_at, version)
                             VALUES (?, ?, 'Team', 'ACTIVE', ?, ?, 0)
-                            """, teamId, "team-" + teamId, NOW, NOW);
+                            """, teamId, "team-" + teamId, java.sql.Timestamp.from(NOW),
+                            java.sql.Timestamp.from(NOW));
                     jdbc.update("""
                             INSERT INTO team_memberships(id, team_id, agent_id, role, status, joined_at, updated_at, version)
                             VALUES (?, ?, ?, 'LEADER', 'ACTIVE', ?, ?, 0)
-                            """, membershipId, teamId, leaderAgentId, NOW, NOW);
+                            """, membershipId, teamId, leaderAgentId, java.sql.Timestamp.from(NOW),
+                            java.sql.Timestamp.from(NOW));
                     jdbc.update("""
                             INSERT INTO team_revisions(team_id, revision, leader_agent_id, overlay, digest, status,
                                 rollback_of_revision, created_by, created_at, version, idempotency_key, request_hash)
                             VALUES (?, ?, ?, '{}'::jsonb, 'target-digest', 'PUBLISHED', NULL, 'alice', ?, ?,
                                 'target-key', 'target-request-hash')
-                            """, teamId, revision, leaderAgentId, NOW, version);
+                            """, teamId, revision, leaderAgentId, java.sql.Timestamp.from(NOW), version);
                     jdbc.update("""
                             INSERT INTO team_revision_members(team_id, team_revision, agent_id, member_index)
                             VALUES (?, ?, ?, 0)

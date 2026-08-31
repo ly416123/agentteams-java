@@ -61,10 +61,10 @@ class OutboxRelayIT {
 
     @BeforeEach
     void setUp() throws Exception {
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false).load().clean();
-        Flyway.configure()
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load().migrate();
         PGSimpleDataSource dataSource = new PGSimpleDataSource();

@@ -8,6 +8,8 @@
 
 **技术栈：** Java 17、Spring Boot、Spring JDBC、PostgreSQL/Flyway、JUnit 5、AssertJ、Python 3 标准库、Bash、GitHub Actions、Docker Buildx、Helm。
 
+**执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口和 Worker Template Registry 最小闭环。L6 真实验收、企业审批、生产 Secret Manager、SDK、Console 和 Webhook Adapter 仍按本计划留在后续批次。
+
 ---
 
 ## 文件边界

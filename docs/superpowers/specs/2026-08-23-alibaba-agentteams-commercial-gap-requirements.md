@@ -83,7 +83,7 @@
 
 前一轮加本轮改动已通过干净全量测试；当前回归口径以本文第 10 节最新结果为准。
 
-尚未宣称为完整商业版能力的部分：生产 Secret Manager/外部凭据轮换平台、Worker 生产级优雅下线、全资源 RBAC/成员生命周期集成、具体企业 Skill 沙箱与审批系统、Team 级 Skill/MCP 运行时绑定、预算/预测/最终账单、Worker 模板以及 Java/TypeScript SDK。Console/Conversation 的本地 Docker/Kind 真实 QwenPaw 路径已经验收；生产供应商、外部网络和 L6 恢复仍需受控环境验证。
+尚未宣称为完整商业版能力的部分：生产 Secret Manager/外部凭据轮换平台、Worker 生产级优雅下线、全资源 RBAC/成员生命周期集成、具体企业 Skill 沙箱与审批系统、预算/预测/最终账单以及 Java/TypeScript SDK。Worker Template Registry 的模板版本、审批状态、幂等实例化和升级最小闭环已在仓库侧实现；真实企业审批、外部资源扫描、生产凭据接线和 L6 恢复仍需受控环境验证。Console/Conversation 的本地 Docker/Kind 真实 QwenPaw 路径已经验收；生产供应商、外部网络和 L6 恢复仍需受控环境验证。
 
 推荐的依赖关键路径为：
 
@@ -110,7 +110,7 @@ Skill、MCP、Audit 可以在关键路径上并行建设，但 Skill/MCP 的最�
 | MCP Server 管理 | **部分具备**。已有 Registry、认证引用、HTTP/SSE/Streamable HTTP、工具发现缓存、健康探针、限流/熔断、出站策略和低基数审计指标 | 缺少 Worker/Team 运行时绑定、跨实例发现状态汇总和完整集中告警 | P1 |
 | Dashboard/使用分析 | **部分具备**。已有 Micrometer、OTel、Prometheus/Grafana、Usage API、Summary、多维 hour/day 聚合、成本/配额指标、持久化告警和 Kind 投递验收 | 缺少预算/预测告警、统一大盘及所有历史事件均带齐 Worker/Task/Team/Tool/Quota 维度 | P1 |
 | 审计与安全治理 | **部分具备**。已有模型调用/配置/Skill/MCP 审计、敏感信息脱敏、OIDC/mTLS/RBAC、价格成本审计和 Secret 轮换重连验证 | 缺少企业 Secret Manager、完整审批/出站合规策略、全资源审计查询和合规事件闭环 | P1 |
-| Worker 模板 | **缺失** | 缺少可复用模板、版本、审批、实例化和升级策略 | P1 |
+| Worker 模板 | **部分具备**。已有模板 scope、不可变 revision、review/publish/deprecate 状态机、幂等实例化、AgentSpec/Worker 适配边界和实例升级 API | 缺少企业审批系统、外部 Skill/MCP/Secret 深度校验、生产级就地升级和回滚策略 | P1 |
 | 渠道接入 | **部分具备**。当前已有 Matrix/Tuwunel 方向 | DingTalk 等商业渠道未接入；需要统一 Channel SPI 和异步投递语义 | P2 |
 | 配额、成本、计费 | **部分具备**。已有项目配额持久化、Manager/Runtime admission、远程 quota protobuf/gRPC、真实 Worker/Manager 生产组装、Kind 验收、价格目录和成本审计 | 缺少跨实例高并发压力验证、预算/预测告警和最终账单；真实账单属于云厂商扩展 | P1 |
 | 云实例/网络生命周期 | **缺失** | 本项目当前以 Helm/Kind/Kubernetes 部署为主，不负责云资源购买、VPC 和实例生命周期 | P2（可选） |
