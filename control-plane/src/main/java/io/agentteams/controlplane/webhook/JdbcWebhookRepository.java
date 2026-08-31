@@ -50,6 +50,18 @@ public final class JdbcWebhookRepository implements WebhookRepository {
     }
 
     @Override
+    public java.util.Optional<WebhookSubscription> findById(UUID id) {
+        if (id == null) return java.util.Optional.empty();
+        List<WebhookSubscription> subscriptions = jdbc.query("""
+                SELECT id, organization_id, tenant_id, project_id, endpoint, secret_ref, event_types::text,
+                       enabled, version, created_at, updated_at
+                  FROM webhook_subscriptions
+                 WHERE id = ?
+                """, this::mapSubscription, id);
+        return subscriptions.stream().findFirst();
+    }
+
+    @Override
     public List<WebhookSubscription> list(WebhookScope scope) {
         return querySubscriptions(scope, false);
     }

@@ -51,6 +51,7 @@ class JdbcWebhookRepositoryTest {
                 3, NOW, JsonNodeFactory.instance.objectNode().put("result", "ok"));
 
         assertThat(repository.listEnabled(SCOPE)).containsExactly(subscription);
+        assertThat(repository.findById(subscription.id())).contains(subscription);
         assertThat(repository.enqueue(subscription, event, NOW)).isTrue();
         assertThat(repository.enqueue(subscription, event, NOW)).isFalse();
         WebhookDelivery delivery = repository.findDue(NOW, 10).get(0);

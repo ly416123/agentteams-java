@@ -339,6 +339,10 @@ real model task can complete. Worker readiness only proves the Agent channel
 is connected, and the bootstrap script intentionally does not invent external
 credentials.
 
+### Channel 出站扩展
+
+企业事件出站统一经过 Channel SPI。当前 Webhook 适配器只做租户绑定校验并写入持久化投递记录，实际 HTTP 投递复用已有 leader-only scheduler、HMAC、重试、死信和事件 ID 去重；适配器不会拥有 Task 状态，也不会返回 Secret。后续 Matrix/DingTalk 适配器必须复用同一 Port 和 Outbox 边界。
+
 ### AgentScope 灰度与回滚
 
 AgentScope 的运行时选择采用默认关闭、确定性分桶和显式 allowlist。Helm

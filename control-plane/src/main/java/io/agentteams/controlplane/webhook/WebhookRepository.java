@@ -3,9 +3,13 @@ package io.agentteams.controlplane.webhook;
 import io.agentteams.controlplane.outbox.EventEnvelope;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface WebhookRepository {
     WebhookSubscription insert(WebhookSubscription subscription);
+
+    Optional<WebhookSubscription> findById(UUID id);
 
     List<WebhookSubscription> list(WebhookScope scope);
 

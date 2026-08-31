@@ -87,8 +87,10 @@ import io.agentteams.controlplane.service.ModelPriceSyncScheduler;
 import io.agentteams.controlplane.service.ModelPriceSyncService;
 import io.agentteams.controlplane.webhook.WebhookDeliveryScheduler;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
+import io.agentteams.controlplane.channel.WebhookChannelAdapter;
 import io.agentteams.controlplane.webhook.WebhookSecretResolver;
 import io.agentteams.controlplane.webhook.WebhookHmacTransport;
+import io.agentteams.controlplane.webhook.WebhookRepository;
 import io.agentteams.controlplane.webhook.WebhookTransport;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
@@ -253,6 +255,11 @@ public class ControlPlaneConfiguration {
         java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
                 .connectTimeout(timeout).followRedirects(java.net.http.HttpClient.Redirect.NEVER).build();
         return new WebhookHmacTransport(client, secrets, timeout);
+    }
+
+    @Bean
+    WebhookChannelAdapter webhookChannelAdapter(WebhookRepository repository, Clock clock) {
+        return new WebhookChannelAdapter(repository, clock);
     }
 
     @Bean
