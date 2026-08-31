@@ -10,6 +10,10 @@
 
 **执行状态（2026-08-31）：** 任务 1、任务 2、任务 3 已完成并提交；当前分支包含源码指纹强制约束、Team 资源绑定/Effective Config 收口、Worker Template Registry 最小闭环，以及 Colima/Testcontainers 自动适配。Java、Python、Helm、Console 和 API 契约验证均已通过。L6 真实验收、企业审批、生产 Secret Manager、SDK 和 Webhook Adapter 仍按本计划留在后续批次。
 
+## 后续批量开发强制门禁
+
+每个后续批量功能都必须先通过本地 Docker-backed 验证；只要变更涉及 Kubernetes、Operator、Worker、TaskSandbox、RuntimeClass、镜像、Helm、运行时路由、生命周期或部署链路，还必须在 Ubuntu/KVM L5 主机 `ly-MacBookAir7-2`（`192.168.122.55`）通过真实验收脚本。必须保留成功标记、运行时证据和清理结果；任一门禁未通过，不得把批次标记完成或进入主线集成。L6 仍是独立的后续受控环境门禁。
+
 ---
 
 ## 文件边界

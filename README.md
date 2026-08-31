@@ -201,6 +201,16 @@ kernels were observed, and cleanup completed with
 `L5_LINUX_KVM_ACCEPTANCE_OK`. Node-failure recovery and production L6 remain
 separate gates.
 
+For every subsequent batch feature, local Docker-backed verification is
+required. If the change touches Kubernetes, Operator, Worker, TaskSandbox,
+RuntimeClass, images, Helm, runtime routing, lifecycle, or deployment paths,
+the same change must also pass the real Ubuntu/KVM L5 acceptance on this host,
+including runtime evidence and cleanup confirmation. A local Kind/Fake Provider
+result or an unavailable L5 environment cannot be reported as a pass; until
+both gates pass, the batch remains `development complete, acceptance pending`
+and cannot be integrated into the mainline. L6 remains a separate controlled
+environment gate.
+
 ## Local infrastructure
 
 On macOS, the repository provides a Colima/Testcontainers bootstrap script:

@@ -40,6 +40,12 @@ mvn -q -Pintegration-tests verify
 
 上述 Docker 验证未通过时，不得把变更标记为本地验证完成，也不得为普通开发变更推送到 GitHub CI；应先修复本地环境或测试失败原因。纯 Java 测试可以用于定位问题，但不能替代 Docker-backed 验证。
 
+## 批量功能验收门禁
+
+后续批量功能开发必须同时满足本地 Docker-backed 验证和与变更范围匹配的真实环境验收。凡是涉及 Kubernetes、Operator、Worker、TaskSandbox、RuntimeClass、镜像、Helm、运行时路由、生命周期或部署链路的功能，在本地 Docker/Kind 验证通过后，还必须在受控 Ubuntu/KVM L5 主机 `ly-MacBookAir7-2`（`192.168.122.55`）执行真实验收脚本，并保留成功标记、运行时证据和清理结果。
+
+L5 不得用本地 Kind、Fake Provider、静态模板或“环境不可用”替代。任一本地 Docker 或 L5 门禁未通过时，变更只能标记为“开发完成、待验收”，不得标记批次完成、不得进入主线集成；后续修改镜像、Operator、Helm 或运行时行为后必须重新执行受影响的 L5 场景。L6 仍按路线图使用独立的受控环境，不因本条约束自动纳入普通批量开发。
+
 合并前至少检查以下内容：
 
 ```bash

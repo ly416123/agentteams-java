@@ -143,7 +143,7 @@ W2 Team Revision / Effective Config
 | L5 | Linux/KVM | gVisor、Kata、RuntimeClass、Pod 删除、节点故障和真实隔离 |
 | L6 | 生产预发布环境 | 外部 IdP、Secret Manager、托管数据库/NATS/S3、证书轮换、备份恢复、镜像晋级和回滚 |
 
-L1-L4 应进入默认 CI 或可复现的专用 CI。L5/L6 使用受控环境和人工审批，不向仓库注入生产凭据。
+L1-L4 应进入默认 CI 或可复现的专用 CI。L5/L6 使用受控环境和人工审批，不向仓库注入生产凭据。后续批量功能只要涉及运行时、Kubernetes、Operator、Worker、TaskSandbox、RuntimeClass、镜像、Helm 或部署链路，就必须在本地 Docker/Kind 通过后追加 L5 真实验收；不得用 Fake Provider、静态模板或环境不可用替代。
 
 ## 8. Definition of Done
 
@@ -156,7 +156,7 @@ L1-L4 应进入默认 CI 或可复现的专用 CI。L5/L6 使用受控环境和�
 5. 重复请求、消息重放、进程重启和并发竞争不会产生重复副作用；
 6. 日志、错误、诊断和 CI Artifact 不包含 Secret、JWT、完整 Prompt/Response；
 7. Helm 和生产配置示例同步；
-8. 对应 L1-L4 验收通过，涉及的 L5/L6 验收有真实结果；
+8. 对应 L1-L4 验收通过；涉及运行时、Kubernetes、Operator、Worker、TaskSandbox、RuntimeClass、镜像、Helm 或部署链路的批量功能，还必须有 Ubuntu/KVM L5 的成功标记、运行时证据和清理结果；
 9. README、架构地图、商业差距矩阵和实施计划状态同步；
 10. 提交保持单一职责，并通过敏感信息扫描和 `git diff --check`。
 
