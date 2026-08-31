@@ -33,6 +33,9 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     private final Counter quotaRejected;
     private final Counter configRollbackCompleted;
     private final Counter configRollbackFailed;
+    private final Counter taskConsistencyIssues;
+    private final Counter taskConsistencyResolved;
+    private final Counter taskConsistencyScanFailures;
     private final Timer managerLatency;
     private final Timer outboxPublishLatency;
     private final AtomicLong outboxBacklog = new AtomicLong();
@@ -64,6 +67,9 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
         quotaRejected = registry.counter("agentteams.quota.rejected");
         configRollbackCompleted = registry.counter("agentteams.config.rollback.completed");
         configRollbackFailed = registry.counter("agentteams.config.rollback.failed");
+        taskConsistencyIssues = registry.counter("agentteams.task.consistency.issues");
+        taskConsistencyResolved = registry.counter("agentteams.task.consistency.resolved");
+        taskConsistencyScanFailures = registry.counter("agentteams.task.consistency.scan.failures");
         managerLatency = registry.timer("agentteams.manager.call.latency");
         outboxPublishLatency = registry.timer("agentteams.outbox.publish.latency");
         registry.gauge("agentteams.outbox.backlog", outboxBacklog);
@@ -102,5 +108,8 @@ public final class ControlPlaneMetrics implements TaskMetricsPort {
     public void quotaRejected() { quotaRejected.increment(); }
     public void configRollbackCompleted() { configRollbackCompleted.increment(); }
     public void configRollbackFailed() { configRollbackFailed.increment(); }
+    @Override public void taskConsistencyIssue() { taskConsistencyIssues.increment(); }
+    @Override public void taskConsistencyResolved() { taskConsistencyResolved.increment(); }
+    @Override public void taskConsistencyScanFailed() { taskConsistencyScanFailures.increment(); }
     public void managerCall(Duration duration) { managerLatency.record(Objects.requireNonNull(duration, "duration")); }
 }

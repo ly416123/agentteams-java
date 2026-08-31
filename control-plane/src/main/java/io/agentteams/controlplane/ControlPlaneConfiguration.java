@@ -88,6 +88,10 @@ import io.agentteams.controlplane.service.ModelPriceSyncPort;
 import io.agentteams.controlplane.service.ModelPriceSyncProperties;
 import io.agentteams.controlplane.service.ModelPriceSyncScheduler;
 import io.agentteams.controlplane.service.ModelPriceSyncService;
+import io.agentteams.controlplane.task.TaskStateConsistencyChecker;
+import io.agentteams.controlplane.task.TaskStateConsistencyJob;
+import io.agentteams.controlplane.task.TaskStateConsistencyRepository;
+import io.agentteams.controlplane.task.TaskStateConsistencyService;
 import io.agentteams.controlplane.webhook.WebhookDeliveryScheduler;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
 import io.agentteams.controlplane.channel.WebhookChannelAdapter;
@@ -561,6 +565,25 @@ public class ControlPlaneConfiguration {
                 temporaryRetention, legalHold);
         return new ArtifactRetentionCleanupJob(retention, lease, clock,
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, fallback, batchSize);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.task-state-consistency.enabled", havingValue = "true", matchIfMissing = true)
+    TaskStateConsistencyService taskStateConsistencyService(TaskStateConsistencyRepository repository,
+            TaskMetricsPort metrics) {
+        return new TaskStateConsistencyService(repository, new TaskStateConsistencyChecker(), metrics);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.task-state-consistency.enabled", havingValue = "true", matchIfMissing = true)
+    TaskStateConsistencyJob taskStateConsistencyJob(TaskStateConsistencyService service,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.task-state-consistency.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.task-state-consistency.lookback:24h}") java.time.Duration lookback,
+            @Value("${agentteams.task-state-consistency.batch-size:100}") int batchSize) {
+        return new TaskStateConsistencyJob(service, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, lookback, batchSize);
     }
 
     @Bean

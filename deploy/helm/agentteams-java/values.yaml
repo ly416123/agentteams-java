@@ -74,6 +74,12 @@ controlPlane:
       leaseDuration: 30s
       batchSize: 16
       maxAttempts: 5
+  taskStateConsistency:
+    enabled: true
+    reconcileIntervalMs: 60000
+    leaseDuration: 30s
+    lookback: 24h
+    batchSize: 100
   usageBudget:
     scheduler:
       enabled: false

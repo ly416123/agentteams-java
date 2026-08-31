@@ -78,6 +78,16 @@ spec:
               value: {{ .Values.controlPlane.webhook.scheduler.batchSize | quote }}
             - name: AGENTTEAMS_WEBHOOK_SCHEDULER_MAX_ATTEMPTS
               value: {{ .Values.controlPlane.webhook.scheduler.maxAttempts | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_ENABLED
+              value: {{ .Values.controlPlane.taskStateConsistency.enabled | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_RECONCILE_INTERVAL_MS
+              value: {{ .Values.controlPlane.taskStateConsistency.reconcileIntervalMs | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_LEASE_DURATION
+              value: {{ .Values.controlPlane.taskStateConsistency.leaseDuration | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_LOOKBACK
+              value: {{ .Values.controlPlane.taskStateConsistency.lookback | quote }}
+            - name: AGENTTEAMS_TASK_STATE_CONSISTENCY_BATCH_SIZE
+              value: {{ .Values.controlPlane.taskStateConsistency.batchSize | quote }}
             - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_ENABLED
               value: {{ .Values.controlPlane.usageBudget.scheduler.enabled | quote }}
             - name: AGENTTEAMS_USAGE_BUDGET_SCHEDULER_POLL_INTERVAL_MS

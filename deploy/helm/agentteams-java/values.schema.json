@@ -192,6 +192,17 @@
             }
           }
         },
+        "taskStateConsistency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "reconcileIntervalMs": { "type": "integer", "minimum": 1 },
+            "leaseDuration": { "type": "string", "minLength": 1 },
+            "lookback": { "type": "string", "minLength": 1 },
+            "batchSize": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        },
         "usageBudget": {
           "type": "object",
           "additionalProperties": false,
