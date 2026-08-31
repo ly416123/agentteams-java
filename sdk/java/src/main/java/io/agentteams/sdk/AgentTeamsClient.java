@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -56,6 +57,29 @@ public final class AgentTeamsClient {
     public Task cancelTask(UUID taskId, LifecycleRequest request, boolean retrySafe) {
         requireId(taskId);
         return send("POST", "/api/v1/tasks/" + taskId + "/cancel", request, Task.class, retrySafe);
+    }
+
+    public TaskProgressSnapshot getTaskProgress(UUID taskId, UUID runId) {
+        requireId(taskId);
+        requireId(runId);
+        return send("GET", "/api/v1/tasks/" + taskId + "/runs/" + runId + "/progress?phase=EXECUTION",
+                null, TaskProgressSnapshot.class, true);
+    }
+
+    public TaskResultManifest getTaskResult(UUID taskId, UUID runId) {
+        requireId(taskId);
+        requireId(runId);
+        return send("GET", "/api/v1/tasks/" + taskId + "/runs/" + runId + "/result?visibility=REQUESTER",
+                null, TaskResultManifest.class, true);
+    }
+
+    public List<TaskProcessEvent> listTaskProcessEvents(UUID taskId, UUID runId, long after) {
+        requireId(taskId);
+        requireId(runId);
+        if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative");
+        TaskProcessEvent[] events = send("GET", "/api/v1/tasks/" + taskId + "/runs/" + runId
+                + "/process-events?after=" + after + "&visibility=REQUESTER", null, TaskProcessEvent[].class, true);
+        return List.of(events);
     }
 
     private <T> T send(String method, String path, Object body, Class<T> responseType,
@@ -178,6 +202,18 @@ public final class AgentTeamsClient {
 
     public record Task(UUID id, String title, String description, String phase, int priority,
             java.time.Instant createdAt, java.time.Instant updatedAt, long version) { }
+
+    public record TaskProgressSnapshot(String phase, long completed, long total, int progress,
+            String waitingReason) { }
+
+    public record TaskProcessEvent(UUID eventId, UUID taskId, UUID runId, long sequence, String eventType,
+            String visibility, java.time.Instant occurredAt, String correlationId, String payload, String payloadRef) { }
+
+    public record TaskResultManifest(UUID taskId, UUID runId, String status, String summary,
+            java.util.List<ArtifactMetadata> artifacts) { }
+
+    public record ArtifactMetadata(String name, String storageRef, String contentType, long sizeBytes,
+            String sha256, long version, String stage, String visibility) { }
 
     public static final class ApiErrorException extends RuntimeException {
         private final int status;

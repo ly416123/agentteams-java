@@ -70,4 +70,21 @@ describe('AgentTeamsClient', () => {
       correlationId: 'corr-1',
     });
   });
+
+  it('reads task progress, result manifest and replayable process events', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(200, { phase: 'EXECUTION', completed: 2, total: 4, progress: 50, waitingReason: '' }))
+      .mockResolvedValueOnce(jsonResponse(200, { taskId: 'task-1', runId: 'run-1', status: 'SUCCEEDED', summary: 'done', artifacts: [] }))
+      .mockResolvedValueOnce(jsonResponse(200, [{ eventId: 'event-1', taskId: 'task-1', runId: 'run-1', sequence: 1,
+        eventType: 'PROGRESS', visibility: 'REQUESTER', occurredAt: '2026-08-31T00:00:00Z', correlationId: 'corr-1',
+        payload: '{"progress":50}', payloadRef: null }]));
+    const client = new AgentTeamsClient({ baseUrl: 'https://agentteams.example', fetcher });
+
+    await expect(client.getTaskProgress('task-1', 'run-1')).resolves.toMatchObject({ progress: 50 });
+    await expect(client.getTaskResult('task-1', 'run-1')).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    await expect(client.listTaskProcessEvents('task-1', 'run-1', { after: 0 })).resolves.toHaveLength(1);
+
+    expect((fetcher.mock.calls[2][0] as Request).url)
+      .toBe('https://agentteams.example/api/v1/tasks/task-1/runs/run-1/process-events?after=0');
+  });
 });

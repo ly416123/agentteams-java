@@ -81,6 +81,25 @@ class AgentTeamsClientTest {
                 });
     }
 
+    @Test
+    void readsTaskProgressResultAndProcessEvents() {
+        server.createContext("/api/v1/tasks/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000002/progress", exchange ->
+                respond(exchange, 200, "{\"phase\":\"EXECUTION\",\"completed\":2,\"total\":4,\"progress\":50,\"waitingReason\":\"\"}"));
+        server.createContext("/api/v1/tasks/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000002/result", exchange ->
+                respond(exchange, 200, "{\"taskId\":\"00000000-0000-0000-0000-000000000001\",\"runId\":\"00000000-0000-0000-0000-000000000002\",\"status\":\"SUCCEEDED\",\"summary\":\"done\",\"artifacts\":[]}"));
+        server.createContext("/api/v1/tasks/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000002/process-events", exchange ->
+                respond(exchange, 200, "[{\"eventId\":\"00000000-0000-0000-0000-000000000003\",\"taskId\":\"00000000-0000-0000-0000-000000000001\",\"runId\":\"00000000-0000-0000-0000-000000000002\",\"sequence\":1,\"eventType\":\"PROGRESS\",\"visibility\":\"REQUESTER\",\"occurredAt\":\"2026-08-31T00:00:00Z\",\"correlationId\":\"corr-1\",\"payload\":\"{\\\"progress\\\":50}\"}]"));
+
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+
+        assertThat(client.getTaskProgress(UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("00000000-0000-0000-0000-000000000002")).progress()).isEqualTo(50);
+        assertThat(client.getTaskResult(UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("00000000-0000-0000-0000-000000000002")).status()).isEqualTo("SUCCEEDED");
+        assertThat(client.listTaskProcessEvents(UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("00000000-0000-0000-0000-000000000002"), 0)).hasSize(1);
+    }
+
     private static String taskJson() {
         return "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"title\":\"Demo\","
                 + "\"description\":\"Task\",\"phase\":\"DRAFT\",\"priority\":0,"

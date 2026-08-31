@@ -50,6 +50,44 @@ export type TaskListItem = Task & {
   workerId?: string;
 };
 
+export type TaskProgressSnapshot = {
+  phase: string;
+  completed: number;
+  total: number;
+  progress: number;
+  waitingReason: string;
+};
+
+export type TaskProcessEvent = {
+  eventId: string;
+  taskId: string;
+  runId: string;
+  sequence: number;
+  eventType: string;
+  visibility: string;
+  occurredAt: string;
+  correlationId: string;
+  payload?: string;
+  payloadRef?: string;
+};
+
+export type TaskResultManifest = {
+  taskId: string;
+  runId: string;
+  status: string;
+  summary: string;
+  artifacts: Array<{
+    name: string;
+    storageRef: string;
+    contentType: string;
+    sizeBytes: number;
+    sha256: string;
+    version: number;
+    stage: string;
+    visibility: string;
+  }>;
+};
+
 export type CursorPage<T> = {
   items: T[];
   nextCursor?: string | null;
@@ -139,6 +177,27 @@ export class AgentTeamsClient {
 
   getTask(taskId: string) {
     return this.request<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}`);
+  }
+
+  getTaskProgress(taskId: string, runId: string, phase = 'EXECUTION') {
+    return this.request<TaskProgressSnapshot>(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/progress`,
+      { query: { phase } },
+    );
+  }
+
+  getTaskResult(taskId: string, runId: string, visibility = 'REQUESTER') {
+    return this.request<TaskResultManifest>(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/result`,
+      { query: { visibility } },
+    );
+  }
+
+  listTaskProcessEvents(taskId: string, runId: string, params: { after?: number; visibility?: string } = {}) {
+    return this.request<TaskProcessEvent[]>(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/process-events`,
+      { query: params },
+    );
   }
 
   cancelTask(

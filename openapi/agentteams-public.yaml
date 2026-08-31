@@ -167,6 +167,88 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/runs/{runId}/progress:
+    get:
+      operationId: getTaskProgress
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/RunId'
+        - name: phase
+          in: query
+          schema: { type: string, default: EXECUTION }
+      responses:
+        '200':
+          description: Task progress snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskProgressSnapshot' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/runs/{runId}/result:
+    get:
+      operationId: getTaskResult
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/Visibility'
+      responses:
+        '200':
+          description: Final task result manifest
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskResultManifest' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/runs/{runId}/process-events:
+    get:
+      operationId: listTaskProcessEvents
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/RunId'
+        - name: after
+          in: query
+          schema: { type: integer, format: int64, minimum: 0, default: 0 }
+        - $ref: '#/components/parameters/Visibility'
+      responses:
+        '200':
+          description: Ordered, replayable task process events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TaskProcessEvent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/runs/{runId}/process-events/stream:
+    get:
+      operationId: streamTaskProcessEvents
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/LastEventId'
+        - $ref: '#/components/parameters/Visibility'
+      responses:
+        '200':
+          description: Server-sent event stream with stable sequence IDs
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
 components:
   securitySchemes:
     BearerAuth:
@@ -204,6 +286,21 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Visibility:
+      name: visibility
+      in: query
+      required: false
+      schema: { type: string, enum: [REQUESTER], default: REQUESTER }
+    LastEventId:
+      name: Last-Event-ID
+      in: header
+      required: false
+      schema: { type: integer, format: int64, minimum: 0 }
   responses:
     BadRequest:
       description: Invalid request
@@ -235,6 +332,11 @@ components:
           schema: { $ref: '#/components/schemas/ApiError' }
     ServerError:
       description: Server or dependency failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    NotFound:
+      description: Resource not found
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
@@ -329,3 +431,49 @@ components:
         expectedVersion: { type: integer, format: int64, minimum: 0 }
         actor: { type: string }
         source: { type: string }
+    TaskProgressSnapshot:
+      type: object
+      required: [phase, completed, total, progress, waitingReason]
+      properties:
+        phase: { type: string }
+        completed: { type: integer, format: int64, minimum: 0 }
+        total: { type: integer, format: int64, minimum: 0 }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        waitingReason: { type: string }
+    TaskProcessEvent:
+      type: object
+      required: [eventId, taskId, runId, sequence, eventType, visibility, occurredAt, correlationId]
+      properties:
+        eventId: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+        runId: { type: string, format: uuid }
+        sequence: { type: integer, format: int64, minimum: 0 }
+        eventType: { type: string }
+        visibility: { type: string, enum: [REQUESTER] }
+        occurredAt: { type: string, format: date-time }
+        correlationId: { type: string }
+        payload: { type: string }
+        payloadRef: { type: string }
+    TaskResultManifest:
+      type: object
+      required: [taskId, runId, status, summary, artifacts]
+      properties:
+        taskId: { type: string, format: uuid }
+        runId: { type: string, format: uuid }
+        status: { type: string }
+        summary: { type: string }
+        artifacts:
+          type: array
+          items: { $ref: '#/components/schemas/TaskArtifactMetadata' }
+    TaskArtifactMetadata:
+      type: object
+      required: [name, storageRef, contentType, sizeBytes, sha256, version, stage, visibility]
+      properties:
+        name: { type: string }
+        storageRef: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, format: int64, minimum: 0 }
+        sha256: { type: string }
+        version: { type: integer, format: int64, minimum: 0 }
+        stage: { type: string }
+        visibility: { type: string, enum: [REQUESTER] }
