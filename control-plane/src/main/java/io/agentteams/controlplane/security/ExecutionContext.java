@@ -15,6 +15,12 @@ public record ExecutionContext(String organizationId, String tenantId, String pr
 
     public boolean belongsTo(ExecutionContext other) {
         Objects.requireNonNull(other, "other");
+        return sameResourceScope(other) && subjectId.equals(other.subjectId);
+    }
+
+    /** Returns whether both contexts address the same organization resource scope. */
+    public boolean sameResourceScope(ExecutionContext other) {
+        Objects.requireNonNull(other, "other");
         return organizationId.equals(other.organizationId)
                 && tenantId.equals(other.tenantId)
                 && projectId.equals(other.projectId)

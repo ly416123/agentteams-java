@@ -72,4 +72,14 @@ class ExecutionContextResolverTest {
         assertThat(PrincipalContext.executionContext(new ExecutionContextResolver((tenant, project, team, subject) ->
                 Optional.empty()))).isEmpty();
     }
+
+    @Test
+    void distinguishesResourceScopeFromSubjectIdentity() {
+        ExecutionContext first = new ExecutionContext("org-acme", "tenant-prod", "project-1", "team-1", "user-1");
+        ExecutionContext otherSubject = new ExecutionContext("org-acme", "tenant-prod", "project-1", "team-1", "user-2");
+
+        assertThat(first.sameResourceScope(otherSubject)).isTrue();
+        assertThat(first.belongsTo(otherSubject)).isFalse();
+        assertThat(first.belongsTo(first)).isTrue();
+    }
 }
