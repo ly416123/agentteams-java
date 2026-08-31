@@ -57,22 +57,43 @@ public final class JdbcTaskRunObservationRepository implements TaskRunObservatio
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(runId, "runId");
         Objects.requireNonNull(at, "at");
-        jdbc.update("""
+        int updated = jdbc.update("""
                 INSERT INTO task_runs
                     (id, task_id, organization_id, tenant_id, status, started_at, completed_at,
                      created_at, updated_at, version)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 ON CONFLICT (id) DO UPDATE SET
-                    status = EXCLUDED.status,
+                    status = CASE
+                        WHEN task_runs.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED') THEN task_runs.status
+                        WHEN task_runs.status = 'RUNNING' AND EXCLUDED.status = 'QUEUED' THEN task_runs.status
+                        ELSE EXCLUDED.status
+                    END,
                     started_at = COALESCE(task_runs.started_at, EXCLUDED.started_at),
-                    completed_at = CASE WHEN EXCLUDED.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
-                                        THEN EXCLUDED.updated_at ELSE task_runs.completed_at END,
-                    updated_at = EXCLUDED.updated_at,
+                    completed_at = CASE
+                        WHEN task_runs.completed_at IS NOT NULL THEN task_runs.completed_at
+                        WHEN EXCLUDED.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED') THEN EXCLUDED.updated_at
+                        ELSE task_runs.completed_at
+                    END,
+                    updated_at = GREATEST(task_runs.updated_at, EXCLUDED.updated_at),
                     version = task_runs.version + 1
+                 WHERE task_runs.task_id = EXCLUDED.task_id
+                   AND task_runs.organization_id = EXCLUDED.organization_id
+                   AND task_runs.tenant_id = EXCLUDED.tenant_id
                 """, runId, taskId, context.organizationId(), context.tenantId(), status,
                 "RUNNING".equals(status) ? JdbcSupport.timestamp(at) : null,
                 terminal(status) ? JdbcSupport.timestamp(at) : null,
                 JdbcSupport.timestamp(at), JdbcSupport.timestamp(at));
+        if (updated == 0) {
+            throw identityMismatch(runId, taskId);
+        }
+    }
+
+    private IllegalArgumentException identityMismatch(UUID runId, UUID taskId) {
+        var existing = jdbc.queryForMap("SELECT task_id, organization_id, tenant_id FROM task_runs WHERE id = ?", runId);
+        if (!taskId.equals(existing.get("task_id"))) {
+            return new IllegalArgumentException("run task does not match: " + runId);
+        }
+        return new IllegalArgumentException("run scope does not match: " + runId);
     }
 
     @Override
