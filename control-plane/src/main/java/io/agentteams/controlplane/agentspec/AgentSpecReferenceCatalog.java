@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.agentspec;
 
+import io.agentteams.application.api.SkillCapabilityPolicy;
 import java.util.Optional;
 
 /** Read-only adapter port for resource registries used by AgentSpec reference validation. */
@@ -39,7 +40,7 @@ public interface AgentSpecReferenceCatalog {
 
     record ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
             String lifecycle, String revision, String digest, String artifactRef, Long sizeBytes,
-            McpRuntimeMetadata mcpRuntime) {
+            McpRuntimeMetadata mcpRuntime, SkillCapabilityPolicy skillCapabilities) {
         /** Compatibility constructor for catalogs that do not expose a digest yet. */
         public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
                 String lifecycle, String revision) {
@@ -72,6 +73,14 @@ public interface AgentSpecReferenceCatalog {
         /** Compatibility constructor for string visibility callers. */
         public ReferenceMetadata(String tenantId, String projectId, String visibility, String lifecycle) {
             this(tenantId, projectId, null, Visibility.from(visibility), lifecycle, null, null, null, null);
+        }
+
+        /** Compatibility constructor for metadata with MCP runtime information but no Skill policy. */
+        public ReferenceMetadata(String tenantId, String projectId, String teamId, Visibility visibility,
+                String lifecycle, String revision, String digest, String artifactRef, Long sizeBytes,
+                McpRuntimeMetadata mcpRuntime) {
+            this(tenantId, projectId, teamId, visibility, lifecycle, revision, digest, artifactRef, sizeBytes,
+                    mcpRuntime, null);
         }
 
         public ReferenceMetadata {

@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.agentspec;
 
 import io.agentteams.controlplane.skill.SkillRecord;
+import io.agentteams.controlplane.skill.SkillCapabilityPolicyParser;
 import io.agentteams.controlplane.skill.SkillPackageStorageService;
 import io.agentteams.controlplane.skill.SkillService;
 import io.agentteams.controlplane.skill.SkillVersionRecord;
@@ -91,7 +92,8 @@ public final class AgentSpecSkillServiceReferenceCatalogAdapter implements Agent
             digest = version.packageSha256();
         }
         return new AgentSpecReferenceCatalog.ReferenceMetadata(tenant, project, team, resourceVisibility,
-                version.lifecycle(), version.version(), digest, artifactRef, sizeBytes);
+                version.lifecycle(), version.version(), digest, artifactRef, sizeBytes, null,
+                new SkillCapabilityPolicyParser().parse(version.manifestJson()));
     }
 
     private record SkillReference(String name, String version) {
