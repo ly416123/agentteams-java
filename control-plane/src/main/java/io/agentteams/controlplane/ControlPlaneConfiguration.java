@@ -85,6 +85,11 @@ import io.agentteams.controlplane.service.ModelPriceSyncPort;
 import io.agentteams.controlplane.service.ModelPriceSyncProperties;
 import io.agentteams.controlplane.service.ModelPriceSyncScheduler;
 import io.agentteams.controlplane.service.ModelPriceSyncService;
+import io.agentteams.controlplane.webhook.WebhookDeliveryScheduler;
+import io.agentteams.controlplane.webhook.WebhookDeliveryService;
+import io.agentteams.controlplane.webhook.WebhookSecretResolver;
+import io.agentteams.controlplane.webhook.WebhookHmacTransport;
+import io.agentteams.controlplane.webhook.WebhookTransport;
 import io.agentteams.controlplane.health.NatsConnectionProbe;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -231,6 +236,34 @@ public class ControlPlaneConfiguration {
             @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
             @Value("${agentteams.scheduled-tasks.batch-size:16}") int batchSize) {
         return new io.agentteams.controlplane.schedule.ScheduledTaskScheduler(schedules, tasks, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(WebhookSecretResolver.class)
+    WebhookSecretResolver webhookSecretResolver() {
+        return secretRef -> {
+            throw new IllegalStateException("Webhook secret resolver is not configured: " + secretRef);
+        };
+    }
+
+    @Bean
+    WebhookTransport webhookTransport(WebhookSecretResolver secrets,
+            @Value("${agentteams.webhook.transport.timeout:10s}") java.time.Duration timeout) {
+        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(timeout).followRedirects(java.net.http.HttpClient.Redirect.NEVER).build();
+        return new WebhookHmacTransport(client, secrets, timeout);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "agentteams.webhook.scheduler.enabled", havingValue = "true", matchIfMissing = true)
+    WebhookDeliveryScheduler webhookDeliveryScheduler(WebhookDeliveryService delivery,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.webhook.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.webhook.scheduler.batch-size:16}") int batchSize) {
+        return new WebhookDeliveryScheduler(delivery, schedulerLease, clock,
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
     }
 

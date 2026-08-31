@@ -39,6 +39,7 @@ class PublicOpenApiContractTest(unittest.TestCase):
             "/api/v1/tasks": {"get", "post"},
             "/api/v1/tasks/{taskId}": {"get"},
             "/api/v1/tasks/{taskId}/cancel": {"post"},
+            "/api/v1/webhooks": {"get", "post"},
         }
         for path, methods in expected.items():
             self.assertIn(path, self.spec["paths"])
@@ -53,6 +54,7 @@ class PublicOpenApiContractTest(unittest.TestCase):
             ("/api/v1/projects", "post"),
             ("/api/v1/tasks", "post"),
             ("/api/v1/tasks/{taskId}/cancel", "post"),
+            ("/api/v1/webhooks", "post"),
         ):
             operation = self.spec["paths"][path][method]
             headers = {

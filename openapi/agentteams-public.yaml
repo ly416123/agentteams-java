@@ -288,6 +288,46 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/webhooks:
+    get:
+      operationId: listWebhooks
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Webhook subscriptions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/WebhookSubscription' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      operationId: createWebhook
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWebhookRequest' }
+      responses:
+        '201':
+          description: Created Webhook subscription
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/scheduled-tasks/{scheduleId}:
     get:
       operationId: getScheduledTask
@@ -578,6 +618,37 @@ components:
         lastRunAt: { type: [string, 'null'], format: date-time }
         lastTaskId: { type: [string, 'null'], format: uuid }
         version: { type: integer, format: int64, minimum: 0 }
+    CreateWebhookRequest:
+      type: object
+      required: [organizationId, tenantId, projectId, endpoint, secretRef, eventTypes]
+      additionalProperties: false
+      properties:
+        organizationId: { type: string, minLength: 1 }
+        tenantId: { type: string, minLength: 1 }
+        projectId: { type: string, minLength: 1 }
+        endpoint: { type: string, format: uri, pattern: '^https://' }
+        secretRef: { type: string, minLength: 1, maxLength: 255 }
+        eventTypes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [task.created, task.updated, task.completed, task.failed, task.process, task.result]
+    WebhookSubscription:
+      type: object
+      required: [id, organizationId, tenantId, projectId, endpoint, eventTypes, enabled, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        organizationId: { type: string }
+        tenantId: { type: string }
+        projectId: { type: string }
+        endpoint: { type: string, format: uri }
+        eventTypes: { type: array, items: { type: string } }
+        enabled: { type: boolean }
+        version: { type: integer, format: int64, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     TaskListItem:
       allOf:
         - $ref: '#/components/schemas/Task'

@@ -68,6 +68,15 @@ agentteams:
     enabled: true
     poll-interval-ms: 1000
     batch-size: 16
+  webhook:
+    transport:
+      timeout: ${AGENTTEAMS_WEBHOOK_TRANSPORT_TIMEOUT:10s}
+    scheduler:
+      enabled: true
+      poll-interval-ms: 1000
+      lease-duration: 30s
+      batch-size: 16
+      max-attempts: 5
   sandbox:
     enabled: false
     provider: fake
