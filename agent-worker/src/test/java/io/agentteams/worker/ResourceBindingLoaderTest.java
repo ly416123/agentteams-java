@@ -54,6 +54,43 @@ class ResourceBindingLoaderTest {
     }
 
     @Test
+    void loadsSkillCapabilityPolicyAsStructuredRuntimeMetadata() throws Exception {
+        ResourceBindingLoader.LoadResult result = ResourceBindingLoader.load(mapper.readTree("""
+                {"resourceBindings":[{"type":"SKILL","reference":"code-review",
+                  "revision":"2","digest":"sha256:skill",
+                  "skillCapabilities":{"profile":"ISOLATED","cpuMillicores":750,
+                  "memoryMiB":768,"ephemeralStorageMiB":2048,"ttlSeconds":600,
+                  "networkPolicy":"RESTRICTED","allowedMcp":["github"],
+                  "allowedDomains":["api.github.com"],"allowSecretReferences":false}}]}
+                """));
+
+        assertThat(result.successful()).isTrue();
+        var capabilities = result.bindings().get(0).skillCapabilities();
+        assertThat(capabilities).isNotNull();
+        assertThat(capabilities.profile()).isEqualTo(io.agentteams.application.api.SandboxProfile.ISOLATED);
+        assertThat(capabilities.cpuMillicores()).isEqualTo(750);
+        assertThat(capabilities.networkPolicy())
+                .isEqualTo(io.agentteams.application.api.SandboxPolicy.NetworkPolicy.RESTRICTED);
+        assertThat(capabilities.allowedMcp()).containsExactly("github");
+    }
+
+    @Test
+    void rejectsMalformedSkillCapabilityPolicyBeforeRuntimeStaging() throws Exception {
+        ResourceBindingLoader.LoadResult result = ResourceBindingLoader.load(mapper.readTree("""
+                {"resourceBindings":[{"type":"SKILL","reference":"code-review",
+                  "revision":"2","digest":"sha256:skill",
+                  "skillCapabilities":{"memoryMiB":"768"}}]}
+                """));
+
+        assertThat(result.successful()).isFalse();
+        assertThat(result.acknowledgements().get(0).failureCodes())
+                .containsExactly("INVALID_SKILL_CAPABILITIES_MEMORY_MIB");
+        assertThat(result.failureMessage())
+                .isEqualTo("RESOURCE_BINDING_INVALID: index:0="
+                        + "INVALID_SKILL_CAPABILITIES_MEMORY_MIB");
+    }
+
+    @Test
     void validatesEveryRequiredFieldAndReportsStableFailureCodes() throws Exception {
         ResourceBindingLoader.LoadResult result = ResourceBindingLoader.load(mapper.readTree("""
                 {"resourceBindings":[

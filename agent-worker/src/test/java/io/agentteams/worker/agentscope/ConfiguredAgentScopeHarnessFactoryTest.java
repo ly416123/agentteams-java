@@ -200,6 +200,24 @@ class ConfiguredAgentScopeHarnessFactoryTest {
         harness.close();
     }
 
+    @Test
+    void retainsActivatedSkillCapabilityPoliciesWithTheRuntimeConfiguration() throws Exception {
+        io.agentteams.application.api.SkillCapabilityPolicy policy =
+                new io.agentteams.application.api.SkillCapabilityPolicy(
+                        io.agentteams.application.api.SandboxProfile.ISOLATED, 750, 768, 2048,
+                        java.time.Duration.ofMinutes(10), java.util.Set.of("github"),
+                        java.util.Set.of("api.github.com"), false,
+                        io.agentteams.application.api.SandboxPolicy.NetworkPolicy.RESTRICTED);
+        String key = "SKILL|skill-a|2|sha256:skill";
+        ConfiguredAgentScopeHarnessFactory factory = new ConfiguredAgentScopeHarnessFactory(
+                new TestModel(), AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(),
+                        Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC), root), root);
+        factory.applyConfig(new RuntimeConfigSnapshot(2, "sha-2", Map.of(), Map.of(), Map.of(), Map.of(),
+                Map.of(key, policy)));
+
+        assertThat(factory.activeSkillCapabilities()).containsEntry(key, policy);
+    }
+
     private static final class ReadySandboxRuntime implements SandboxRuntimePort {
         @Override
         public SandboxStatus inspect(String providerSandboxId) {

@@ -108,6 +108,29 @@ class QwenPawConfigSnapshotTest {
     }
 
     @Test
+    void carriesSkillCapabilityPolicyIntoTheRuntimeSnapshot(@TempDir Path directory) throws Exception {
+        String manifest = "{\"resourceBindings\":[{\"type\":\"SKILL\",\"reference\":\"skill-a\","
+                + "\"revision\":\"1\",\"digest\":\"sha256:abc\","
+                + "\"skillCapabilities\":{\"profile\":\"ISOLATED\",\"cpuMillicores\":750,"
+                + "\"memoryMiB\":768,\"ephemeralStorageMiB\":2048,\"ttlSeconds\":600,"
+                + "\"networkPolicy\":\"RESTRICTED\",\"allowedMcp\":[\"github\"],"
+                + "\"allowedDomains\":[\"api.github.com\"],\"allowSecretReferences\":false}}]}";
+        String manifestSha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(manifest.getBytes(StandardCharsets.UTF_8)));
+        ConfigChanged changed = ConfigChanged.newBuilder()
+                .setMetadata(EventMetadata.newBuilder().setAgentId("agent-1").build())
+                .setConfigVersion(2).setManifestSha256(manifestSha)
+                .setSizeBytes(manifest.getBytes(StandardCharsets.UTF_8).length).build();
+
+        var snapshot = QwenPawWorker.buildConfigSnapshot(changed, manifest,
+                new ConfigFileFetcher(null, Duration.ofSeconds(2), 1024), directory);
+
+        assertThat(snapshot.skillCapabilities()).containsKey("SKILL|skill-a|1|sha256:abc");
+        assertThat(snapshot.skillCapabilities().get("SKILL|skill-a|1|sha256:abc").networkPolicy())
+                .isEqualTo(io.agentteams.application.api.SandboxPolicy.NetworkPolicy.RESTRICTED);
+    }
+
+    @Test
     void includesMcpRuntimeBindingsSeparatelyFromGenericConfigurationValues(@TempDir Path directory) throws Exception {
         String manifest = "{\"model\":\"deepseek\",\"resourceBindings\":[{\"type\":\"MCP\","
                 + "\"reference\":\"search\",\"revision\":\"7\",\"digest\":\"sha256:mcp\","

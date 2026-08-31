@@ -12,9 +12,9 @@
 
 ## 当前执行状态（2026-08-31）
 
-已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、Skill Manifest 能力声明解析与运行时策略收紧、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
+已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、Skill Manifest 能力声明解析与运行时策略收紧、Worker resourceBindings 的能力策略结构化校验和 RuntimeConfigSnapshot 传递、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
 
-本批次新增的治理状态迁移为 V65；本地全量 Maven 回归、65 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。尚未宣称完成的后续项：完整客户 Connector、Token Ledger、调度/定时任务、Webhook 投递、Manager/Worker 真实事件生产链路、Skill 能力策略向各运行时的深度接入，以及需要真实运行时变更时的 L5 Ubuntu 验收。
+本批次新增的治理状态迁移为 V65；本地全量 Maven 回归、65 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。尚未宣称完成的后续项：完整客户 Connector、Token Ledger、调度/定时任务、Webhook 投递、Manager/Worker 真实事件生产链路、Skill 能力策略与具体工具/网络运行时的最终执行拦截，以及需要真实运行时变更时的 L5 Ubuntu 验收。
 
 ---
 
@@ -283,7 +283,7 @@
 
 - [ ] **步骤 5：接入 Skill 发布和运行时校验。**
 
-  `SkillService` 在创建和发布时解析并拒绝非法能力声明；`SkillBindingService` 在运行时绑定前重新验证 Manifest 声明不得突破有效 Sandbox Policy。AgentSpec、Team Revision、Worker Template 和 Sandbox Provision 的能力策略深度接入作为后续运行时任务，不在本批次伪装为已完成。
+  `SkillService` 在创建和发布时解析并拒绝非法能力声明；`SkillBindingService` 在运行时绑定前重新验证 Manifest 声明不得突破有效 Sandbox Policy。AgentSpec 和 Worker resourceBindings 已携带结构化能力摘要，Worker 在配置快照阶段严格校验并保留该策略；具体工具调用、网络出口和 Sandbox Provider 的最终执行拦截仍需后续运行时任务，不在本批次伪装为已完成。
 
 - [ ] **步骤 6：补充 Skill 管理 API 和安全响应。**
 
