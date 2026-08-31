@@ -22,6 +22,7 @@ public record TaskProcessEvent(UUID eventId, UUID taskId, UUID runId, long seque
         correlationId = requireText(correlationId, "correlationId");
         payload = optionalPayload(payload);
         payloadRef = optionalText(payloadRef);
+        TaskProcessPayloadPolicy.requireSafe(visibility, eventType, payload);
         if ((payload == null) == (payloadRef == null)) {
             throw new IllegalArgumentException("exactly one of payload or payloadRef is required");
         }

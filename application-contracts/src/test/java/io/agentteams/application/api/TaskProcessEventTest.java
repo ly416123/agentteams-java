@@ -108,6 +108,16 @@ class TaskProcessEventTest {
         assertThrows(IllegalArgumentException.class, () -> TaskEventVisibility.from("NOT_A_VISIBILITY"));
     }
 
+    @Test
+    void rejectsSensitivePublicPayloadsButAllowsInternalDiagnosticPayloads() {
+        assertThrows(IllegalArgumentException.class, () -> event(0, "{\"token\":\"top-secret\"}", null));
+        assertThrows(IllegalArgumentException.class, () -> new TaskProcessEvent(EVENT_ID, TASK_ID, RUN_ID, 0,
+                "CHAIN_OF_THOUGHT", TaskEventVisibility.REQUESTER, OCCURRED_AT, "request-1", "internal text", null));
+        assertEquals("{\"token\":\"top-secret\"}", new TaskProcessEvent(EVENT_ID, TASK_ID, RUN_ID, 0,
+                "CHAIN_OF_THOUGHT", TaskEventVisibility.INTERNAL_ONLY, OCCURRED_AT, "request-1",
+                "{\"token\":\"top-secret\"}", null).payload());
+    }
+
     private static TaskProcessEvent event(long sequence, String payload, String payloadRef) {
         return new TaskProcessEvent(EVENT_ID, TASK_ID, RUN_ID, sequence, "PROGRESS",
                 TaskEventVisibility.REQUESTER, OCCURRED_AT, "request-1", payload, payloadRef);
