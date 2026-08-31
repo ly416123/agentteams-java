@@ -9,6 +9,7 @@ import io.agentteams.controlplane.team.TeamDeployment;
 import io.agentteams.controlplane.team.TeamDeploymentService;
 import io.agentteams.controlplane.team.TeamRevision;
 import io.agentteams.controlplane.team.TeamRevisionService;
+import io.agentteams.controlplane.team.TeamResourceBinding;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -131,7 +132,8 @@ public final class TeamController {
         requireIdempotencyKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
         TeamRevision revision = revisions.createDraft(teamId, request.leaderAgentId(), request.overlayJson(),
-                request.memberAgentIds(), actor(request.actor()), idempotencyKey, Instant.now());
+                request.memberAgentIds(), request.resourceBindings(), actor(request.actor()), idempotencyKey,
+                Instant.now());
         return RevisionResponse.from(revision);
     }
 
@@ -213,7 +215,15 @@ public final class TeamController {
             List<String> allowedRuntimes, List<String> requiredCapabilities, long expectedVersion) {
     }
 
-    public record RevisionRequest(UUID leaderAgentId, String overlayJson, List<UUID> memberAgentIds, String actor) {
+    public record RevisionRequest(UUID leaderAgentId, String overlayJson, List<UUID> memberAgentIds,
+            List<TeamResourceBinding> resourceBindings, String actor) {
+        public RevisionRequest {
+            resourceBindings = resourceBindings == null ? List.of() : List.copyOf(resourceBindings);
+        }
+
+        public RevisionRequest(UUID leaderAgentId, String overlayJson, List<UUID> memberAgentIds, String actor) {
+            this(leaderAgentId, overlayJson, memberAgentIds, List.of(), actor);
+        }
     }
 
     public record VersionRequest(long expectedVersion) {
@@ -254,11 +264,12 @@ public final class TeamController {
 
     public record RevisionResponse(UUID teamId, long revision, UUID leaderAgentId, String overlayJson,
             String digest, String status, Long rollbackOfRevision, String createdBy, Instant createdAt,
-            long version, List<UUID> memberAgentIds) {
+            long version, List<UUID> memberAgentIds, List<TeamResourceBinding> resourceBindings) {
         static RevisionResponse from(TeamRevision revision) {
             return new RevisionResponse(revision.teamId(), revision.revision(), revision.leaderAgentId(),
                     revision.overlayJson(), revision.digest(), revision.status().name(), revision.rollbackOfRevision(),
-                    revision.createdBy(), revision.createdAt(), revision.version(), revision.memberAgentIds());
+                    revision.createdBy(), revision.createdAt(), revision.version(), revision.memberAgentIds(),
+                    revision.resourceBindings());
         }
     }
 

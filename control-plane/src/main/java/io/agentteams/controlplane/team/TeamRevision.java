@@ -8,7 +8,8 @@ import java.util.UUID;
 /** Immutable Team configuration revision. Published revisions are never updated in place. */
 public record TeamRevision(UUID teamId, long revision, UUID leaderAgentId, String overlayJson,
         String digest, TeamRevisionStatus status, Long rollbackOfRevision, String createdBy,
-        Instant createdAt, long version, List<UUID> memberAgentIds) {
+        Instant createdAt, long version, List<UUID> memberAgentIds,
+        List<TeamResourceBinding> resourceBindings) {
     public TeamRevision {
         Objects.requireNonNull(teamId, "teamId");
         if (revision < 1) throw new IllegalArgumentException("revision must be positive");
@@ -26,13 +27,22 @@ public record TeamRevision(UUID teamId, long revision, UUID leaderAgentId, Strin
         if (!memberAgentIds.contains(leaderAgentId)) {
             throw new IllegalArgumentException("leader must be a revision member");
         }
+        resourceBindings = List.copyOf(TeamResourceBindings.canonicalize(
+                Objects.requireNonNull(resourceBindings, "resourceBindings")));
+    }
+
+    public TeamRevision(UUID teamId, long revision, UUID leaderAgentId, String overlayJson,
+            String digest, TeamRevisionStatus status, Long rollbackOfRevision, String createdBy,
+            Instant createdAt, long version, List<UUID> memberAgentIds) {
+        this(teamId, revision, leaderAgentId, overlayJson, digest, status, rollbackOfRevision,
+                createdBy, createdAt, version, memberAgentIds, List.of());
     }
 
     public TeamRevision(UUID teamId, long revision, UUID leaderAgentId, String overlayJson,
             String digest, TeamRevisionStatus status, Long rollbackOfRevision, String createdBy,
             Instant createdAt, long version) {
         this(teamId, revision, leaderAgentId, overlayJson, digest, status, rollbackOfRevision,
-                createdBy, createdAt, version, List.of(leaderAgentId));
+                createdBy, createdAt, version, List.of(leaderAgentId), List.of());
     }
 
     private static void requireText(String value, String field) {

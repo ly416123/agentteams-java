@@ -70,6 +70,31 @@ class TeamRevisionRepositoryTest {
         assertThat(repository.findAll(teamId)).extracting(TeamRevision::revision).containsExactly(2L, 3L);
     }
 
+    @Test
+    void persistsBindingsInStableOrderAndCopiesThemOnRollback() {
+        UUID teamId = UUID.randomUUID();
+        UUID leaderAgentId = UUID.randomUUID();
+        TeamRevision target = seedPublishedRevision(teamId, leaderAgentId, 2, 4);
+        UUID modelId = UUID.randomUUID();
+        UUID skillId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO team_revision_resource_bindings(team_id, team_revision, resource_type, resource_id,
+                    resource_revision, digest)
+                VALUES (?, ?, 'MODEL', ?, '9', 'sha256:model'), (?, ?, 'SKILL', ?, '3', 'sha256:skill')
+                """, teamId, target.revision(), modelId, teamId, target.revision(), skillId);
+
+        TeamRevision loaded = repository.find(teamId, target.revision()).orElseThrow();
+        assertThat(loaded.resourceBindings()).extracting(TeamResourceBinding::type)
+                .containsExactly(TeamResourceType.MODEL, TeamResourceType.SKILL);
+
+        TeamRevision rollback = repository.createRollback(teamId, loaded, 4, "alice", NOW, "rollback-binding-key",
+                ignored -> { }, "rollback-binding-hash");
+
+        assertThat(rollback.resourceBindings()).containsExactlyElementsOf(loaded.resourceBindings());
+        assertThat(repository.find(rollback.teamId(), rollback.revision()).orElseThrow().resourceBindings())
+                .containsExactlyElementsOf(loaded.resourceBindings());
+    }
+
     private TeamRevision seedPublishedRevision(UUID teamId, UUID leaderAgentId, long revision, long version) {
         UUID membershipId = UUID.randomUUID();
         new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()))

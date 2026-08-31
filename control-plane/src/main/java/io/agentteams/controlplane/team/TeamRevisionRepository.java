@@ -30,9 +30,16 @@ public class TeamRevisionRepository {
 
     public TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlay, String digest,
             Long rollbackOfRevision, String actor, Instant now, List<UUID> memberAgentIds, String idempotencyKey) {
+        return createDraft(teamId, leaderAgentId, overlay, digest, rollbackOfRevision, actor, now, memberAgentIds,
+                List.of(), idempotencyKey);
+    }
+
+    public TeamRevision createDraft(UUID teamId, UUID leaderAgentId, String overlay, String digest,
+            Long rollbackOfRevision, String actor, Instant now, List<UUID> memberAgentIds,
+            List<TeamResourceBinding> resourceBindings, String idempotencyKey) {
         requireKey(idempotencyKey);
         String requestHash = draftRequestHash(teamId, leaderAgentId, overlay, digest, rollbackOfRevision, actor,
-                memberAgentIds);
+                memberAgentIds, resourceBindings);
         for (int attempt = 0; attempt < 3; attempt++) {
             try {
                 return transaction.execute(status -> {
@@ -47,9 +54,10 @@ public class TeamRevisionRepository {
                             INSERT INTO team_revisions(team_id, revision, leader_agent_id, overlay, digest, status,
                                 rollback_of_revision, created_by, created_at, version, idempotency_key, request_hash)
                             VALUES (?, ?, ?, CAST(? AS jsonb), ?, 'DRAFT', ?, ?, ?, 0, ?, ?)
-                            """, teamId, revision, leaderAgentId, overlay, digest, rollbackOfRevision, actor,
+                    """, teamId, revision, leaderAgentId, overlay, digest, rollbackOfRevision, actor,
                             java.sql.Timestamp.from(now), idempotencyKey, requestHash);
                     insertMembers(teamId, revision, memberAgentIds);
+                    insertBindings(teamId, revision, resourceBindings);
                     return find(teamId, revision).orElseThrow();
                 });
             } catch (DuplicateKeyException conflict) {
@@ -94,6 +102,7 @@ public class TeamRevisionRepository {
                     lockedTarget.digest(), lockedTarget.revision(), actor, java.sql.Timestamp.from(now), idempotencyKey,
                     requestHash);
             insertMembers(teamId, revision, lockedTarget.memberAgentIds());
+            insertBindings(teamId, revision, lockedTarget.resourceBindings());
             recordOperation(teamId, revision, "ROLLBACK", idempotencyKey, requestHash);
             return find(teamId, revision).orElseThrow();
         });
@@ -208,6 +217,24 @@ public class TeamRevisionRepository {
         if (activeMembers == null || activeMembers != revision.memberAgentIds().stream().distinct().count()) {
             throw new TeamRevisionConflictException("all revision members must be ACTIVE Team members");
         }
+        validateResourceBindings(revision);
+    }
+
+    /** Rechecks the current Team-scoped resource catalog immediately before a publish CAS. */
+    public void validateResourceBindings(TeamRevision revision) {
+        for (TeamResourceBinding binding : revision.resourceBindings()) {
+            String catalogType = binding.type() == TeamResourceType.MCP_SERVER ? "MCP" : binding.type().name();
+            boolean present = jdbc.query("""
+                    SELECT 1 FROM team_resource_bindings
+                     WHERE team_id = ? AND resource_type = ? AND resource_id = ?
+                       AND resource_revision = ? AND digest = ?
+                    """, (rs, row) -> true, revision.teamId(), catalogType, binding.resourceId(),
+                    binding.resourceRevision(), binding.digest()).stream().findFirst().orElse(false);
+            if (!present) {
+                throw new TeamRevisionConflictException("Team resource binding is missing or stale: "
+                        + binding.type() + "/" + binding.resourceId());
+            }
+        }
     }
 
     /** Legacy insertion API; new services must use createDraft. */
@@ -215,7 +242,7 @@ public class TeamRevisionRepository {
     public TeamRevision insert(TeamRevision revision, String idempotencyKey) {
         return createDraft(revision.teamId(), revision.leaderAgentId(), revision.overlayJson(), revision.digest(),
                 revision.rollbackOfRevision(), revision.createdBy(), revision.createdAt(), revision.memberAgentIds(),
-                idempotencyKey);
+                revision.resourceBindings(), idempotencyKey);
     }
 
     public Optional<TeamRevision> findByIdempotencyKey(UUID teamId, String idempotencyKey) {
@@ -288,6 +315,17 @@ public class TeamRevisionRepository {
         }
     }
 
+    private void insertBindings(UUID teamId, long revision, List<TeamResourceBinding> bindings) {
+        for (TeamResourceBinding binding : bindings) {
+            jdbc.update("""
+                    INSERT INTO team_revision_resource_bindings(team_id, team_revision, resource_type,
+                        resource_id, resource_revision, digest)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, teamId, revision, binding.type().name(), binding.resourceId(),
+                    binding.resourceRevision(), binding.digest());
+        }
+    }
+
     /** Returns the persisted operation result; result_revision is the output, not the requested target revision. */
     private Optional<TeamRevision> operationResult(UUID teamId, String operation, String key, String requestHash) {
         return jdbc.query("""
@@ -320,11 +358,12 @@ public class TeamRevisionRepository {
     }
 
     private static String draftRequestHash(UUID teamId, UUID leaderAgentId, String overlay, String digest,
-            Long rollbackOfRevision, String actor, List<UUID> members) {
+            Long rollbackOfRevision, String actor, List<UUID> members, List<TeamResourceBinding> bindings) {
         try {
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                     .digest((teamId + "\u0000" + leaderAgentId + "\u0000" + overlay + "\u0000" + digest + "\u0000"
-                            + rollbackOfRevision + "\u0000" + actor + "\u0000" + members)
+                            + rollbackOfRevision + "\u0000" + actor + "\u0000" + members + "\u0000"
+                            + TeamResourceBindings.canonicalText(bindings))
                             .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         } catch (java.security.NoSuchAlgorithmException error) {
             throw new IllegalStateException("SHA-256 is unavailable", error);
@@ -338,7 +377,7 @@ public class TeamRevisionRepository {
         return new TeamRevision(teamId, revision, leader, rs.getString("overlay"), rs.getString("digest"),
                 TeamRevisionStatus.valueOf(rs.getString("status")), (Long) rs.getObject("rollback_of_revision"),
                 rs.getString("created_by"), rs.getTimestamp("created_at").toInstant(), rs.getLong("version"),
-                members(teamId, revision, leader));
+                members(teamId, revision, leader), bindings(teamId, revision));
     }
 
     private List<UUID> members(UUID teamId, long revision, UUID leader) {
@@ -347,6 +386,17 @@ public class TeamRevisionRepository {
                  WHERE team_id = ? AND team_revision = ? ORDER BY member_index
                 """, (rs, row) -> rs.getObject("agent_id", UUID.class), teamId, revision);
         return result.isEmpty() ? List.of(leader) : result;
+    }
+
+    private List<TeamResourceBinding> bindings(UUID teamId, long revision) {
+        return jdbc.query("""
+                SELECT resource_type, resource_id, resource_revision, digest
+                  FROM team_revision_resource_bindings
+                 WHERE team_id = ? AND team_revision = ?
+                 ORDER BY resource_type, resource_id, resource_revision, digest
+                """, (rs, row) -> new TeamResourceBinding(TeamResourceType.valueOf(rs.getString("resource_type")),
+                        rs.getObject("resource_id", UUID.class), rs.getString("resource_revision"),
+                        rs.getString("digest")), teamId, revision);
     }
 
     private static void requireKey(String key) {

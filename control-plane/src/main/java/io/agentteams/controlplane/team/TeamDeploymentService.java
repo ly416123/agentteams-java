@@ -209,6 +209,7 @@ public final class TeamDeploymentService {
         EffectiveConfig effective = composer.compose(new EffectiveConfigRequest(
                 UUID.nameUUIDFromBytes(member.baseManifest().getBytes(StandardCharsets.UTF_8)), member.agentId(),
                 revision.teamId(), revision.revision(), deployment.id(), List.of(sha256(subject)),
+                revision.resourceBindings(),
                 member.baseManifest(), revision.overlayJson(), member.taskOverlay() == null ? "{}" : member.taskOverlay()));
         ConfigSnapshot snapshot = snapshots.create(subject, effective.canonicalManifest(), actor,
                 deployment.id().toString(), effective.provenance());
