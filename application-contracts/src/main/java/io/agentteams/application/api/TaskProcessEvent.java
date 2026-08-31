@@ -20,7 +20,7 @@ public record TaskProcessEvent(UUID eventId, UUID taskId, UUID runId, long seque
         Objects.requireNonNull(occurredAt, "occurredAt");
         eventType = requireText(eventType, "eventType");
         correlationId = requireText(correlationId, "correlationId");
-        payload = optionalText(payload);
+        payload = optionalPayload(payload);
         payloadRef = optionalText(payloadRef);
         if ((payload == null) == (payloadRef == null)) {
             throw new IllegalArgumentException("exactly one of payload or payloadRef is required");
@@ -42,5 +42,9 @@ public record TaskProcessEvent(UUID eventId, UUID taskId, UUID runId, long seque
 
     private static String optionalText(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String optionalPayload(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 }

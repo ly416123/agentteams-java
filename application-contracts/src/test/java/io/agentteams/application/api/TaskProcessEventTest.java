@@ -3,6 +3,7 @@ package io.agentteams.application.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -30,6 +31,38 @@ class TaskProcessEventTest {
         assertEquals("request-1", event.correlationId());
         assertEquals("{\"percent\":25}", event.payload());
         assertEquals(null, event.payloadRef());
+    }
+
+    @Test
+    void preservesTheInlinePayloadExactlyAsSupplied() {
+        String payload = "  {\"message\":\"中文 🚀\"}\n";
+
+        TaskProcessEvent event = event(0, payload, null);
+
+        assertEquals(payload, event.payload());
+    }
+
+    @Test
+    void enforcesTheInlineLimitUsingTheOriginalUtf8Bytes() {
+        String exactBoundary = "中".repeat(5_461) + "a";
+        String overBoundary = exactBoundary + " ";
+
+        assertEquals(16_384, exactBoundary.getBytes(StandardCharsets.UTF_8).length);
+        assertEquals(16_385, overBoundary.getBytes(StandardCharsets.UTF_8).length);
+        event(0, exactBoundary, null);
+        assertThrows(IllegalArgumentException.class, () -> event(0, overBoundary, null));
+    }
+
+    @Test
+    void treatsEmptyRepresentationsAsNotSupplied() {
+        TaskProcessEvent inline = event(0, "payload", "");
+        TaskProcessEvent referenced = event(0, "", "urn:agentteams:payload:1");
+
+        assertEquals("payload", inline.payload());
+        assertEquals(null, inline.payloadRef());
+        assertEquals(null, referenced.payload());
+        assertEquals("urn:agentteams:payload:1", referenced.payloadRef());
+        assertThrows(IllegalArgumentException.class, () -> event(0, "", ""));
     }
 
     @Test
@@ -63,7 +96,11 @@ class TaskProcessEventTest {
         assertThrows(IllegalArgumentException.class, () -> new TaskProcessEvent(EVENT_ID, TASK_ID, RUN_ID, 0,
                 " ", TaskEventVisibility.REQUESTER, OCCURRED_AT, "request-1", "payload", null));
         assertThrows(IllegalArgumentException.class, () -> new TaskProcessEvent(EVENT_ID, TASK_ID, RUN_ID, 0,
+                null, TaskEventVisibility.REQUESTER, OCCURRED_AT, "request-1", "payload", null));
+        assertThrows(IllegalArgumentException.class, () -> new TaskProcessEvent(EVENT_ID, TASK_ID, RUN_ID, 0,
                 "PROGRESS", TaskEventVisibility.REQUESTER, OCCURRED_AT, " ", "payload", null));
+        assertThrows(IllegalArgumentException.class, () -> new TaskProcessEvent(EVENT_ID, TASK_ID, RUN_ID, 0,
+                "PROGRESS", TaskEventVisibility.REQUESTER, OCCURRED_AT, null, "payload", null));
     }
 
     @Test

@@ -28,10 +28,12 @@ class TaskProgressSnapshotTest {
     @Test
     void rejectsIllegalRanges() {
         assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot("RUNNING", -1, 1, 0, ""));
+        assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot("RUNNING", 0, -1, 0, ""));
         assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot("RUNNING", 2, 1, 100, ""));
         assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot("RUNNING", 1, 2, -1, ""));
         assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot("RUNNING", 1, 2, 101, ""));
         assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot("RUNNING", 0, 0, 1, ""));
         assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot(" ", 0, 0, 0, ""));
+        assertThrows(IllegalArgumentException.class, () -> new TaskProgressSnapshot(null, 0, 0, 0, ""));
     }
 }

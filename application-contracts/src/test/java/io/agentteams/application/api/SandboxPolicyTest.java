@@ -85,6 +85,10 @@ class SandboxPolicyTest {
                 Duration.ofHours(25)));
         assertThrows(IllegalArgumentException.class, () -> policy("kubernetes",
                 SandboxPolicy.MAX_CPU_MILLICORES + 1, 512, 1024, Duration.ofMinutes(5)));
+        assertThrows(IllegalArgumentException.class, () -> policy("kubernetes", 500,
+                SandboxPolicy.MAX_MEMORY_MIB + 1, 1024, Duration.ofMinutes(5)));
+        assertThrows(IllegalArgumentException.class, () -> policy("kubernetes", 500, 512,
+                SandboxPolicy.MAX_EPHEMERAL_STORAGE_MIB + 1, Duration.ofMinutes(5)));
     }
 
     @Test
@@ -110,8 +114,26 @@ class SandboxPolicyTest {
                 Set.of(), Set.of(), false, null));
         assertThrows(IllegalArgumentException.class, () -> new SandboxPolicy(
                 SandboxProfile.HARDENED, "kata", ExecutionPlacement.PRIVATE_DEPLOYMENT,
+                SandboxPolicy.ISOLATED_MIN_CPU_MILLICORES,
+                SandboxPolicy.ISOLATED_MIN_MEMORY_MIB - 1,
+                SandboxPolicy.ISOLATED_MIN_EPHEMERAL_STORAGE_MIB,
+                Duration.ofMinutes(30), SandboxPolicy.NetworkPolicy.RESTRICTED,
+                Set.of(), Set.of(), false, null));
+        assertThrows(IllegalArgumentException.class, () -> new SandboxPolicy(
+                SandboxProfile.HARDENED, "kata", ExecutionPlacement.PRIVATE_DEPLOYMENT,
+                SandboxPolicy.ISOLATED_MIN_CPU_MILLICORES,
+                SandboxPolicy.ISOLATED_MIN_MEMORY_MIB,
+                SandboxPolicy.ISOLATED_MIN_EPHEMERAL_STORAGE_MIB - 1,
+                Duration.ofMinutes(30), SandboxPolicy.NetworkPolicy.RESTRICTED,
+                Set.of(), Set.of(), false, null));
+        assertThrows(IllegalArgumentException.class, () -> new SandboxPolicy(
+                SandboxProfile.HARDENED, "kata", ExecutionPlacement.PRIVATE_DEPLOYMENT,
                 500, 512, 1024, Duration.ofMinutes(30), SandboxPolicy.NetworkPolicy.OPEN,
                 Set.of(), Set.of(), false, null));
+        assertThrows(IllegalArgumentException.class, () -> new SandboxPolicy(
+                SandboxProfile.HARDENED, "kata", ExecutionPlacement.PRIVATE_DEPLOYMENT,
+                500, 512, 1024, SandboxPolicy.MAX_TTL.plusNanos(1),
+                SandboxPolicy.NetworkPolicy.RESTRICTED, Set.of(), Set.of(), false, null));
     }
 
     private static SandboxPolicy policy(String provider, int cpuMillicores, int memoryMiB,
