@@ -30,6 +30,13 @@
 
 每个后续批量功能都必须先通过本地 Docker-backed 验证；只要变更涉及 Kubernetes、Operator、Worker、TaskSandbox、RuntimeClass、镜像、Helm、运行时路由、生命周期或部署链路，还必须在 Ubuntu/KVM L5 主机 `ly-MacBookAir7-2`（`192.168.122.55`）通过真实验收脚本。必须保留成功标记、运行时证据和清理结果；任一门禁未通过，不得把批次标记完成或进入主线集成。L6 仍是独立的后续受控环境门禁。
 
+## Task 状态一致性与终态保护
+
+- [x] `task_runs` 运行投影采用单调状态更新：终态不可被晚到的 `QUEUED/RUNNING` 或冲突终态覆盖，运行身份和组织/租户绑定不可复用。
+- [x] 增加 V71 `task_state_consistency_issues` 问题表、跨表快照查询和纯规则检查器，覆盖 Task/Run、Attempt/Lease、Result Manifest、过程事件序号和未完成子任务。
+- [x] 增加数据库 Lease 保护的周期对账、问题幂等合并/恢复标记、三项 Micrometer 指标，以及 Token 保护的内部 OPEN 问题查询。
+- [x] 对账第一阶段只记录证据和指标，不自动修改 Task 权威状态；该批只影响 Control Plane/数据库/观测链路，不触发 L5 运行时验收。
+
 ---
 
 ## 文件边界

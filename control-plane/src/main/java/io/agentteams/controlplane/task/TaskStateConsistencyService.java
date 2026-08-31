@@ -7,10 +7,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Reads task facts, records drift, and resolves findings that disappear. */
 public final class TaskStateConsistencyService {
     private static final int MAX_BATCH_SIZE = 1000;
+    private static final Logger log = LoggerFactory.getLogger(TaskStateConsistencyService.class);
 
     private final TaskStateConsistencyRepository repository;
     private final TaskStateConsistencyChecker checker;
@@ -59,6 +62,8 @@ public final class TaskStateConsistencyService {
             } catch (RuntimeException failure) {
                 failures++;
                 metrics.taskConsistencyScanFailed();
+                log.warn("Task state consistency scan failed taskId={} runId={} errorType={}",
+                        snapshot.taskId(), snapshot.runId(), failure.getClass().getSimpleName());
             }
         }
         return new ReconcileResult(snapshots.size(), issues, resolved, failures);

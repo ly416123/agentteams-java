@@ -4,6 +4,8 @@
 
 **状态：** 已确认，进入实现
 
+**实现状态（2026-08-31）：** 已完成 Task Run 终态单调保护、V71 一致性问题表、跨表快照检查器、数据库 Lease 对账 Job、Micrometer 指标和 Token 保护的内部问题查询。当前实现只记录/恢复问题，不自动修改 `tasks.phase`、重建结果或删除过程事件。
+
 **范围：** Control Plane 的 Task 主状态、Task Run 运行投影、过程事件、子任务和结果 Manifest 的一致性保护与对账。
 
 ## 1. 背景与目标
@@ -123,6 +125,8 @@ QUEUED → RUNNING → SUCCEEDED
 - 数据库暂时不可用时保留租约失败日志并等待下一轮，不生成虚假的“已对账”；
 - 对账问题本身不改变业务 Task 状态，避免诊断逻辑造成二次破坏；
 - 提供内部查询服务用于运维排查，不在本批新增面向最终客户的管理 API。
+
+已落地的运行参数为：默认每 60 秒执行一次、回看最近 24 小时、每批最多 100 条、数据库租约 30 秒；可通过 `agentteams.task-state-consistency.*` 或对应 Helm 环境变量调整。内部查询入口为 `GET /internal/v1/task-state-consistency/issues?limit=100`，复用 `X-AgentTeams-Internal-Token`，最多返回 1000 条 OPEN 问题。
 
 ## 5. 事务边界与并发
 

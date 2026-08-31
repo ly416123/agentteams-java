@@ -169,6 +169,17 @@ non-available artifact rows; the existing config-upload lifecycle keeps its
 dedicated pending-upload cleanup until the unified result-manifest/payload-ref
 retention model is delivered.
 
+Task state consistency is protected at two layers. The `tasks.phase` state remains
+authoritative, while `task_runs` is a monotonic projection whose terminal state,
+identity, and completion timestamp cannot be regressed by late observations. A
+leader-only reconciliation job scans recent runs, compares Task/Run/Attempt/Lease,
+process-event, subtask, and result-manifest facts, and records idempotent findings
+in `task_state_consistency_issues`. Findings are resolved when a later scan no
+longer observes the drift. The first slice is diagnostic only: it does not rewrite
+Task state or delete process evidence. Operators can read OPEN findings through the
+token-protected internal endpoint
+`GET /internal/v1/task-state-consistency/issues?limit=100`.
+
 ## Project environment and validation gate
 
 The primary local development environment is macOS with Colima and a working
