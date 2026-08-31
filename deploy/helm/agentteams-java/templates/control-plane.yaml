@@ -47,6 +47,8 @@ spec:
               value: {{ .Values.observability.tracing.otlpEndpoint | quote }}
             - name: AGENTTEAMS_STORAGE_ENABLED
               value: {{ .Values.storage.enabled | quote }}
+            - name: AGENTTEAMS_TOKEN_LEDGER_INTERNAL_TOKEN
+              value: {{ .Values.controlPlane.tokenLedger.internalToken | quote }}
             - name: POD_NAME
               valueFrom:
                 fieldRef: { fieldPath: metadata.name }

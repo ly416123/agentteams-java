@@ -106,6 +106,8 @@ agentteams:
       max-response-bytes: 262144
       max-quotes: 1000
       targets: []
+  token-ledger:
+    internal-token: ${AGENTTEAMS_TOKEN_LEDGER_INTERNAL_TOKEN:}
   security:
     api:
       enabled: false

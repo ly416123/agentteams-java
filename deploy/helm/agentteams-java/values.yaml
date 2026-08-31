@@ -98,6 +98,10 @@ controlPlane:
       authEnabled: false
       hsTokenSecret: ""
       hsTokenKey: hs-token
+  tokenLedger:
+    # Required only when a separately deployed Manager/Worker settlement bridge
+    # is enabled. Keep empty by default so the internal API fails closed.
+    internalToken: ""
   env:
     SPRING_PROFILES_ACTIVE: k8s
     AGENTTEAMS_NATS_ENABLED: "true"

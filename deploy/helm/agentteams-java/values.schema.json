@@ -253,6 +253,13 @@
             }
           }
         },
+        "tokenLedger": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "internalToken": { "type": "string" }
+          }
+        },
         "env": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }
       }
     },
