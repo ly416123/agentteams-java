@@ -28,4 +28,13 @@ class SkillCapabilityPolicyTest {
 
         assertThrows(IllegalArgumentException.class, () -> skill.requireAllowedBy(effective));
     }
+
+    @Test
+    void rejectsNetworkAccessThatWouldWidenTheEffectivePolicy() {
+        SkillCapabilityPolicy skill = new SkillCapabilityPolicy(SandboxProfile.NONE, 250, 256, 512,
+                Duration.ofMinutes(10), Set.of(), Set.of(), false, SandboxPolicy.NetworkPolicy.OPEN);
+        SandboxPolicy effective = SandboxPolicy.defaults();
+
+        assertThrows(IllegalArgumentException.class, () -> skill.requireAllowedBy(effective));
+    }
 }

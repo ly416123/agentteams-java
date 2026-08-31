@@ -7,17 +7,30 @@ import java.util.Set;
 /** Capabilities a Skill requests; the effective sandbox policy remains authoritative. */
 public record SkillCapabilityPolicy(SandboxProfile profile, int cpuMillicores, int memoryMiB,
         int ephemeralStorageMiB, Duration ttl, Set<String> allowedMcp, Set<String> allowedDomains,
-        boolean allowSecretReferences) {
+        boolean allowSecretReferences, SandboxPolicy.NetworkPolicy networkPolicy) {
+
+    /** Compatibility constructor for manifests created before networkPolicy became explicit. */
+    public SkillCapabilityPolicy(SandboxProfile profile, int cpuMillicores, int memoryMiB,
+            int ephemeralStorageMiB, Duration ttl, Set<String> allowedMcp, Set<String> allowedDomains,
+            boolean allowSecretReferences) {
+        this(profile, cpuMillicores, memoryMiB, ephemeralStorageMiB, ttl, allowedMcp, allowedDomains,
+                allowSecretReferences, SandboxPolicy.NetworkPolicy.DENY_ALL);
+    }
 
     public SkillCapabilityPolicy {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(ttl, "ttl");
+        Objects.requireNonNull(networkPolicy, "networkPolicy");
         allowedMcp = names(allowedMcp, "allowedMcp");
         allowedDomains = names(allowedDomains, "allowedDomains");
-        if (cpuMillicores <= 0 || memoryMiB <= 0 || ephemeralStorageMiB <= 0) {
-            throw new IllegalArgumentException("skill resource requests must be positive");
+        if (cpuMillicores <= 0 || cpuMillicores > SandboxPolicy.MAX_CPU_MILLICORES
+                || memoryMiB <= 0 || memoryMiB > SandboxPolicy.MAX_MEMORY_MIB
+                || ephemeralStorageMiB <= 0 || ephemeralStorageMiB > SandboxPolicy.MAX_EPHEMERAL_STORAGE_MIB) {
+            throw new IllegalArgumentException("skill resource requests must be positive and within platform limits");
         }
-        if (ttl.isZero() || ttl.isNegative()) throw new IllegalArgumentException("skill ttl must be positive");
+        if (ttl.isZero() || ttl.isNegative() || ttl.compareTo(SandboxPolicy.MAX_TTL) > 0) {
+            throw new IllegalArgumentException("skill ttl must be positive and no more than 24 hours");
+        }
     }
 
     public void requireAllowedBy(SandboxPolicy effective) {
@@ -27,6 +40,7 @@ public record SkillCapabilityPolicy(SandboxProfile profile, int cpuMillicores, i
                 || memoryMiB > effective.memoryMiB()
                 || ephemeralStorageMiB > effective.ephemeralStorageMiB()
                 || ttl.compareTo(effective.ttl()) > 0
+                || networkPolicy.ordinal() > effective.networkPolicy().ordinal()
                 || !effective.allowedMcp().containsAll(allowedMcp)
                 || !effective.allowedDomains().containsAll(allowedDomains)
                 || (allowSecretReferences && !effective.allowSecretReferences())) {

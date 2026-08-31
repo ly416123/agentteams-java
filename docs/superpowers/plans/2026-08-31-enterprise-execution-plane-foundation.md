@@ -12,9 +12,9 @@
 
 ## 当前执行状态（2026-08-31）
 
-已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
+已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、Skill Manifest 能力声明解析与运行时策略收紧、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
 
-本批次新增的治理状态迁移为 V65；本地全量 Maven 回归、65 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。尚未宣称完成的后续项：完整客户 Connector、Token Ledger、调度/定时任务、Webhook 投递、Manager/Worker 真实事件生产链路、Skill 能力策略与各运行时的深度接入，以及需要真实运行时变更时的 L5 Ubuntu 验收。
+本批次新增的治理状态迁移为 V65；本地全量 Maven 回归、65 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。尚未宣称完成的后续项：完整客户 Connector、Token Ledger、调度/定时任务、Webhook 投递、Manager/Worker 真实事件生产链路、Skill 能力策略向各运行时的深度接入，以及需要真实运行时变更时的 L5 Ubuntu 验收。
 
 ---
 
@@ -283,11 +283,11 @@
 
 - [ ] **步骤 5：接入 Skill 发布和运行时校验。**
 
-  `SkillService` 在创建、上传、扫描、审核、发布和禁用时执行 scope 校验；AgentSpec、Team Revision、Worker Template 和 Sandbox Provision 前都重新验证 Skill 的生命周期、digest、能力策略和当前租户可见性。
+  `SkillService` 在创建和发布时解析并拒绝非法能力声明；`SkillBindingService` 在运行时绑定前重新验证 Manifest 声明不得突破有效 Sandbox Policy。AgentSpec、Team Revision、Worker Template 和 Sandbox Provision 的能力策略深度接入作为后续运行时任务，不在本批次伪装为已完成。
 
 - [ ] **步骤 6：补充 Skill 管理 API 和安全响应。**
 
-  管理接口使用现有 `Idempotency-Key` 和 `expectedVersion`；响应只返回 Manifest 摘要、digest、扫描/审核状态和能力摘要，不返回包内 Secret、完整环境变量或外部凭据。
+  管理接口使用现有 `Idempotency-Key` 和 `expectedVersion`；Skill 版本响应只返回 Manifest 摘要、digest、扫描/审核状态和能力摘要，不返回包内 Secret、完整环境变量或外部凭据。
 
 - [ ] **步骤 7：运行 Skill 和依赖回归。**
 

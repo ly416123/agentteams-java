@@ -2,6 +2,7 @@ package io.agentteams.controlplane.skill;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.Duration;
@@ -170,18 +171,45 @@ public final class SkillController {
     public record SkillVersionResponse(UUID id, UUID skillId, String version, String digest, JsonNode manifest,
             String visibility, String lifecycle, Instant createdAt, Instant updatedAt, long recordVersion,
             String securityScanStatus, String reviewStatus, String packageStorageKey, Long packageSizeBytes,
-            String packageSha256, String packageUploadStatus) {
+            String packageSha256, String packageUploadStatus, SkillCapabilitySummary capabilities) {
 
         static SkillVersionResponse from(SkillVersionRecord version, ObjectMapper objectMapper) {
             try {
+                JsonNode manifest = objectMapper.readTree(version.manifestJson());
+                SkillCapabilityPolicyParser parser = new SkillCapabilityPolicyParser(objectMapper);
+                var policy = parser.parse(version.manifestJson());
                 return new SkillVersionResponse(version.id(), version.skillId(), version.version(), version.digest(),
-                        objectMapper.readTree(version.manifestJson()), version.visibility(), version.lifecycle(),
+                        manifestSummary(manifest, objectMapper), version.visibility(), version.lifecycle(),
                         version.createdAt(), version.updatedAt(), version.recordVersion(),
                         version.securityScanStatus(), version.reviewStatus(), version.packageStorageKey(),
-                        version.packageSizeBytes(), version.packageSha256(), version.packageUploadStatus());
+                        version.packageSizeBytes(), version.packageSha256(), version.packageUploadStatus(),
+                        SkillCapabilitySummary.from(policy));
             } catch (IOException error) {
                 throw new IllegalStateException("stored skill manifest is not valid JSON", error);
             }
+        }
+
+        private static JsonNode manifestSummary(JsonNode manifest, ObjectMapper objectMapper) {
+            ObjectNode summary = objectMapper.createObjectNode();
+            for (String field : List.of("apiVersion", "kind", "name", "displayName", "description", "entry")) {
+                JsonNode value = manifest.get(field);
+                if (value != null && value.isTextual()) summary.set(field, value);
+            }
+            JsonNode sizeBytes = manifest.get("sizeBytes");
+            if (sizeBytes != null && sizeBytes.isIntegralNumber()) summary.set("sizeBytes", sizeBytes);
+            return summary;
+        }
+    }
+
+    public record SkillCapabilitySummary(String profile, int cpuMillicores, int memoryMiB,
+            int ephemeralStorageMiB, long ttlSeconds, String networkPolicy, List<String> allowedMcp,
+            List<String> allowedDomains, boolean allowSecretReferences) {
+
+        static SkillCapabilitySummary from(io.agentteams.application.api.SkillCapabilityPolicy policy) {
+            return new SkillCapabilitySummary(policy.profile().name(), policy.cpuMillicores(), policy.memoryMiB(),
+                    policy.ephemeralStorageMiB(), policy.ttl().toSeconds(), policy.networkPolicy().name(),
+                    policy.allowedMcp().stream().sorted().toList(), policy.allowedDomains().stream().sorted().toList(),
+                    policy.allowSecretReferences());
         }
     }
 

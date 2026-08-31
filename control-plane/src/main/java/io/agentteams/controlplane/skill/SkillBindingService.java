@@ -59,6 +59,14 @@ public final class SkillBindingService {
         return bind(context, projectId, teamId, skillId, skillVersionId, digest, actor);
     }
 
+    /** Re-evaluates the immutable manifest declaration at the runtime binding boundary. */
+    public SkillBindingRecord bind(ExecutionContext context, String projectId, String teamId, UUID skillId,
+            UUID skillVersionId, String digest, String manifestJson, SandboxPolicy effectivePolicy,
+            String actor) {
+        SkillCapabilityPolicy capability = new SkillCapabilityPolicyParser().parse(manifestJson);
+        return bind(context, projectId, teamId, skillId, skillVersionId, digest, capability, effectivePolicy, actor);
+    }
+
     public List<SkillBindingRecord> list(ExecutionContext context, String projectId, String teamId) {
         Objects.requireNonNull(context, "context");
         if (!context.projectId().equals(projectId) || !context.teamId().equals(teamId)) {

@@ -105,6 +105,22 @@ class SkillServiceTest {
     }
 
     @Test
+    void rejectsMalformedSkillCapabilityDeclarationBeforeVersionPersistence() {
+        UUID skillId = UUID.randomUUID();
+        when(repository.findById(skillId)).thenReturn(Optional.of(new SkillRecord(skillId, "skill",
+                "Skill", "", "PRIVATE", "DRAFT", NOW, NOW, 0)));
+
+        assertThatThrownBy(() -> service.createVersion(skillId, "version-key",
+                new SkillService.VersionInput("1.0.0", validDigest(),
+                        "{\"name\":\"skill\",\"description\":\"desc\",\"entry\":\"SKILL.md\","
+                                + "\"sizeBytes\":1,\"capabilities\":{\"networkPolicy\":\"internet\"}}", null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("networkPolicy");
+
+        verify(repository, never()).createVersion(any(), any(), any());
+    }
+
+    @Test
     void delegatesPublishAndDisableToTheRepository() {
         UUID skillId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
