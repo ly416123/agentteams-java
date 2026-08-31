@@ -91,6 +91,7 @@ CREATE TABLE task_result_artifacts (
     content_type TEXT NOT NULL,
     size_bytes BIGINT NOT NULL,
     sha256 TEXT NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
     stage TEXT NOT NULL,
     visibility TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
@@ -98,6 +99,7 @@ CREATE TABLE task_result_artifacts (
     CONSTRAINT task_result_artifacts_ref_not_blank CHECK (length(btrim(storage_ref)) > 0),
     CONSTRAINT task_result_artifacts_content_type_not_blank CHECK (length(btrim(content_type)) > 0),
     CONSTRAINT task_result_artifacts_size_non_negative CHECK (size_bytes >= 0),
+    CONSTRAINT task_result_artifacts_version_non_negative CHECK (version >= 0),
     CONSTRAINT task_result_artifacts_sha256_format CHECK (sha256 ~ '^[0-9a-fA-F]{64}$'),
     CONSTRAINT task_result_artifacts_visibility_check CHECK (visibility IN ('REQUESTER', 'PROJECT_MEMBER', 'TENANT_ADMIN', 'SECURITY_AUDITOR', 'INTERNAL_ONLY')),
     CONSTRAINT task_result_artifacts_manifest_name_unique UNIQUE (manifest_id, artifact_name)
