@@ -1,7 +1,7 @@
 # AgentTeams Java 产品生态扩展设计
 
 **日期：** 2026-08-26
-**状态：** Worker Template Registry 最小可用闭环、OpenAPI v1.0 与 Java/TypeScript SDK 核心客户端已实现；Console 管理闭环已实现；Channel SPI 已完成 Webhook 出站第一纵切，Matrix/DingTalk 适配器仍待后续批次
+**状态：** Worker Template Registry 最小可用闭环、OpenAPI v1.0 与 Java/TypeScript SDK 核心客户端已实现；Console 管理闭环已实现；Channel SPI 已完成 Webhook 和 Matrix 出站第一纵切，DingTalk 适配器仍待后续批次
 **优先级：** P2/P3
 **依赖：** P0 生产主路径和 P1 治理接口稳定
 
@@ -129,7 +129,7 @@ public record ChannelMessage(
         String correlationId) {}
 ```
 
-当前 Webhook 第一纵切通过 `WebhookChannelAdapter` 实现该 Port：发送只创建持久化投递记录，复用现有 leader-only scheduler、HMAC、重试、死信和事件 ID 去重；适配器在入队前强制校验 Organization/Tenant/Project 绑定、启用状态和事件白名单。Channel 适配器只返回稳定的 `QUEUED/DUPLICATE` 回执，不拥有 Task 状态，也不返回 Secret。
+当前 Webhook 第一纵切通过 `WebhookChannelAdapter` 实现该 Port：发送只创建持久化投递记录，复用现有 leader-only scheduler、HMAC、重试、死信和事件 ID 去重；适配器在入队前强制校验 Organization/Tenant/Project 绑定、启用状态和事件白名单。Matrix 第一纵切通过 `MatrixChannelAdapter` 复用现有 Matrix Outbox 与 `MatrixDeliveryService`，新增独立的 room 绑定表，将 Organization/Tenant/Project、事件白名单和启用状态作为发送前约束，并使用调用方消息 ID 保证幂等入队。两类 Channel 适配器只返回稳定的 `QUEUED/DUPLICATE` 回执，不拥有 Task 状态，也不返回 Secret。
 
 Inbound Adapter 只负责验证供应商签名、去重、身份绑定和转换为平台命令；Outbound Adapter 从持久化 Outbox 消费。Channel 不拥有 Task 状态。
 
