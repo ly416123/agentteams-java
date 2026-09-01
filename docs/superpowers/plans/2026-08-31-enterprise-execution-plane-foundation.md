@@ -12,6 +12,23 @@
 
 ## 当前执行状态（2026-08-31）
 
+### 状态同步说明（2026-09-01）
+
+下表是对本计划逐步复选框的主线状态汇总，依据 `main` 中的实现、验证记录和已提交的执行状态整理。原始步骤复选框是设计阶段清单，尚未逐条回填命令证据；后续如继续扩展本计划，应以本表和实际验证结果为准，不把未重新执行的历史命令当作当前验证。
+
+| 任务 | 当前主线状态 | 范围说明 |
+| --- | --- | --- |
+| 任务 1：架构文档和兼容边界 | 已完成 | 已固化 SaaS、客户 Connector、私有化、隔离等级、MCP 连接模式及 L5 门禁边界 |
+| 任务 2：统一执行上下文 | 已完成 | Organization/Tenant/Project/Team/Subject 上下文和授权映射已进入主线 |
+| 任务 3：Sandbox Policy 和执行位置 | 已完成 | 策略合并、Provider-neutral 请求和生命周期校验已进入主线 |
+| 任务 4：MCP Connection 和 Gateway Route | 已完成 | 公共 MCP、企业连接和 Connector 路由的可见性/凭据边界已进入主线 |
+| 任务 5：Skill 设置管理边界 | 已完成（本批范围） | Skill scope、绑定、Manifest 能力校验和 Worker 能力拦截已进入主线；更完整的外部审批流程仍不属于本批 |
+| 任务 6：用户上下文、记忆和行为治理 | 已完成（本批范围） | 记忆作用域、Context Assembly、敏感内容过滤和治理审计已进入主线；行为数据不直接进入 Prompt |
+| 任务 7：任务结果和执行过程协议 | 已完成（本批范围） | 任务树、进度、决策摘要、过程事件 SSE、结果清单、中间产物和 Webhook 投影已进入主线 |
+| 任务 8：本地/L5 门禁和并行边界 | 已完成（本批范围） | 本地 Docker/Colima 门禁和 Ubuntu/KVM L5 真实验收边界已固化；L6 真实验收暂不纳入主线 |
+
+本计划不因此宣称完整客户 Connector、CubeSandbox/Firecracker 接入、计费支付或 L6 生产验收已完成。
+
 已完成：架构与部署边界、统一 Organization/Tenant 执行上下文、Sandbox Policy 契约、MCP 企业连接与路由、Skill 企业/租户归属和绑定、Skill Manifest 能力声明解析与运行时策略收紧、Worker resourceBindings 的能力策略结构化校验和 RuntimeConfigSnapshot 传递、Skill 能力的 MCP/工具/域名/Secret 最终 Worker 拦截、记忆作用域/Context Assembly/治理审计、任务树/决策摘要/结果清单/过程事件 SSE、公共 OpenAPI 及 Java/TypeScript SDK 的任务读取接口、本地 Docker/Colima 统一门禁。
 
 本批次新增的治理状态迁移为 V65；Token Ledger 迁移为 V66；定时任务迁移为 V67；Webhook 投递迁移为 V68。本地全量 Maven 回归、68 个 Flyway 迁移、OpenAPI、SDK、Python 契约和 Helm lint 均已通过。最新 Worker/Runtime 配置传递变更已在 Ubuntu/KVM L5 主机 `192.168.122.55` 通过 gVisor/Kata 真实验收并完成清理。本阶段已完成 Webhook 订阅、HMAC 投递、去重、重试/死信和 leader-only 调度基础；本批次进一步把 Gateway 收到的 Worker 接受、进度、成功和失败事件接入 V64 Run/过程事件/结果清单投影，并同步生成 Webhook outbox。当前实现对有 `resource_scopes` 的任务启用企业投影，未绑定统一租户作用域的历史内部任务继续 fail-closed 不外发。Manager 会话到任务树/决策记录的生产接线也已完成：Manager 会话 ID 作为非敏感元数据进入任务规格，Control Plane 在 Worker 首次接受时投影根节点、受控决策摘要和 `task.planned` 事件。Worker AgentScope MCP 边界已按激活 Skill 能力交集执行服务器、工具、域名和 Secret 拦截；通用 Sandbox 出站网络仍由 Provider NetworkPolicy 负责。尚未宣称完成的后续项：完整客户 Connector，以及 L6 生产验收。
