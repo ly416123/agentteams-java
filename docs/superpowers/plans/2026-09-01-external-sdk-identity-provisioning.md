@@ -10,6 +10,28 @@
 
 **设计依据：** `docs/superpowers/specs/2026-09-01-external-sdk-identity-provisioning-design.md`。
 
+## 当前执行状态（2026-09-01）
+
+以下状态以 `main` 分支实际可见的提交和文件为准；独立 worktree 中的提交、未提交文件和仅存在于其他分支的提交，均不计入 `main` 已完成。这里区分“提交未成为 `main` 祖先”和“代码内容已经通过其他提交进入 `main`”，避免只看分支名造成误判。
+
+| 任务 | `main` 状态 | 事实依据 | 未完成原因 / 下一步 |
+| --- | --- | --- | --- |
+| 任务 1：签名协议和身份对象 | 未合并 | `codex/task1-security` 保留签名服务端实现，`main` 没有对应 `CanonicalRequest`、Verifier 和服务端签名测试 | 分支基于旧主线，直接合并会带入旧的管理 API/OpenAPI 快照；需以当前设计为基线重新集成 |
+| 任务 2：内部主体、用户、Integration、Credential | 未合并 | `codex/task2-platform-data` 保留 V72/V73 和 JDBC 数据层，`main` 当前最高迁移仍为 V71 | 任务 2 分支与主线已发生结构漂移，且尚未纳入“全库无外键”V74；需完成一次性数据层集成和迁移验证 |
+| 任务 3：SDK 认证和统一授权上下文 | 未合并 | `codex/task3-auth` 保留过滤器、主体和授权上下文；`main` 工作树另有 6 个未跟踪安全文件，但没有提交 | 这些文件不能视为已合并；需先确认来源、补齐测试，再形成独立提交 |
+| 任务 4：企业、租户、Integration 管理 API | 未完成 | `main` 只有早期组织管理最小实现（`8febebb`）；最新 `codex/task4-management` 的管理测试修复未进入 `main` | 早期最小 API 不等于当前企业接入管理 API；需按新身份模型重做/收口后集成 |
+| 任务 5：显式 Provisioning 和成员同步 | 已在独立分支完成，未合并 | `codex/task5-provisioning` 含 V74、Provisioning Service/API、审计和并发幂等修复；其工作树仍有 SDK/TypeScript 未提交改动 | 该分支还承载任务 6 的进行中改动，不能直接合并；需先拆分提交、完成评审，再按依赖顺序合入 |
+| 任务 6：Java/TypeScript SDK 和 OpenAPI | 部分进入 `main` | OpenAPI 已由 `8038715` 进入，Java SDK 已由 `faa18ea` 进入；TypeScript Provisioning 客户端仍只在 task5 worktree 中有未提交改动 | 需完成 TypeScript 提交、双 SDK 契约回归，并确认服务端任务 1–5 已集成 |
+| 任务 7：企业接入端到端验证 | 未开始 | 未发现 `EnterpriseSdkOnboardingIT` 或本地企业接入 E2E 脚本 | 待任务 1–6 合并后实施本地 Docker 全流程验收 |
+| 任务 8：L5 验收与发布门禁 | 未开始 | 未发现 `scripts/run-enterprise-sdk-onboarding-l5.sh`；现有 L5 脚本属于旧 TaskSandbox 验收 | 待任务 7 完成后增加 L5 Ubuntu/KVM 门禁；L6 真实验收按既定范围暂不纳入主线 |
+
+### 分支与工作树同步结论
+
+- `codex/task1-security`、`codex/task2-platform-data`、`codex/task2-sdk`、`codex/task3-auth`、`codex/task4-management`、`codex/external-sdk-identity-provisioning` 都不是 `main` 的祖先分支；它们包含的部分代码可能被后续提交重写或替代，不能按“分支未合并”简单判断为全部缺失。
+- `codex/task5-provisioning` 明确存在未合并提交，且当前工作树有 `AgentTeamsClient.java`、Java 签名类、TypeScript 客户端和 TypeScript 测试的未提交改动；这些改动必须保留，不能通过清理 worktree 解决状态问题。
+- `main` 当前相对 `origin/main` 超前 54 个提交，并存在 6 个未跟踪安全相关文件。它们不是可发布提交，也不是已完成任务证据。
+- 本次状态同步只更新计划文档，不自动合并分支；合并前必须完成冲突审查、定向测试和本地 Docker 验证。
+
 ---
 
 ## 文件与职责总览
@@ -92,7 +114,7 @@
 
   预期：因 V72/V73 和 Repository 不存在而失败。
 
-- [ ] **步骤 2：实现 V72/V73 迁移。** 创建 `principals`、`platform_users`、`integrations`、`integration_credentials`、`external_identities`、`provisioning_policies`、`integration_request_nonces` 和 `provisioning_idempotency`。成员关系使用内部主体 ID；旧外部 `subject`、旧业务 Claim 和旧映射列不保留。
+- [ ] **步骤 2：实现 V72/V73/V74 迁移。** 创建 `principals`、`platform_users`、`integrations`、`integration_credentials`、`external_identities`、`provisioning_policies`、`integration_request_nonces` 和 `provisioning_idempotency`。成员关系使用内部主体 ID；旧外部 `subject`、旧业务 Claim 和旧映射列不保留；全库表之间不定义外键，由应用事务、唯一约束和对账机制维护引用一致性。
 
 - [ ] **步骤 3：实现领域记录和 JDBC Repository。** Credential 提供 `findActiveByAccessKeyId`、`revoke`、`rotate`、`recordNonce`；所有写入使用数据库唯一约束、版本号和事务。Secret 通过现有 Secret Resolver/生产 Secret Manager 边界保存加密值。
 
@@ -198,9 +220,9 @@
 
 **目标：** 外部系统只依赖 SDK，不接触 Keycloak SDK、AgentTeams 内部对象或数据库。
 
-- [ ] **步骤 1：冻结 OpenAPI。** `openapi/agentteams-public.yaml` 描述签名 Header、外部用户上下文和任务 API；`openapi/agentteams-provisioning.yaml` 描述用户初始化、用户禁用、成员查询和连接检查。内部用户 ID 只作为响应关联信息，不作为外部身份输入。
+- [x] **步骤 1：冻结 OpenAPI。** `openapi/agentteams-public.yaml` 描述签名 Header、外部用户上下文和任务 API；`openapi/agentteams-provisioning.yaml` 描述用户初始化、用户禁用、成员查询和连接检查。内部用户 ID 只作为响应关联信息，不作为外部身份输入。已由 `8038715` 进入 `main`，仍需在任务 7 前与实际服务端路由做一次契约复核。
 
-- [ ] **步骤 2：改造 Java SDK。** `AgentTeamsClient` 支持 `accessKeyId/accessKeySecret`、`asUser(externalUserId)`、`provisioning()`、统一签名和结构化错误；GET 默认安全重试，写请求仅在显式 `retrySafe` 时重试。
+- [x] **步骤 2：改造 Java SDK。** `AgentTeamsClient` 支持 `accessKeyId/accessKeySecret`、`asUser(externalUserId)`、`provisioning()`、统一签名和结构化错误；GET 默认安全重试，写请求仅在显式 `retrySafe` 时重试。已由 `faa18ea` 进入 `main`，尚未证明端到端可用。
 
 - [ ] **步骤 3：改造 TypeScript SDK。** 支持同一签名协议和 Provisioning API；Secret Provider 支持函数形式；文档明确长期 Secret 仅可用于 Node.js/服务端，浏览器使用 OIDC 或短期 Token。
 
