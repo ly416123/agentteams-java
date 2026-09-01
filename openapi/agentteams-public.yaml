@@ -9,8 +9,16 @@ servers:
   - url: /
 security:
   - BearerAuth: []
+    AgentTeamsSignature: []
 paths:
   /api/v1/projects:
+    parameters: &signedHeaders
+      - $ref: '#/components/parameters/AtTimestamp'
+      - $ref: '#/components/parameters/AtNonce'
+      - $ref: '#/components/parameters/AtOrganizationId'
+      - $ref: '#/components/parameters/AtUserId'
+      - $ref: '#/components/parameters/AtContentSha256'
+      - $ref: '#/components/parameters/AtSignature'
     get:
       operationId: listProjects
       tags: [Projects]
@@ -62,6 +70,7 @@ paths:
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks:
+    parameters: *signedHeaders
     get:
       operationId: listTasks
       tags: [Tasks]
@@ -126,6 +135,7 @@ paths:
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}:
+    parameters: *signedHeaders
     get:
       operationId: getTask
       tags: [Tasks]
@@ -144,6 +154,7 @@ paths:
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/cancel:
+    parameters: *signedHeaders
     post:
       operationId: cancelTask
       tags: [Tasks]
@@ -168,6 +179,7 @@ paths:
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/runs/{runId}/progress:
+    parameters: *signedHeaders
     get:
       operationId: getTaskProgress
       tags: [Tasks]
@@ -189,6 +201,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/runs/{runId}/result:
+    parameters: *signedHeaders
     get:
       operationId: getTaskResult
       tags: [Tasks]
@@ -208,6 +221,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/runs/{runId}/process-events:
+    parameters: *signedHeaders
     get:
       operationId: listTaskProcessEvents
       tags: [Tasks]
@@ -231,6 +245,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/runs/{runId}/process-events/stream:
+    parameters: *signedHeaders
     get:
       operationId: streamTaskProcessEvents
       tags: [Tasks]
@@ -249,7 +264,30 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/runs/{runId}/artifacts:
+    parameters: *signedHeaders
+    get:
+      operationId: listTaskArtifacts
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/Visibility'
+      responses:
+        '200':
+          description: Task artifact metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TaskArtifactMetadata' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/scheduled-tasks:
+    parameters: *signedHeaders
     get:
       operationId: listScheduledTasks
       tags: [ScheduledTasks]
@@ -289,6 +327,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/webhooks:
+    parameters: *signedHeaders
     get:
       operationId: listWebhooks
       tags: [Webhooks]
@@ -329,6 +368,7 @@ paths:
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/scheduled-tasks/{scheduleId}:
+    parameters: *signedHeaders
     get:
       operationId: getScheduledTask
       tags: [ScheduledTasks]
@@ -349,6 +389,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/scheduled-tasks/{scheduleId}/pause:
+    parameters: *signedHeaders
     post:
       operationId: pauseScheduledTask
       tags: [ScheduledTasks]
@@ -372,6 +413,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/scheduled-tasks/{scheduleId}/resume:
+    parameters: *signedHeaders
     post:
       operationId: resumeScheduledTask
       tags: [ScheduledTasks]
@@ -400,7 +442,45 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: OIDC bearer authentication for human-facing clients.
+    AgentTeamsSignature:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >-
+        AT-HMAC-SHA256 signed application credential. The request must also
+        include the X-AT-* headers defined below.
   parameters:
+    AtTimestamp:
+      name: X-AT-Timestamp
+      in: header
+      required: true
+      schema: { type: integer, format: int64, minimum: 0 }
+    AtNonce:
+      name: X-AT-Nonce
+      in: header
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 200 }
+    AtOrganizationId:
+      name: X-AT-Organization-Id
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    AtUserId:
+      name: X-AT-User-Id
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    AtContentSha256:
+      name: X-AT-Content-SHA256
+      in: header
+      required: true
+      schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+    AtSignature:
+      name: X-AT-Signature
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 512 }
     Cursor:
       name: cursor
       in: query

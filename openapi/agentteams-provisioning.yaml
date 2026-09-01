@@ -1,0 +1,264 @@
+openapi: 3.1.0
+info:
+  title: AgentTeams Provisioning API
+  version: v1.0
+  description: >-
+    Explicit external-user initialization and membership synchronization for
+    trusted server-side integrations. Internal user identifiers are response
+    metadata only and never an external identity input.
+servers:
+  - url: /
+security:
+  - AgentTeamsSignature: []
+paths:
+  /api/v1/provisioning/connection:
+    parameters: &provisioningHeaders
+      - $ref: '#/components/parameters/AtTimestamp'
+      - $ref: '#/components/parameters/AtNonce'
+      - $ref: '#/components/parameters/AtOrganizationId'
+      - $ref: '#/components/parameters/AtUserId'
+      - $ref: '#/components/parameters/AtContentSha256'
+      - $ref: '#/components/parameters/AtSignature'
+    get:
+      operationId: checkProvisioningConnection
+      tags: [Provisioning]
+      responses:
+        '200':
+          description: Integration connection status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectionStatus' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/provisioning/users:
+    parameters: *provisioningHeaders
+    post:
+      operationId: createOrInitializeUser
+      tags: [Provisioning]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProvisioningUserRequest' }
+      responses:
+        '201':
+          description: User initialized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningUser' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/provisioning/users/{externalUserId}:
+    parameters:
+      - $ref: '#/components/parameters/AtTimestamp'
+      - $ref: '#/components/parameters/AtNonce'
+      - $ref: '#/components/parameters/AtOrganizationId'
+      - $ref: '#/components/parameters/AtUserId'
+      - $ref: '#/components/parameters/AtContentSha256'
+      - $ref: '#/components/parameters/AtSignature'
+      - $ref: '#/components/parameters/ExternalUserId'
+    put:
+      operationId: updateProvisionedUser
+      tags: [Provisioning]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProvisioningUserUpdateRequest' }
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningUser' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/provisioning/users/{externalUserId}/disable:
+    parameters:
+      - $ref: '#/components/parameters/AtTimestamp'
+      - $ref: '#/components/parameters/AtNonce'
+      - $ref: '#/components/parameters/AtOrganizationId'
+      - $ref: '#/components/parameters/AtUserId'
+      - $ref: '#/components/parameters/AtContentSha256'
+      - $ref: '#/components/parameters/AtSignature'
+      - $ref: '#/components/parameters/ExternalUserId'
+    post:
+      operationId: disableProvisionedUser
+      tags: [Provisioning]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: User disabled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningUser' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/provisioning/users/{externalUserId}/memberships:
+    parameters:
+      - $ref: '#/components/parameters/AtTimestamp'
+      - $ref: '#/components/parameters/AtNonce'
+      - $ref: '#/components/parameters/AtOrganizationId'
+      - $ref: '#/components/parameters/AtUserId'
+      - $ref: '#/components/parameters/AtContentSha256'
+      - $ref: '#/components/parameters/AtSignature'
+      - $ref: '#/components/parameters/ExternalUserId'
+    get:
+      operationId: listProvisionedUserMemberships
+      tags: [Provisioning]
+      responses:
+        '200':
+          description: Effective organization, tenant and project memberships
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Membership' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+components:
+  securitySchemes:
+    AgentTeamsSignature:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: AT-HMAC-SHA256 application signature.
+  parameters:
+    AtTimestamp:
+      name: X-AT-Timestamp
+      in: header
+      required: true
+      schema: { type: integer, format: int64, minimum: 0 }
+    AtNonce:
+      name: X-AT-Nonce
+      in: header
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 200 }
+    AtOrganizationId:
+      name: X-AT-Organization-Id
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    AtUserId:
+      name: X-AT-User-Id
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    AtContentSha256:
+      name: X-AT-Content-SHA256
+      in: header
+      required: true
+      schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+    AtSignature:
+      name: X-AT-Signature
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 512 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    ExternalUserId:
+      name: externalUserId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Unauthorized:
+      description: Signature or credential rejected
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Forbidden:
+      description: Provisioning scope or policy rejected
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Conflict:
+      description: Idempotency conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    ServerError:
+      description: Server or dependency failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+  schemas:
+    ApiError:
+      type: object
+      required: [code, message, correlationId, details]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        correlationId: { type: string }
+        details: { type: object, additionalProperties: true }
+    ConnectionStatus:
+      type: object
+      required: [connected, integrationId, scopes]
+      properties:
+        connected: { type: boolean }
+        integrationId: { type: string, format: uuid }
+        scopes: { type: array, items: { type: string } }
+    ProvisioningUserRequest:
+      type: object
+      required: [externalOrganizationId, externalUserId, displayName]
+      additionalProperties: false
+      properties:
+        externalOrganizationId: { type: string, minLength: 1, maxLength: 200 }
+        externalUserId: { type: string, minLength: 1, maxLength: 200 }
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+        email: { type: string, format: email }
+        externalGroups: { type: array, uniqueItems: true, items: { type: string } }
+        attributes: { type: object, additionalProperties: true }
+    ProvisioningUserUpdateRequest:
+      type: object
+      required: [displayName]
+      additionalProperties: false
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+        email: { type: [string, 'null'], format: email }
+        externalGroups: { type: array, uniqueItems: true, items: { type: string } }
+        attributes: { type: object, additionalProperties: true }
+    ProvisioningUser:
+      type: object
+      required: [externalOrganizationId, externalUserId, internalUserId, status]
+      properties:
+        externalOrganizationId: { type: string }
+        externalUserId: { type: string }
+        internalUserId: { type: string, format: uuid }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+    Membership:
+      type: object
+      required: [organizationId, tenantId, projectId, role]
+      properties:
+        organizationId: { type: string }
+        tenantId: { type: string }
+        projectId: { type: string }
+        role: { type: string, enum: [ADMIN, OPERATOR, DEVELOPER, VIEWER] }

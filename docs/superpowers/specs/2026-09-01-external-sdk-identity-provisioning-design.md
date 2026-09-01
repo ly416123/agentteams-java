@@ -227,7 +227,9 @@ updated_at TIMESTAMPTZ NOT NULL
 version BIGINT NOT NULL
 ```
 
-`platform_users.principal_id` 指向 `principals.id`。Project Membership、Organization Membership 和 Tenant Membership 的现有 `subject` 字段在 V73 中统一改为 `principal_id UUID`，并建立外键和 active 状态索引。
+`platform_users.principal_id` 指向 `principals.id`。Project Membership、Organization Membership 和 Tenant Membership 的现有 `subject` 字段在 V73 中统一改为 `principal_id UUID`，并建立 active 状态索引；按照全库约束，V73 不建立外键。
+
+V74 负责清理历史迁移遗留的外键约束；V74 之后的迁移禁止新增任何外键，关联完整性由应用事务、唯一约束和查询授权边界维护。
 
 ### 6.3 `external_identities`
 
