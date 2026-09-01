@@ -31,15 +31,15 @@ class AgentTeamsClientTest {
     }
 
     @Test
-    void sendsBearerAndIdempotencyHeadersForProjectCreation() {
+    void sendsSignatureAndIdempotencyHeadersForProjectCreation() {
         server.createContext("/api/v1/projects", exchange -> {
             assertThat(exchange.getRequestMethod()).isEqualTo("POST");
-            assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("Bearer token-1");
+            assertThat(exchange.getRequestHeaders().getFirst("Authorization")).startsWith("AT-HMAC-SHA256 Credential=ak-1");
             assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).startsWith("sdk-");
             respond(exchange, 201, "{\"id\":\"00000000-0000-0000-0000-000000000010\",\"tenantId\":\"tenant-1\",\"name\":\"Demo\",\"status\":\"ACTIVE\",\"createdBy\":\"user-1\"}");
         });
 
-        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, "ak-1", "secret-1", "org-1").asUser("user-1");
         AgentTeamsClient.Project project = client.createProject(new AgentTeamsClient.CreateProjectRequest("Demo"));
 
         assertThat(project.id()).isEqualTo(UUID.fromString("00000000-0000-0000-0000-000000000010"));
@@ -56,7 +56,7 @@ class AgentTeamsClientTest {
                 respond(exchange, 200, taskJson());
             }
         });
-        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1", 2, 0);
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, "ak-1", "secret-1", "org-1", 2, 0).asUser("user-1");
 
         assertThat(client.getTask(UUID.fromString("00000000-0000-0000-0000-000000000001")).id())
                 .isEqualTo(UUID.fromString("00000000-0000-0000-0000-000000000001"));
@@ -67,7 +67,7 @@ class AgentTeamsClientTest {
     void mapsStructuredConflictWithoutReturningRawResponseBody() {
         server.createContext("/api/v1/tasks/", exchange ->
                 respond(exchange, 409, "{\"code\":\"VERSION_CONFLICT\",\"message\":\"资源版本冲突\",\"correlationId\":\"corr-1\",\"details\":{\"expectedVersion\":3}}"));
-        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1", 0, 0);
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, "ak-1", "secret-1", "org-1", 0, 0).asUser("user-1");
 
         assertThatThrownBy(() -> client.cancelTask(UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 new AgentTeamsClient.LifecycleRequest(3L, null, null)))
@@ -90,7 +90,7 @@ class AgentTeamsClientTest {
         server.createContext("/api/v1/tasks/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000002/process-events", exchange ->
                 respond(exchange, 200, "[{\"eventId\":\"00000000-0000-0000-0000-000000000003\",\"taskId\":\"00000000-0000-0000-0000-000000000001\",\"runId\":\"00000000-0000-0000-0000-000000000002\",\"sequence\":1,\"eventType\":\"PROGRESS\",\"visibility\":\"REQUESTER\",\"occurredAt\":\"2026-08-31T00:00:00Z\",\"correlationId\":\"corr-1\",\"payload\":\"{\\\"progress\\\":50}\"}]"));
 
-        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, "ak-1", "secret-1", "org-1").asUser("user-1");
 
         assertThat(client.getTaskProgress(UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 UUID.fromString("00000000-0000-0000-0000-000000000002")).progress()).isEqualTo(50);
