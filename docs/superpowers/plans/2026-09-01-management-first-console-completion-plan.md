@@ -34,19 +34,19 @@
 
 | 能力域 | 当前状态 | 剩余闭环 |
 | --- | --- | --- |
-| 内部用户、Organization、Tenant | Organization/Tenant 创建幂等、状态管理和 Console 首个切片已完成 | 内部用户与成员完整生命周期、角色/权限授权管理、审计和跨 scope 负向验收 |
-| 外部用户、Integration、Credential | Integration/Credential 管理、历史映射和外部用户生命周期管理端入口已实现；Provisioning 初始化/更新/停用/Membership 查询以及 Credential Ref 登记/轮换/撤销已具备持久化幂等、精确外部组织定位、脱敏审计、Console 操作面板和真实 OIDC 浏览器验收 | 生产 Secret provider 和外部真实连通性仍按凭据条件处理 |
-| 权限、角色、授权策略 | Project 角色矩阵、角色变更、幂等、版本保护和 Console 页面已完成 | 组织/租户级角色策略、更多授权变更负向测试和最终审计证据 |
-| Project/Workspace | Project 列表、创建、幂等、Project 作用域和管理页面已完成 | 成员完整生命周期、状态管理和最终跨 scope 负向验收 |
-| Team | API、成员、策略、版本、部署、页面、Project UUID/外部名 scope 校验和多副本 Worker 运行时故障与回滚证据已完成并通过真实 OIDC/Kind 验收 | 无；随 Sandbox L5 一并做最终环境复核 |
-| Template/AgentSpec/Worker | 模板页面、Project scope 传播、AgentSpec 独立生命周期、显式实例化到 Worker CR、Operator Deployment、Ready 门禁、Worker 详情诊断、单/双副本 lease 过期自动回滚及受控 Ubuntu/K3s Sandbox L5 已通过验收 | 无；L6 仍按最终阶段约束处理 |
-| Model Provider/价格 | 管理 API、Model 页面、凭据引用状态、连接测试和价格目录已接入 | 真实供应商联通属于 L6，最终阶段处理 |
+| 内部用户、Organization、Tenant | 创建幂等、状态管理、内部用户生命周期、成员/角色查询、审计和跨 scope 负向验收已完成 | 无；生产外部依赖仍按 L6 边界处理 |
+| 外部用户、Integration、Credential | Integration/Credential 管理、历史映射和外部用户生命周期管理端入口已实现；Provisioning 初始化/更新/停用/Membership 查询以及 Credential Ref 登记/轮换/撤销已具备持久化幂等、精确外部组织定位、脱敏审计、Console 操作面板和真实 OIDC 浏览器验收 | 仅真实生产 Secret provider 和外部真实连通性属于 L6 |
+| 权限、角色、授权策略 | Project 角色矩阵、角色变更、幂等、版本保护、审计、Console 页面和负向验收已完成 | 无；跨租户/跨组织生产运维权限属于 L6 |
+| Project/Workspace | Project 列表、创建、幂等、成员/作用域和管理页面已完成，并通过真实 OIDC 验收 | 无 |
+| Team | API、成员、策略、版本、部署、页面、Project UUID/外部名 scope 校验和多副本 Worker 运行时故障与回滚证据已完成并通过真实 OIDC/Kind 验收 | 无；外部真实依赖仍按 L6 边界处理 |
+| Template/AgentSpec/Worker | 模板页面、Project scope 传播、AgentSpec 独立生命周期、显式实例化到 Worker CR、Operator Deployment、Ready 门禁、Worker 详情诊断、单/双副本 lease 过期自动回滚及受控 Ubuntu/K3s Sandbox L5 已通过验收 | 无；外部真实依赖仍按 L6 边界处理 |
+| Model Provider/价格 | 管理 API、Model 页面、凭据引用状态、连接测试和价格目录已接入并完成页面验收 | 真实供应商联通属于 L6，最终阶段处理 |
 | MCP | 管理 API、连接/路由/Discovery、Console 页面、scope 和 fail-closed 已完成 | 真实外部 MCP 联通属于 L6，最终阶段处理 |
-| Skill | Skill 目录、版本、上传/发布、绑定和 package complete 页面已完成，并通过真实 MinIO 预签名直传验收 | 真实运行时外部依赖按 L6 最终阶段处理 |
-| Conversation | API、SSE、重连、取消和 Console 基础已有 | 会话管理、权限/scope、Task 回链和跨用户记忆验证 |
-| Task/Attempt/Assignment/Lease | 任务状态机、事件、操作和列表已有 | Attempt/Lease 可视化、调度原因、审批和跨 scope 负向验收 |
-| Artifact | 上传/完成/结果清单后端已有 | Artifact 列表、下载/可见性/校验/保留策略页面 |
-| Usage/费用/预算/告警 | Token ledger、价格、预算和 Dashboard 基础已有；当前认证 scope 内 Organization/Tenant/Project/Team/User 聚合、Task/Provider/Model 筛选、受限分页、CSV 导出、独立导出权限与审计、预算阈值写入、告警规则配置、告警重试详情、人工重试幂等和审计筛选/游标分页已接入 | 跨租户/跨组织查询需具备相应后台 scope 后再验收 |
+| Skill | Skill 目录、版本、上传/发布、绑定和 package complete 页面已完成，并通过真实 MinIO 预签名直传验收 | 真实运行时外部依赖属于 L6，最终阶段处理 |
+| Conversation | API、SSE、重连、取消、追加信息、历史恢复、权限/scope 和 Console 页面已完成并通过真实 OIDC 验收 | 无 |
+| Task/Attempt/Assignment/Lease | 任务状态机、事件、操作、执行/恢复状态、列表和 Console 页面已完成并通过真实 OIDC 验收 | 无 |
+| Artifact | 上传/完成/结果清单、列表元数据、可见性、校验和保留策略页面已完成并通过真实 OIDC 验收 | 无 |
+| Usage/费用/预算/告警 | Token ledger、价格、预算和 Dashboard 基础已有；当前认证 scope 内 Organization/Tenant/Project/Team/User 聚合、Task/Provider/Model 筛选、受限分页、CSV 导出、独立导出权限与审计、预算阈值写入、告警规则配置、告警重试详情、人工重试幂等和审计筛选/游标分页已接入 | 无；跨租户/跨组织查询继续受后台 scope 限制，这是设计边界而非开发缺口 |
 | Memory/Sandbox | Memory 治理 API/页面、Context Assembly 约束、Sandbox 元数据页面、多 subject/Project/Team/Tenant 隔离及受控 Ubuntu/K3s gVisor/Kata L5 运行时验收已完成 | 无；外部真实依赖仍按 L6 最终阶段处理 |
 
 完成定义不是“页面可以打开”，而是能力矩阵中 SDK 已有能力的管理端映射，以及管理端新增能力自身的 API、页面操作、授权、状态、错误、幂等、审计、scope 和验证证据全部齐备。
@@ -232,7 +232,7 @@ L6 真实外部依赖、生产凭据、长期运行、故障恢复和发布演�
 
 ### 6.3 适配边界
 
-领域层只依赖 `SecretResolver`、`McpCredentialProvider` 等 Port。拿到凭据后，新增或启用对应 Adapter，并执行受控 L5 验收；L6 按“L6 最终阶段约束”单独处理。不得修改领域 scope、Worker 生命周期、Memory Policy 或 Console 的 Secret 交互方式。当前 `OrganizationManagementService` 的内存实现只能作为开发/测试夹具，下一切片必须迁移为持久化元数据和 Secret 引用，不能作为生产多副本权威状态。生产凭据缺失时，生产 profile 必须显示 `UNAVAILABLE`/`NOT_CONFIGURED` 等明确状态并拒绝执行，不得回退到假值或明文配置。
+领域层只依赖 `SecretResolver`、`McpCredentialProvider` 等 Port。拿到凭据后，新增或启用对应 Adapter，并执行受控 L5 验收；L6 按“L6 最终阶段约束”单独处理。不得修改领域 scope、Worker 生命周期、Memory Policy 或 Console 的 Secret 交互方式。当前 `OrganizationManagementService` 的无参内存构造器仅用于聚焦单元测试，生产 Spring wiring 使用持久化 Repository；不能把内存夹具作为生产多副本权威状态。生产凭据缺失时，生产 profile 必须显示 `UNAVAILABLE`/`NOT_CONFIGURED` 等明确状态并拒绝执行，不得回退到假值或明文配置。
 
 ## 7. 验收门禁
 
