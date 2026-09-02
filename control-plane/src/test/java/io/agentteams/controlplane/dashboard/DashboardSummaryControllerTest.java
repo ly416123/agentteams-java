@@ -10,9 +10,14 @@ import io.agentteams.controlplane.api.ApiErrorHandler;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.project.ProjectMembershipRecord;
+import io.agentteams.controlplane.project.ProjectRecord;
+import io.agentteams.controlplane.project.ProjectRepository;
+import io.agentteams.controlplane.project.ProjectRole;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,13 +29,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @ExtendWith(MockitoExtension.class)
 class DashboardSummaryControllerTest {
     @Mock private UsageQueryService usage;
+    @Mock private ProjectRepository projects;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
-        mockMvc = MockMvcBuilders.standaloneSetup(new DashboardSummaryController(usage))
+        mockMvc = MockMvcBuilders.standaloneSetup(new DashboardSummaryController(usage, projects))
                 .setControllerAdvice(new ApiErrorHandler()).build();
     }
 
@@ -85,6 +91,24 @@ class DashboardSummaryControllerTest {
         mockMvc.perform(get("/api/v1/dashboard/summary").param("projectId", "project-a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.calls").value(2));
+    }
+
+    @Test
+    void acceptsAuthorizedProjectUuidAndResolvesItToAuthenticatedProjectScope() throws Exception {
+        UUID projectId = UUID.fromString("ef5916eb-14d9-4e75-9e9c-041c6b5fb447");
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        when(projects.findProject("tenant-a", projectId))
+                .thenReturn(java.util.Optional.of(ProjectRecord.create(projectId, "tenant-a", "project-a", "alice", now)));
+        when(projects.findMembership("tenant-a", projectId, "alice"))
+                .thenReturn(java.util.Optional.of(ProjectMembershipRecord.create("tenant-a", projectId, "alice",
+                        ProjectRole.DEVELOPER, now)));
+        when(usage.summarizeForScope("tenant-a", "project-a", null, null, null, null))
+                .thenReturn(new UsageQueryService.UsageSummary(Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                        new UsageQueryService.UsageTotals(4, 0, 10, 20, 1.25), List.of()));
+
+        mockMvc.perform(get("/api/v1/dashboard/summary").param("projectId", projectId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calls").value(4));
     }
 
     @Test

@@ -2,6 +2,7 @@ package io.agentteams.controlplane.dashboard;
 
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.project.ProjectRepository;
 import io.agentteams.controlplane.usage.UsageQueryService;
 import java.time.Instant;
 import java.util.List;
@@ -16,9 +17,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/dashboard")
 public final class DashboardSummaryController {
     private final UsageQueryService usage;
+    private final ProjectRepository projects;
 
     public DashboardSummaryController(UsageQueryService usage) {
+        this(usage, null);
+    }
+
+    public DashboardSummaryController(UsageQueryService usage, ProjectRepository projects) {
         this.usage = usage;
+        this.projects = projects;
     }
 
     @GetMapping("/summary")
@@ -43,11 +50,8 @@ public final class DashboardSummaryController {
             String projectId) {
         var principal = PrincipalContext.current()
                 .orElseThrow(() -> new AuthorizationException("authentication required"));
-        String authenticatedProject = principal.scope().project();
-        if (projectId != null && !authenticatedProject.equals(projectId)) {
-            throw new AuthorizationException("project is outside the caller scope");
-        }
-        return usage.summarizeForScope(principal.scope().tenant(), authenticatedProject, from, to, groupBy, limit);
+        String scopedProject = DashboardProjectScope.resolve(principal, projectId, projects);
+        return usage.summarizeForScope(principal.scope().tenant(), scopedProject, from, to, groupBy, limit);
     }
 
     public record DashboardSummary(Instant from, Instant to, long calls, long failures, long promptTokens,
