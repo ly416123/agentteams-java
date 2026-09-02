@@ -209,6 +209,24 @@ class BatchASecurityContractTest(unittest.TestCase):
         self.assertEqual(1, len(allowed))
 
     @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_console_can_reach_control_plane_api(self):
+        docs = render_chart("--set", "console.enabled=true")
+        control_plane = next(
+            policy for policy in docs
+            if policy.get("kind") == "NetworkPolicy"
+            and policy["metadata"]["name"].endswith("-control-plane")
+        )
+
+        allowed = [
+            peer
+            for rule in control_plane["spec"]["ingress"]
+            for peer in rule.get("from", [])
+            if peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+            == "agentteams-console"
+        ]
+        self.assertEqual(1, len(allowed))
+
+    @unittest.skipUnless(HELM, "helm is unavailable")
     def test_prometheus_can_scrape_gateway_replicas(self):
         docs = render_chart()
         gateway = next(

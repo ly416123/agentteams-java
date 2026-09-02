@@ -30,6 +30,10 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
+        # The Console proxies browser API requests through its same-namespace
+        # Service and therefore needs an explicit ingress allowance here.
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agentteams-console }
         - podSelector:
             matchLabels: { app.kubernetes.io/name: agentteams-gateway }
         - podSelector:
