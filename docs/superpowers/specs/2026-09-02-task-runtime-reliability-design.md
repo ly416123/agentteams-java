@@ -50,6 +50,11 @@
 - Console 提供定时计划列表、启停、当前运行终止、运行历史、结果清单和产物入口。
 - Java SDK 的对应数据交互接口只在最终 Console 验证完成后实现。
 
+当前实现落点：V84 增加 `tasks.task_type` 与 `scheduled_task_runs`，V85 增加
+`task_recovery_checkpoints`；Control Plane 提供定时运行查询/终止、Task Run 和
+Checkpoint 查询。运行观察契约增加内部 `checkpoint` 扩展，恢复时将最近检查点以
+`recoveryCheckpoint` 安全引用注入下一次 Task 规格。Java SDK 暂不暴露这些接口。
+
 ## 失败处理
 
 - 版本冲突返回现有 `409`，客户端刷新后重试。

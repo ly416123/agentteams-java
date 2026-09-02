@@ -222,6 +222,33 @@ class ConversationServiceTest {
     }
 
     @Test
+    void queuesSupplementalMessageUntilTheCurrentExecutionCompletes() throws Exception {
+        SerialRuntime runtime = new SerialRuntime();
+        ConversationService service = new ConversationService(runtime);
+        service.createAndStart(CONTEXT);
+
+        service.send(SESSION_ID, "message-1", "first");
+        ConversationService.SendResult queued = service.send(SESSION_ID, "message-2", "supplement");
+
+        assertThat(queued.events()).isEmpty();
+        assertThat(runtime.sendCount.get()).isEqualTo(1);
+        runtime.releaseFirst.countDown();
+        assertThat(runtime.secondStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        runtime.releaseSecond.countDown();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (runtime.sendCount.get() < 2 && System.nanoTime() < deadline) {
+            Thread.sleep(25);
+        }
+        assertThat(runtime.sendCount.get()).isEqualTo(2);
+        while (service.events(SESSION_ID, 0).size() < 5 && System.nanoTime() < deadline) {
+            Thread.sleep(25);
+        }
+        assertThat(service.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.delta", "message.completed",
+                        "message.delta", "message.completed");
+    }
+
+    @Test
     void reusingMessageIdempotencyKeyForDifferentContentIsRejected() {
         ConversationService service = startedService();
         service.send(SESSION_ID, "message-1", "hello");
@@ -319,6 +346,64 @@ class ConversationServiceTest {
                             "{\"text\":\"hello\"}", java.time.Instant.EPOCH));
                 }
                 completed.countDown();
+            });
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        @Override
+        public List<ConversationEvent> events(UUID sessionId, long afterCursor) {
+            synchronized (events) {
+                return events.stream().filter(event -> event.cursor() > afterCursor).toList();
+            }
+        }
+
+        @Override
+        public void cancel(UUID sessionId) { }
+    }
+
+    private static final class SerialRuntime implements ConversationRuntimePort {
+        private final List<ConversationEvent> events = new ArrayList<>();
+        private final CountDownLatch releaseFirst = new CountDownLatch(1);
+        private final CountDownLatch releaseSecond = new CountDownLatch(1);
+        private final CountDownLatch secondStarted = new CountDownLatch(1);
+        private final AtomicInteger sendCount = new AtomicInteger();
+
+        @Override
+        public void start(Context context) {
+            synchronized (events) {
+                events.add(ConversationEvent.of(SESSION_ID, 1, "conversation.started", "{}",
+                        java.time.Instant.EPOCH));
+            }
+        }
+
+        @Override
+        public void send(Message message) {
+            synchronized (events) {
+                if (sendCount.get() > 0 && events.size() < 3) {
+                    throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
+                            "conversation already has a request in flight");
+                }
+            }
+            int number = sendCount.incrementAndGet();
+            if (number > 2) throw new AssertionError("unexpected third dispatch");
+            Thread thread = new Thread(() -> {
+                try {
+                    if (number == 1) releaseFirst.await();
+                    else {
+                        secondStarted.countDown();
+                        releaseSecond.await();
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                synchronized (events) {
+                    events.add(ConversationEvent.of(SESSION_ID, events.size() + 1, "message.delta",
+                            "{\"text\":\"" + message.content() + "\"}", java.time.Instant.EPOCH));
+                    events.add(ConversationEvent.of(SESSION_ID, events.size() + 1, "message.completed",
+                            "{\"text\":\"" + message.content() + "\"}", java.time.Instant.EPOCH));
+                }
             });
             thread.setDaemon(true);
             thread.start();

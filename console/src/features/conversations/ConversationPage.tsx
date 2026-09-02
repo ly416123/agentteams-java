@@ -93,6 +93,7 @@ export function ConversationPage({
           .catch((nextError) => active && setLoadError(nextError));
         void streamConversationEvents(conversationId, {
           client: apiClient,
+          keepAlive: true,
           onEvent: (event) =>
             active &&
             setEvents((current) =>

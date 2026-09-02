@@ -85,7 +85,7 @@ public final class TaskAssignmentService {
             long assignedVersion = queued.version() + 1;
             TaskRecord assigned = new TaskRecord(queued.id(), queued.title(), queued.description(),
                     TaskPhase.ASSIGNED, queued.priority(), queued.specJson(), queued.actor(), queued.source(),
-                    null, null, queued.createdAt(), now, assignedVersion);
+                    null, null, queued.createdAt(), now, assignedVersion, queued.taskType());
             TaskAttemptRecord attempt = new TaskAttemptRecord(attemptId, taskId, leaseId, TaskPhase.ASSIGNED,
                     expiresAt, null, "scheduler", "control-plane", null, null, now, now, assignedVersion);
             TaskAssignmentRecord assignment = new TaskAssignmentRecord(assignmentId, taskId, attemptId, agent.id(),

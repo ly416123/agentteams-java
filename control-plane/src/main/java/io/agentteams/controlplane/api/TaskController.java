@@ -140,10 +140,15 @@ public final class TaskController {
     }
 
     public record CreateTaskRequest(String title, String description, JsonNode spec,
-            String actor, String source) {
+            String actor, String source, String taskType) {
+
+        public CreateTaskRequest(String title, String description, JsonNode spec,
+                String actor, String source) {
+            this(title, description, spec, actor, source, null);
+        }
 
         TaskService.TaskInput toServiceInput(String authenticatedActor) {
-            return new TaskService.TaskInput(title, description, json(spec), authenticatedActor, source);
+            return new TaskService.TaskInput(title, description, json(spec), authenticatedActor, source, taskType);
         }
 
         private static String json(JsonNode value) {
@@ -167,19 +172,19 @@ public final class TaskController {
     }
 
     public record TaskResponse(UUID id, String title, String description, String phase,
-            int priority, Instant createdAt, Instant updatedAt, long version) {
+            int priority, String taskType, Instant createdAt, Instant updatedAt, long version) {
 
         static TaskResponse from(TaskRecord task) {
             return new TaskResponse(task.id(), task.title(), task.description(), task.phase().name(),
-                    task.priority(), task.createdAt(), task.updatedAt(), task.version());
+                    task.priority(), task.taskType(), task.createdAt(), task.updatedAt(), task.version());
         }
     }
 
-    public record TaskListResponse(UUID id, String title, String phase, int priority,
+    public record TaskListResponse(UUID id, String title, String phase, int priority, String taskType,
             String tenantId, String projectId, String team, String actor, String source,
             UUID teamId, UUID workerId, Instant createdAt, Instant updatedAt, long version) {
         static TaskListResponse from(TaskListRecord task) {
-            return new TaskListResponse(task.id(), task.title(), task.phase().name(), task.priority(),
+            return new TaskListResponse(task.id(), task.title(), task.phase().name(), task.priority(), task.taskType(),
                     task.tenantId(), task.projectId(), task.team(), task.actor(), task.source(), task.teamId(),
                     task.workerId(), task.createdAt(), task.updatedAt(), task.version());
         }

@@ -94,6 +94,22 @@ describe('conversation SSE client', () => {
     });
   });
 
+  it('polls again after a normal close when live mode is enabled', async () => {
+    const controller = new AbortController();
+    const requestStream = vi
+      .fn()
+      .mockResolvedValue(response('id: 9\nevent: task.updated\ndata: {}\n\n'));
+    const client = { requestStream } as unknown as HttpClient;
+    await streamConversationEvents('c-1', {
+      client,
+      keepAlive: true,
+      sleep: async () => controller.abort(),
+      signal: controller.signal,
+      onEvent: () => undefined,
+    });
+    expect(requestStream).toHaveBeenCalledTimes(1);
+  });
+
   it('normalizes QwenPaw content blocks without exposing protocol booleans', () => {
     expect(
       conversationEventText({

@@ -10,6 +10,7 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
   const [description, setDescription] = useState('');
   const [teamId, setTeamId] = useState('');
   const [workerId, setWorkerId] = useState('');
+  const [taskType, setTaskType] = useState('NORMAL');
   const [formError, setFormError] = useState('');
   const projects = useProjects();
   const teams = useTeams(projectId, {});
@@ -27,6 +28,7 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
       {
         title,
         description,
+        taskType: taskType.trim() || 'NORMAL',
         spec: {
           scope: { tenant: project.tenantId, project: project.name, team: selectedTeam.name },
           teamId: selectedTeam.id,
@@ -78,6 +80,15 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          任务类型
+          <input
+            aria-label="任务类型"
+            placeholder="NORMAL / SCHEDULED / 自定义类型"
+            value={taskType}
+            onChange={(event) => setTaskType(event.target.value)}
+          />
         </label>
         <label>
           Worker（可选）

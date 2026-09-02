@@ -124,7 +124,7 @@ public final class ExecutionEventService {
             Task next = applied.task();
             TaskRecord nextRecord = new TaskRecord(current.id(), current.title(), current.description(), next.phase(),
                     current.priority(), current.specJson(), next.actor(), next.source(), current.failureCode(),
-                    current.redactedFailureMessage(), current.createdAt(), next.updatedAt(), next.version());
+                    current.redactedFailureMessage(), current.createdAt(), next.updatedAt(), next.version(), current.taskType());
             tx.tasks().updateState(nextRecord, current.version());
             TaskAttemptRecord nextAttempt = TaskAttemptRecord.fromDomain(next.attempt());
             tx.taskAttempts().updateLease(nextAttempt.id(), nextAttempt.leaseExpiresAt(), nextAttempt.actor(),
@@ -163,7 +163,7 @@ public final class ExecutionEventService {
         Task next = applied.task();
         TaskRecord nextRecord = new TaskRecord(current.id(), current.title(), current.description(), next.phase(),
                 current.priority(), current.specJson(), next.actor(), next.source(), next.failureCode(),
-                next.redactedFailureMessage(), current.createdAt(), next.updatedAt(), next.version());
+                next.redactedFailureMessage(), current.createdAt(), next.updatedAt(), next.version(), current.taskType());
         tx.tasks().updateState(nextRecord, current.version());
 
         if (next.attempt() != null) {

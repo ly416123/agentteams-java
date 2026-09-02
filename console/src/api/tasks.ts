@@ -16,6 +16,7 @@ export type TaskScope = { tenant: string; project: string; team: string };
 export type CreateTaskRequest = {
   title: string;
   description: string;
+  taskType?: string;
   spec: { scope: TaskScope; teamId: string; workerId?: string; [key: string]: unknown };
 };
 
@@ -56,6 +57,31 @@ export type TaskExecution = {
     version: number;
   } | null;
 };
+export type TaskRun = {
+  id: string;
+  taskId: string;
+  status: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  resultStatus?: string | null;
+  resultSummary?: string | null;
+};
+export type TaskCheckpoint = {
+  id: string;
+  taskId: string;
+  runId: string;
+  attemptId?: string | null;
+  stepKey: string;
+  idempotencyKey: string;
+  status: string;
+  checkpointRef: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
 
 function taskQuery(projectId: string, filters: TaskFilters) {
   return Object.fromEntries(
@@ -79,6 +105,12 @@ export function getTask(taskId: string, client: HttpClient = apiClient) {
 }
 export function getTaskExecution(taskId: string, client: HttpClient = apiClient) {
   return client.request<TaskExecution[]>(`/api/v1/tasks/${taskId}/execution`);
+}
+export function getTaskRuns(taskId: string, client: HttpClient = apiClient) {
+  return client.request<TaskRun[]>(`/api/v1/tasks/${taskId}/runs`);
+}
+export function getTaskCheckpoints(taskId: string, runId: string, client: HttpClient = apiClient) {
+  return client.request<TaskCheckpoint[]>(`/api/v1/tasks/${taskId}/runs/${runId}/checkpoints`);
 }
 export function createTask(body: CreateTaskRequest, client: HttpClient = apiClient) {
   if (

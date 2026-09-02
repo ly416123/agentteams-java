@@ -116,6 +116,7 @@ export type Task = {
   workerId?: string;
   creator?: string;
   summary?: string;
+  taskType?: string;
 };
 
 export const TASK_PHASES = [

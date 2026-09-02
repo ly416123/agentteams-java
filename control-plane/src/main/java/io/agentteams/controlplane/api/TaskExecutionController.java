@@ -5,6 +5,9 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskAssignmentRecord;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.service.TaskService;
+import io.agentteams.controlplane.task.TaskRunQueryRepository;
+import io.agentteams.controlplane.task.TaskRecoveryCheckpoint;
+import io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -19,16 +22,59 @@ import org.springframework.web.bind.annotation.RestController;
 public final class TaskExecutionController {
     private final TaskService tasks;
     private final FoundationPersistenceService persistence;
+    private final TaskRunQueryRepository runs;
+    private final TaskRecoveryCheckpointRepository checkpoints;
 
     public TaskExecutionController(TaskService tasks, FoundationPersistenceService persistence) {
+        this(tasks, persistence, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TaskExecutionController(TaskService tasks, FoundationPersistenceService persistence,
+            TaskRunQueryRepository runs, TaskRecoveryCheckpointRepository checkpoints) {
         this.tasks = tasks;
         this.persistence = persistence;
+        this.runs = runs;
+        this.checkpoints = checkpoints;
     }
 
     @GetMapping("/{taskId}/execution")
     public List<ExecutionResponse> execution(@PathVariable UUID taskId) {
         tasks.get(taskId);
         return persistence.findTaskExecution(taskId).stream().map(ExecutionResponse::from).toList();
+    }
+
+    @GetMapping("/{taskId}/runs")
+    public List<RunResponse> runs(@PathVariable UUID taskId) {
+        tasks.get(taskId);
+        if (runs == null) throw new IllegalStateException("task run query is not configured");
+        return runs.findByTaskId(taskId).stream().map(RunResponse::from).toList();
+    }
+
+    @GetMapping("/{taskId}/runs/{runId}/checkpoints")
+    public List<CheckpointResponse> checkpoints(@PathVariable UUID taskId, @PathVariable UUID runId) {
+        tasks.get(taskId);
+        if (checkpoints == null) throw new IllegalStateException("task checkpoint query is not configured");
+        return checkpoints.findByRun(runId).stream().filter(value -> taskId.equals(value.taskId()))
+                .map(CheckpointResponse::from).toList();
+    }
+
+    public record RunResponse(UUID id, UUID taskId, String status, Instant startedAt, Instant completedAt,
+            Instant createdAt, Instant updatedAt, long version, String resultStatus, String resultSummary) {
+        static RunResponse from(TaskRunQueryRepository.TaskRunRecord value) {
+            return new RunResponse(value.id(), value.taskId(), value.status(), value.startedAt(), value.completedAt(),
+                    value.createdAt(), value.updatedAt(), value.version(), value.resultStatus(), value.resultSummary());
+        }
+    }
+
+    public record CheckpointResponse(UUID id, UUID taskId, UUID runId, UUID attemptId, String stepKey,
+            String idempotencyKey, String status, String checkpointRef, Instant createdAt, Instant updatedAt,
+            long version) {
+        static CheckpointResponse from(TaskRecoveryCheckpoint value) {
+            return new CheckpointResponse(value.id(), value.taskId(), value.runId(), value.attemptId(), value.stepKey(),
+                    value.idempotencyKey(), value.status(), value.checkpointRef(), value.createdAt(), value.updatedAt(),
+                    value.version());
+        }
     }
 
     public record ExecutionResponse(AttemptResponse attempt, AssignmentResponse assignment,

@@ -393,7 +393,7 @@ public final class FoundationPersistenceService {
 
             TaskRecord task = new TaskRecord(taskId, command.title(), command.description(), TaskPhase.DRAFT, 0,
                     command.specJson(), command.actor(), command.source(), null, null,
-                    command.createdAt(), command.createdAt(), 0);
+                    command.createdAt(), command.createdAt(), 0, command.taskType());
             tx.tasks().insert(task);
             appendEvent(tx, "task", task.id(), "TaskCreated", idPayload(task.id()),
                     task.createdAt(), task.version());
@@ -479,7 +479,7 @@ public final class FoundationPersistenceService {
                     current.priority(), specJson, current.actor(), current.source(),
                     phase == TaskPhase.FAILED ? current.failureCode() : null,
                     phase == TaskPhase.FAILED ? current.redactedFailureMessage() : null,
-                    current.createdAt(), at, current.version());
+                    current.createdAt(), at, current.version(), current.taskType());
             TaskRecord updated = tx.tasks().updateState(next, expectedVersion);
             if (approvalStatus != null) {
                 tx.teams().updateApprovalStatus(id, approvalStatus, at);
@@ -599,7 +599,7 @@ public final class FoundationPersistenceService {
 
     private static String requestHash(CreateTaskCommand command) {
         String input = String.join("\u001f", command.title(), command.description(), command.actor(),
-                command.source(), command.specJson());
+                command.source(), command.specJson(), command.taskType());
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(input.getBytes(StandardCharsets.UTF_8)));

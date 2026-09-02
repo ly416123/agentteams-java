@@ -19,6 +19,7 @@ public final class FoundationTransaction {
     private final ModelPriceRepository modelPrices;
     private final TaskSandboxRepository taskSandboxes;
     private final io.agentteams.controlplane.worker.WorkerOperationRepository workerOperations;
+    private final io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository recoveryCheckpoints;
 
     FoundationTransaction(org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -38,6 +39,7 @@ public final class FoundationTransaction {
         modelPrices = new ModelPriceRepository(jdbc);
         taskSandboxes = new TaskSandboxRepository(jdbc);
         workerOperations = new io.agentteams.controlplane.worker.WorkerOperationRepository(jdbc);
+        recoveryCheckpoints = new io.agentteams.controlplane.task.JdbcTaskRecoveryCheckpointRepository(jdbc);
     }
 
     public AgentRepository agents() {
@@ -102,6 +104,10 @@ public final class FoundationTransaction {
 
     public io.agentteams.controlplane.worker.WorkerOperationRepository workerOperations() {
         return workerOperations;
+    }
+
+    public io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository recoveryCheckpoints() {
+        return recoveryCheckpoints;
     }
 
     /** Test and migration helper for resources whose ownership is stored separately from the domain row. */
@@ -203,9 +209,12 @@ public final class FoundationTransaction {
                 attempt.version(), at);
         cancelGatewayCommands(attempt.id(), at);
         if (!task.phase().terminal()) {
+            String recoveredSpec = withRecoveryCheckpoint(task.specJson(),
+                    recoveryCheckpoints.findLatestByTask(task.id()).orElse(null));
             TaskRecord queued = new TaskRecord(task.id(), task.title(), task.description(),
-                    io.agentteams.domain.task.TaskPhase.QUEUED, task.priority(), task.specJson(),
-                    task.actor(), task.source(), null, null, task.createdAt(), at, task.version() + 1);
+                    io.agentteams.domain.task.TaskPhase.QUEUED, task.priority(), recoveredSpec,
+                    task.actor(), task.source(), null, null, task.createdAt(), at, task.version() + 1,
+                    task.taskType());
             tasks().updateState(queued, task.version());
             FoundationPersistenceService.appendEvent(this, eventId, "task", task.id(), eventType,
                     reclaimPayload(task, attempt, lease, assignment, at, reason), at, queued.version());
@@ -247,6 +256,25 @@ public final class FoundationTransaction {
                 + "\",\"assignmentId\":\"" + (assignment == null ? "" : assignment.id())
                 + "\",\"leaseId\":\"" + lease.id() + "\",\"recoveredAt\":\"" + at
                 + "\",\"reason\":\"" + reason + "\"}";
+    }
+
+    private static String withRecoveryCheckpoint(String specJson,
+            io.agentteams.controlplane.task.TaskRecoveryCheckpoint checkpoint) {
+        if (checkpoint == null) return specJson;
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode parsed = mapper.readTree(specJson);
+            com.fasterxml.jackson.databind.node.ObjectNode root = parsed != null && parsed.isObject()
+                    ? (com.fasterxml.jackson.databind.node.ObjectNode) parsed : mapper.createObjectNode();
+            com.fasterxml.jackson.databind.node.ObjectNode recovery = root.putObject("recoveryCheckpoint");
+            recovery.put("stepKey", checkpoint.stepKey());
+            recovery.put("idempotencyKey", checkpoint.idempotencyKey());
+            recovery.put("checkpointRef", checkpoint.checkpointRef());
+            recovery.put("checkpointUpdatedAt", checkpoint.updatedAt().toString());
+            return root.toString();
+        } catch (Exception error) {
+            throw new IllegalArgumentException("task spec cannot be enriched with recovery checkpoint", error);
+        }
     }
 
     private java.util.Optional<TaskAssignmentRecord> findAssignmentById(java.util.UUID id) {

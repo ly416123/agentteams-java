@@ -4,6 +4,8 @@ import {
   createTask,
   getTask,
   getTaskExecution,
+  getTaskRuns,
+  getTaskCheckpoints,
   listTasks,
   streamTaskEvents,
   taskAction,
@@ -38,6 +40,21 @@ export function useTaskExecution(projectId: string, taskId: string) {
     queryKey: ['task-execution', projectId, taskId],
     queryFn: () => getTaskExecution(taskId),
     enabled: Boolean(projectId && taskId),
+  });
+}
+export function useTaskRuns(projectId: string, taskId: string) {
+  return useQuery({
+    queryKey: ['task-runs', projectId, taskId],
+    queryFn: () => getTaskRuns(taskId),
+    enabled: Boolean(projectId && taskId),
+    refetchInterval: 5_000,
+  });
+}
+export function useTaskCheckpoints(projectId: string, taskId: string, runId: string) {
+  return useQuery({
+    queryKey: ['task-checkpoints', projectId, taskId, runId],
+    queryFn: () => getTaskCheckpoints(taskId, runId),
+    enabled: Boolean(projectId && taskId && runId),
   });
 }
 export function useTaskEvents(projectId: string, taskId: string) {

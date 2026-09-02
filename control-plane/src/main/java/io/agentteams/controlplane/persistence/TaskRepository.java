@@ -21,18 +21,18 @@ public final class TaskRepository {
         jdbc.update("""
                 INSERT INTO tasks
                     (id, title, description, phase, priority, spec, actor, source,
-                     failure_code, redacted_failure_message, created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     failure_code, redacted_failure_message, created_at, updated_at, version, task_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, task.id(), task.title(), task.description(), task.phase().name(), task.priority(),
                 JdbcSupport.json(task.specJson()), task.actor(), task.source(), task.failureCode(),
                 JdbcSupport.failureMessage(task.redactedFailureMessage()), JdbcSupport.timestamp(task.createdAt()),
-                JdbcSupport.timestamp(task.updatedAt()), task.version());
+                JdbcSupport.timestamp(task.updatedAt()), task.version(), task.taskType());
     }
 
     public Optional<TaskRecord> findById(UUID id) {
         return jdbc.query("""
                 SELECT id, title, description, phase, priority, spec::text, actor, source,
-                       failure_code, redacted_failure_message, created_at, updated_at, version
+                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type
                   FROM tasks WHERE id = ?
                 """, this::map, id).stream().findFirst();
     }
@@ -40,7 +40,7 @@ public final class TaskRepository {
     public Optional<TaskRecord> findByIdForUpdate(UUID id) {
         return jdbc.query("""
                 SELECT id, title, description, phase, priority, spec::text, actor, source,
-                       failure_code, redacted_failure_message, created_at, updated_at, version
+                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type
                   FROM tasks WHERE id = ? FOR UPDATE
                 """, this::map, id).stream().findFirst();
     }
@@ -54,7 +54,7 @@ public final class TaskRepository {
         String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
                 ? " AND (t.updated_at, t.id) > (?, ?)" : " AND (t.updated_at, t.id) < (?, ?)";
         StringBuilder sql = new StringBuilder("""
-                SELECT t.id, t.title, t.phase, t.priority, t.actor, t.source,
+                SELECT t.id, t.title, t.phase, t.priority, t.actor, t.source, t.task_type,
                        t.created_at, t.updated_at, t.version,
                        s.tenant_id, s.project_id, s.team,
                        team_ref.team_id, worker_ref.agent_id
@@ -151,7 +151,7 @@ public final class TaskRepository {
                 rs.getInt("priority"), rs.getString("spec"), rs.getString("actor"),
                 rs.getString("source"), rs.getString("failure_code"),
                 rs.getString("redacted_failure_message"), JdbcSupport.instant(rs, "created_at"),
-                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"));
+                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"), rs.getString("task_type"));
     }
 
     private TaskListRecord mapListItem(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
@@ -159,6 +159,7 @@ public final class TaskRepository {
                 TaskPhase.valueOf(rs.getString("phase")), rs.getInt("priority"), rs.getString("tenant_id"),
                 rs.getString("project_id"), rs.getString("team"), rs.getString("actor"), rs.getString("source"),
                 rs.getObject("team_id", UUID.class), rs.getObject("agent_id", UUID.class),
-                JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"));
+                JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"),
+                rs.getString("task_type"));
     }
 }

@@ -34,6 +34,7 @@ export function AppShell() {
 const navItems = [
   { to: 'overview', label: '概览', icon: '◈' },
   { to: 'tasks', label: 'Tasks', icon: '✓' },
+  { to: 'scheduled-tasks', label: '定时任务', icon: '◷' },
   { to: 'teams', label: 'Teams', icon: '◇' },
   { to: 'workers', label: 'Workers', icon: '⬡' },
   { to: 'conversations/new', label: '对话', icon: '◌' },

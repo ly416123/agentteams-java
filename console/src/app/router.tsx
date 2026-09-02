@@ -12,6 +12,7 @@ import { TeamListPage } from '../features/teams/TeamListPage';
 import { TaskDetailPage } from '../features/tasks/TaskDetailPage';
 import { TaskCreatePage } from '../features/tasks/TaskCreatePage';
 import { TaskPage } from '../features/tasks/TaskPage';
+import { ScheduledTaskPage } from '../features/tasks/ScheduledTaskPage';
 import { WorkerDetailPage } from '../features/workers/WorkerDetailPage';
 import { WorkerListPage } from '../features/workers/WorkerListPage';
 import { ConversationPage } from '../features/conversations/ConversationPage';
@@ -118,6 +119,7 @@ function ProtectedProjectRoutes() {
             <Route path="teams/new" element={<TeamCreatePage projectId={projectId} />} />
             <Route path="teams/:teamId" element={<TeamDetailRoute projectId={projectId} />} />
             <Route path="tasks" element={<TaskPage projectId={projectId} />} />
+            <Route path="scheduled-tasks" element={<ScheduledTaskPage projectId={projectId} />} />
             <Route path="tasks/new" element={<TaskCreatePage projectId={projectId} />} />
             <Route path="tasks/:taskId" element={<TaskDetailRoute projectId={projectId} />} />
             <Route path="workers" element={<WorkerListPage projectId={projectId} />} />

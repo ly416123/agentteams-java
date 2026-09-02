@@ -19,6 +19,11 @@ public interface TaskExecutionObservationPort {
     void progress(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
             int percent, String status, String message);
 
+    /** Records a resumable, idempotent step boundary without exposing execution payloads. */
+    default void checkpoint(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
+            String stepKey, String idempotencyKey, String checkpointRef) {
+    }
+
     void completed(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
             String resultSummary, List<ExecutionEventPort.ArtifactReference> artifacts);
 

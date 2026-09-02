@@ -248,16 +248,23 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
+    io.agentteams.controlplane.schedule.ScheduledTaskRunRepository scheduledTaskRunRepository(DataSource dataSource) {
+        return new io.agentteams.controlplane.schedule.JdbcScheduledTaskRunRepository(
+                new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
             name = "agentteams.scheduled-tasks.enabled", havingValue = "true", matchIfMissing = true)
     io.agentteams.controlplane.schedule.ScheduledTaskScheduler scheduledTaskScheduler(
             io.agentteams.controlplane.schedule.ScheduledTaskRepository schedules, TaskService tasks,
+            io.agentteams.controlplane.schedule.ScheduledTaskRunRepository runs,
             SchedulerLeaseService schedulerLease, Clock clock,
             @Value("${POD_NAME:}") String podName,
             @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
             @Value("${agentteams.scheduled-tasks.batch-size:16}") int batchSize) {
-        return new io.agentteams.controlplane.schedule.ScheduledTaskScheduler(schedules, tasks, schedulerLease, clock,
-                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
+        return new io.agentteams.controlplane.schedule.ScheduledTaskScheduler(schedules, tasks, runs, schedulerLease,
+                clock, TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
     }
 
     @Bean

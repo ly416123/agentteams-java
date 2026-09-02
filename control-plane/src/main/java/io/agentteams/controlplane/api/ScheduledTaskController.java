@@ -3,8 +3,11 @@ package io.agentteams.controlplane.api;
 import io.agentteams.controlplane.schedule.ScheduledTaskDefinition;
 import io.agentteams.controlplane.schedule.ScheduledTaskScope;
 import io.agentteams.controlplane.schedule.ScheduledTaskService;
+import io.agentteams.controlplane.schedule.ScheduledTaskRun;
+import io.agentteams.controlplane.schedule.ScheduledTaskRunRepository;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.service.TaskService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -24,9 +27,18 @@ import org.springframework.web.bind.annotation.RestController;
 public final class ScheduledTaskController {
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final ScheduledTaskService service;
+    private final ScheduledTaskRunRepository runs;
+    private final TaskService tasks;
 
     public ScheduledTaskController(ScheduledTaskService service) {
+        this(service, null, null);
+    }
+
+    public ScheduledTaskController(ScheduledTaskService service, ScheduledTaskRunRepository runs,
+            TaskService tasks) {
         this.service = service;
+        this.runs = runs;
+        this.tasks = tasks;
     }
 
     @PostMapping
@@ -73,6 +85,49 @@ public final class ScheduledTaskController {
         return ScheduleResponse.from(service.resume(request.scope(), id, operationKey));
     }
 
+    @GetMapping("/{id}/runs")
+    public List<ScheduleRunResponse> runs(@PathVariable UUID id, @RequestParam String organizationId,
+            @RequestParam String tenantId, @RequestParam(required = false) String projectId,
+            @RequestParam(defaultValue = "100") int limit) {
+        requireRunDependencies();
+        ScheduledTaskScope scope = new ScheduledTaskScope(organizationId, tenantId, projectId);
+        requireCallerScope(tenantId, projectId);
+        service.find(scope, id);
+        return runs.list(scope, id, limit).stream().map(ScheduleRunResponse::from).toList();
+    }
+
+    @GetMapping("/{id}/runs/{runId}")
+    public ScheduleRunResponse run(@PathVariable UUID id, @PathVariable UUID runId,
+            @RequestParam String organizationId, @RequestParam String tenantId,
+            @RequestParam(required = false) String projectId) {
+        requireRunDependencies();
+        ScheduledTaskScope scope = new ScheduledTaskScope(organizationId, tenantId, projectId);
+        requireCallerScope(tenantId, projectId);
+        return ScheduleRunResponse.from(runs.find(scope, id, runId)
+                .orElseThrow(io.agentteams.controlplane.schedule.ScheduledTaskNotFoundException::new));
+    }
+
+    @PostMapping("/{id}/runs/{runId}/cancel")
+    public ScheduleRunResponse cancelRun(@PathVariable UUID id, @PathVariable UUID runId,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String operationKey,
+            @RequestBody RunCancelRequest request) {
+        requireKey(operationKey);
+        requireRunDependencies();
+        if (request == null) throw new IllegalArgumentException("request body is required");
+        requireCallerScope(request.tenantId(), request.projectId());
+        ScheduledTaskScope scope = request.scope();
+        ScheduledTaskRun current = runs.find(scope, id, runId)
+                .orElseThrow(io.agentteams.controlplane.schedule.ScheduledTaskNotFoundException::new);
+        if (!current.active()) return ScheduleRunResponse.from(current);
+        var task = tasks.get(current.taskId());
+        long version = request.expectedTaskVersion() == null ? task.version() : request.expectedTaskVersion();
+        if (!task.phase().terminal()) {
+            tasks.cancelFromSchedule(task.id(), version, operationKey, PrincipalContext.actorOr("scheduler"),
+                    "scheduled-console");
+        }
+        return ScheduleRunResponse.from(runs.cancel(scope, id, runId, operationKey, Instant.now()));
+    }
+
     private static void requireKey(String value) {
         if (value == null || value.isBlank() || value.length() > 255) {
             throw new IllegalArgumentException("Idempotency-Key is required and must be at most 255 characters");
@@ -102,6 +157,21 @@ public final class ScheduledTaskController {
         ScheduledTaskScope scope() { return new ScheduledTaskScope(organizationId, tenantId, projectId); }
     }
 
+    public record RunCancelRequest(String organizationId, String tenantId, String projectId,
+            Long expectedTaskVersion) {
+        ScheduledTaskScope scope() { return new ScheduledTaskScope(organizationId, tenantId, projectId); }
+    }
+
+    public record ScheduleRunResponse(UUID id, UUID scheduleId, UUID taskId, UUID executionRunId,
+            Instant occurrenceAt, String status, String taskPhase, String resultStatus, String resultSummary,
+            Instant createdAt, Instant updatedAt, long version) {
+        static ScheduleRunResponse from(ScheduledTaskRun value) {
+            return new ScheduleRunResponse(value.id(), value.scheduleId(), value.taskId(), value.executionRunId(),
+                    value.occurrenceAt(), value.status().name(), value.taskPhase(), value.resultStatus(),
+                    value.resultSummary(), value.createdAt(), value.updatedAt(), value.version());
+        }
+    }
+
     public record ScheduleResponse(UUID id, String name, String organizationId, String tenantId, String projectId,
             String cronExpression, String timeZone, String title, boolean enabled, Instant nextRunAt,
             Instant lastRunAt, UUID lastTaskId, long version) {
@@ -109,6 +179,12 @@ public final class ScheduledTaskController {
             return new ScheduleResponse(value.id(), value.name(), value.scope().organizationId(),
                     value.scope().tenantId(), value.scope().projectId(), value.cronExpression(), value.timeZone(),
                     value.title(), value.enabled(), value.nextRunAt(), value.lastRunAt(), value.lastTaskId(), value.version());
+        }
+    }
+
+    private void requireRunDependencies() {
+        if (runs == null || tasks == null) {
+            throw new IllegalStateException("scheduled run support is not configured");
         }
     }
 }

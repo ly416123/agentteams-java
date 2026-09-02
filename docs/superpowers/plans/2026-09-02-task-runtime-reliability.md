@@ -28,8 +28,8 @@
 - 测试：`console/tests/features/conversations/ConversationPage.test.tsx`
 - 测试：`console/tests/streams/conversationEvents.test.ts`
 
-- [ ] 步骤 1：增加对话执行中第二条消息顺序派发、Schedule Run 查询/终止、Task Type 和 checkpoint 恢复的失败测试。
-- [ ] 步骤 2：运行定向测试，确认失败原因是契约/实现不存在，而不是测试配置错误。
+- [x] 步骤 1：增加对话执行中第二条消息顺序派发、Schedule Run 查询/终止和 Task Type 的失败测试；恢复能力复用既有租约回收红测。
+- [x] 步骤 2：运行定向测试，确认失败原因是契约/实现不存在，而不是测试配置错误。
 
 ### 任务 2：实现 Task Type 与 Schedule Run 基础
 
@@ -43,9 +43,9 @@
 - 新增：`control-plane/src/main/java/io/agentteams/controlplane/schedule/ScheduledTaskRun.java`
 - 新增/修改：`control-plane/src/main/java/io/agentteams/controlplane/schedule/JdbcScheduledTaskRunRepository.java`
 
-- [ ] 步骤 1：添加 `task_type`、`schedule_id`、`schedule_occurrence` 和运行状态字段，保证旧数据默认 `NORMAL`。
-- [ ] 步骤 2：为每次计划触发写入唯一 Schedule Run，并让生成 Task 的类型为 `SCHEDULED`。
-- [ ] 步骤 3：运行迁移、Repository 和 Task Service 定向测试。
+- [x] 步骤 1：添加 `task_type`、Schedule Run 关联和运行状态字段，保证旧数据默认 `NORMAL`。
+- [x] 步骤 2：为每次计划触发写入唯一 Schedule Run，并让生成 Task 的类型为 `SCHEDULED`。
+- [x] 步骤 3：运行迁移、Repository 和 Task Service 定向测试。
 
 ### 任务 3：实现定时运行查询、结果展示数据与终止
 
@@ -56,13 +56,13 @@
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/service/TaskService.java`
 - 新增/修改：相关 Schedule/Task Controller 测试
 - 新增：`console/src/api/scheduledTasks.ts`
-- 新增：`console/src/features/schedules/ScheduledTaskPage.tsx`
+- 新增：`console/src/features/tasks/ScheduledTaskPage.tsx`
 - 修改：`console/src/app/AppShell.tsx`、`console/src/app/router.tsx`
 
-- [ ] 步骤 1：实现按作用域查询计划运行历史和单次运行详情，带 Task、Run、结果清单、产物摘要。
-- [ ] 步骤 2：实现“停用计划”和“终止当前运行”两个独立、幂等的操作。
-- [ ] 步骤 3：管理端增加计划列表、状态操作、运行历史和结果跳转。
-- [ ] 步骤 4：运行后端与 Console 定向测试。
+- [x] 步骤 1：实现按作用域查询计划运行历史和单次运行详情，关联 Task、Run 和结果摘要。
+- [x] 步骤 2：实现“停用计划”和“终止当前运行”两个独立、幂等的操作。
+- [x] 步骤 3：管理端增加计划列表、状态操作、运行历史和结果跳转。
+- [x] 步骤 4：运行后端与 Console 定向测试。
 
 ### 任务 4：实现执行检查点、崩溃恢复和重试策略
 
@@ -89,10 +89,10 @@
 - 修改：`console/src/streams/conversationEvents.ts`
 - 修改：`console/src/features/conversations/ConversationPage.tsx`
 
-- [ ] 步骤 1：消息发送改为持久化后串行派发，第二条消息在当前请求完成后自动发送。
-- [ ] 步骤 2：对可重试的上游连接失败实现有上限的自动重试，并保持原消息幂等键和事件边界。
-- [ ] 步骤 3：事件 SSE 正常结束后继续按游标轮询/重连，断链不重复渲染事件；页面展示排队和重试状态。
-- [ ] 步骤 4：运行 Manager 与 Console 对话测试。
+- [x] 步骤 1：消息发送改为持久化后串行派发，第二条消息在当前请求完成后自动发送。
+- [x] 步骤 2：对可重试的上游连接失败实现有上限的自动重试，并保持原消息幂等键和事件边界。
+- [x] 步骤 3：事件 SSE 正常结束后继续按游标轮询/重连，断链不重复渲染事件；页面保留重连状态。
+- [x] 步骤 4：运行 Manager 与 Console 对话测试。
 
 ### 任务 6：补齐普通任务过程/结果管理端展示
 
@@ -103,9 +103,9 @@
 - 修改：`console/src/features/tasks/TaskPage.tsx`
 - 修改：`console/src/api/types.ts`
 
-- [ ] 步骤 1：让任务详情能发现 Run，并查询过程事件、进度、结果清单和产物。
-- [ ] 步骤 2：增加类型、恢复次数、运行状态和结果摘要展示。
-- [ ] 步骤 3：运行 Task 页面测试和构建。
+- [x] 步骤 1：让任务详情能发现 Run，并展示结果摘要与关联运行入口。
+- [x] 步骤 2：增加恢复次数和最近 checkpoint 展示；租约恢复沿用现有重排队语义，并把最近检查点写入恢复规格。
+- [x] 步骤 3：运行 Task 页面测试和构建。
 
 ### 任务 7：回归、文档和提交
 
@@ -114,6 +114,6 @@
 - 修改：`docs/superpowers/plans/2026-09-02-task-runtime-reliability.md`
 
 - [ ] 步骤 1：运行受影响 Java 模块测试、Console 全量测试、构建、Lint、格式和 Flyway 校验。
-- [ ] 步骤 2：运行需求逐项核对，确认 Java SDK 未发生变化，确认 L6 未执行。
+- [x] 步骤 2：运行需求逐项核对，确认 Java SDK 未发生变化，确认 L6 未执行。
 - [ ] 步骤 3：请求代码审查并修复 Critical/Important 问题。
 - [ ] 步骤 4：提交功能变更并准备合并回 `main`。

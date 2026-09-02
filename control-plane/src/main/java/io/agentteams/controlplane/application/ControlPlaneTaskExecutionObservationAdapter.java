@@ -16,6 +16,8 @@ import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskProcessEventService;
 import io.agentteams.controlplane.task.TaskRunObservationRepository;
 import io.agentteams.controlplane.task.TaskResultManifestService;
+import io.agentteams.controlplane.task.TaskRecoveryCheckpoint;
+import io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
@@ -42,19 +44,21 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
     private final WebhookDeliveryService webhooks;
     private final TaskTreeService taskTree;
     private final TaskDecisionRecordService decisions;
+    private final TaskRecoveryCheckpointRepository checkpoints;
 
     @Autowired
     public ControlPlaneTaskExecutionObservationAdapter(JdbcTaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
-            WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions) {
-        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, taskTree, decisions);
+            WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions,
+            TaskRecoveryCheckpointRepository checkpoints) {
+        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, taskTree, decisions, checkpoints);
     }
 
     /** Compatibility constructor for composition tests that only exercise Worker lifecycle facts. */
     public ControlPlaneTaskExecutionObservationAdapter(JdbcTaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks) {
-        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, null, null);
+        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, null, null, null);
     }
 
     ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
@@ -66,6 +70,13 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
     ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions) {
+        this(runs, processEvents, results, webhooks, taskTree, decisions, null);
+    }
+
+    ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
+            TaskProcessEventService processEvents, TaskResultManifestService results,
+            WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions,
+            TaskRecoveryCheckpointRepository checkpoints) {
         this.runs = Objects.requireNonNull(runs, "runs");
         this.processEvents = Objects.requireNonNull(processEvents, "processEvents");
         this.results = Objects.requireNonNull(results, "results");
@@ -75,6 +86,7 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
         }
         this.taskTree = taskTree;
         this.decisions = decisions;
+        this.checkpoints = checkpoints;
     }
 
     @Override
@@ -96,6 +108,24 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
                 .put("status", safeText(status, "RUNNING"))
                 .put("message", safeText(message, "progress updated"));
         recordProcess(taskId, runId, eventId, occurredAt, correlationId, "task.progress", body, "RUNNING");
+    }
+
+    @Override
+    @Transactional
+    public void checkpoint(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
+            String stepKey, String idempotencyKey, String checkpointRef) {
+        TaskExecutionObservationPort.requireCommon(taskId, runId, eventId, occurredAt, correlationId);
+        if (checkpoints == null) return;
+        String safeStep = safeText(stepKey, "unknown-step");
+        String safeKey = safeText(idempotencyKey, "checkpoint-" + eventId);
+        String safeRef = safeText(checkpointRef, "checkpoint-ref-" + eventId);
+        ExecutionContext context = recordProcess(taskId, runId, eventId, occurredAt, correlationId,
+                "task.checkpoint", payload("stepKey", safeStep), "RUNNING");
+        if (context == null) return;
+        checkpoints.save(new TaskRecoveryCheckpoint(
+                UUID.nameUUIDFromBytes(("checkpoint:" + runId + ":" + safeStep).getBytes(StandardCharsets.UTF_8)),
+                taskId, runId, null,
+                safeStep, safeKey, "COMPLETED", safeRef, occurredAt, occurredAt, 0));
     }
 
     @Override

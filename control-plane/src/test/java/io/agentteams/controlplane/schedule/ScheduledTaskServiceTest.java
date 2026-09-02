@@ -65,6 +65,16 @@ class ScheduledTaskServiceTest {
         verify(repository).resume(SCOPE, id, "resume-1", NOW.plusSeconds(3600), NOW);
     }
 
+    @Test
+    void scheduledRunCanBeTerminatedWithoutDisablingTheFuturePlan() {
+        ScheduledTaskRun run = new ScheduledTaskRun(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                NOW, ScheduledTaskRun.Status.RUNNING, NOW, 0);
+
+        assertThat(run.active()).isTrue();
+        assertThat(run.withStatus(ScheduledTaskRun.Status.CANCELLED, NOW.plusSeconds(1)).status())
+                .isEqualTo(ScheduledTaskRun.Status.CANCELLED);
+    }
+
     private static ScheduledTaskDefinition definition(UUID id, boolean enabled) {
         return new ScheduledTaskDefinition(id, "job", SCOPE, "0 0 * * * *", "UTC", "title", "desc", "{}",
                 "manager", "api", enabled, NOW.plusSeconds(3600), null, null, 0, NOW, NOW);

@@ -227,14 +227,7 @@ public final class ConversationService {
                 record.responseCaptured = !replay.isEmpty();
                 return new SendResult(sessionId, idempotencyKey, replay);
             }
-            try {
-                runtime.send(new ConversationRuntimePort.Message(sessionId, idempotencyKey, content));
-            } catch (RuntimeException error) {
-                repository.updateMessageStatus(sessionId, idempotencyKey,
-                        ConversationRepository.MessageStatus.RECOVERY_REQUIRED);
-                record.status = ConversationRepository.MessageStatus.RECOVERY_REQUIRED;
-                throw error;
-            }
+            dispatchPendingMessages(state);
             syncRuntimeEvents(state);
             List<ConversationEvent> produced = repository.findEvents(sessionId, startCursor);
             freezeTerminalCursors(state, produced);
@@ -257,6 +250,7 @@ public final class ConversationService {
             authorize(state, caller);
             syncRuntimeEvents(state);
             freezeTerminalCursors(state, repository.findEvents(sessionId));
+            dispatchPendingMessages(state);
             return repository.findEvents(sessionId, afterCursor);
         }
     }
@@ -271,6 +265,7 @@ public final class ConversationService {
             authorize(state, caller);
             syncRuntimeEvents(state);
             freezeTerminalCursors(state, repository.findEvents(sessionId));
+            dispatchPendingMessages(state);
             return state.messages.values().stream()
                     .anyMatch(record -> record.status == ConversationRepository.MessageStatus.RESERVED);
         }
@@ -342,6 +337,7 @@ public final class ConversationService {
                     syncRuntimeEvents(state);
                     freezeTerminalCursors(state, repository.findEvents(state.context.sessionId()));
                     refreshMessages(state);
+                    dispatchPendingMessages(state);
                     complete = state.messages.values().stream()
                             .noneMatch(record -> record.status == ConversationRepository.MessageStatus.RESERVED);
                 }
@@ -450,16 +446,25 @@ public final class ConversationService {
     private void freezeTerminalCursors(SessionState state, List<ConversationEvent> observed) {
         for (SendRecord record : state.messages.values()) {
             if (record.endCursor != null) continue;
-            observed.stream()
-                    .filter(event -> event.cursor() > record.startCursor)
+            java.util.Optional<ConversationEvent> terminal = observed.stream()
+                    .filter(event -> record.dispatched)
+                    .filter(event -> event.cursor() > record.attemptStartCursor)
                     .filter(event -> isTerminal(event.type()))
-                    .mapToLong(ConversationEvent::cursor)
-                    .min()
-            .ifPresent(cursor -> {
+                    .min(java.util.Comparator.comparingLong(ConversationEvent::cursor));
+            terminal.ifPresent(event -> {
+                if (isRetryableFailure(event) && record.retryCount < MAX_AUTOMATIC_RETRIES) {
+                    record.retryCount++;
+                    record.dispatched = false;
+                    record.attemptStartCursor = event.cursor();
+                    record.status = ConversationRepository.MessageStatus.RESERVED;
+                    repository.updateMessageStatus(state.context.sessionId(), record.idempotencyKey,
+                            ConversationRepository.MessageStatus.RESERVED);
+                    return;
+                }
+                long cursor = event.cursor();
                 record.freezeAt(cursor);
                 repository.updateMessageEnd(state.context.sessionId(), record.idempotencyKey, cursor);
-                if (observed.stream().anyMatch(event -> event.cursor() == cursor
-                        && "conversation.failed".equals(event.type()))) {
+                if ("conversation.failed".equals(event.type())) {
                     record.status = ConversationRepository.MessageStatus.FAILED;
                     repository.updateMessageStatus(state.context.sessionId(), record.idempotencyKey,
                             ConversationRepository.MessageStatus.FAILED);
@@ -473,8 +478,8 @@ public final class ConversationService {
         long endCursor = lastCursor(observed);
         if (record.endCursor != null) endCursor = Math.min(endCursor, record.endCursor);
         long nextStartCursor = state.messages.values().stream()
-                .filter(candidate -> candidate.startCursor > record.startCursor)
-                .mapToLong(candidate -> candidate.startCursor)
+                .filter(candidate -> candidate.attemptStartCursor > record.attemptStartCursor)
+                .mapToLong(candidate -> candidate.attemptStartCursor)
                 .min().orElse(Long.MAX_VALUE);
         if (nextStartCursor != Long.MAX_VALUE) endCursor = Math.min(endCursor, nextStartCursor);
         long upperBound = endCursor;
@@ -485,6 +490,41 @@ public final class ConversationService {
     private static boolean isTerminal(String type) {
         return "message.completed".equals(type) || "conversation.failed".equals(type)
                 || "conversation.cancelled".equals(type);
+    }
+
+    private static boolean isRetryableFailure(ConversationEvent event) {
+        if (!"conversation.failed".equals(event.type())) return false;
+        return event.data().contains("CONNECTION_CLOSED") || event.data().contains("TIMEOUT")
+                || event.data().contains("WORKER_UNAVAILABLE")
+                || event.data().contains("MODEL_PROVIDER_UNAVAILABLE");
+    }
+
+    private static final int MAX_AUTOMATIC_RETRIES = 2;
+
+    /** Sends only the oldest undispatched message when no earlier message is active. */
+    private void dispatchPendingMessages(SessionState state) {
+        refreshMessages(state);
+        boolean active = state.messages.values().stream()
+                .anyMatch(record -> record.dispatched && record.status == ConversationRepository.MessageStatus.RESERVED);
+        if (active) return;
+        SendRecord next = state.messages.values().stream()
+                .filter(record -> !record.dispatched && record.status == ConversationRepository.MessageStatus.RESERVED)
+                .min(java.util.Comparator.comparing((SendRecord record) -> record.createdAt)
+                        .thenComparing(record -> record.idempotencyKey))
+                .orElse(null);
+        if (next == null) return;
+        next.attemptStartCursor = lastCursor(repository.findEvents(state.context.sessionId()));
+        next.dispatched = true;
+        try {
+            runtime.send(new ConversationRuntimePort.Message(state.context.sessionId(), next.idempotencyKey,
+                    next.content));
+        } catch (RuntimeException error) {
+            next.dispatched = false;
+            repository.updateMessageStatus(state.context.sessionId(), next.idempotencyKey,
+                    ConversationRepository.MessageStatus.RECOVERY_REQUIRED);
+            next.status = ConversationRepository.MessageStatus.RECOVERY_REQUIRED;
+            throw error;
+        }
     }
 
     private static Conversation snapshot(SessionState state) {
@@ -528,22 +568,28 @@ public final class ConversationService {
         private final String idempotencyKey;
         private final String content;
         private final long startCursor;
+        private final Instant createdAt;
+        private long attemptStartCursor;
         private List<ConversationEvent> responseEvents = List.of();
         private boolean responseCaptured;
         private Long endCursor;
         private ConversationRepository.MessageStatus status;
+        private boolean dispatched;
+        private int retryCount;
 
-        private SendRecord(String idempotencyKey, String content, long startCursor, Long endCursor,
+        private SendRecord(String idempotencyKey, String content, long startCursor, Instant createdAt, Long endCursor,
                 ConversationRepository.MessageStatus status) {
             this.idempotencyKey = idempotencyKey;
             this.content = content;
             this.startCursor = startCursor;
+            this.createdAt = createdAt;
+            this.attemptStartCursor = startCursor;
             this.endCursor = endCursor;
             this.status = status;
         }
 
         private static SendRecord from(ConversationRepository.MessageRecord record) {
-            return new SendRecord(record.idempotencyKey(), record.content(), record.startCursor(), record.endCursor(),
+            return new SendRecord(record.idempotencyKey(), record.content(), record.startCursor(), record.createdAt(), record.endCursor(),
                     record.status());
         }
 

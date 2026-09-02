@@ -6,6 +6,8 @@ import {
   useTaskAction,
   useTaskEvents,
   useTaskExecution,
+  useTaskRuns,
+  useTaskCheckpoints,
 } from '../../queries/useTaskQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -35,6 +37,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const task = useTask(projectId, taskId);
   const events = useTaskEvents(projectId, taskId);
   const execution = useTaskExecution(projectId, taskId);
+  const runs = useTaskRuns(projectId, taskId);
   const action = useTaskAction(projectId, taskId);
   const [conflict, setConflict] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -158,6 +161,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
               优先级<strong>P{task.data.priority}</strong>
             </span>
             <span>
+              任务类型<strong>{task.data.taskType || 'NORMAL'}</strong>
+            </span>
+            <span>
               创建时间<strong>{new Date(task.data.createdAt).toLocaleString('zh-CN')}</strong>
             </span>
           </div>
@@ -207,6 +213,42 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           </div>
         )}
       </section>
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">RUN RESULTS</p>
+            <h2>执行结果</h2>
+          </div>
+        </div>
+        {runs.isLoading ? (
+          <div className="loading-block">加载执行结果…</div>
+        ) : runs.isError ? (
+          <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
+        ) : !runs.data?.length ? (
+          <p className="muted-text">当前任务尚未产生运行记录。</p>
+        ) : (
+          <div className="stack-list">
+            {runs.data.map((run) => (
+              <article className="stack-list__item" key={run.id}>
+                <div>
+                  <strong>{run.status}</strong>
+                  <div className="muted-text">Run {run.id}</div>
+                </div>
+                <div>
+                  {run.resultSummary || run.resultStatus || '暂无终态结果摘要'}
+                  <RunCheckpoints projectId={projectId} taskId={taskId} runId={run.id} />
+                </div>
+                <Link
+                  className="button button--ghost button--small"
+                  to={`/${projectId}/tasks/${taskId}?runId=${run.id}`}
+                >
+                  查看运行
+                </Link>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
       <VersionConflictModal
         open={conflict}
         actionLabel={conflictAction ? actionLabels[conflictAction] : '继续操作'}
@@ -230,6 +272,25 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           runAction(name);
         }}
       />
+    </div>
+  );
+}
+
+function RunCheckpoints({
+  projectId,
+  taskId,
+  runId,
+}: {
+  projectId: string;
+  taskId: string;
+  runId: string;
+}) {
+  const checkpoints = useTaskCheckpoints(projectId, taskId, runId);
+  if (!checkpoints.data?.length) return null;
+  const latest = checkpoints.data[0];
+  return (
+    <div className="muted-text">
+      最近检查点：{latest.stepKey} · {latest.checkpointRef}
     </div>
   );
 }

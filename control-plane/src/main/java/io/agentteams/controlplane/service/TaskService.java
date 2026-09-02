@@ -103,7 +103,10 @@ public final class TaskService {
         String spec = jsonObjectOrDefault(input.specJson());
         authorizeCreate(spec);
         Instant now = clock.instant();
-        TaskRecord created = persistence.createTask(new CreateTaskCommand(key, title, description, actor, source, spec, now));
+        String taskType = input.taskType() == null || input.taskType().isBlank()
+                ? typeFromSpec(spec) : input.taskType();
+        TaskRecord created = persistence.createTask(new CreateTaskCommand(key, title, description, actor, source,
+                spec, now, taskType));
         bindIfAuthenticated(created.id());
         requireVisible(created.id());
         metrics.taskCreated();
@@ -167,6 +170,13 @@ public final class TaskService {
                 defaultText(actor, "api"), defaultText(source, "rest"), CANCEL_TASK);
     }
 
+    /** Schedule controller has already checked the schedule scope and run identity. */
+    public TaskRecord cancelFromSchedule(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source) {
+        return transition(id, TaskPhase.CANCELLED, expectedVersion, idempotencyKey,
+                defaultText(actor, "scheduler"), defaultText(source, "scheduled-task"), CANCEL_TASK);
+    }
+
     public TaskRecord retry(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source) {
         authorizeTask(id, ResourceAction.TASK_OPERATE);
@@ -198,7 +208,21 @@ public final class TaskService {
                 defaultText(actor, "api"), defaultText(source, "rest"), false, REJECT_TASK);
     }
 
-    public record TaskInput(String title, String description, String specJson, String actor, String source) {
+    public record TaskInput(String title, String description, String specJson, String actor, String source,
+            String taskType) {
+        public TaskInput(String title, String description, String specJson, String actor, String source) {
+            this(title, description, specJson, actor, source, null);
+        }
+    }
+
+    private static String typeFromSpec(String spec) {
+        try {
+            JsonNode node = JSON.readTree(spec);
+            String value = node == null ? null : node.path("taskType").asText(null);
+            return value == null || value.isBlank() ? "NORMAL" : value;
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task spec is invalid JSON", error);
+        }
     }
 
     private TaskRecord transition(UUID id, TaskPhase target, long expectedVersion, String idempotencyKey,

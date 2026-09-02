@@ -18,6 +18,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 public final class ScheduledTaskScheduler {
     private final ScheduledTaskRepository schedules;
     private final TaskService tasks;
+    private final ScheduledTaskRunRepository runs;
     private final io.agentteams.controlplane.service.SchedulerLeaseService lease;
     private final Clock clock;
     private final String owner;
@@ -27,8 +28,15 @@ public final class ScheduledTaskScheduler {
     public ScheduledTaskScheduler(ScheduledTaskRepository schedules, TaskService tasks,
             io.agentteams.controlplane.service.SchedulerLeaseService lease, Clock clock,
             String owner, Duration leaseDuration, int batchSize) {
+        this(schedules, tasks, null, lease, clock, owner, leaseDuration, batchSize);
+    }
+
+    public ScheduledTaskScheduler(ScheduledTaskRepository schedules, TaskService tasks,
+            ScheduledTaskRunRepository runs, io.agentteams.controlplane.service.SchedulerLeaseService lease,
+            Clock clock, String owner, Duration leaseDuration, int batchSize) {
         this.schedules = Objects.requireNonNull(schedules, "schedules");
         this.tasks = Objects.requireNonNull(tasks, "tasks");
+        this.runs = runs;
         this.lease = Objects.requireNonNull(lease, "lease");
         this.clock = Objects.requireNonNull(clock, "clock");
         if (owner == null || owner.isBlank()) throw new IllegalArgumentException("owner must not be blank");
@@ -54,6 +62,12 @@ public final class ScheduledTaskScheduler {
             for (ScheduledTaskDefinition schedule : schedules.findDue(now, batchSize)) {
                 try {
                     UUID taskId = trigger(schedule, now);
+                    if (runs != null) {
+                        UUID runId = UUID.nameUUIDFromBytes(("scheduled-run:" + schedule.id() + ":"
+                                + schedule.nextRunAt()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        runs.insertIfAbsent(new ScheduledTaskRun(runId, schedule.id(), taskId,
+                                schedule.nextRunAt(), ScheduledTaskRun.Status.TRIGGERED, now, 0));
+                    }
                     Instant nextRun = org.springframework.scheduling.support.CronExpression
                             .parse(schedule.cronExpression()).next(schedule.nextRunAt().atZone(ZoneId.of(schedule.timeZone())))
                             .toInstant();
@@ -71,19 +85,21 @@ public final class ScheduledTaskScheduler {
         Principal principal = new Principal(schedule.actor(), new AuthorizationService.Scope(
                 schedule.scope().tenantId(), project, "scheduled"),
                 Set.of("task:create", "task:read", "task:cancel", "task:retry", "task:pause", "task:approve"));
-        String scopeJson = withScope(schedule.specJson(), schedule.scope().tenantId(), project);
+        String scopeJson = withScope(schedule.specJson(), schedule.scope().tenantId(), project,
+                schedule.id(), schedule.nextRunAt());
         try {
             PrincipalContext.set(principal);
             TaskRecord created = tasks.create("schedule:" + schedule.id() + ":" + schedule.nextRunAt(),
                     new TaskService.TaskInput(schedule.title(), schedule.description(), scopeJson,
-                            schedule.actor(), schedule.source()));
+                            schedule.actor(), schedule.source(), "SCHEDULED"));
             return created.id();
         } finally {
             PrincipalContext.clear();
         }
     }
 
-    private static String withScope(String specJson, String tenant, String project) {
+    private static String withScope(String specJson, String tenant, String project, UUID scheduleId,
+            Instant occurrenceAt) {
         try {
             com.fasterxml.jackson.databind.node.ObjectNode root = (com.fasterxml.jackson.databind.node.ObjectNode)
                     new com.fasterxml.jackson.databind.ObjectMapper().readTree(specJson);
@@ -91,6 +107,8 @@ public final class ScheduledTaskScheduler {
             scope.put("tenant", tenant);
             scope.put("project", project);
             scope.put("team", "scheduled");
+            root.put("scheduleId", scheduleId.toString());
+            root.put("scheduleOccurrence", occurrenceAt.toString());
             return root.toString();
         } catch (java.io.IOException error) {
             throw new IllegalArgumentException("scheduled task spec is invalid", error);

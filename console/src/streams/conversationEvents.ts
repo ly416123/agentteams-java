@@ -73,6 +73,7 @@ export async function streamConversationEvents(
   options: {
     client?: HttpClient;
     maxReconnectAttempts?: number;
+    keepAlive?: boolean;
     sleep?: (ms: number) => Promise<void>;
     signal?: AbortSignal;
     onEvent: (event: ConversationEvent) => void;
@@ -81,12 +82,14 @@ export async function streamConversationEvents(
 ) {
   const client = options.client ?? apiClient;
   const maxAttempts = options.maxReconnectAttempts ?? 5;
+  const keepAlive = options.keepAlive ?? false;
   const sleep =
     options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const internalController = new AbortController();
   const signal = options.signal ?? internalController.signal;
   let after: string | undefined;
-  for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
+  let attempt = 0;
+  while (true) {
     options.onState?.(attempt ? 'reconnecting' : 'connecting');
     try {
       const response = await client.requestStream(`/api/v1/conversations/${id}/events`, {
@@ -116,8 +119,12 @@ export async function streamConversationEvents(
         reader.releaseLock();
       }
       // The Manager endpoint may return a finite replay and close normally.
-      // Only transport/HTTP failures should consume reconnect attempts.
-      return;
+      // Live conversations poll again after a normal close so a finite replay
+      // does not look like a disconnected browser tab.
+      if (!keepAlive) return;
+      attempt = 0;
+      await sleep(250);
+      if (signal.aborted) return;
     } catch (error) {
       if (signal.aborted) return;
       if (attempt === maxAttempts) {
@@ -125,6 +132,7 @@ export async function streamConversationEvents(
         throw error;
       }
       await sleep(conversationReconnectDelay(attempt));
+      attempt += 1;
     }
   }
 }
