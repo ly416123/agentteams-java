@@ -26,7 +26,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
   const scope: ScheduleScope | undefined = useMemo(
     () =>
       organizationId && project
-        ? { organizationId, tenantId: project.tenantId, projectId }
+        ? { organizationId, tenantId: project.tenantId, projectId: project.name }
         : undefined,
     [organizationId, project, projectId],
   );
@@ -68,17 +68,17 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
     };
   }, [scope, selectedId]);
 
-  if (projects.isLoading || !scope) {
-    return (
-      <div className="page">
-        <div className="panel loading-block">加载定时任务…</div>
-      </div>
-    );
-  }
   if (projects.isError || error) {
     return (
       <div className="page">
         <ErrorState error={error || projects.error} />
+      </div>
+    );
+  }
+  if (projects.isLoading || !scope) {
+    return (
+      <div className="page">
+        <div className="panel loading-block">加载定时任务…</div>
       </div>
     );
   }
