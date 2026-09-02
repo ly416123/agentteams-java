@@ -102,10 +102,10 @@ kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PA
     ON CONFLICT (tenant_id, project_id, subject)
     DO UPDATE SET role = 'DEVELOPER', status = 'ACTIVE', updated_at = now();
     INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
-    SELECT 'tenant-a', id, '${QUOTA_ADMIN_SUBJECT}', 'DEVELOPER', 'ACTIVE', now(), now(), 0
+    SELECT 'tenant-a', id, '${QUOTA_ADMIN_SUBJECT}', 'ADMIN', 'ACTIVE', now(), now(), 0
       FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'
     ON CONFLICT (tenant_id, project_id, subject)
-    DO UPDATE SET role = 'DEVELOPER', status = 'ACTIVE', updated_at = now();
+    DO UPDATE SET role = 'ADMIN', status = 'ACTIVE', updated_at = now();
     INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
     SELECT 'MODEL_PROVIDER', id, 'tenant-a', 'project-a', 'team-a', now(), now()
       FROM model_providers WHERE name = 'deepseek'
@@ -121,7 +121,7 @@ kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PA
                   team = EXCLUDED.team, updated_at = EXCLUDED.updated_at;
   " >/dev/null
 echo "OIDC authorization membership fixture ready: tenant-a/project-a subject=${TOKEN_SUBJECT} role=DEVELOPER"
-echo "OIDC quota-admin membership fixture ready: tenant-a/project-a role=DEVELOPER"
+echo "OIDC quota-admin membership fixture ready: tenant-a/project-a role=ADMIN"
 
 bash "${ROOT}/scripts/validate-oidc-acceptance.sh"
 echo "KIND_OIDC_SMOKE_OK"

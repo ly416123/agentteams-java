@@ -219,8 +219,8 @@ capabilities:
     version_guard: required
     memory_impact: read|write
     secret_dependency: runtime_only
-    acceptance: "L1/L2/L4/Browser"
-    status: partial
+    acceptance: "L1/L2/L4/Browser；真实开发 OIDC 完成 Team 选择、消息发送、页面重连后的历史/事件恢复、取消和发送禁用"
+    status: verified
 
   - id: task.attempt_assignment_lease
     domain: task
@@ -233,8 +233,8 @@ capabilities:
     version_guard: required
     memory_impact: read|write
     secret_dependency: runtime_only
-    acceptance: "L1/L2/L4/Browser"
-    status: partial
+    acceptance: "L1/L2/L4/L5/Browser；真实开发 OIDC 由具备 Project ADMIN 和 task lifecycle 权限的 quota-admin 创建 NORMAL Task，查看执行/恢复空态并完成取消"
+    status: verified
 
   - id: artifact.lifecycle
     domain: artifact

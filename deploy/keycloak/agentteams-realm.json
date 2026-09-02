@@ -179,7 +179,8 @@
         { "type": "password", "value": "quota-admin-dev", "temporary": false }
       ],
       "realmRoles": [
-        "task:read", "task:create", "agent:read", "agent:write", "team:read", "team:write",
+        "task:read", "task:create", "task:cancel", "task:retry", "task:pause", "task:approve", "task:reject",
+        "agent:read", "agent:write", "team:read", "team:write",
         "usage:read", "usage:export", "quota:write", "model:read", "model:write",
         "agent-spec:read", "agent-spec:write", "skill:read", "skill:write",
         "mcp:read", "mcp:write", "memory:read", "memory:govern", "memory:export",

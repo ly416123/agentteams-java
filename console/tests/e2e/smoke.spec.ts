@@ -93,6 +93,133 @@ test('real OIDC browser sessions isolate users and tenant scopes', async ({ brow
   await Promise.all([alice.close(), reader.close(), tenantB.close()]);
 });
 
+test('real OIDC conversation recovers history and supports cancellation', async ({ page }) => {
+  const username = process.env.AGENTTEAMS_E2E_USERNAME;
+  const password = process.env.AGENTTEAMS_E2E_PASSWORD;
+  const oidcPort = process.env.AGENTTEAMS_E2E_OIDC_PORT || '18082';
+  test.skip(!username || !password, 'set Alice non-production OIDC credentials');
+
+  await page.goto('/console');
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByRole('button', { name: '使用组织账号登录' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`:${oidcPort}/realms/agentteams/protocol/openid-connect/auth(?:/|\\?)`),
+  );
+  await page.locator('#username').fill(username!);
+  await page.locator('#password').fill(password!);
+  await page.locator('#kc-login').click();
+
+  await expect(page).toHaveURL(/:30080\/[^/]+\/overview$/, { timeout: 30_000 });
+  const projectPath = new URL(page.url()).pathname.split('/')[1];
+  await page.goto(`/${projectPath}/conversations/new`);
+  await expect(page.getByRole('heading', { name: '选择对话 Team' })).toBeVisible();
+  const team = page.getByRole('button', { name: /E2E Team/ }).first();
+  await expect(team).toBeVisible({ timeout: 10_000 });
+  await team.click();
+
+  await expect(page.getByRole('heading', { name: 'Worker 对话' })).toBeVisible();
+  const firstMessage = `E2E conversation ${Date.now()}`;
+  const transcript = page.getByRole('region', { name: '对话记录' });
+  await page.getByRole('textbox', { name: '输入消息' }).fill(firstMessage);
+  await page.getByRole('button', { name: '发送' }).click();
+  await expect(transcript).toContainText(firstMessage, { timeout: 10_000 });
+  await expect(transcript).toContainText('CONVERSATION_MOCK_DELTA', { timeout: 10_000 });
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Worker 对话' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '对话记录' })).toContainText(firstMessage);
+  await expect(page.getByRole('region', { name: '对话记录' })).toContainText(
+    'CONVERSATION_MOCK_DELTA',
+  );
+
+  await page.getByRole('button', { name: '取消会话' }).click();
+  await expect(page.getByRole('button', { name: '确认取消会话' })).toBeVisible();
+  await page.getByRole('button', { name: '确认取消会话' }).click();
+  await expect(page.getByText('会话已取消')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('textbox', { name: '输入消息' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '发送' })).toBeDisabled();
+});
+
+test('real OIDC task page creates, inspects and cancels a normal task', async ({ page }) => {
+  const username = process.env.AGENTTEAMS_E2E_QUOTA_ADMIN_USERNAME;
+  const password = process.env.AGENTTEAMS_E2E_QUOTA_ADMIN_PASSWORD;
+  const oidcPort = process.env.AGENTTEAMS_E2E_OIDC_PORT || '18082';
+  test.skip(!username || !password, 'set non-production quota-admin OIDC credentials');
+
+  await page.goto('/console');
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByRole('button', { name: '使用组织账号登录' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`:${oidcPort}/realms/agentteams/protocol/openid-connect/auth(?:/|\\?)`),
+  );
+  await page.locator('#username').fill(username!);
+  await page.locator('#password').fill(password!);
+  await page.locator('#kc-login').click();
+
+  await expect(page).toHaveURL(/:30080\/[^/]+\/overview$/, { timeout: 30_000 });
+  // The development OIDC fixture grants quota-admin the project-a/team-a scope;
+  // select project-a by its display name, then keep using its stable UUID route.
+  const projectOption = page
+    .getByLabel('当前 Project')
+    .locator('option')
+    .filter({ hasText: 'project-a' });
+  await expect(projectOption).toHaveCount(1, { timeout: 10_000 });
+  const projectPath = (await projectOption.getAttribute('value'))!;
+  await page.getByLabel('当前 Project').selectOption(projectPath);
+  await expect(page).toHaveURL(new RegExp(`/${projectPath}/overview$`));
+
+  // The task API requires the Team internal name to match the OIDC team scope.
+  // Reuse the deterministic team-a fixture when present; otherwise provision it
+  // explicitly so the test does not depend on historical random Teams.
+  await page.goto(`/${projectPath}/teams`);
+  await expect(page.getByRole('heading', { name: 'Teams' })).toBeVisible();
+  const teamA = page
+    .getByRole('link')
+    .filter({ hasText: /team-a/ })
+    .first();
+  if ((await teamA.count()) === 0) {
+    await page.getByRole('link', { name: '创建 Team' }).first().click();
+    await expect(page.getByRole('heading', { name: '创建 Team' })).toBeVisible();
+    await page.getByLabel('显示名称').fill('team-a');
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.getByRole('button', { name: '创建 Team' }).click();
+    await expect(page).toHaveURL(new RegExp(`/${projectPath}/teams/[^/]+$`));
+  }
+
+  await page.goto(`/${projectPath}/tasks/new`);
+  // The create flow may have populated the previous Teams query cache; reload
+  // the create page so the selector reflects the committed Team list.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '创建任务' })).toBeVisible();
+  const teamOption = page
+    .getByLabel('任务 Team')
+    .locator('option')
+    .filter({ hasText: /team-a/ });
+  await expect(teamOption).toHaveCount(1, { timeout: 10_000 });
+  await page.getByLabel('任务 Team').selectOption((await teamOption.getAttribute('value'))!);
+
+  const title = `E2E Task ${Date.now()}`;
+  await page.getByLabel('任务标题').fill(title);
+  await page
+    .getByLabel('任务说明')
+    .fill('Create and cancel a development task through the Console.');
+  await page.getByRole('button', { name: '创建任务' }).click();
+  await expect(page).toHaveURL(new RegExp(`/${projectPath}/tasks/[^/]+$`));
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page.getByText('当前任务尚未产生执行尝试。')).toBeVisible();
+  await expect(page.getByText('当前任务尚未发生租约恢复。')).toBeVisible();
+
+  await page.getByRole('button', { name: '取消任务' }).click();
+  await expect(page.getByRole('button', { name: '确认取消任务' })).toBeVisible();
+  await page.getByRole('button', { name: '确认取消任务' }).click();
+  await expect(page.getByText('操作已提交')).toBeVisible({ timeout: 10_000 });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page.locator('[role="status"]').filter({ hasText: '已取消' })).toBeVisible();
+});
+
 test('real OIDC alert page exposes failed delivery and retry action', async ({ page }) => {
   const username = process.env.AGENTTEAMS_E2E_USERNAME;
   const password = process.env.AGENTTEAMS_E2E_PASSWORD;
@@ -492,10 +619,14 @@ test('real OIDC template flow provisions a Worker only after explicit instantiat
 test('real OIDC AgentSpec page creates publishes and deactivates independently', async ({
   page,
 }) => {
-  const username = process.env.AGENTTEAMS_E2E_AGENT_SPEC_USERNAME;
-  const password = process.env.AGENTTEAMS_E2E_AGENT_SPEC_PASSWORD;
+  const username =
+    process.env.AGENTTEAMS_E2E_AGENT_SPEC_USERNAME ||
+    process.env.AGENTTEAMS_E2E_QUOTA_ADMIN_USERNAME;
+  const password =
+    process.env.AGENTTEAMS_E2E_AGENT_SPEC_PASSWORD ||
+    process.env.AGENTTEAMS_E2E_QUOTA_ADMIN_PASSWORD;
   const oidcPort = process.env.AGENTTEAMS_E2E_OIDC_PORT || '18082';
-  test.skip(!username || !password, 'set non-production AgentSpec OIDC credentials');
+  test.skip(!username || !password, 'set non-production AgentSpec or quota-admin OIDC credentials');
 
   await page.goto('/console');
   await expect(page).toHaveURL(/\/login$/);

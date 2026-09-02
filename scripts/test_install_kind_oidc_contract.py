@@ -32,7 +32,7 @@ class InstallKindOidcContractTest(unittest.TestCase):
         self.assertEqual(quota_admin["attributes"]["project"], ["project-a"])
         for role in (
             "team:write",
-            "task:create",
+            "task:create", "task:cancel", "task:retry", "task:pause", "task:approve", "task:reject",
             "task:read",
             "agent:write",
             "quota:write",
@@ -73,7 +73,7 @@ class InstallKindOidcContractTest(unittest.TestCase):
         smoke_content = (ROOT / "scripts/smoke-kind-oidc.sh").read_text()
         self.assertIn('TOKEN_QUOTA_ADMIN="$(token_for quota-admin quota-admin-dev)"', smoke_content)
         self.assertIn('QUOTA_ADMIN_SUBJECT=', smoke_content)
-        self.assertIn("'${QUOTA_ADMIN_SUBJECT}', 'DEVELOPER', 'ACTIVE'", smoke_content)
+        self.assertIn("'${QUOTA_ADMIN_SUBJECT}', 'ADMIN', 'ACTIVE'", smoke_content)
         self.assertIn("'MODEL_PROVIDER'", smoke_content)
         self.assertIn("'MODEL'", smoke_content)
 
