@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -24,40 +25,50 @@ public final class AgentSpecController {
     @PostMapping
     public ResponseEntity<AgentSpecResponse> create(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestParam(required = false) String projectId,
             @RequestBody CreateAgentSpecRequest request) {
         if (request == null) throw new IllegalArgumentException("request body is required");
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         AgentSpecRecord record = service.create(idempotencyKey, request.toInput());
         return ResponseEntity.status(201).body(AgentSpecResponse.from(record));
     }
 
     @GetMapping
-    public List<AgentSpecResponse> list() {
+    public List<AgentSpecResponse> list(@RequestParam(required = false) String projectId) {
+        requireProjectScope(projectId);
         return service.list().stream().map(AgentSpecResponse::from).toList();
     }
 
     @GetMapping("/{id}")
-    public AgentSpecResponse get(@PathVariable UUID id) {
+    public AgentSpecResponse get(@PathVariable UUID id, @RequestParam(required = false) String projectId) {
+        requireProjectScope(projectId);
         return AgentSpecResponse.from(service.get(id));
     }
 
     @PostMapping("/{id}/publish")
     public AgentSpecResponse publish(@PathVariable UUID id,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestParam(required = false) String projectId) {
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         return AgentSpecResponse.from(service.publish(idempotencyKey, id));
     }
 
     @PostMapping("/{id}/deactivate")
     public AgentSpecResponse deactivate(@PathVariable UUID id,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestParam(required = false) String projectId) {
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         return AgentSpecResponse.from(service.deactivate(idempotencyKey, id));
     }
 
     @PostMapping("/{id}/deployments/{agentId}")
     public DeploymentResponse deploy(@PathVariable UUID id, @PathVariable UUID agentId,
-            @RequestHeader(value = "X-Actor", required = false) String actor) {
+            @RequestHeader(value = "X-Actor", required = false) String actor,
+            @RequestParam(required = false) String projectId) {
+        requireProjectScope(projectId);
         AgentSpecDeploymentService.AgentSpecDeployment deployment = deployments.deploy(id, agentId,
                 PrincipalContext.actorOr(actor));
         return DeploymentResponse.from(deployment);
@@ -107,5 +118,9 @@ public final class AgentSpecController {
     private static void requireIdempotencyKey(String value) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException("Idempotency-Key is required");
         if (value.length() > 255) throw new IllegalArgumentException("Idempotency-Key must be at most 255 characters");
+    }
+
+    private void requireProjectScope(String projectId) {
+        if (projectId != null && !projectId.isBlank()) service.requireProjectScope(projectId);
     }
 }

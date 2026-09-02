@@ -1,5 +1,7 @@
 # L5 Linux/KVM TaskSandbox 验收
 
+执行前请先阅读项目基线文档：[L5 Linux/KVM 环境与 gVisor 故障基线](../../docs/acceptance/l5-linux-kvm-environment-baseline.md)。其中记录了当前 L5 主机、`ly` 权限边界，以及一次已确认的 `imagePullPolicy` 故障。
+
 该入口用于已部署的 Ubuntu/K3s 集群，验证 AgentTeams `TaskSandbox` 的真实 Linux/KVM 运行时路径：
 
 - `ISOLATED` 生成的 Job/Pod 使用 `gvisor`；
@@ -45,7 +47,9 @@ ssh -tt ly@192.168.122.55 \
 Operator Deployment 必须将镜像配置为对应的 `:l5` 标签并使用
 `imagePullPolicy: Never` 或 `IfNotPresent`；runner 镜像名称必须保持为
 `ghcr.io/ly416123/agentteams-task-sandbox:latest`，因为 Operator 只接受仓库内的
-受控镜像。脚本自身仍只负责验收和清理。
+受控镜像。Operator 生成的 runner Job 同样固定使用
+`imagePullPolicy: IfNotPresent`，以便使用节点预加载镜像时不会因 `:latest` 的默认
+`Always` 策略触发匿名仓库拉取。脚本自身仍只负责验收和清理。
 
 仓库中的 `deploy/examples/qwenpaw-worker.yaml` 是业务 Worker 示例，不是本次 L5 入口的依赖；脚本只应用 `deploy/examples/task-sandbox-isolated.yaml` 与 `deploy/examples/task-sandbox-hardened.yaml` 两个短生命周期 `TaskSandbox` examples，不触碰业务 Worker 或 Control Plane。
 

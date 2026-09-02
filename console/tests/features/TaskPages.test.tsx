@@ -4,7 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/httpClient';
-import { getTask, listTasks, streamTaskEvents, taskAction } from '../../src/api/tasks';
+import {
+  getTask,
+  getTaskExecution,
+  listTasks,
+  streamTaskEvents,
+  taskAction,
+} from '../../src/api/tasks';
 import { TaskPage } from '../../src/features/tasks/TaskPage';
 import { TaskDetailPage } from '../../src/features/tasks/TaskDetailPage';
 
@@ -35,6 +41,51 @@ vi.mock('../../src/api/tasks', () => ({
     teamId: 'team-1',
     workerId: 'worker-1',
   }),
+  getTaskExecution: vi.fn().mockResolvedValue([
+    {
+      attempt: {
+        id: 'attempt-1',
+        taskId: 'task-1',
+        leaseId: 'lease-1',
+        phase: 'RUNNING',
+        leaseExpiresAt: '2026-08-29T03:00:00Z',
+        completedAt: null,
+        actor: 'alice',
+        source: 'console',
+        failureCode: null,
+        redactedFailureMessage: null,
+        createdAt: '2026-08-29T02:00:00Z',
+        updatedAt: '2026-08-29T02:00:00Z',
+        version: 1,
+      },
+      assignment: {
+        id: 'assignment-1',
+        taskId: 'task-1',
+        attemptId: 'attempt-1',
+        agentId: 'worker-1',
+        phase: 'RUNNING',
+        assignedAt: '2026-08-29T02:00:00Z',
+        acceptedAt: '2026-08-29T02:01:00Z',
+        releasedAt: null,
+        detailsJson: '{}',
+        createdAt: '2026-08-29T02:00:00Z',
+        updatedAt: '2026-08-29T02:00:00Z',
+        version: 1,
+      },
+      lease: {
+        id: 'lease-1',
+        agentId: 'worker-1',
+        taskAttemptId: 'attempt-1',
+        acquiredAt: '2026-08-29T02:00:00Z',
+        expiresAt: '2026-08-29T03:00:00Z',
+        releasedAt: null,
+        status: 'ACTIVE',
+        createdAt: '2026-08-29T02:00:00Z',
+        updatedAt: '2026-08-29T02:00:00Z',
+        version: 1,
+      },
+    },
+  ]),
   streamTaskEvents: vi.fn().mockImplementation(async (_taskId, options) => {
     options.onEvents([
       {
@@ -114,6 +165,16 @@ describe('Task pages', () => {
     await userEvent.click(screen.getByRole('button', { name: '取消任务' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('将停止任务执行');
     expect(screen.getByRole('button', { name: '确认取消任务' })).toBeInTheDocument();
+  });
+
+  it('shows attempt, assignment and lease metadata for the task', async () => {
+    vi.mocked(getTaskExecution).mockClear();
+    renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+    expect(await screen.findByText('执行尝试')).toBeInTheDocument();
+    expect(screen.getByText('attempt-1')).toBeInTheDocument();
+    expect(screen.getByText('assignment-1')).toBeInTheDocument();
+    expect(screen.getByText('lease-1')).toBeInTheDocument();
+    expect(getTaskExecution).toHaveBeenCalledWith('task-1');
   });
 
   it('refetches the latest task before retrying a conflicted action', async () => {

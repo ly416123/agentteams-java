@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { listProjects } from '../../api/projects';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
@@ -26,6 +26,11 @@ export function ConsoleEntryPage() {
         <EmptyState
           title="暂无可访问的 Project"
           description="请联系组织管理员授予 Project 访问权限。"
+          action={
+            <Link className="button button--primary" to="/settings/projects">
+              管理 Project
+            </Link>
+          }
         />
       </div>
     );

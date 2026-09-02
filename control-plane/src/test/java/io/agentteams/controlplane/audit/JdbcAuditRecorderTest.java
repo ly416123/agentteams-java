@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -37,5 +38,6 @@ class JdbcAuditRecorderTest {
         assertThat(attributes.get("message").asText()).isEqualTo("Bearer [REDACTED]");
         assertThat(attributes.get("model").asText()).isEqualTo("qwen");
         assertThat(values.getValue()[0]).isEqualTo(id);
+        assertThat(values.getValue()[6]).isEqualTo(Timestamp.from(Instant.EPOCH));
     }
 }

@@ -3,7 +3,12 @@ import { getDashboardResources, getDashboardSummary } from '../../src/api/overvi
 import { listProjects } from '../../src/api/projects';
 import { createTask, listTasks } from '../../src/api/tasks';
 import { getDeployment, listDeployments, listTeams } from '../../src/api/teams';
-import { listOperations, listWorkers } from '../../src/api/workers';
+import { listOperations, listWorkers, getWorker } from '../../src/api/workers';
+import {
+  createWorkerTemplate,
+  listWorkerTemplates,
+  listAgentSpecs,
+} from '../../src/api/managementCatalog';
 
 describe('API contracts', () => {
   it('requests project-scoped dashboard resource aggregates', async () => {
@@ -146,12 +151,40 @@ describe('API contracts', () => {
       requestStream: vi.fn(),
     };
 
-    const page = await listOperations('worker-1', { cursor: 'cursor-1' }, client);
+    const page = await listOperations('p-1', 'worker-1', { cursor: 'cursor-1' }, client);
 
     expect(page.items).toEqual([{ id: 'op-1' }]);
     expect(page.nextCursor).toBe('cursor-2');
     expect(client.request).toHaveBeenCalledWith('/api/v1/agents/worker-1/operations', {
-      query: { cursor: 'cursor-1' },
+      query: { projectId: 'p-1', cursor: 'cursor-1' },
+    });
+  });
+
+  it('forwards project scope to Worker detail and management catalog requests', async () => {
+    const client = {
+      request: vi.fn().mockResolvedValue({}),
+      requestText: vi.fn(),
+      requestStream: vi.fn(),
+    };
+
+    await getWorker('p-1', 'worker-1', client);
+    await listWorkerTemplates('p-1', client);
+    await createWorkerTemplate('p-1', { name: 'worker', displayName: 'Worker' }, client);
+    await listAgentSpecs('p-1', client);
+
+    expect(client.request).toHaveBeenNthCalledWith(1, '/api/v1/agents/worker-1', {
+      query: { projectId: 'p-1' },
+    });
+    expect(client.request).toHaveBeenNthCalledWith(2, '/api/v1/worker-templates', {
+      query: { projectId: 'p-1' },
+    });
+    expect(client.request).toHaveBeenNthCalledWith(3, '/api/v1/worker-templates', {
+      method: 'POST',
+      body: { name: 'worker', displayName: 'Worker' },
+      query: { projectId: 'p-1' },
+    });
+    expect(client.request).toHaveBeenNthCalledWith(4, '/api/v1/agent-specs', {
+      query: { projectId: 'p-1' },
     });
   });
 
@@ -165,7 +198,7 @@ describe('API contracts', () => {
     await listTeams('p-1', { search: 'platform' }, client);
 
     expect(client.request).toHaveBeenCalledWith('/api/v1/teams/page', {
-      query: { q: 'platform' },
+      query: { projectId: 'p-1', q: 'platform', status: undefined, cursor: undefined },
     });
   });
 
@@ -176,13 +209,16 @@ describe('API contracts', () => {
       requestStream: vi.fn(),
     };
 
-    await listDeployments('team-1', client);
-    await getDeployment('team-1', 'deployment-1', client);
+    await listDeployments('p-1', 'team-1', client);
+    await getDeployment('p-1', 'team-1', 'deployment-1', client);
 
-    expect(client.request).toHaveBeenNthCalledWith(1, '/api/v1/teams/team-1/deployments');
+    expect(client.request).toHaveBeenNthCalledWith(1, '/api/v1/teams/team-1/deployments', {
+      query: { projectId: 'p-1' },
+    });
     expect(client.request).toHaveBeenNthCalledWith(
       2,
       '/api/v1/teams/team-1/deployments/deployment-1',
+      { query: { projectId: 'p-1' } },
     );
   });
 });

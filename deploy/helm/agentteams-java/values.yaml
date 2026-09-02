@@ -56,6 +56,18 @@ controlPlane:
     # Empty means the Helm release namespace. Install one release per business
     # namespace; do not widen this to a cluster-wide informer without a new RBAC design.
     namespace: ""
+  workerProvisioner:
+    # Explicit Worker instantiation creates the Worker CR only when this is enabled.
+    # Keep disabled for API-only installations without Control Plane Kubernetes RBAC.
+    enabled: false
+    namespace: ""
+    image: ghcr.io/ly416123/agentteams-agent-worker:latest
+    replicas: 1
+    gatewayHost: agentteams-agentteams-java-gateway
+    gatewayPort: 9090
+    configManifestBaseUrl: ""
+    qwenpawEndpoint: http://qwenpaw:8088
+    tlsSecretName: ""
   scheduler:
     enabled: true
     pollIntervalMs: 1000
@@ -234,6 +246,12 @@ database:
 storage:
   enabled: false
   endpoint: http://minio:9000
+  # Optional browser-facing endpoint used only to generate presigned URLs.
+  # Leave empty when the internal storage endpoint is reachable by clients.
+  presignEndpoint: ""
+  # Optional explicit S3 region. Setting it avoids region discovery during
+  # presigning when the browser endpoint is not reachable from the pod.
+  region: ""
   bucket: agentteams
   existingSecret: agentteams-storage
 nats:

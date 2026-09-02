@@ -17,7 +17,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL implementation of the append-only token ledger boundary. */
 @Repository
-public final class JdbcTokenLedgerRepository implements TokenLedgerRepository {
+public class JdbcTokenLedgerRepository implements TokenLedgerRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

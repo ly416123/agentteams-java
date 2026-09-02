@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Owns connector route registration and health heartbeats for tenant-owned MCP connections. */
 @Service
-public final class McpGatewayRouteService {
+public class McpGatewayRouteService {
     private final McpConnectionRepository connections;
     private final McpGatewayRouteRepository routes;
 

@@ -1,7 +1,8 @@
 FROM node:22-alpine AS build
 WORKDIR /workspace/console
 COPY console/package*.json ./
-RUN npm ci
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+RUN npm ci --registry="$NPM_REGISTRY"
 COPY console/ ./
 RUN npm run build
 

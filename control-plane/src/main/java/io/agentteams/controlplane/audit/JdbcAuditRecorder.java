@@ -3,6 +3,7 @@ package io.agentteams.controlplane.audit;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.sql.Timestamp;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,10 +48,10 @@ public class JdbcAuditRecorder implements AuditRecorder {
         var principal = PrincipalContext.current();
         if (principal.isEmpty()) {
             jdbc.update(INSERT_SQL, event.id(), event.actor(), event.action(), event.resourceType(), event.resourceId(),
-                    attributesJson, event.occurredAt());
+                    attributesJson, Timestamp.from(event.occurredAt()));
         } else {
             jdbc.update(SCOPED_INSERT_SQL, event.id(), event.actor(), event.action(), event.resourceType(),
-                    event.resourceId(), attributesJson, event.occurredAt(), principal.get().scope().tenant(),
+                    event.resourceId(), attributesJson, Timestamp.from(event.occurredAt()), principal.get().scope().tenant(),
                     principal.get().scope().project());
         }
     }

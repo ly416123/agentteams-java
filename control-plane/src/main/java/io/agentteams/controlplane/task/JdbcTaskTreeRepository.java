@@ -14,7 +14,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL task tree projection with run ownership checked through task_runs. */
 @Repository
-public final class JdbcTaskTreeRepository implements TaskTreeRepository {
+public class JdbcTaskTreeRepository implements TaskTreeRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

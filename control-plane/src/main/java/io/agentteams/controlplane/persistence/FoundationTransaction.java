@@ -104,6 +104,17 @@ public final class FoundationTransaction {
         return workerOperations;
     }
 
+    /** Test and migration helper for resources whose ownership is stored separately from the domain row. */
+    public void insertResourceScope(String resourceType, java.util.UUID resourceId, String tenantId,
+            String projectId, String team, java.time.Instant at) {
+        jdbc.update("""
+                INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team,
+                                            created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, resourceType, resourceId, tenantId, projectId, team,
+                JdbcSupport.timestamp(at), JdbcSupport.timestamp(at));
+    }
+
     public java.util.List<java.util.UUID> expiredActiveLeaseIds(java.time.Instant now) {
         return jdbc.query("""
                 SELECT id

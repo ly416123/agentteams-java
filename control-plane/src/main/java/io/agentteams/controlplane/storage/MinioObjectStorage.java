@@ -20,14 +20,20 @@ public final class MinioObjectStorage implements ObjectStorage {
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
 
     private final MinioClient minioClient;
+    private final MinioClient presignClient;
     private final String bucket;
 
     public MinioObjectStorage(MinioObjectStorageConfig config) {
-        this(buildClient(config), config.bucket());
+        this(buildClient(config), buildPresignClient(config), config.bucket());
     }
 
     MinioObjectStorage(MinioClient minioClient, String bucket) {
+        this(minioClient, minioClient, bucket);
+    }
+
+    MinioObjectStorage(MinioClient minioClient, MinioClient presignClient, String bucket) {
         this.minioClient = Objects.requireNonNull(minioClient, "minioClient");
+        this.presignClient = Objects.requireNonNull(presignClient, "presignClient");
         this.bucket = requireText(bucket, "bucket");
     }
 
@@ -84,7 +90,7 @@ public final class MinioObjectStorage implements ObjectStorage {
         String key = requireObjectKey(objectKey);
         long expirySeconds = validateExpiry(expiry);
         try {
-            String url = minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+            String url = presignClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
                     .method(Method.GET)
                     .bucket(bucket)
                     .object(key)
@@ -103,7 +109,7 @@ public final class MinioObjectStorage implements ObjectStorage {
         String key = requireObjectKey(objectKey);
         long expirySeconds = validateExpiry(expiry);
         try {
-            String url = minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+            String url = presignClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
                     .method(Method.PUT).bucket(bucket).object(key).expiry((int) expirySeconds).build());
             return new URL(url);
         } catch (Exception error) {
@@ -113,10 +119,28 @@ public final class MinioObjectStorage implements ObjectStorage {
 
     private static MinioClient buildClient(MinioObjectStorageConfig config) {
         Objects.requireNonNull(config, "config");
-        return MinioClient.builder()
+        MinioClient.Builder builder = MinioClient.builder()
                 .endpoint(config.endpoint())
-                .credentials(config.accessKey(), config.secretKey())
-                .build();
+                .credentials(config.accessKey(), config.secretKey());
+        if (config.region() != null && !config.region().isBlank()) {
+            builder.region(config.region());
+        }
+        return builder.build();
+    }
+
+    private static MinioClient buildPresignClient(MinioObjectStorageConfig config) {
+        Objects.requireNonNull(config, "config");
+        if (config.presignEndpoint() == null || config.presignEndpoint().isBlank()
+                || config.presignEndpoint().equals(config.endpoint())) {
+            return buildClient(config);
+        }
+        MinioClient.Builder builder = MinioClient.builder()
+                .endpoint(config.presignEndpoint())
+                .credentials(config.accessKey(), config.secretKey());
+        if (config.region() != null && !config.region().isBlank()) {
+            builder.region(config.region());
+        }
+        return builder.build();
     }
 
     private static long validateExpiry(Duration expiry) {

@@ -146,6 +146,19 @@ public final class WorkerOperationService {
                 operation -> new CursorPageRequest.Position(operation.updatedAt(), operation.id()), clock.instant());
     }
 
+    /** Validates the Project route before a Worker operation is accessed. */
+    public void requireProjectScope(String projectId) {
+        if (projectId == null || projectId.isBlank()) return;
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        if (projectId.equals(principal.scope().project())) return;
+        if (resourceScopes == null || !resourceScopes.matchesCallerProject(projectId)) {
+            throw new io.agentteams.controlplane.security.AuthorizationException(
+                    "resource is outside caller project");
+        }
+    }
+
     public java.util.Optional<WorkerOperationObservation> observation(UUID operationId) {
         Objects.requireNonNull(operationId, "operationId");
         return persistence.inTransaction(tx -> tx.workerOperations().findObservation(operationId));

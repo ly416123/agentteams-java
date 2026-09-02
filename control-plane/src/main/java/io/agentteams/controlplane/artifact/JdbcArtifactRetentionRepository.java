@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +14,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL retention policy and tombstone store. */
 @Repository
-public final class JdbcArtifactRetentionRepository implements ArtifactRetentionRepository {
+public class JdbcArtifactRetentionRepository implements ArtifactRetentionRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired
@@ -104,6 +105,22 @@ public final class JdbcArtifactRetentionRepository implements ArtifactRetentionR
     }
 
     @Override
+    public Optional<ArtifactRetentionProjectPolicy> findProjectPolicy(String tenantId, String projectId) {
+        requireText(tenantId, "tenantId");
+        requireText(projectId, "projectId");
+        return jdbc.query("""
+                SELECT id, tenant_id, project_id, successful_task_retention_seconds,
+                       failed_task_retention_seconds, temporary_upload_retention_seconds,
+                       legal_hold, created_at, updated_at, version
+                  FROM artifact_retention_project_policies
+                 WHERE tenant_id = ? AND project_id = ?
+                """, (rs, row) -> new ArtifactRetentionProjectPolicy(
+                rs.getObject("id", UUID.class), rs.getString("tenant_id"), rs.getString("project_id"),
+                policy(rs), rs.getLong("version"), JdbcSupport.instant(rs, "created_at"),
+                JdbcSupport.instant(rs, "updated_at")), tenantId.trim(), projectId.trim()).stream().findFirst();
+    }
+
+    @Override
     public List<ArtifactRetentionTombstone> findDueTombstones(Instant now, int limit) {
         Objects.requireNonNull(now, "now");
         validateLimit(limit);
@@ -185,6 +202,39 @@ public final class JdbcArtifactRetentionRepository implements ArtifactRetentionR
                 """, UUID.randomUUID(), tenantId.trim(), projectId.trim(), policy.successfulTaskRetentionSeconds(),
                 policy.failedTaskRetentionSeconds(), policy.temporaryUploadRetentionSeconds(), policy.legalHold(),
                 JdbcSupport.timestamp(now), JdbcSupport.timestamp(now));
+    }
+
+    @Override
+    public synchronized ArtifactRetentionProjectPolicy upsertProjectPolicy(String tenantId, String projectId,
+            ArtifactRetentionPolicy policy, Instant now, long expectedVersion) {
+        requireText(tenantId, "tenantId");
+        requireText(projectId, "projectId");
+        Objects.requireNonNull(policy, "policy");
+        Objects.requireNonNull(now, "now");
+        if (expectedVersion < 0) throw new IllegalArgumentException("expectedVersion must not be negative");
+        int updated = jdbc.update("""
+                UPDATE artifact_retention_project_policies
+                   SET successful_task_retention_seconds = ?, failed_task_retention_seconds = ?,
+                       temporary_upload_retention_seconds = ?, legal_hold = ?, updated_at = ?, version = version + 1
+                 WHERE tenant_id = ? AND project_id = ? AND version = ?
+                """, policy.successfulTaskRetentionSeconds(), policy.failedTaskRetentionSeconds(),
+                policy.temporaryUploadRetentionSeconds(), policy.legalHold(), JdbcSupport.timestamp(now),
+                tenantId.trim(), projectId.trim(), expectedVersion);
+        if (updated == 1) return findProjectPolicy(tenantId, projectId).orElseThrow();
+        if (expectedVersion == 0) {
+            int inserted = jdbc.update("""
+                    INSERT INTO artifact_retention_project_policies
+                        (id, tenant_id, project_id, successful_task_retention_seconds,
+                         failed_task_retention_seconds, temporary_upload_retention_seconds,
+                         legal_hold, created_at, updated_at, version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    ON CONFLICT (tenant_id, project_id) DO NOTHING
+                    """, UUID.randomUUID(), tenantId.trim(), projectId.trim(), policy.successfulTaskRetentionSeconds(),
+                    policy.failedTaskRetentionSeconds(), policy.temporaryUploadRetentionSeconds(), policy.legalHold(),
+                    JdbcSupport.timestamp(now), JdbcSupport.timestamp(now));
+            if (inserted == 1) return findProjectPolicy(tenantId, projectId).orElseThrow();
+        }
+        throw new ArtifactRetentionPolicyConflictException("artifact retention policy version is stale");
     }
 
     @Override

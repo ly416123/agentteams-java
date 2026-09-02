@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Stores terminal result metadata while leaving artifact bytes in object storage. */
 @Service
-public final class TaskResultManifestService {
+public class TaskResultManifestService {
     private static final Set<String> TERMINAL_STATUSES = Set.of("SUCCEEDED", "FAILED", "CANCELLED");
     private final TaskResultManifestRepository repository;
 

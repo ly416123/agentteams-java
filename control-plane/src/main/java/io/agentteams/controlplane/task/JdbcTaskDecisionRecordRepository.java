@@ -16,7 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class JdbcTaskDecisionRecordRepository implements TaskDecisionRecordRepository {
+public class JdbcTaskDecisionRecordRepository implements TaskDecisionRecordRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

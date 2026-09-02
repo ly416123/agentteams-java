@@ -25,13 +25,14 @@ public final class JdbcModelCallAuditRecorder implements ModelCallAuditRecorder 
         Objects.requireNonNull(command, "command");
         ModelCallUsage usage = Objects.requireNonNull(command.modelCallUsage(), "modelCallUsage");
         jdbc.update("""
-                INSERT INTO model_call_audits(id, source_event_id, provider, model, latency_millis,
+                INSERT INTO model_call_audits(id, source_event_id, organization_id, actor_subject, provider, model, latency_millis,
                     prompt_tokens, completion_tokens, request_hash, response_hash, outcome, error_category,
                     occurred_at, tenant_id, project_id, cost_usd, cost_status, worker_id, task_id, team_id,
                     tool_id, quota_id, quota_dimension)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, (SELECT organization_id::text FROM legacy_tenant_mappings WHERE legacy_tenant_key = ?),
+                    (SELECT actor FROM tasks WHERE id = ?), ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source_event_id) DO NOTHING
-                """, command.eventId(), command.eventId(), usage.provider(), usage.model(), usage.latencyMillis(),
+                """, command.eventId(), command.eventId(), usage.tenantId(), taskId, usage.provider(), usage.model(), usage.latencyMillis(),
                 usage.promptTokens(), usage.completionTokens(), requestHash(taskId, command),
                 command.phase() == io.agentteams.application.api.ExecutionEventPort.ExecutionPhase.SUCCEEDED
                         ? "SUCCESS" : "FAILURE",

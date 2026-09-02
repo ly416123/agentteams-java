@@ -1,4 +1,4 @@
-import { UserManager, type UserManagerSettings } from 'oidc-client-ts';
+import { UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 
 export const RETURN_TO_STORAGE_KEY = 'agentteams.oidc.returnTo';
 
@@ -44,25 +44,6 @@ export function consumeReturnTo(state?: unknown, fallback = '/') {
     : fallback;
 }
 
-class MemoryUserStore {
-  private values = new Map<string, string>();
-
-  async get(key: string): Promise<string | null> {
-    return this.values.get(key) || null;
-  }
-  async set(key: string, value: string): Promise<void> {
-    this.values.set(key, value);
-  }
-  async remove(key: string): Promise<string | null> {
-    const value = this.values.get(key) || null;
-    this.values.delete(key);
-    return value;
-  }
-  async getAllKeys(): Promise<string[]> {
-    return [...this.values.keys()];
-  }
-}
-
 export function oidcSettings(): UserManagerSettings {
   const config = runtimeConfig();
   const issuer =
@@ -78,7 +59,9 @@ export function oidcSettings(): UserManagerSettings {
     scope: 'openid profile email',
     disablePKCE: shouldDisablePkce(),
     automaticSilentRenew: true,
-    userStore: new MemoryUserStore(),
+    // Keep the token within the current tab/session while allowing a full-page
+    // navigation to an authenticated project route to restore the session.
+    userStore: new WebStorageStateStore({ store: window.sessionStorage }),
   };
 }
 

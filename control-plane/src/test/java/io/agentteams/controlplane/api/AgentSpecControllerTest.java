@@ -99,4 +99,14 @@ class AgentSpecControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
+
+    @Test
+    void forwardsExplicitProjectScopeToAgentSpecService() throws Exception {
+        when(service.list()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/agent-specs").param("projectId", "project-uuid"))
+                .andExpect(status().isOk());
+
+        verify(service).requireProjectScope("project-uuid");
+    }
 }

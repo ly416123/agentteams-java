@@ -20,13 +20,24 @@ manager:
     qwenpawEgressPort: 8080
   security:
     enabled: true
-    issuerUri: http://keycloak:8080/realms/agentteams
+    issuerUri: http://127.0.0.1:18082/realms/agentteams
     jwkSetUri: http://keycloak:8080/realms/agentteams/protocol/openid-connect/certs
     audience: agentteams-api
 imagePullPolicy: IfNotPresent
 controlPlane:
   env:
     AGENTTEAMS_QUOTA_INTERNAL_TOKEN: kind-quota-internal
+    # Keep dashboard alert acceptance enabled across every Kind Helm upgrade,
+    # including OIDC reinstall and local image refreshes.
+    AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_ENABLED: "true"
+    AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_POLL_INTERVAL_MS: "1000"
+    AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_LEASE_DURATION: 30s
+    AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_WINDOW: 24h
+    AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_MAX_PROJECTS_PER_RUN: "100"
+    AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_RETRY_DELAY: 2s
+    AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_ENABLED: "true"
+    AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL: http://dashboard-alert-receiver:8080/alerts
+    AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_TIMEOUT: 3s
   scheduler:
     # GitHub-hosted runners can take longer than the production default to
     # reconnect the Worker and complete the first deterministic model call.
@@ -37,6 +48,10 @@ controlPlane:
 storage:
   enabled: true
   endpoint: http://minio:9000
+  # The acceptance flow port-forwards MinIO to the browser host. Explicit
+  # region below keeps presigning independent from this browser-only address.
+  presignEndpoint: http://127.0.0.1:19000
+  region: us-east-1
   bucket: agentteams
   existingSecret: agentteams-storage
 observability:

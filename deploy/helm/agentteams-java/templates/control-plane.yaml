@@ -15,7 +15,7 @@ spec:
         app.kubernetes.io/part-of: agentteams
     spec:
       serviceAccountName: {{ include "agentteams-java.controlPlaneServiceAccountName" . }}
-      automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}
+      automountServiceAccountToken: {{ or .Values.controlPlane.teamSync.enabled .Values.controlPlane.workerProvisioner.enabled }}
       securityContext:
 {{- toYaml .Values.podSecurityContext | nindent 8 }}
 {{- with .Values.topologySpreadConstraints }}
@@ -156,9 +156,31 @@ spec:
               value: {{ .Values.controlPlane.teamSync.enabled | quote }}
             - name: AGENTTEAMS_TEAM_SYNC_NAMESPACE
               value: {{ default .Release.Namespace .Values.controlPlane.teamSync.namespace | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_ENABLED
+              value: {{ .Values.controlPlane.workerProvisioner.enabled | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_NAMESPACE
+              value: {{ default .Release.Namespace .Values.controlPlane.workerProvisioner.namespace | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_IMAGE
+              value: {{ .Values.controlPlane.workerProvisioner.image | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_REPLICAS
+              value: {{ .Values.controlPlane.workerProvisioner.replicas | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_GATEWAY_HOST
+              value: {{ .Values.controlPlane.workerProvisioner.gatewayHost | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_GATEWAY_PORT
+              value: {{ .Values.controlPlane.workerProvisioner.gatewayPort | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_CONFIG_MANIFEST_BASE_URL
+              value: {{ default (printf "http://%s-control-plane:%v" (include "agentteams-java.fullname" .) .Values.controlPlane.port) .Values.controlPlane.workerProvisioner.configManifestBaseUrl | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_QWENPAW_ENDPOINT
+              value: {{ .Values.controlPlane.workerProvisioner.qwenpawEndpoint | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_TLS_SECRET_NAME
+              value: {{ .Values.controlPlane.workerProvisioner.tlsSecretName | quote }}
 {{- if .Values.storage.enabled }}
             - name: AGENTTEAMS_STORAGE_ENDPOINT
               value: {{ .Values.storage.endpoint | quote }}
+            - name: AGENTTEAMS_STORAGE_PRESIGN_ENDPOINT
+              value: {{ .Values.storage.presignEndpoint | quote }}
+            - name: AGENTTEAMS_STORAGE_REGION
+              value: {{ .Values.storage.region | quote }}
             - name: AGENTTEAMS_STORAGE_BUCKET
               value: {{ .Values.storage.bucket | quote }}
             - name: AGENTTEAMS_STORAGE_ACCESS_KEY

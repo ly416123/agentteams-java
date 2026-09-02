@@ -7,6 +7,11 @@
 - **适用范围：** AgentTeams 独立 Web 管理端第一期
 - **参考产品：** 阿里云 TeamAgent / AgentCore 管理控制台
 
+**当前约束覆盖：** 本文早期“模型、Skill、MCP 和配额延后”的范围划分，已由
+[Worker Pod 与记忆隔离需求基线](2026-09-01-work-pod-and-memory-isolation-requirements.md)
+及 [管理端优先与 Java SDK 冻结实施方案](../plans/2026-09-01-management-first-console-completion-plan.md)
+覆盖。后续管理端范围以新方案为准；Java SDK 在最终页面功能验证通过前不更新。
+
 本文定义 AgentTeams 管理端的产品信息架构、页面边界、前后端协作方式、对话运行时和验收标准。本文只描述设计，不包含具体前端实现。
 
 ## 2. 目标

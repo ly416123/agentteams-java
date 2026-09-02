@@ -18,6 +18,23 @@ import { ConversationPage } from '../features/conversations/ConversationPage';
 import { ConsoleEntryPage } from '../features/projects/ConsoleEntryPage';
 import { ConsoleLayout } from './AppShell';
 import { AppShell } from './AppShell';
+import { ManagementIdentityPage } from '../features/management/ManagementIdentityPage';
+import { ManagementTemplatePage } from '../features/management/ManagementTemplatePage';
+import { ManagementAgentSpecPage } from '../features/management/ManagementAgentSpecPage';
+import { ManagementOrganizationPage } from '../features/management/ManagementOrganizationPage';
+import { ManagementMcpPage } from '../features/management/ManagementMcpPage';
+import { ManagementModelPage } from '../features/management/ManagementModelPage';
+import { ManagementSkillPage } from '../features/management/ManagementSkillPage';
+import { ManagementIntegrationPage } from '../features/management/ManagementIntegrationPage';
+import { ManagementRolePage } from '../features/management/ManagementRolePage';
+import { ManagementProjectPage } from '../features/projects/ManagementProjectPage';
+import { ManagementArtifactPage } from '../features/management/ManagementArtifactPage';
+import { ManagementUsagePage } from '../features/management/ManagementUsagePage';
+import { ManagementBudgetPage } from '../features/management/ManagementBudgetPage';
+import { ManagementAlertPage } from '../features/management/ManagementAlertPage';
+import { ManagementAuditPage } from '../features/management/ManagementAuditPage';
+import { ManagementMemoryPage } from '../features/management/ManagementMemoryPage';
+import { ManagementSandboxPage } from '../features/management/ManagementSandboxPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 15_000 } },
@@ -36,6 +53,46 @@ export function AppRouter() {
               element={
                 <RequireAuth>
                   <ConsoleEntryPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings/identity"
+              element={
+                <RequireAuth>
+                  <ManagementIdentityPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings/organizations"
+              element={
+                <RequireAuth>
+                  <ManagementOrganizationPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings/integrations"
+              element={
+                <RequireAuth>
+                  <ManagementIntegrationPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings/roles"
+              element={
+                <RequireAuth>
+                  <ManagementRolePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings/projects"
+              element={
+                <RequireAuth>
+                  <ManagementProjectPage />
                 </RequireAuth>
               }
             />
@@ -65,6 +122,18 @@ function ProtectedProjectRoutes() {
             <Route path="tasks/:taskId" element={<TaskDetailRoute projectId={projectId} />} />
             <Route path="workers" element={<WorkerListPage projectId={projectId} />} />
             <Route path="workers/:workerId" element={<WorkerDetailRoute projectId={projectId} />} />
+            <Route path="templates" element={<ManagementTemplatePage projectId={projectId} />} />
+            <Route path="agentspecs" element={<ManagementAgentSpecPage projectId={projectId} />} />
+            <Route path="models" element={<ManagementModelPage />} />
+            <Route path="mcp" element={<ManagementMcpPage />} />
+            <Route path="skills" element={<ManagementSkillPage />} />
+            <Route path="usage" element={<ManagementUsagePage projectId={projectId} />} />
+            <Route path="budgets" element={<ManagementBudgetPage projectId={projectId} />} />
+            <Route path="alerts" element={<ManagementAlertPage projectId={projectId} />} />
+            <Route path="audit" element={<ManagementAuditPage projectId={projectId} />} />
+            <Route path="memory" element={<ManagementMemoryPage projectId={projectId} />} />
+            <Route path="sandboxes" element={<ManagementSandboxPage projectId={projectId} />} />
+            <Route path="artifacts" element={<ManagementArtifactPage projectId={projectId} />} />
             <Route path="conversations/new" element={<ConversationPage projectId={projectId} />} />
             <Route
               path="conversations/:conversationId"

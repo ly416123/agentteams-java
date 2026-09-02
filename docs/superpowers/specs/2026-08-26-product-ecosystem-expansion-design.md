@@ -5,6 +5,12 @@
 **优先级：** P2/P3
 **依赖：** P0 生产主路径和 P1 治理接口稳定
 
+**当前约束覆盖：** 后续功能开发以
+[管理端优先与 Java SDK 冻结实施方案](../plans/2026-09-01-management-first-console-completion-plan.md)
+和 [Worker Pod 与记忆隔离需求基线](2026-09-01-work-pod-and-memory-isolation-requirements.md) 为准。
+Java SDK 在最终 Console 页面功能验证通过前冻结；能力关系为
+`SDK 已有能力 ⊆ 管理端能力`，管理端新增能力不要求反向进入 SDK。
+
 ## 1. 目标
 
 本规格定义 Worker Template、SDK、Web Console、Channel SPI、Sandbox Pool、CubeSandbox 以及云商业化扩展的边界。所有扩展必须复用现有 AgentSpec、Task、Sandbox、Usage、Audit 和权限模型，不创建第二套业务状态。
@@ -61,7 +67,7 @@ public record WorkerTemplateRevision(
 
 ## 4. OpenAPI 与 SDK
 
-当前第一纵切已冻结 `openapi/agentteams-public.yaml`，覆盖 Project/Task 核心公共读写接口、统一游标分页、错误结构、Bearer 鉴权和幂等请求头。`sdk/java` 与 `sdk/typescript` 提供对应的核心客户端；内部控制面、Matrix AppService 和 Kubernetes API 不进入公共契约。后续新增公共接口必须先更新 OpenAPI 契约，再同步两个 SDK 和破坏性变更检查。
+当前第一纵切已冻结 `openapi/agentteams-public.yaml`，覆盖 Project/Task 核心公共读写接口、统一游标分页、错误结构、Bearer 鉴权和幂等请求头。`sdk/java` 与 `sdk/typescript` 提供对应的核心客户端；内部控制面、Matrix AppService 和 Kubernetes API 不进入公共契约。Java SDK 冻结期间，新增管理端能力可以先更新管理 API、OpenAPI 和 Console，不要求立即同步 Java SDK；最终页面验证通过后再进行 SDK 能力对账和独立更新。
 
 ### 4.1 API 稳定化
 

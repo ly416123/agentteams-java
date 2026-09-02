@@ -35,10 +35,11 @@ spec:
                   key: password
             - name: KC_HEALTH_ENABLED
               value: "true"
-            # Keep the token issuer stable when the token endpoint is reached
-            # through a local port-forward from the host.
+            # The browser reaches Keycloak through the documented host
+            # port-forward. Control Plane uses the internal JWK endpoint but
+            # validates this externally visible issuer in the JWT.
             - name: KC_HOSTNAME
-              value: http://keycloak:8080
+              value: http://127.0.0.1:18082
             - name: KC_HOSTNAME_STRICT
               value: "false"
           ports:

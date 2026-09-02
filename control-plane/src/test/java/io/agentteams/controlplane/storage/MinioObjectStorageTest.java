@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.minio.GetObjectArgs;
@@ -97,6 +98,23 @@ class MinioObjectStorageTest {
         assertThat(presignedObjectUrlArgs.getValue().bucket()).isEqualTo("agent-artifacts");
         assertThat(presignedObjectUrlArgs.getValue().object()).isEqualTo("tasks/1/output.txt");
         assertThat(presignedObjectUrlArgs.getValue().expiry()).isEqualTo(900);
+    }
+
+    @Test
+    void usesDedicatedClientForBrowserFacingPresignedUrls() throws Exception {
+        MinioClient presignClient = org.mockito.Mockito.mock(MinioClient.class);
+        MinioObjectStorage storage = new MinioObjectStorage(
+                minioClient, presignClient, "agent-artifacts");
+        when(presignClient.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .thenReturn("http://127.0.0.1:19000/agent-artifacts/tasks/1/input.zip");
+
+        URL url = storage.presignPut(
+                "tasks/1/input.zip", "application/zip", Duration.ofMinutes(10));
+
+        assertThat(url.toString()).isEqualTo(
+                "http://127.0.0.1:19000/agent-artifacts/tasks/1/input.zip");
+        verify(presignClient).getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class));
+        verifyNoInteractions(minioClient);
     }
 
     @Test

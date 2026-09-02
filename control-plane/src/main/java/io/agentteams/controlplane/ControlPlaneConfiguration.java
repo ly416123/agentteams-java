@@ -33,6 +33,8 @@ import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.agentteams.controlplane.service.TaskAssignmentScheduler;
 import io.agentteams.controlplane.service.TaskAssignmentService;
 import io.agentteams.controlplane.worker.WorkerOperationRecoveryScheduler;
+import io.agentteams.controlplane.worker.WorkerCrdProvisioner;
+import io.agentteams.controlplane.worker.KubernetesWorkerCrdProvisioner;
 import io.agentteams.controlplane.service.TeamService;
 import io.agentteams.controlplane.team.KubernetesTeamResourceSource;
 import io.agentteams.controlplane.team.TeamCrdParser;
@@ -51,6 +53,7 @@ import io.agentteams.controlplane.sandbox.FakeSandboxRuntime;
 import io.agentteams.controlplane.sandbox.KubernetesSandboxRuntime;
 import io.agentteams.controlplane.sandbox.SandboxLifecycleScheduler;
 import io.agentteams.controlplane.sandbox.SandboxRuntimeProperties;
+import io.agentteams.controlplane.sandbox.SandboxPolicyService;
 import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.controlplane.audit.JdbcModelCallAuditRecorder;
 import io.agentteams.controlplane.service.TaskService;
@@ -67,6 +70,8 @@ import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcSecurityProperties;
 import io.agentteams.controlplane.security.SecretResolver;
 import io.agentteams.controlplane.security.ValidationOnlySecretResolver;
+import io.agentteams.controlplane.security.CredentialSecretProvider;
+import io.agentteams.controlplane.security.UnavailableCredentialSecretProvider;
 import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.controlplane.security.JdbcExecutionContextDirectory;
 import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
@@ -110,6 +115,7 @@ import java.time.Clock;
 import io.agentteams.domain.task.TaskTransitionService;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -156,6 +162,12 @@ public class ControlPlaneConfiguration {
     @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(SecretResolver.class)
     SecretResolver secretResolver() {
         return new ValidationOnlySecretResolver();
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(CredentialSecretProvider.class)
+    CredentialSecretProvider credentialSecretProvider() {
+        return new UnavailableCredentialSecretProvider();
     }
 
     @Bean
@@ -284,10 +296,13 @@ public class ControlPlaneConfiguration {
     @Bean
     TaskAssignmentService taskAssignmentService(FoundationPersistenceService persistence,
             ObjectProvider<ControlPlaneMetrics> metrics,
+            ObjectProvider<ExecutionContextResolver> contextResolver,
+            ObjectProvider<io.agentteams.controlplane.memory.ContextAssemblyService> contextAssembly,
             @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration) {
         ControlPlaneMetrics available = metrics.getIfAvailable();
         return new TaskAssignmentService(persistence, leaseDuration,
-                available == null ? TaskMetricsPort.noop() : available);
+                available == null ? TaskMetricsPort.noop() : available,
+                contextResolver.getIfAvailable(), contextAssembly.getIfAvailable());
     }
 
     @Bean
@@ -312,8 +327,11 @@ public class ControlPlaneConfiguration {
     @Bean
     @ConditionalOnProperty(name = "agentteams.sandbox.enabled", havingValue = "true")
     SandboxLifecycleService sandboxLifecycleService(FoundationPersistenceService persistence,
-            SandboxRuntimePort runtime) {
-        return new SandboxLifecycleService(persistence, runtime);
+            SandboxRuntimePort runtime,
+            SandboxRuntimeProperties properties,
+            ObjectProvider<io.agentteams.controlplane.memory.TaskMemoryContextAssembler> memoryContexts) {
+        return new SandboxLifecycleService(persistence, runtime, properties,
+                "sandbox-lifecycle", new SandboxPolicyService(), memoryContexts.getIfAvailable());
     }
 
     @Bean
@@ -479,9 +497,24 @@ public class ControlPlaneConfiguration {
 
     @Bean(initMethod = "start", destroyMethod = "close")
     @ConditionalOnProperty(name = "agentteams.team-sync.enabled", havingValue = "true")
-    TeamResourceSource teamResourceSource(KubernetesClient client, TeamCrdSynchronizer synchronizer,
+    TeamResourceSource teamResourceSource(@Qualifier("teamSyncKubernetesClient") KubernetesClient client,
+            TeamCrdSynchronizer synchronizer,
             @Value("${agentteams.team-sync.namespace:}") String namespace) {
         return new KubernetesTeamResourceSource(client, synchronizer, namespace);
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "agentteams.worker-provisioner.enabled", havingValue = "true")
+    KubernetesClient workerProvisionerKubernetesClient() {
+        return new KubernetesClientBuilder().build();
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.worker-provisioner.enabled", havingValue = "true")
+    WorkerCrdProvisioner kubernetesWorkerCrdProvisioner(
+            @Qualifier("workerProvisionerKubernetesClient") KubernetesClient client,
+            @Value("${agentteams.worker-provisioner.namespace:}") String namespace) {
+        return new KubernetesWorkerCrdProvisioner(client, namespace);
     }
 
     @Bean
@@ -491,8 +524,11 @@ public class ControlPlaneConfiguration {
             @org.springframework.beans.factory.annotation.Value("${agentteams.storage.endpoint}") String endpoint,
             @org.springframework.beans.factory.annotation.Value("${agentteams.storage.bucket}") String bucket,
             @org.springframework.beans.factory.annotation.Value("${agentteams.storage.access-key}") String accessKey,
-            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.secret-key}") String secretKey) {
-        return new MinioObjectStorage(new MinioObjectStorageConfig(endpoint, bucket, accessKey, secretKey));
+            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.secret-key}") String secretKey,
+            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.presign-endpoint:}") String presignEndpoint,
+            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.region:}") String region) {
+        return new MinioObjectStorage(new MinioObjectStorageConfig(
+                endpoint, bucket, accessKey, secretKey, presignEndpoint, region));
     }
 
     @Bean

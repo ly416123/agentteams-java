@@ -86,6 +86,19 @@ public final class AgentService {
                 agent -> new CursorPageRequest.Position(agent.updatedAt(), agent.id()), clock.instant());
     }
 
+    /** Validates the Project route against the authenticated Project scope. */
+    public void requireProjectScope(String projectId) {
+        if (projectId == null || projectId.isBlank()) return;
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        if (projectId.equals(principal.scope().project())) return;
+        if (resourceScopes == null || !resourceScopes.matchesCallerProject(projectId)) {
+            throw new io.agentteams.controlplane.security.AuthorizationException(
+                    "resource is outside caller project");
+        }
+    }
+
     public record AgentInput(String name, String runtime, String capabilitiesJson, String metadataJson) {
     }
 

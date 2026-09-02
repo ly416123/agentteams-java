@@ -17,10 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL storage for Webhook subscriptions and durable delivery attempts. */
 @Repository
-public final class JdbcWebhookRepository implements WebhookRepository {
+public class JdbcWebhookRepository implements WebhookRepository {
     private static final ObjectMapper JSON = new ObjectMapper();
     private final JdbcTemplate jdbc;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public JdbcWebhookRepository(javax.sql.DataSource dataSource) {
         this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")));
     }

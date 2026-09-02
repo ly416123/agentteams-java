@@ -21,6 +21,7 @@ public final class UsageQueryService {
     static final Duration DEFAULT_RANGE = Duration.ofHours(24);
     static final Duration MAX_RANGE = Duration.ofDays(31);
     static final int MAX_LIMIT = 1000;
+    static final int MAX_OFFSET = 100_000;
 
     private static final String TOTALS_SQL = """
             SELECT COUNT(*) AS calls,
@@ -51,9 +52,11 @@ public final class UsageQueryService {
 
     private static final String COMPLETENESS_SQL = """
             SELECT COUNT(*) AS total_calls,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(organization_id AS text)), '') IS NOT NULL) AS organization_present,
                    COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(tenant_id AS text)), '') IS NOT NULL) AS tenant_present,
                    COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(project_id AS text)), '') IS NOT NULL) AS project_present,
                    COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(team_id AS text)), '') IS NOT NULL) AS team_present,
+                   COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(actor_subject AS text)), '') IS NOT NULL) AS actor_subject_present,
                    COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(worker_id AS text)), '') IS NOT NULL) AS worker_present,
                    COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(task_id AS text)), '') IS NOT NULL) AS task_present,
                    COUNT(*) FILTER (WHERE NULLIF(BTRIM(CAST(provider AS text)), '') IS NOT NULL) AS provider_present,
@@ -93,19 +96,51 @@ public final class UsageQueryService {
     /** Aggregates a project-owned scope while retaining the dashboard grouping contract. */
     public UsageSummary summarizeForScope(String tenantId, String projectId, Instant from, Instant to,
             String groupBy, Integer limit) {
+        return summarizeForScope(tenantId, projectId, from, to, groupBy, limit, UsageFilters.empty());
+    }
+
+    public UsageSummary summarizeForScope(String tenantId, String projectId, Instant from, Instant to,
+            String groupBy, Integer limit, UsageFilters filters) {
         if (tenantId == null || tenantId.isBlank()) throw new IllegalArgumentException("tenantId is required");
         if (projectId == null || projectId.isBlank()) throw new IllegalArgumentException("projectId is required");
-        return summarize(from, to, groupBy, limit, ScopeFilter.explicit(tenantId, projectId));
+        return summarize(from, to, groupBy, limit,
+                ScopeFilter.explicit(tenantId, projectId, filters == null ? UsageFilters.empty() : filters));
     }
 
     public UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit) {
-        return summarize(from, to, groupBy, limit, ScopeFilter.current());
+        return summarize(from, to, groupBy, limit, UsageFilters.empty());
+    }
+
+    public UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit, UsageFilters filters) {
+        return summarize(from, to, groupBy, limit,
+                ScopeFilter.current(filters == null ? UsageFilters.empty() : filters));
+    }
+
+    /** Returns one stable page of grouped usage within the authenticated scope. */
+    public UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit,
+            UsageFilters filters, int offset) {
+        return summarize(from, to, groupBy, limit,
+                ScopeFilter.current(filters == null ? UsageFilters.empty() : filters), offset);
     }
 
     private UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit, ScopeFilter scope) {
+        return summarize(from, to, groupBy, limit, scope, 0, false);
+    }
+
+    private UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit,
+            ScopeFilter scope, int offset) {
+        return summarize(from, to, groupBy, limit, scope, offset, true);
+    }
+
+    private UsageSummary summarize(Instant from, Instant to, String groupBy, Integer limit,
+            ScopeFilter scope, int offset, boolean paginated) {
         UsageRange range = UsageRange.resolve(from, to, clock.instant());
         GroupBy grouping = GroupBy.parse(groupBy);
         int validatedLimit = validateLimit(limit);
+        if (paginated && limit == null) {
+            throw new IllegalArgumentException("limit is required for paginated usage");
+        }
+        validateOffset(offset, paginated);
         Timestamp start = Timestamp.from(range.from());
         Timestamp end = Timestamp.from(range.to());
         UsageTotals totals = jdbc.queryForObject(TOTALS_SQL + scope.whereClause(), (resultSet, rowNum) -> new UsageTotals(
@@ -123,7 +158,8 @@ public final class UsageQueryService {
         String groupsSql = GROUPS_SQL.formatted(grouping.selectExpression(), grouping.groupExpression(),
                 grouping.orderExpression()).replace("WHERE occurred_at >= ? AND occurred_at < ?",
                 "WHERE occurred_at >= ? AND occurred_at < ?" + scope.whereClause())
-                + (limit == null ? "" : " LIMIT ?");
+                + (limit == null ? "" : " LIMIT ?" + (paginated ? " OFFSET ?" : ""));
+        int queryLimit = paginated ? validatedLimit + 1 : validatedLimit;
         List<UsageGroup> groups = jdbc.query(groupsSql, (resultSet, rowNum) -> new UsageGroup(
                 grouping == GroupBy.PROVIDER_MODEL || grouping == GroupBy.PROVIDER
                         ? resultSet.getString("provider") : null,
@@ -138,8 +174,13 @@ public final class UsageQueryService {
                 grouping == GroupBy.STATUS ? resultSet.getString("status") : null,
                 grouping.dimensionName(),
                 grouping.isDimension() ? resultSet.getString("dimension_value") : null),
-                limit == null ? scope.arguments(start, end) : scope.arguments(start, end, validatedLimit));
-        return new UsageSummary(range.from(), range.to(), totals, groups);
+                limit == null ? scope.arguments(start, end)
+                        : paginated ? scope.arguments(start, end, queryLimit, offset)
+                                : scope.arguments(start, end, queryLimit));
+        boolean hasMore = paginated && groups.size() > validatedLimit;
+        List<UsageGroup> page = hasMore ? groups.subList(0, validatedLimit) : groups;
+        return new UsageSummary(range.from(), range.to(), totals, page,
+                paginated ? offset : null, paginated ? validatedLimit : null, hasMore);
     }
 
     /** Returns low-cardinality historical usage buckets for dashboard charts. */
@@ -192,7 +233,19 @@ public final class UsageQueryService {
         return limit == null ? 0 : limit;
     }
 
+    private static void validateOffset(int offset, boolean paginated) {
+        if (paginated && (offset < 0 || offset > MAX_OFFSET)) {
+            throw new IllegalArgumentException("offset must be between 0 and " + MAX_OFFSET);
+        }
+    }
+
     public enum GroupBy {
+        ORGANIZATION(dimensionSelect("organization_id"), dimensionExpression("organization_id"),
+                dimensionExpression("organization_id"), "organization"),
+        TENANT(dimensionSelect("tenant_id"), dimensionExpression("tenant_id"), dimensionExpression("tenant_id"), "tenant"),
+        PROJECT(dimensionSelect("project_id"), dimensionExpression("project_id"), dimensionExpression("project_id"), "project"),
+        USER(dimensionSelect("actor_subject"), dimensionExpression("actor_subject"),
+                dimensionExpression("actor_subject"), "user"),
         PROVIDER_MODEL("provider, model, NULL::text AS status, NULL::text AS dimension_value",
                 "provider, model", "provider, model", null),
         PROVIDER("provider, NULL::text AS model, NULL::text AS status, NULL::text AS dimension_value",
@@ -250,7 +303,12 @@ public final class UsageQueryService {
                 return PROVIDER_MODEL;
             }
             return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "organization", "org" -> ORGANIZATION;
+                case "tenant" -> TENANT;
+                case "project" -> PROJECT;
+                case "user", "subject", "actor" -> USER;
                 case "provider" -> PROVIDER;
+                case "provider_model" -> PROVIDER_MODEL;
                 case "model" -> MODEL;
                 case "status" -> STATUS;
                 case "worker", "agent" -> WORKER;
@@ -259,7 +317,7 @@ public final class UsageQueryService {
                 case "tool" -> TOOL;
                 case "quota" -> QUOTA;
                 default -> throw new IllegalArgumentException(
-                        "groupBy must be provider, model, status, worker, task, team, tool, or quota");
+                        "groupBy must be organization, tenant, project, user, provider_model, provider, model, status, worker, task, team, tool, or quota");
             };
         }
 
@@ -338,9 +396,41 @@ public final class UsageQueryService {
         }
     }
 
-    public record UsageSummary(Instant from, Instant to, UsageTotals totals, List<UsageGroup> groups) {
+    public record UsageSummary(Instant from, Instant to, UsageTotals totals, List<UsageGroup> groups,
+            Integer offset, Integer limit, boolean hasMore) {
+        public UsageSummary(Instant from, Instant to, UsageTotals totals, List<UsageGroup> groups) {
+            this(from, to, totals, groups, null, null, false);
+        }
+
         public UsageSummary {
             groups = List.copyOf(groups);
+            if (offset == null && limit != null) {
+                throw new IllegalArgumentException("limit requires offset");
+            }
+            if (offset != null && (limit == null || offset < 0 || limit < 1)) {
+                throw new IllegalArgumentException("invalid usage pagination metadata");
+            }
+        }
+    }
+
+    /** Optional low-cardinality filters applied inside the authenticated project scope. */
+    public record UsageFilters(String taskId, String provider, String model) {
+        public UsageFilters {
+            taskId = normalize(taskId);
+            provider = normalize(provider);
+            model = normalize(model);
+        }
+
+        public static UsageFilters empty() {
+            return new UsageFilters(null, null, null);
+        }
+
+        boolean hasAny() {
+            return taskId != null || provider != null || model != null;
+        }
+
+        private static String normalize(String value) {
+            return value == null || value.isBlank() ? null : value.trim();
         }
     }
 
@@ -366,9 +456,11 @@ public final class UsageQueryService {
         private static UsageCompleteness from(java.sql.ResultSet resultSet) throws java.sql.SQLException {
             long totalCalls = resultSet.getLong("total_calls");
             return new UsageCompleteness(null, null, totalCalls, List.of(
+                    UsageDimensionCompleteness.of("organizationId", resultSet.getLong("organization_present"), totalCalls),
                     UsageDimensionCompleteness.of("tenantId", resultSet.getLong("tenant_present"), totalCalls),
                     UsageDimensionCompleteness.of("projectId", resultSet.getLong("project_present"), totalCalls),
                     UsageDimensionCompleteness.of("teamId", resultSet.getLong("team_present"), totalCalls),
+                    UsageDimensionCompleteness.of("actorSubject", resultSet.getLong("actor_subject_present"), totalCalls),
                     UsageDimensionCompleteness.of("workerId", resultSet.getLong("worker_present"), totalCalls),
                     UsageDimensionCompleteness.of("taskId", resultSet.getLong("task_present"), totalCalls),
                     UsageDimensionCompleteness.of("provider", resultSet.getLong("provider_present"), totalCalls),
@@ -383,20 +475,46 @@ public final class UsageQueryService {
         }
     }
 
-    private record ScopeFilter(String clause, String tenant, String project, String team) {
-        static ScopeFilter explicit(String tenant, String project) {
-            return new ScopeFilter(" AND tenant_id = ? AND project_id = ?", tenant, project, null);
+    private record ScopeFilter(String clause, List<Object> values) {
+        static ScopeFilter explicit(String tenant, String project, UsageFilters filters) {
+            StringBuilder clause = new StringBuilder(" AND tenant_id = ? AND project_id = ?");
+            List<Object> values = new java.util.ArrayList<>(List.of(tenant, project));
+            appendFilters(clause, values, filters);
+            return new ScopeFilter(clause.toString(), List.copyOf(values));
         }
 
         static ScopeFilter current() {
+            return current(UsageFilters.empty());
+        }
+
+        static ScopeFilter current(UsageFilters filters) {
             return PrincipalContext.current().map(principal -> {
-                String clause = " AND tenant_id = ? AND project_id = ?";
+                StringBuilder clause = new StringBuilder(" AND tenant_id = ? AND project_id = ?");
+                List<Object> values = new java.util.ArrayList<>(List.of(
+                        principal.scope().tenant(), principal.scope().project()));
                 String team = principal.scope().team();
                 if (team != null && !team.isBlank()) {
-                    clause += " AND (team_id IS NULL OR team_id = ?)";
+                    clause.append(" AND (team_id IS NULL OR team_id = ?)");
+                    values.add(team);
                 }
-                return new ScopeFilter(clause, principal.scope().tenant(), principal.scope().project(), team);
-            }).orElse(new ScopeFilter("", null, null, null));
+                appendFilters(clause, values, filters);
+                return new ScopeFilter(clause.toString(), List.copyOf(values));
+            }).orElse(new ScopeFilter("", List.of()));
+        }
+
+        private static void appendFilters(StringBuilder clause, List<Object> values, UsageFilters filters) {
+            if (filters.taskId() != null) {
+                clause.append(" AND task_id = ?");
+                values.add(filters.taskId());
+            }
+            if (filters.provider() != null) {
+                clause.append(" AND provider = ?");
+                values.add(filters.provider());
+            }
+            if (filters.model() != null) {
+                clause.append(" AND model = ?");
+                values.add(filters.model());
+            }
         }
 
         String whereClause() {
@@ -404,14 +522,9 @@ public final class UsageQueryService {
         }
 
         Object[] arguments(Object... prefix) {
-            Object[] result = java.util.Arrays.copyOf(prefix,
-                    prefix.length + (tenant == null ? 0 : (team == null || team.isBlank() ? 2 : 3)));
-            if (tenant != null) {
-                result[prefix.length] = tenant;
-                result[prefix.length + 1] = project;
-                if (team != null && !team.isBlank()) {
-                    result[prefix.length + 2] = team;
-                }
+            Object[] result = java.util.Arrays.copyOf(prefix, prefix.length + values.size());
+            for (int i = 0; i < values.size(); i++) {
+                result[prefix.length + i] = values.get(i);
             }
             return result;
         }

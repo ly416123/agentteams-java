@@ -56,6 +56,15 @@ public final class ArtifactRepository {
         """, this::map, taskId);
     }
 
+    public List<ArtifactRecord> findLatest(int limit) {
+        if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
+        return jdbc.query("""
+                SELECT id, task_id, attempt_id, name, storage_key, content_type, size_bytes,
+                       sha256, status, metadata::text, created_at, updated_at, version
+                  FROM artifacts ORDER BY created_at DESC, id DESC LIMIT ?
+                """, this::map, limit);
+    }
+
     public List<ArtifactRecord> findByTaskIdAndAttemptId(UUID taskId, UUID attemptId) {
         return jdbc.query("""
                 SELECT id, task_id, attempt_id, name, storage_key, content_type, size_bytes,

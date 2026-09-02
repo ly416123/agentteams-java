@@ -24,6 +24,7 @@ public final class InternalTokenLedgerController {
     private final TokenLedgerService ledger;
     private final String internalToken;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public InternalTokenLedgerController(TokenLedgerService ledger,
             @Value("${agentteams.token-ledger.internal-token:}") String internalToken) {
         this(ledger, internalToken, true);

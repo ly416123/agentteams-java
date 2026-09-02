@@ -86,6 +86,25 @@ class MemoryGovernanceServiceTest {
     }
 
     @Test
+    void crossProjectGovernanceIsRejectedBeforeMutation() {
+        MemoryPolicy otherProjectPolicy = new MemoryPolicy(MemoryPolicy.Scope.PROJECT_SHARED, "org-1", "tenant-1",
+                "project-2", null, null, MemoryPolicy.Sensitivity.NORMAL, MemoryPolicy.Consent.CONFIRMED,
+                Duration.ofHours(1));
+        MemoryRecord otherProjectMemory = new MemoryRecord(UUID.randomUUID(), otherProjectPolicy,
+                "secret://memory/2", "other project summary", "conversation", NOW.plusSeconds(3600), NOW, NOW, 0);
+        when(repository.findById(otherProjectMemory.id(), "org-1", "tenant-1"))
+                .thenReturn(Optional.of(otherProjectMemory));
+
+        assertThatThrownBy(() -> service.delete(CONTEXT, otherProjectMemory.id(),
+                new MemoryGovernanceActor("admin-1", true), "retention request", "key-project-delete"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("memory is outside the execution context");
+
+        verify(repository, never()).save(any());
+        verify(repository, never()).recordOperation(any());
+    }
+
+    @Test
     void nonOwnerCannotGovernPrivateMemory() {
         assertThatThrownBy(() -> service.revoke(CONTEXT, memory.id(),
                 new MemoryGovernanceActor("user-2", false), "revoke", "key-revoke"))

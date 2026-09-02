@@ -3,6 +3,7 @@ package io.agentteams.controlplane.persistence;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -33,6 +34,14 @@ public final class TaskAssignmentRepository {
                        details::text, created_at, updated_at, version
                   FROM task_assignments WHERE id = ?
                 """, this::map, id).stream().findFirst();
+    }
+
+    public List<TaskAssignmentRecord> findByTaskId(UUID taskId) {
+        return jdbc.query("""
+                SELECT id, task_id, attempt_id, agent_id, phase, assigned_at, accepted_at, released_at,
+                       details::text, created_at, updated_at, version
+                  FROM task_assignments WHERE task_id = ? ORDER BY created_at DESC, id DESC
+                """, this::map, taskId);
     }
 
     public long count() {

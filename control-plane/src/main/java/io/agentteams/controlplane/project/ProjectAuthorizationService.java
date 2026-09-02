@@ -8,6 +8,8 @@ import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceAction;
+import io.agentteams.controlplane.security.ResourceAuthorizationMatrix;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -140,6 +142,15 @@ public class ProjectAuthorizationService {
         return repository.findMemberships(project.tenantId(), project.id());
     }
 
+    public List<RolePermissions> listRolePermissions(UUID projectId) {
+        Principal principal = principal();
+        ProjectRecord project = project(principal.scope().tenant(), projectId);
+        membership(project.tenantId(), project.id(), principal.subject());
+        return List.of(ProjectRole.values()).stream()
+                .map(role -> new RolePermissions(role, ResourceAuthorizationMatrix.actions(role)))
+                .toList();
+    }
+
     public CursorPage<ProjectRecord> list(CursorPageRequest request) {
         return list(request, null, null);
     }
@@ -225,6 +236,18 @@ public class ProjectAuthorizationService {
 
     @Transactional
     public void changeRole(UUID projectId, String subject, ProjectRole role, long expectedMembershipVersion) {
+        changeRoleInternal(projectId, null, subject, role, expectedMembershipVersion);
+    }
+
+    @Transactional
+    public void changeRole(UUID projectId, String idempotencyKey, String subject, ProjectRole role,
+            long expectedMembershipVersion) {
+        changeRoleInternal(projectId, required(idempotencyKey, "Idempotency-Key"), subject, role,
+                expectedMembershipVersion);
+    }
+
+    private void changeRoleInternal(UUID projectId, String idempotencyKey, String subject, ProjectRole role,
+            long expectedMembershipVersion) {
         Principal principal = principal();
         if (role == null) throw new IllegalArgumentException("role is required");
         ProjectRecord project = project(principal.scope().tenant(), projectId);
@@ -237,6 +260,25 @@ public class ProjectAuthorizationService {
             throw new ProjectMembershipConflictException("OWNER_TRANSFER_REQUIRED");
         }
         String memberSubject = required(subject, "subject");
+        if (expectedMembershipVersion < 0) throw new IllegalArgumentException("expectedMembershipVersion must be non-negative");
+        String tenantId = project.tenantId();
+        if (idempotencyKey != null) {
+            String requestHash = hash("CHANGE_ROLE\u0000" + memberSubject + "\u0000" + role.name()
+                    + "\u0000" + expectedMembershipVersion);
+            var existing = repository.findRoleChangeIdempotency(tenantId, project.id(), idempotencyKey);
+            if (existing.isPresent()) {
+                assertSame(existing.get().requestHash(), requestHash, idempotencyKey, "project role change");
+                return;
+            }
+            var record = new ProjectRepository.ProjectRoleChangeIdempotency(tenantId, project.id(), idempotencyKey,
+                    requestHash, memberSubject, role, expectedMembershipVersion, clock.instant());
+            if (!repository.insertRoleChangeIdempotency(record)) {
+                var winner = repository.findRoleChangeIdempotency(tenantId, project.id(), idempotencyKey)
+                        .orElseThrow(() -> new IllegalStateException("role change idempotency record disappeared"));
+                assertSame(winner.requestHash(), requestHash, idempotencyKey, "project role change");
+                return;
+            }
+        }
         ProjectMembershipRecord target = membership(project.tenantId(), project.id(), memberSubject);
         if (target.role() == ProjectRole.OWNER && repository.countActiveOwners(project.tenantId(), project.id()) <= 1) {
             throw new ProjectMembershipConflictException("MEMBERSHIP_LAST_OWNER");
@@ -251,6 +293,8 @@ public class ProjectAuthorizationService {
     }
 
     public record RoleCheck(UUID projectId, String subject, ProjectRole role, boolean allowed) { }
+
+    public record RolePermissions(ProjectRole role, List<ResourceAction> permissions) { }
 
     private ProjectRecord project(String tenantId, UUID projectId) {
         return repository.findProject(tenantId, Objects.requireNonNull(projectId, "projectId"))

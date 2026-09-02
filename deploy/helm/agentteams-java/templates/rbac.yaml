@@ -71,6 +71,32 @@ rules:
       - secrets
     verbs: ["get"]
 {{- end }}
+{{- if .Values.controlPlane.workerProvisioner.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-worker-provisioner
+  namespace: {{ default .Release.Namespace .Values.controlPlane.workerProvisioner.namespace }}
+rules:
+  - apiGroups: ["agentteams.io"]
+    resources: ["workers"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-worker-provisioner
+  namespace: {{ default .Release.Namespace .Values.controlPlane.workerProvisioner.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "agentteams-java.fullname" . }}-control-plane-worker-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "agentteams-java.controlPlaneServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

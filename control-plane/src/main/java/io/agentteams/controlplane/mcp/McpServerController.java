@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.mcp;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import io.agentteams.controlplane.security.OutboundPolicy;
@@ -24,15 +25,22 @@ public final class McpServerController {
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final McpServerService service;
     private final McpDiscoveryAggregationService discoveryAggregation;
+    private final McpHealthProbeService healthProbe;
 
     public McpServerController(McpServerService service) {
-        this(service, null);
+        this(service, null, null);
+    }
+
+    public McpServerController(McpServerService service, McpDiscoveryAggregationService discoveryAggregation) {
+        this(service, discoveryAggregation, null);
     }
 
     @Autowired
-    public McpServerController(McpServerService service, McpDiscoveryAggregationService discoveryAggregation) {
+    public McpServerController(McpServerService service, McpDiscoveryAggregationService discoveryAggregation,
+            McpHealthProbeService healthProbe) {
         this.service = service;
         this.discoveryAggregation = discoveryAggregation;
+        this.healthProbe = healthProbe;
     }
 
     @PostMapping
@@ -64,10 +72,21 @@ public final class McpServerController {
         return DiscoveryResponse.from(discoveryAggregation.aggregate(server.id(), server.version()));
     }
 
+    @PostMapping("/{id}/connection-test")
+    public McpHealthProbeResult connectionTest(@PathVariable UUID id) {
+        if (healthProbe == null) {
+            throw new IllegalStateException("MCP health probe is not configured");
+        }
+        return healthProbe.probe(id, Duration.ofSeconds(5));
+    }
+
     @PutMapping("/{id}")
     public McpServerResponse update(@PathVariable UUID id, @RequestBody UpdateRequest request) {
         requireRequest(request);
-        return McpServerResponse.from(service.update(id, request.toServiceInput()));
+        McpServerRecord updated = request.expectedVersion() == null
+                ? service.update(id, request.toServiceInput())
+                : service.update(id, request.toServiceInput(), request.expectedVersion());
+        return McpServerResponse.from(updated);
     }
 
     @PatchMapping("/{id}/health")
@@ -96,10 +115,11 @@ public final class McpServerController {
     }
 
     public record UpdateRequest(String name, String transport, String endpoint, String credentialRef,
-            Boolean enabled, String healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy) {
+            Boolean enabled, String healthStatus, Instant lastCheckedAt, OutboundPolicy outboundPolicy,
+            Long expectedVersion) {
         public UpdateRequest(String name, String transport, String endpoint, String credentialRef,
                 Boolean enabled, String healthStatus, Instant lastCheckedAt) {
-            this(name, transport, endpoint, credentialRef, enabled, healthStatus, lastCheckedAt, null);
+            this(name, transport, endpoint, credentialRef, enabled, healthStatus, lastCheckedAt, null, null);
         }
 
         McpServerService.UpdateInput toServiceInput() {

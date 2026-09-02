@@ -13,6 +13,7 @@ import java.util.UUID;
 public final class InMemoryDashboardAlertEventRepository implements DashboardAlertEventRepository {
     private final Map<String, DashboardAlertEvent> events = new LinkedHashMap<>();
     private final Map<String, AlertScope> scopes = new LinkedHashMap<>();
+    private final Map<String, String> retryRequests = new LinkedHashMap<>();
 
     @Override
     public synchronized Optional<DashboardAlertEvent> claim(DashboardAlertEvent candidate, Instant now) {
@@ -30,6 +31,30 @@ public final class InMemoryDashboardAlertEventRepository implements DashboardAle
             return Optional.of(retry);
         }
         return Optional.empty();
+    }
+
+    @Override
+    public synchronized Optional<RetryRequest> requestRetry(String tenantId, String projectId, UUID eventId,
+            String idempotencyKey, Instant now) {
+        String requestKey = eventId + "\u0000" + idempotencyKey;
+        DashboardAlertEvent existing = findById(tenantId, projectId, eventId).orElse(null);
+        if (existing == null) return Optional.empty();
+        if (retryRequests.containsKey(requestKey)) return Optional.of(new RetryRequest(existing, true));
+        if (existing.status() != DashboardAlertEvent.Status.FAILED) {
+            throw new IllegalStateException("only failed alert events can be retried");
+        }
+        retryRequests.put(requestKey, requestKey);
+        DashboardAlertEvent due = existing.retryAt(now, null, now);
+        events.put(existing.fingerprint(), due);
+        return Optional.of(new RetryRequest(due, false));
+    }
+
+    @Override
+    public synchronized Optional<DashboardAlertEvent> findById(String tenantId, String projectId, UUID eventId) {
+        return events.values().stream()
+                .filter(event -> event.id().equals(eventId))
+                .filter(event -> event.tenantId().equals(tenantId) && event.projectId().equals(projectId))
+                .findFirst();
     }
 
     @Override

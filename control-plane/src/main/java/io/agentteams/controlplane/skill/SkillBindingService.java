@@ -13,11 +13,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Pins a published, immutable Skill version to an organization resource scope. */
 @Service
-public final class SkillBindingService {
+public class SkillBindingService {
     private final SkillRepository skills;
     private final SkillBindingRepository bindings;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SkillBindingService(SkillRepository skills, SkillBindingRepository bindings) {
         this(skills, bindings, Clock.systemUTC());
     }

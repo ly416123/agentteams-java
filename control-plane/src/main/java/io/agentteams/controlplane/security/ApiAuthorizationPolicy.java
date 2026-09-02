@@ -32,6 +32,12 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/tasks/") && path.contains("/artifacts")) {
             return Optional.of("GET".equals(method) ? Permission.ARTIFACT_READ : Permission.ARTIFACT_WRITE);
         }
+        if (path.startsWith("/api/v1/artifacts/retention")) {
+            return Optional.of("GET".equals(method) ? Permission.ARTIFACT_READ : Permission.ARTIFACT_WRITE);
+        }
+        if (path.startsWith("/api/v1/artifacts")) {
+            return Optional.of("GET".equals(method) ? Permission.ARTIFACT_READ : Permission.ARTIFACT_WRITE);
+        }
         if (path.startsWith("/api/v1/tasks")) {
             if ("GET".equals(method)) return Optional.of(Permission.TASK_READ);
             if (path.endsWith("/cancel")) return Optional.of(Permission.TASK_CANCEL);
@@ -59,8 +65,17 @@ public final class ApiAuthorizationPolicy {
         if (path.startsWith("/api/v1/mcp-servers")) {
             return Optional.of("GET".equals(method) ? Permission.MCP_READ : Permission.MCP_WRITE);
         }
+        if (path.startsWith("/api/v1/memory")) {
+            return Optional.of("GET".equals(method) ? Permission.MEMORY_READ : Permission.MEMORY_GOVERN);
+        }
+        if (path.startsWith("/api/v1/sandboxes")) {
+            return Optional.of(Permission.SANDBOX_READ);
+        }
         if (path.startsWith("/api/v1/usage/quota")) {
             return Optional.of("GET".equals(method) ? Permission.USAGE_READ : Permission.QUOTA_WRITE);
+        }
+        if (path.equals("/api/v1/usage/export")) {
+            return Optional.of(Permission.USAGE_EXPORT);
         }
         if (path.startsWith("/api/v1/usage")) {
             return Optional.of(Permission.USAGE_READ);

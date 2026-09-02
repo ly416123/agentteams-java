@@ -2,6 +2,7 @@ package io.agentteams.controlplane.project;
 
 import java.util.UUID;
 import java.util.List;
+import io.agentteams.controlplane.security.ResourceAction;
 import io.agentteams.controlplane.api.CursorPage;
 import io.agentteams.controlplane.api.CursorPageRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -80,9 +81,11 @@ public final class ProjectController {
 
     @PostMapping("/{projectId}/members/{subject}/role")
     public ResponseEntity<Void> changeRole(@PathVariable UUID projectId, @PathVariable String subject,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
             @RequestBody ChangeRoleRequest request) {
         if (request == null) throw new IllegalArgumentException("request body is required");
-        service.changeRole(projectId, subject, request.role(), request.expectedMembershipVersion());
+        service.changeRole(projectId, idempotencyKeyRequired(idempotencyKey), subject, request.role(),
+                request.expectedMembershipVersion());
         return ResponseEntity.noContent().build();
     }
 
@@ -102,6 +105,11 @@ public final class ProjectController {
     @GetMapping("/{projectId}/members")
     public List<MemberResponse> members(@PathVariable UUID projectId) {
         return service.listMembers(projectId).stream().map(MemberResponse::from).toList();
+    }
+
+    @GetMapping("/{projectId}/authorization/roles")
+    public List<AuthorizationRoleResponse> rolePermissions(@PathVariable UUID projectId) {
+        return service.listRolePermissions(projectId).stream().map(AuthorizationRoleResponse::from).toList();
     }
 
     @DeleteMapping("/{projectId}/members/{subject}")
@@ -137,9 +145,10 @@ public final class ProjectController {
         }
     }
 
-    public record MemberResponse(UUID projectId, String subject, ProjectRole role, String status) {
+    public record MemberResponse(UUID projectId, String subject, ProjectRole role, String status, long version) {
         static MemberResponse from(ProjectMembershipRecord member) {
-            return new MemberResponse(member.projectId(), member.subject(), member.role(), member.status());
+            return new MemberResponse(member.projectId(), member.subject(), member.role(), member.status(),
+                    member.version());
         }
     }
 
@@ -152,7 +161,20 @@ public final class ProjectController {
         }
     }
 
+    public record AuthorizationRoleResponse(String role, List<String> permissions) {
+        static AuthorizationRoleResponse from(ProjectAuthorizationService.RolePermissions role) {
+            return new AuthorizationRoleResponse(role.role().name(), role.permissions().stream()
+                    .map(ResourceAction::name).toList());
+        }
+    }
+
     private static String firstNonBlank(String first, String second) {
         return first != null && !first.isBlank() ? first : second;
+    }
+
+    private static String idempotencyKeyRequired(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("Idempotency-Key is required");
+        if (value.length() > 255) throw new IllegalArgumentException("Idempotency-Key must be at most 255 characters");
+        return value;
     }
 }

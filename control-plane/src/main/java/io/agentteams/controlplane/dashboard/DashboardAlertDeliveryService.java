@@ -41,7 +41,7 @@ public final class DashboardAlertDeliveryService {
         UsageQueryService.UsageSummary result = usage.summarize(tenantId, projectId, from, to);
         Instant windowFrom = result.from();
         Instant windowTo = result.to();
-        List<DashboardAlertService.Alert> evaluated = alerts.evaluate(toDashboardSummary(result));
+        List<DashboardAlertService.Alert> evaluated = alerts.evaluate(toDashboardSummary(result), tenantId, projectId);
         List<DashboardAlertEvent> claimed = evaluated.stream()
                 .map(alert -> DashboardAlertEvent.pending(fingerprint(tenantId, projectId, alert.rule(), windowFrom, windowTo),
                         tenantId, projectId, alert, windowFrom, windowTo, now))
@@ -60,6 +60,26 @@ public final class DashboardAlertDeliveryService {
                 .flatMap(java.util.Optional::stream)
                 .toList();
         return deliverClaimed(claimed, 0, now);
+    }
+
+    /** Immediately retries one failed event; the repository makes the request key durable. */
+    public DashboardAlertEvent retryNow(String tenantId, String projectId, java.util.UUID eventId,
+            String idempotencyKey) {
+        requireScope(tenantId, projectId);
+        Objects.requireNonNull(eventId, "eventId");
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key is required");
+        }
+        Instant now = clock.instant();
+        DashboardAlertEventRepository.RetryRequest request = events.requestRetry(
+                tenantId, projectId, eventId, idempotencyKey, now)
+                .orElseThrow(() -> new IllegalArgumentException("alert event not found"));
+        if (request.replayed()) return request.event();
+        List<DashboardAlertEvent> claimed = events.claim(request.event().retryClaimed(now), now)
+                .stream().toList();
+        deliverClaimed(claimed, 0, now);
+        return events.findById(tenantId, projectId, eventId)
+                .orElseThrow(() -> new IllegalStateException("alert event disappeared after retry"));
     }
 
     private DeliveryResult deliverClaimed(List<DashboardAlertEvent> claimed, int suppressed, Instant now) {

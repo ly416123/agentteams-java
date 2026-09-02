@@ -54,6 +54,9 @@ public final class GatewayRuntimeAdapter {
         putIfPresent(metadata, "toolId", assignment.getToolId());
         putIfPresent(metadata, "quotaId", assignment.getQuotaId());
         putIfPresent(metadata, "quotaDimension", assignment.getQuotaDimension());
+        if (!assignment.getMemoryContextJson().isEmpty()) {
+            metadata.put("memoryContextJson", assignment.getMemoryContextJson().toStringUtf8());
+        }
         if (assignment.hasSandbox()) {
             addSandboxMetadata(metadata, assignment.getSandbox(), taskId, input.getAttemptId());
         }

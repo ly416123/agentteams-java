@@ -87,6 +87,32 @@ class ApiAuthenticationFilterTest {
                 .contains(Permission.DASHBOARD_WRITE);
     }
 
+    @Test
+    void mapsUsageExportToAnIndependentPermission() {
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("GET", "/api/v1/usage/export")))
+                .contains(Permission.USAGE_EXPORT);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("GET", "/api/v1/usage/summary")))
+                .contains(Permission.USAGE_READ);
+    }
+
+    @Test
+    void mapsArtifactRetentionReadAndWriteToSeparatePermissions() {
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("GET", "/api/v1/artifacts/retention")))
+                .contains(Permission.ARTIFACT_READ);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("PUT", "/api/v1/artifacts/retention")))
+                .contains(Permission.ARTIFACT_WRITE);
+    }
+
+    @Test
+    void mapsMemoryAndSandboxManagementRoutesToDedicatedPermissions() {
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("GET", "/api/v1/memory")))
+                .contains(Permission.MEMORY_READ);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("POST", "/api/v1/memory/id/governance")))
+                .contains(Permission.MEMORY_GOVERN);
+        assertThat(ApiAuthorizationPolicy.requiredPermission(request("GET", "/api/v1/sandboxes")))
+                .contains(Permission.SANDBOX_READ);
+    }
+
     private static MockHttpServletRequest request(String method, String path) {
         return new MockHttpServletRequest(method, path);
     }

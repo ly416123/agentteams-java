@@ -34,6 +34,9 @@ class McpServerControllerTest {
     @Mock
     private McpDiscoveryAggregationService aggregationService;
 
+    @Mock
+    private McpHealthProbeService healthProbeService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -121,6 +124,25 @@ class McpServerControllerTest {
                 .andExpect(jsonPath("$.endpoint").doesNotExist())
                 .andExpect(jsonPath("$.credentialRef").doesNotExist())
                 .andExpect(jsonPath("$.tools").doesNotExist());
+    }
+
+    @Test
+    void exposesCredentialSafeConnectionTestResult() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(healthProbeService.probe(eq(id), any())).thenReturn(
+                McpHealthProbeResult.success(Instant.parse("2026-09-02T00:00:00Z"), 12));
+
+        mockMvc = MockMvcBuilders.standaloneSetup(new McpServerController(service, aggregationService,
+                healthProbeService)).setControllerAdvice(new ApiErrorHandler()).build();
+        mockMvc.perform(post("/api/v1/mcp-servers/{id}/connection-test", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("HEALTHY"))
+                .andExpect(jsonPath("$.category").value("SUCCESS"))
+                .andExpect(jsonPath("$.latencyMillis").value(12))
+                .andExpect(jsonPath("$.detail").doesNotExist())
+                .andExpect(jsonPath("$.apiKey").doesNotExist())
+                .andExpect(jsonPath("$.credentialRef").doesNotExist());
+        verify(healthProbeService).probe(eq(id), any());
     }
 
     private static McpServerRecord record(UUID id, String name, McpHealthStatus status, long version) {

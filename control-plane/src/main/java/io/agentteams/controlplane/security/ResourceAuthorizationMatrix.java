@@ -4,6 +4,7 @@ import io.agentteams.controlplane.project.ProjectRole;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.List;
 
 /** Immutable project-role to action matrix; no identity claims can widen it. */
 public final class ResourceAuthorizationMatrix {
@@ -27,5 +28,9 @@ public final class ResourceAuthorizationMatrix {
 
     public static boolean allows(ProjectRole role, ResourceAction action) {
         return role != null && action != null && ALLOWED.getOrDefault(role, Set.of()).contains(action);
+    }
+
+    public static List<ResourceAction> actions(ProjectRole role) {
+        return List.copyOf(ALLOWED.getOrDefault(role, Set.of()));
     }
 }

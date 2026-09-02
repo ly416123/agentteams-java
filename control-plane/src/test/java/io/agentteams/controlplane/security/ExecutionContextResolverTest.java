@@ -2,9 +2,18 @@ package io.agentteams.controlplane.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.util.Optional;
 import java.util.Set;
+import java.util.List;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.junit.jupiter.api.Test;
 
 class ExecutionContextResolverTest {
@@ -81,5 +90,15 @@ class ExecutionContextResolverTest {
         assertThat(first.sameResourceScope(otherSubject)).isTrue();
         assertThat(first.belongsTo(otherSubject)).isFalse();
         assertThat(first.belongsTo(first)).isTrue();
+    }
+
+    @Test
+    void jdbcDirectoryRequiresActiveProjectMembershipForTheResolvedScope() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        new JdbcExecutionContextDirectory(jdbc).resolve("tenant-a", "project-a", "team-a", "user-a");
+
+        verify(jdbc).query(contains("project_memberships"), any(RowMapper.class), any(Object[].class));
     }
 }

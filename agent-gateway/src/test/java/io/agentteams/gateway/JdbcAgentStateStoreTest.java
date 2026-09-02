@@ -132,6 +132,28 @@ class JdbcAgentStateStoreTest {
     }
 
     @Test
+    void heartbeatRefreshDoesNotInvalidateLifecycleVersionGuards() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(contains("UPDATE agents"), any(Object[].class))).thenReturn(1);
+        when(jdbc.update(contains("UPDATE gateway_agent_state"), any(Object[].class))).thenReturn(1);
+        JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
+        UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
+        ConnectionRegistry.ConnectionSnapshot snapshot = new ConnectionRegistry.ConnectionSnapshot(
+                UUID.randomUUID(), agentId.toString(), "qwenpaw", "0.4.0", Map.of(),
+                Instant.parse("2026-08-16T00:00:00Z"), 0);
+
+        store.seen(snapshot, Instant.parse("2026-08-16T00:00:01Z"));
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), any(Object[].class));
+        String canonicalSql = sql.getAllValues().stream()
+                .filter(value -> value.contains("UPDATE agents"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(canonicalSql).doesNotContain("version = version + 1");
+    }
+
+    @Test
     void rejectsUnknownAgentBeforeWritingProjection() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);

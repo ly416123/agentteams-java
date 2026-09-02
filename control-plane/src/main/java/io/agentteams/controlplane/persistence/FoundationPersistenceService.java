@@ -342,6 +342,17 @@ public final class FoundationPersistenceService {
         return inTransaction(tx -> tx.taskAttempts().findById(id));
     }
 
+    public List<TaskExecutionRecord> findTaskExecution(UUID taskId) {
+        return inTransaction(tx -> tx.taskAttempts().findByTaskId(taskId).stream().map(attempt -> {
+            TaskAssignmentRecord assignment = tx.findAssignmentByAttemptId(attempt.id()).orElse(null);
+            AgentLeaseRecord lease = tx.agentLeases().findById(attempt.leaseId()).orElse(null);
+            return new TaskExecutionRecord(attempt, assignment, lease);
+        }).toList());
+    }
+
+    public record TaskExecutionRecord(TaskAttemptRecord attempt, TaskAssignmentRecord assignment,
+            AgentLeaseRecord lease) { }
+
     public List<ArtifactRecord> findArtifactsByTaskId(UUID taskId) {
         return inTransaction(tx -> tx.artifacts().findByTaskId(taskId));
     }

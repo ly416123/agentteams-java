@@ -19,6 +19,7 @@ import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.persistence.TaskSandboxRecord;
+import io.agentteams.controlplane.memory.TaskMemoryContextAssembler;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Duration;
 import java.time.Instant;
@@ -46,22 +47,30 @@ public final class SandboxLifecycleService {
     private final SandboxPolicyService policyService;
     private final SandboxRuntimeProperties properties;
     private final String operationOwner;
+    private final TaskMemoryContextAssembler memoryContexts;
 
     public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime) {
-        this(persistence, runtime, new SandboxRuntimeProperties(), "sandbox-lifecycle", new SandboxPolicyService());
+        this(persistence, runtime, new SandboxRuntimeProperties(), "sandbox-lifecycle", new SandboxPolicyService(), null);
     }
 
     public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime,
             SandboxRuntimeProperties properties, String operationOwner) {
-        this(persistence, runtime, properties, operationOwner, new SandboxPolicyService());
+        this(persistence, runtime, properties, operationOwner, new SandboxPolicyService(), null);
     }
 
     public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime,
             SandboxRuntimeProperties properties, String operationOwner, SandboxPolicyService policyService) {
+        this(persistence, runtime, properties, operationOwner, policyService, null);
+    }
+
+    public SandboxLifecycleService(FoundationPersistenceService persistence, SandboxRuntimePort runtime,
+            SandboxRuntimeProperties properties, String operationOwner, SandboxPolicyService policyService,
+            TaskMemoryContextAssembler memoryContexts) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.policyService = Objects.requireNonNull(policyService, "policyService");
+        this.memoryContexts = memoryContexts;
         if (operationOwner == null || operationOwner.isBlank()) {
             throw new IllegalArgumentException("operationOwner must not be blank");
         }
@@ -328,7 +337,9 @@ public final class SandboxLifecycleService {
                 if (task.phase() == TaskPhase.ASSIGNED) {
                     UUID eventId = FoundationPersistenceService.appendEvent(tx, "task", task.id(), "TaskAssigned",
                             io.agentteams.controlplane.service.TaskAssignmentService.taskAssignedPayload(
-                                    task, agent, attempt, assignment, lease, updated), now, task.version());
+                                    task, agent, attempt, assignment, lease, updated,
+                                    memoryContexts == null ? null : memoryContexts.assemble(task)), now,
+                            task.version());
                     tx.taskSandboxes().markDispatched(updated.id(), eventId, now, updated.version());
                 }
             }

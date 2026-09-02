@@ -149,6 +149,21 @@
             "namespace": { "type": "string" }
           }
         },
+        "workerProvisioner": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespace": { "type": "string" },
+            "image": { "type": "string", "minLength": 1 },
+            "replicas": { "type": "integer", "minimum": 1 },
+            "gatewayHost": { "type": "string", "minLength": 1 },
+            "gatewayPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "configManifestBaseUrl": { "type": "string", "format": "uri-reference" },
+            "qwenpawEndpoint": { "type": "string", "minLength": 1 },
+            "tlsSecretName": { "type": "string" }
+          }
+        },
         "scheduler": {
           "type": "object",
           "additionalProperties": false,
@@ -513,6 +528,8 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "endpoint": { "type": "string", "minLength": 1 },
+        "presignEndpoint": { "type": "string" },
+        "region": { "type": "string" },
         "bucket": { "type": "string", "minLength": 1 },
         "existingSecret": { "type": "string", "minLength": 1 }
       }

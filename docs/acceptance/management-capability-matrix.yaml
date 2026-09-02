@@ -1,0 +1,293 @@
+# 管理端能力矩阵
+#
+# status 只反映当前仓库证据，不代表目标能力已经交付。
+# sdk_status: existing 表示当前 SDK 已有对应能力；not_yet_exposed 表示产品范围要求管理端提供，
+# 但当前 SDK 尚未暴露；not_applicable 表示该能力属于管理端/内部运维边界。
+version: 1
+as_of: 2026-09-02
+capability_relation: "sdk_existing_subset_of_management"
+sdk_freeze:
+  java: true
+  reason: "最终 Console 页面功能验证通过前不更新 sdk/java"
+  allowed_changes: "仅构建阻塞或安全修复，禁止功能扩展"
+  thaw_requires: "所有纳入范围能力完成 API、页面、授权、隔离和浏览器验收"
+
+columns:
+  - sdk_status
+  - management_api
+  - console_route
+  - permission
+  - scope
+  - idempotency
+  - version_guard
+  - memory_impact
+  - secret_dependency
+  - acceptance
+  - status
+
+capabilities:
+  - id: organization.read_write
+    domain: organization
+    sdk_status: not_yet_exposed
+    management_api: "GET/POST /api/v1/management/organizations（POST 创建要求 Idempotency-Key）；POST /api/v1/management/organizations/{id}/status（要求 expectedVersion）；GET/POST /api/v1/management/organizations/{id}/tenants（POST 创建要求 Idempotency-Key）；POST /api/v1/management/tenants/{id}/status（要求 expectedVersion）；GET/POST integrations"
+    console_route: "/settings/organizations"
+    permission: "organization:read|write"
+    scope: organization
+    idempotency: required
+    version_guard: required
+    memory_impact: none
+    secret_dependency: none
+    acceptance: "L1/L2/Browser；Kind 真实 OIDC 创建、幂等重放、Organization/Tenant 状态变更已验证"
+    status: verified
+
+  - id: internal_user.lifecycle
+    domain: identity
+    sdk_status: not_yet_exposed
+    management_api: "GET/POST /api/v1/management/users；POST /api/v1/management/users/{id}/status；GET/POST /api/v1/management/organizations/{id}/memberships"
+    console_route: "/settings/identity"
+    permission: "user:manage|organization:admin"
+    scope: organization|tenant|project
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: none
+    acceptance: "L1/L2/Browser"
+    status: implemented
+
+  - id: external_user.provisioning
+    domain: external_identity
+    sdk_status: existing
+    management_api: "GET/POST /api/v1/management/integrations/{id}/external-identities（历史映射）；POST /api/v1/management/integrations/{id}/provisioned-users；PUT /api/v1/management/integrations/{id}/provisioned-users/{externalUserId}?externalOrganizationId=...；POST /api/v1/management/integrations/{id}/provisioned-users/{externalUserId}/disable?externalOrganizationId=...；GET /api/v1/management/integrations/{id}/provisioned-users/{externalUserId}/memberships?externalOrganizationId=..."
+    console_route: "/settings/identity"
+    permission: "external-user:manage"
+    scope: organization|tenant|project
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: credential_ref_only
+    acceptance: "L1/L2/IT/Console unit/真实 OIDC Browser；初始化、更新、停用和 Membership 查询已验证"
+    status: verified
+
+  - id: integration.credential
+    domain: external_identity
+    sdk_status: not_yet_exposed
+    management_api: "POST /api/v1/management/organizations/{id}/integrations；GET/POST /api/v1/management/integrations/{id}/credentials；rotate/revoke"
+    console_route: "/settings/integrations"
+    permission: "integration:manage|credential:manage"
+    scope: organization|tenant|project
+    idempotency: required
+    version_guard: required
+    memory_impact: none
+    secret_dependency: required_by_production_only
+    acceptance: "L1/L2/L3/Browser；Credential Ref 登记、轮换、撤销和版本保护已通过真实 OIDC 页面验证；L6 when credential is available"
+    status: partial
+
+  - id: role.permission.authorization
+    domain: authorization
+    sdk_status: not_yet_exposed
+    management_api: "GET /api/v1/projects/{projectId}/authorization/roles；POST /api/v1/projects/{projectId}/members/{subject}/role（要求 Idempotency-Key 和 expectedMembershipVersion）"
+    console_route: "/settings/roles"
+    permission: "project:read；project membership role change"
+    scope: organization|tenant|project|team
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: none
+    acceptance: "L1/L2/Browser；Project 作用域矩阵、角色变更幂等重放、版本保护和真实 OIDC 页面已验证"
+    status: verified
+
+  - id: project.workspace
+    domain: project
+    sdk_status: existing
+    management_api: "GET/POST /api/v1/projects"
+    console_route: "/:projectId/overview"
+    permission: "project:read|write"
+    scope: tenant|project
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: none
+    acceptance: "L1/L2/L4/Browser；Kind 真实 OIDC Project 创建和当前 Tenant 作用域列表已验证"
+    status: verified
+
+  - id: team.lifecycle
+    domain: team
+    sdk_status: not_yet_exposed
+    management_api: "/api/v1/teams；成员/策略；Revision 审核、发布、回滚；Deployment/Retry"
+    console_route: "/:projectId/teams"
+    permission: "team:read|write"
+    scope: tenant|project|team
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: credential_ref_only
+    acceptance: "L1/L2/L4/Browser；真实 OIDC Team 创建、Project UUID/外部名 scope 解析和跨 Project 负向已验证"
+    status: verified
+
+  - id: worker_template.lifecycle
+    domain: template
+    sdk_status: not_yet_exposed
+    management_api: "/api/v1/worker-templates"
+    console_route: "/:projectId/templates"
+    permission: "template:read|write|publish"
+    scope: tenant|project
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: credential_ref_only
+    acceptance: "L1/L2/L3/L4/Browser；真实 OIDC Template → Revision → Publish → 显式实例化流程已验证"
+    status: verified
+
+  - id: agent_spec.publish
+    domain: agent_spec
+    sdk_status: not_yet_exposed
+    management_api: "/api/v1/agent-specs"
+    console_route: "/:projectId/agentspecs"
+    permission: "agent-spec:read|write|publish"
+    scope: tenant|project|team
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: credential_ref_only
+    acceptance: "L1/L2/L3/L4/Browser；真实 OIDC AgentSpec 页面已完成创建 → DRAFT、发布 → PUBLISHED、停用 → DISABLED，且 Template 显式实例化链路覆盖 RUNNING 默认状态"
+    status: verified
+
+  - id: worker.provision_and_operations
+    domain: worker
+    sdk_status: not_yet_exposed
+    management_api: "/api/v1/agents and /api/v1/agents/{id}/operations"
+    console_route: "/:projectId/workers"
+    permission: "agent:read|write"
+    scope: tenant|project|team
+    idempotency: required
+    version_guard: required
+    memory_impact: none
+    secret_dependency: credential_ref_only
+    acceptance: "L1/L2/L3/L4/Browser/L5；真实 OIDC 已验证显式实例化 Worker CR → Operator Deployment → Ready Pod、Worker 详情操作记录、lease 过期后的自动稳定快照恢复和 ROLLED_BACK，以及受控 Ubuntu/K3s 上 gVisor/Kata runtime isolation evidence"
+    status: verified
+
+  - id: model_provider_and_price
+    domain: model
+    sdk_status: not_yet_exposed
+    management_api: "GET/POST/PATCH/DELETE /api/v1/model-providers；GET/POST/PATCH/DELETE /api/v1/model-providers/{providerId}/models；GET /api/v1/model-prices"
+    console_route: "/:projectId/models"
+    permission: "model:read|write"
+    scope: tenant|project
+    idempotency: required
+    version_guard: required
+    memory_impact: none
+    secret_dependency: required_by_runtime
+    acceptance: "L1/L2/L3/Browser; L6 for real provider"
+    status: partial
+
+  - id: mcp.connection_route_discovery
+    domain: mcp
+    sdk_status: not_yet_exposed
+    management_api: "/api/v1/mcp"
+    console_route: "/:projectId/mcp"
+    permission: "mcp:read|write"
+    scope: tenant|project|team
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: required_by_runtime
+    acceptance: "L1/L2/L3/L4/Browser（管理链路和 fail-closed 已验证）；L6 for real MCP"
+    status: partial
+
+  - id: skill.version_artifact_binding
+    domain: skill
+    sdk_status: not_yet_exposed
+    management_api: "POST/GET /api/v1/skills；POST/GET /api/v1/skills/{skillId}/versions；review/package/publish/disable"
+    console_route: "/:projectId/skills"
+    permission: "skill:read|write|publish"
+    scope: tenant|project|team
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: credential_ref_only
+    acceptance: "L1/L2/L3/L4/Browser（含真实 MinIO 预签名直传和 package complete）"
+    status: complete
+
+  - id: conversation.lifecycle
+    domain: conversation
+    sdk_status: not_yet_exposed
+    management_api: "/api/v1/conversations"
+    console_route: "/:projectId/conversations"
+    permission: "conversation:read|write"
+    scope: tenant|project|team|user
+    idempotency: required
+    version_guard: required
+    memory_impact: read|write
+    secret_dependency: runtime_only
+    acceptance: "L1/L2/L4/Browser"
+    status: partial
+
+  - id: task.attempt_assignment_lease
+    domain: task
+    sdk_status: existing
+    management_api: "GET /api/v1/tasks；GET /api/v1/tasks/{taskId}/execution；POST lifecycle actions"
+    console_route: "/:projectId/tasks"
+    permission: "task:read|create|operate"
+    scope: tenant|project|team|user
+    idempotency: required
+    version_guard: required
+    memory_impact: read|write
+    secret_dependency: runtime_only
+    acceptance: "L1/L2/L4/Browser"
+    status: partial
+
+  - id: artifact.lifecycle
+    domain: artifact
+    sdk_status: existing
+    management_api: "GET /api/v1/artifacts（元数据列表）；GET/PUT /api/v1/artifacts/retention（当前 Project 保留策略，PUT 使用 expectedVersion）；/api/v1/tasks/{taskId}/attempts/{attemptId}/artifacts（上传/下载）"
+    console_route: "/:projectId/artifacts"
+    permission: "artifact:read|write|download"
+    scope: tenant|project|team|task|user
+    idempotency: required
+    version_guard: required
+    memory_impact: none
+    secret_dependency: none
+    acceptance: "L1/L2/L4/Browser"
+    status: implemented
+
+  - id: usage.cost_budget_alert
+    domain: usage
+    sdk_status: not_yet_exposed
+    management_api: "GET /api/v1/usage/summary（支持 organization/tenant/project/team/user 维度、taskId/provider/model 筛选和 offset/limit 分页；User 维度读取审计 actor_subject，查询仍受当前认证 Tenant/Project/Team scope 限制）；GET /api/v1/usage/export（同作用域 CSV 导出，需 usage:export，记录 USAGE_EXPORTED 审计）；GET /api/v1/usage/dimensions/completeness；GET /api/v1/usage/budgets；GET /api/v1/usage/budgets/{policyId}/evaluations；PUT /api/v1/usage/budgets/{policyId}；GET /api/v1/dashboard/alerts；GET /api/v1/dashboard/alerts/events（含失败原因和下一次重试时间）；GET/PUT /api/v1/dashboard/alert-rules（Tenant + Project 作用域，expectedVersion）；POST /api/v1/dashboard/alerts/events/{eventId}/retry（要求 Idempotency-Key，记录人工重试审计）；GET /api/v1/audit-events（支持筛选和 before 游标）"
+    console_route: "/:projectId/usage；/:projectId/budgets；/:projectId/alerts；/:projectId/audit"
+    permission: "usage:read|usage:export|budget:write|audit:read"
+    scope: organization|tenant|project|team|user|task
+    idempotency: required_for_writes
+    version_guard: required_for_writes
+    memory_impact: none
+    secret_dependency: none
+    acceptance: "L1/L2/L4/Browser"
+    status: complete
+
+  - id: memory.governance_context_assembly
+    domain: memory
+    sdk_status: not_yet_exposed
+    management_api: "GET /api/v1/memory；POST /api/v1/memory/{memoryId}/governance"
+    console_route: "/:projectId/memory"
+    permission: "memory:read|govern|export"
+    scope: organization|tenant|project|team|user|task
+    idempotency: required
+    version_guard: required
+    memory_impact: governance
+    secret_dependency: none
+    acceptance: "L1/L2/L4/Browser；Kind 真实 OIDC 多 subject/Team/Project/Tenant metadata-only scope 验收通过"
+    status: verified
+
+  - id: sandbox.lifecycle
+    domain: sandbox
+    sdk_status: not_yet_exposed
+    management_api: "GET /api/v1/sandboxes（元数据列表）；回收继续由 Attempt/Lease 运维链路负责"
+    console_route: "/:projectId/sandboxes"
+    permission: "sandbox:read|operate"
+    scope: tenant|project|team|task|attempt
+    idempotency: required
+    version_guard: required
+    memory_impact: read
+    secret_dependency: runtime_only
+    acceptance: "L1/L2/L3/L4/Browser/L5；受控 Ubuntu/K3s 上 gVisor 与 Kata TaskSandbox 均达到 READY，并验证 Job/Pod runtimeClassName 与 guest/host kernel 证据"
+    status: verified

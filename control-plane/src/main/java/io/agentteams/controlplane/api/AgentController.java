@@ -39,9 +39,11 @@ public final class AgentController {
     @PostMapping
     public ResponseEntity<AgentResponse> create(
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestParam(required = false) String projectId,
             @RequestBody CreateAgentRequest request) {
         requireRequest(request);
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         PrincipalContext.requireScope(request.metadata() == null ? null : request.metadata().toString());
         AgentRecord agent = service.create(idempotencyKey, request.toServiceInput());
         return ResponseEntity.status(201).body(AgentResponse.from(agent));
@@ -51,13 +53,16 @@ public final class AgentController {
     public CursorPage<AgentResponse> list(@RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction, @RequestParam(required = false) String status,
-            @RequestParam(required = false) String q, @RequestParam(required = false) String search) {
+            @RequestParam(required = false) String q, @RequestParam(required = false) String search,
+            @RequestParam(required = false) String projectId) {
+        requireProjectScope(projectId);
         return service.list(new CursorPageRequest(cursor, pageSize, sort, direction), status,
                 firstNonBlank(q, search)).map(AgentResponse::from);
     }
 
     @GetMapping("/{id}")
-    public AgentResponse get(@PathVariable UUID id) {
+    public AgentResponse get(@PathVariable UUID id, @RequestParam(required = false) String projectId) {
+        requireProjectScope(projectId);
         AgentRecord agent = service.get(id);
         PrincipalContext.requireScope(agent.metadataJson());
         return AgentResponse.from(agent);
@@ -67,8 +72,9 @@ public final class AgentController {
     public ResponseEntity<WorkerOperationResponse> requestDrain(
             @PathVariable UUID id,
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
-            @RequestBody LifecycleRequest request) {
+            @RequestBody LifecycleRequest request, @RequestParam(required = false) String projectId) {
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         WorkerOperation operation = operations().drain(id, expectedVersion(request), idempotencyKey);
         return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
     }
@@ -77,8 +83,9 @@ public final class AgentController {
     public ResponseEntity<WorkerOperationResponse> requestTerminate(
             @PathVariable UUID id,
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
-            @RequestBody LifecycleRequest request) {
+            @RequestBody LifecycleRequest request, @RequestParam(required = false) String projectId) {
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         WorkerOperation operation = operations().terminate(id, expectedVersion(request), idempotencyKey);
         return ResponseEntity.accepted().body(WorkerOperationResponse.from(operation));
     }
@@ -87,8 +94,9 @@ public final class AgentController {
     public ResponseEntity<WorkerOperationResponse> requestRollout(
             @PathVariable UUID id,
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
-            @RequestBody RolloutRequest request) {
+            @RequestBody RolloutRequest request, @RequestParam(required = false) String projectId) {
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         if (request == null) {
             throw new IllegalArgumentException("request body is required");
         }
@@ -97,14 +105,18 @@ public final class AgentController {
     }
 
     @GetMapping("/{agentId}/operations/{operationId}")
-    public WorkerOperationResponse getOperation(@PathVariable UUID agentId, @PathVariable UUID operationId) {
+    public WorkerOperationResponse getOperation(@PathVariable UUID agentId, @PathVariable UUID operationId,
+            @RequestParam(required = false) String projectId) {
+        requireProjectScope(projectId);
         return WorkerOperationResponse.from(operations().get(agentId, operationId));
     }
 
     @GetMapping("/{agentId}/operations")
     public CursorPage<WorkerOperationListResponse> listOperations(@PathVariable UUID agentId,
             @RequestParam(required = false) String cursor, @RequestParam(required = false) Integer pageSize,
-            @RequestParam(required = false) String sort, @RequestParam(required = false) String direction) {
+            @RequestParam(required = false) String sort, @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String projectId) {
+        requireProjectScope(projectId);
         return operations().list(agentId, new CursorPageRequest(cursor, pageSize, sort, direction))
                 .map(operation -> WorkerOperationListResponse.from(operation,
                         operations().observation(operation.id()).orElse(null)));
@@ -113,8 +125,9 @@ public final class AgentController {
     @PostMapping("/{agentId}/operations/{operationId}/rollback")
     public WorkerOperationResponse rollback(@PathVariable UUID agentId, @PathVariable UUID operationId,
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
-            @RequestBody OperationVersionRequest request) {
+            @RequestBody OperationVersionRequest request, @RequestParam(required = false) String projectId) {
         requireIdempotencyKey(idempotencyKey);
+        requireProjectScope(projectId);
         return WorkerOperationResponse.from(operations().rollback(agentId, operationId,
                 expectedVersion(request), idempotencyKey));
     }
@@ -240,5 +253,9 @@ public final class AgentController {
 
     private static String firstNonBlank(String first, String second) {
         return first != null && !first.isBlank() ? first : second;
+    }
+
+    private void requireProjectScope(String projectId) {
+        if (projectId != null && !projectId.isBlank()) service.requireProjectScope(projectId);
     }
 }

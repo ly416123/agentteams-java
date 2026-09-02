@@ -4,7 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/httpClient';
-import { getWorker, listWorkers, rolloutWorker, workerAction } from '../../src/api/workers';
+import {
+  getWorker,
+  listOperations,
+  listWorkers,
+  rolloutWorker,
+  workerAction,
+} from '../../src/api/workers';
 import { WorkerListPage } from '../../src/features/workers/WorkerListPage';
 import { WorkerDetailPage } from '../../src/features/workers/WorkerDetailPage';
 import { WorkerOperationPanel } from '../../src/features/workers/WorkerOperationPanel';
@@ -117,6 +123,35 @@ describe('Worker pages', () => {
     expect(screen.getByText('reports')).toBeInTheDocument();
   });
 
+  it('surfaces rollout failure and operator/gateway observations for diagnosis', async () => {
+    vi.mocked(listOperations).mockResolvedValueOnce({
+      items: [
+        {
+          id: 'failed-rollout',
+          agentId: 'worker-1',
+          type: 'ROLLOUT',
+          status: 'FAILED',
+          requestedSpecDigest: 'sha256:new',
+          createdAt: '2026-08-29T01:00:00Z',
+          updatedAt: '2026-08-29T02:00:00Z',
+          version: 3,
+          failureCategory: 'IMAGE_PULL_BACKOFF',
+          operatorReady: false,
+          gatewayOnline: false,
+          observationsMatch: false,
+        },
+      ],
+      hasMore: false,
+    });
+
+    renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
+
+    expect(await screen.findByText(/失败原因：IMAGE_PULL_BACKOFF/)).toBeInTheDocument();
+    expect(screen.getByText(/Operator：未就绪/)).toBeInTheDocument();
+    expect(screen.getByText(/Gateway：离线/)).toBeInTheDocument();
+    expect(screen.getByText(/观测结果：不匹配/)).toBeInTheDocument();
+  });
+
   it('offers lifecycle actions with a version and operation history', async () => {
     renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
     expect(await screen.findByText('分析 Worker')).toBeInTheDocument();
@@ -136,10 +171,11 @@ describe('Worker pages', () => {
     await userEvent.click(screen.getByRole('button', { name: '确认 Rollout' }));
     expect(await screen.findByText('操作已提交')).toBeInTheDocument();
     expect(rolloutWorker).toHaveBeenCalledWith(
+      'p-1',
       'worker-1',
       expect.objectContaining({ expectedVersion: 5, imageDigest: 'sha256:worker-1' }),
     );
-    expect(vi.mocked(rolloutWorker).mock.calls.at(-1)?.[1]).not.toHaveProperty('owner');
+    expect(vi.mocked(rolloutWorker).mock.calls.at(-1)?.[2]).not.toHaveProperty('owner');
   });
 
   it('requires rollout metadata instead of fabricating missing values', async () => {
@@ -208,7 +244,7 @@ describe('Worker pages', () => {
     await screen.findByText('资源状态已更新');
     await userEvent.click(screen.getByRole('button', { name: '仍然继续操作' }));
 
-    expect(workerAction).toHaveBeenLastCalledWith('worker-1', 'drain', 6);
+    expect(workerAction).toHaveBeenLastCalledWith('p-1', 'worker-1', 'drain', 6);
   });
 
   it('follows the backend worker phase matrix for lifecycle buttons', () => {

@@ -108,6 +108,37 @@ class TeamServiceScopeTest {
     }
 
     @Test
+    void acceptsStableProjectIdWhenItResolvesToTheCallerProjectName() {
+        when(resourceScopes.matchesCallerProject("00000000-0000-0000-0000-000000000025")).thenReturn(true);
+
+        service.requireProjectScope("00000000-0000-0000-0000-000000000025");
+
+        verify(resourceScopes).matchesCallerProject("00000000-0000-0000-0000-000000000025");
+    }
+
+    @Test
+    void rejectsStableProjectIdOutsideTheCallerProjectName() {
+        when(resourceScopes.matchesCallerProject("00000000-0000-0000-0000-000000000026")).thenReturn(false);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                service.requireProjectScope("00000000-0000-0000-0000-000000000026"))
+                .isInstanceOf(AuthorizationException.class)
+                .hasMessage("resource is outside the caller project scope");
+    }
+
+    @Test
+    void switchesTheRequestScopeToAnAuthorizedProjectRoute() {
+        String projectId = "00000000-0000-0000-0000-000000000099";
+        when(resourceScopes.matchesCallerProject(projectId)).thenReturn(true);
+
+        service.requireProjectScope(projectId);
+
+        assertThat(PrincipalContext.current()).isPresent();
+        assertThat(PrincipalContext.current().orElseThrow().scope().project()).isEqualTo(projectId);
+        assertThat(PrincipalContext.current().orElseThrow().subject()).isEqualTo(PRINCIPAL.subject());
+    }
+
+    @Test
     void failsClosedWhenResourceScopeRepositoryIsUnavailableForListing() {
         TeamService withoutScopes = new TeamService(persistence,
                 new io.agentteams.controlplane.team.TeamSchedulingPolicy(), null);

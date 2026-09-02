@@ -42,6 +42,20 @@ class DashboardAlertServiceTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @Test
+    void scopedRuleOverridesTheGlobalDefaultWithoutChangingAnotherProject() {
+        InMemoryDashboardAlertRuleRepository repository = new InMemoryDashboardAlertRuleRepository();
+        repository.save(new DashboardAlertRule("COST", "WARNING", 100, true));
+        repository.saveForScope("tenant-a", "project-a",
+                new DashboardAlertRule("COST", "CRITICAL", 1, true), 0);
+        DashboardAlertService service = new DashboardAlertService(repository);
+
+        assertThat(service.evaluate(summary(1, 0, 0, 2), "tenant-a", "project-a"))
+                .containsExactly(new DashboardAlertService.Alert(
+                        "COST", "CRITICAL", 2, "estimated model cost exceeded configured threshold"));
+        assertThat(service.evaluate(summary(1, 0, 0, 2), "tenant-a", "project-b")).isEmpty();
+    }
+
     private static DashboardSummaryController.DashboardSummary summary(long calls, long failures,
             double latency, double cost) {
         return new DashboardSummaryController.DashboardSummary(Instant.EPOCH, Instant.EPOCH.plusSeconds(1),

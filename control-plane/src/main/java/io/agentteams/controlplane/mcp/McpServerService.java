@@ -120,10 +120,21 @@ public class McpServerService {
 
     @Transactional
     public McpServerRecord update(UUID id, UpdateInput input) {
+        return update(id, input, null);
+    }
+
+    @Transactional
+    public McpServerRecord update(UUID id, UpdateInput input, Long expectedVersion) {
         String actor = PrincipalContext.actorOr("api");
         try {
             Objects.requireNonNull(input, "input");
             McpServerRecord current = get(id);
+            if (expectedVersion != null && expectedVersion < 0) {
+                throw new IllegalArgumentException("expectedVersion must not be negative");
+            }
+            if (expectedVersion != null && current.version() != expectedVersion) {
+                throw new OptimisticLockFailure("MCP_SERVER", id, expectedVersion, current.version());
+            }
             NormalizedInput normalized = normalize(input);
             Instant now = clock.instant();
             McpServerRecord updated = new McpServerRecord(current.id(), normalized.name(), normalized.transport(),

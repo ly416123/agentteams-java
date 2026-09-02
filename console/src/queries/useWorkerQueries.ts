@@ -22,14 +22,14 @@ export function useWorkers(projectId: string, filters: WorkerFilters) {
 export function useWorker(projectId: string, workerId: string) {
   return useQuery({
     queryKey: queryKeys.worker(projectId, workerId),
-    queryFn: () => getWorker(workerId),
+    queryFn: () => getWorker(projectId, workerId),
     enabled: Boolean(projectId && workerId),
   });
 }
 export function useWorkerOperations(projectId: string, workerId: string, cursor?: string) {
   return useQuery({
     queryKey: queryKeys.workerOperations(projectId, workerId, cursor),
-    queryFn: () => listOperations(workerId, { cursor }),
+    queryFn: () => listOperations(projectId, workerId, { cursor }),
     enabled: Boolean(projectId && workerId),
     refetchInterval: 10000,
     select: normalizeCursorPage,
@@ -42,9 +42,9 @@ export function useWorkerAction(projectId: string, workerId: string) {
       action,
       expectedVersion,
     }: {
-      action: Parameters<typeof workerAction>[1];
+      action: Parameters<typeof workerAction>[2];
       expectedVersion: number;
-    }) => workerAction(workerId, action, expectedVersion),
+    }) => workerAction(projectId, workerId, action, expectedVersion),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['workers', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });
@@ -57,7 +57,7 @@ export function useWorkerAction(projectId: string, workerId: string) {
 export function useWorkerRollout(projectId: string, workerId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: WorkerRolloutRequest) => rolloutWorker(workerId, body),
+    mutationFn: (body: WorkerRolloutRequest) => rolloutWorker(projectId, workerId, body),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['workers', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });
@@ -76,7 +76,7 @@ export function useWorkerRollback(projectId: string, workerId: string) {
     }: {
       operationId: string;
       expectedVersion: number;
-    }) => rollbackWorker(workerId, operationId, expectedVersion),
+    }) => rollbackWorker(projectId, workerId, operationId, expectedVersion),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['workers', projectId] });
       client.invalidateQueries({ queryKey: queryKeys.worker(projectId, workerId) });

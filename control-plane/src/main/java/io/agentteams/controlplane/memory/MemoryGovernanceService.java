@@ -11,10 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Applies tenant-scoped, auditable memory governance without exposing memory content. */
 @Service
-public final class MemoryGovernanceService {
+public class MemoryGovernanceService {
     private final MemoryGovernanceRepository repository;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public MemoryGovernanceService(MemoryGovernanceRepository repository) {
         this(repository, Clock.systemUTC());
     }
@@ -76,8 +77,7 @@ public final class MemoryGovernanceService {
         MemoryRecord memory = repository.findById(Objects.requireNonNull(memoryId, "memoryId"),
                 context.organizationId(), context.tenantId()).orElseThrow(() ->
                 new IllegalArgumentException("memory is outside the execution context"));
-        if (!context.organizationId().equals(memory.policy().organizationId())
-                || !context.tenantId().equals(memory.policy().tenantId())) {
+        if (!MemoryScopeVisibility.resourceVisible(memory, context)) {
             throw new IllegalArgumentException("memory is outside the execution context");
         }
         return memory;
@@ -123,6 +123,6 @@ public final class MemoryGovernanceService {
 
     private static MemoryPolicy withConsent(MemoryPolicy policy, MemoryPolicy.Consent consent) {
         return new MemoryPolicy(policy.scope(), policy.organizationId(), policy.tenantId(), policy.projectId(),
-                policy.teamId(), policy.subjectId(), policy.sensitivity(), consent, policy.retention());
+                policy.teamId(), policy.subjectId(), policy.taskId(), policy.sensitivity(), consent, policy.retention());
     }
 }

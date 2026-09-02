@@ -35,18 +35,21 @@ class JdbcModelCallAuditRecorderTest {
 
         ArgumentCaptor<Object[]> values = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).update(eq("""
-                INSERT INTO model_call_audits(id, source_event_id, provider, model, latency_millis,
+                INSERT INTO model_call_audits(id, source_event_id, organization_id, actor_subject, provider, model, latency_millis,
                     prompt_tokens, completion_tokens, request_hash, response_hash, outcome, error_category,
                     occurred_at, tenant_id, project_id, cost_usd, cost_status, worker_id, task_id, team_id,
                     tool_id, quota_id, quota_dimension)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, (SELECT organization_id::text FROM legacy_tenant_mappings WHERE legacy_tenant_key = ?),
+                    (SELECT actor FROM tasks WHERE id = ?), ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source_event_id) DO NOTHING
                 """), values.capture());
         assertThat(values.getValue()[0]).isEqualTo(eventId);
         assertThat(values.getValue()[1]).isEqualTo(eventId);
-        assertThat(values.getValue()[2]).isEqualTo("qwen");
-        assertThat(values.getValue()[11]).isEqualTo("tenant-a");
-        assertThat(values.getValue()[12]).isEqualTo("project-a");
-        assertThat(values.getValue()[18]).isEqualTo("quota-1");
+        assertThat(values.getValue()[2]).isEqualTo("tenant-a");
+        assertThat(values.getValue()[3]).isEqualTo(taskId);
+        assertThat(values.getValue()[4]).isEqualTo("qwen");
+        assertThat(values.getValue()[13]).isEqualTo("tenant-a");
+        assertThat(values.getValue()[14]).isEqualTo("project-a");
+        assertThat(values.getValue()[20]).isEqualTo("quota-1");
     }
 }

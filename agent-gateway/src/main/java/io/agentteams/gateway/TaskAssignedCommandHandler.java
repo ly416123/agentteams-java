@@ -80,6 +80,14 @@ public final class TaskAssignedCommandHandler {
                 .setToolId(dimensions.toolIdOrEmpty())
                 .setQuotaId(dimensions.quotaIdOrEmpty())
                 .setQuotaDimension(dimensions.quotaDimensionOrEmpty());
+        if (payload.memoryContext() != null) {
+            try {
+                assignedBuilder.setMemoryContextJson(ByteString.copyFrom(
+                        MAPPER.writeValueAsBytes(payload.memoryContext())));
+            } catch (JsonProcessingException error) {
+                throw new IllegalArgumentException("memoryContext is not serializable", error);
+            }
+        }
         if (payload.sandbox() != null) {
             TaskAssignedCommandPayload.SandboxAssignmentPayload sandbox = payload.sandbox();
             assignedBuilder.setSandbox(SandboxAssignment.newBuilder()
@@ -194,6 +202,10 @@ public final class TaskAssignedCommandHandler {
             }
             TaskAssignedCommandPayload.SandboxAssignmentPayload sandbox = parseSandbox(
                     root.get("sandbox"), taskId, attemptId);
+            JsonNode memoryContext = root.get("memoryContext");
+            if (memoryContext != null && !memoryContext.isArray()) {
+                throw new IllegalArgumentException("memoryContext must be an array");
+            }
             String requestedProfile = requestedSandboxProfile(root, spec);
             if (requestedProfile != null) {
                 io.agentteams.application.api.SandboxProfile profile;
@@ -219,7 +231,7 @@ public final class TaskAssignedCommandHandler {
                 }
             }
             return new TaskAssignedCommandPayload(taskId, agentId, attemptId, assignmentId, leaseId,
-                    spec, sandbox, extensions);
+                    spec, sandbox, memoryContext, extensions);
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("payloadJson is invalid JSON", error);
         }

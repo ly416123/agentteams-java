@@ -12,7 +12,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL snapshot and durable finding store for Task state reconciliation. */
 @Repository
-public final class JdbcTaskStateConsistencyRepository implements TaskStateConsistencyRepository {
+public class JdbcTaskStateConsistencyRepository implements TaskStateConsistencyRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

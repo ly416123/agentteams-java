@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
  * repository appends one immutable fact for every accepted operation.
  */
 @Service
-public final class TokenLedgerService {
+public class TokenLedgerService {
     private final TokenLedgerRepository repository;
 
     public TokenLedgerService(TokenLedgerRepository repository) {

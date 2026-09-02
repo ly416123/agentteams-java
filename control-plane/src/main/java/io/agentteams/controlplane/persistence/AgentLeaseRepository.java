@@ -2,6 +2,7 @@ package io.agentteams.controlplane.persistence;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -30,6 +31,14 @@ public final class AgentLeaseRepository {
                        created_at, updated_at, version
                   FROM agent_leases WHERE id = ?
                 """, this::map, id).stream().findFirst();
+    }
+
+    public List<AgentLeaseRecord> findByAttemptId(UUID attemptId) {
+        return jdbc.query("""
+                SELECT id, agent_id, task_attempt_id, acquired_at, expires_at, released_at, status,
+                       created_at, updated_at, version
+                  FROM agent_leases WHERE task_attempt_id = ? ORDER BY created_at DESC, id DESC
+                """, this::map, attemptId);
     }
 
     public long count() {

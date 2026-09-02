@@ -31,7 +31,7 @@ public class JdbcMemoryRepository implements MemoryRepository, MemoryGovernanceR
     public MemoryRecord save(MemoryRecord memory) {
         jdbc.update("""
                 INSERT INTO memories
-                    (id, organization_id, tenant_id, project_id, team_id, subject_id, scope, content_ref,
+                    (id, organization_id, tenant_id, project_id, team_id, task_id, subject_id, scope, content_ref,
                      summary, sensitivity, consent_status, source, retention_seconds, expires_at, created_at, updated_at, version,
                      governance_status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -40,7 +40,8 @@ public class JdbcMemoryRepository implements MemoryRepository, MemoryGovernanceR
                     updated_at = EXCLUDED.updated_at, version = EXCLUDED.version,
                     governance_status = EXCLUDED.governance_status
                 """, memory.id(), memory.policy().organizationId(), memory.policy().tenantId(),
-                memory.policy().projectId(), memory.policy().teamId(), memory.policy().subjectId(),
+                memory.policy().projectId(), memory.policy().teamId(), nullableTaskId(memory.policy().taskId()),
+                memory.policy().subjectId(),
                 memory.policy().scope().name(), memory.contentRef(), memory.summary(), memory.policy().sensitivity().name(),
                 memory.policy().consent().name(), memory.source(), memory.policy().retention().toSeconds(),
                 nullableTimestamp(memory.expiresAt()),
@@ -52,7 +53,7 @@ public class JdbcMemoryRepository implements MemoryRepository, MemoryGovernanceR
     @Override
     public List<MemoryRecord> find(String organizationId, String tenantId) {
         return jdbc.query("""
-                SELECT id, organization_id, tenant_id, project_id, team_id, subject_id, scope, content_ref,
+                SELECT id, organization_id, tenant_id, project_id, team_id, task_id, subject_id, scope, content_ref,
                        summary, sensitivity, consent_status, source, retention_seconds, expires_at, created_at, updated_at, version,
                        governance_status
                   FROM memories
@@ -62,9 +63,22 @@ public class JdbcMemoryRepository implements MemoryRepository, MemoryGovernanceR
     }
 
     @Override
+    public List<MemoryRecord> find(String organizationId, String tenantId, String projectId) {
+        return jdbc.query("""
+                SELECT id, organization_id, tenant_id, project_id, team_id, task_id, subject_id, scope, content_ref,
+                       summary, sensitivity, consent_status, source, retention_seconds, expires_at, created_at, updated_at, version,
+                       governance_status
+                  FROM memories
+                 WHERE organization_id = ? AND tenant_id = ?
+                   AND (project_id = ? OR project_id IS NULL)
+                 ORDER BY updated_at DESC, id
+                """, this::map, organizationId, tenantId, projectId);
+    }
+
+    @Override
     public Optional<MemoryRecord> findById(UUID memoryId, String organizationId, String tenantId) {
         return jdbc.query("""
-                SELECT id, organization_id, tenant_id, project_id, team_id, subject_id, scope, content_ref,
+                SELECT id, organization_id, tenant_id, project_id, team_id, task_id, subject_id, scope, content_ref,
                        summary, sensitivity, consent_status, source, retention_seconds, expires_at, created_at, updated_at, version,
                        governance_status
                   FROM memories
@@ -101,7 +115,7 @@ public class JdbcMemoryRepository implements MemoryRepository, MemoryGovernanceR
     private MemoryRecord map(ResultSet rs, int row) throws SQLException {
         MemoryPolicy policy = new MemoryPolicy(MemoryPolicy.Scope.valueOf(rs.getString("scope")),
                 rs.getString("organization_id"), rs.getString("tenant_id"), rs.getString("project_id"),
-                rs.getString("team_id"), rs.getString("subject_id"),
+                rs.getString("team_id"), rs.getString("subject_id"), taskId(rs),
                 MemoryPolicy.Sensitivity.valueOf(rs.getString("sensitivity")),
                 MemoryPolicy.Consent.valueOf(rs.getString("consent_status")),
                 java.time.Duration.ofSeconds(rs.getLong("retention_seconds")));
@@ -113,6 +127,15 @@ public class JdbcMemoryRepository implements MemoryRepository, MemoryGovernanceR
 
     private static java.sql.Timestamp nullableTimestamp(java.time.Instant value) {
         return value == null ? null : JdbcSupport.timestamp(value);
+    }
+
+    private static UUID nullableTaskId(String value) {
+        return value == null || value.isBlank() ? null : UUID.fromString(value);
+    }
+
+    private static String taskId(ResultSet rs) throws SQLException {
+        UUID value = rs.getObject("task_id", UUID.class);
+        return value == null ? null : value.toString();
     }
 
     private static java.time.Instant nullableInstant(ResultSet rs, String column) throws SQLException {

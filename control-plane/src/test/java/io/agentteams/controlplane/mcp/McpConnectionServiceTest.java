@@ -9,12 +9,20 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.UUID;
+import java.lang.reflect.Modifier;
 import org.junit.jupiter.api.Test;
+import org.springframework.stereotype.Service;
 
 class McpConnectionServiceTest {
 
     private static final ExecutionContext TENANT_A = new ExecutionContext("org-a", "tenant-a", "project-a", "team-a", "user-a");
     private static final ExecutionContext TENANT_B = new ExecutionContext("org-b", "tenant-b", "project-b", "team-b", "user-b");
+
+    @Test
+    void isRegisteredAsASpringServiceForTheManagementController() {
+        assertThat(McpConnectionService.class.isAnnotationPresent(Service.class)).isTrue();
+        assertThat(Modifier.isFinal(McpConnectionService.class.getModifiers())).isFalse();
+    }
 
     @Test
     void publicConnectionIsVisibleWithoutTenantAndNeverReturnsCredential() {

@@ -195,4 +195,51 @@ class ProjectMembershipLifecycleTest {
                     "88fa0d759f845b47c044c2cd44e29082cf6fea665c30c146374ec7c8f3d699e3");
         });
     }
+
+    @Test
+    void keyedRoleChangePersistsIdempotencyBeforeCompareAndSet() {
+        when(repository.insertRoleChangeIdempotency(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        ProjectMembershipRecord target = ProjectMembershipRecord.create(
+                "tenant-a", PROJECT_ID, "developer", ProjectRole.DEVELOPER, NOW);
+        when(repository.findMembership("tenant-a", PROJECT_ID, "developer"))
+                .thenReturn(Optional.of(target));
+        when(repository.updateMembershipRole("tenant-a", PROJECT_ID, "developer", ProjectRole.OPERATOR, 0, NOW))
+                .thenReturn(true);
+
+        service.changeRole(PROJECT_ID, "role-key-1", "developer", ProjectRole.OPERATOR, 0);
+
+        verify(repository).insertRoleChangeIdempotency(org.mockito.ArgumentMatchers.argThat(record ->
+                record.projectId().equals(PROJECT_ID)
+                        && record.key().equals("role-key-1")
+                        && record.subject().equals("developer")
+                        && record.role() == ProjectRole.OPERATOR
+                        && record.expectedVersion() == 0));
+        verify(repository).updateMembershipRole("tenant-a", PROJECT_ID, "developer", ProjectRole.OPERATOR, 0, NOW);
+    }
+
+    @Test
+    void replayedKeyedRoleChangeDoesNotApplyTheMutationTwice() {
+        String requestHash = hash("CHANGE_ROLE\u0000developer\u0000OPERATOR\u00000");
+        when(repository.findRoleChangeIdempotency("tenant-a", PROJECT_ID, "role-key-1"))
+                .thenReturn(Optional.of(new ProjectRepository.ProjectRoleChangeIdempotency(
+                        "tenant-a", PROJECT_ID, "role-key-1", requestHash, "developer", ProjectRole.OPERATOR, 0, NOW)));
+
+        service.changeRole(PROJECT_ID, "role-key-1", "developer", ProjectRole.OPERATOR, 0);
+
+        verify(repository, org.mockito.Mockito.never()).insertRoleChangeIdempotency(
+                org.mockito.ArgumentMatchers.any());
+        verify(repository, org.mockito.Mockito.never()).updateMembershipRole(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+    }
+
+    private static String hash(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new AssertionError(error);
+        }
+    }
 }

@@ -3,30 +3,6 @@
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,
-  "userProfile": {
-    "attributes": [
-      {
-        "name": "tenant",
-        "displayName": "Tenant",
-        "permissions": { "view": ["admin", "user"], "edit": ["admin"] },
-        "multivalued": false
-      },
-      {
-        "name": "project",
-        "displayName": "Project",
-        "permissions": { "view": ["admin", "user"], "edit": ["admin"] },
-        "multivalued": false
-      },
-      {
-        "name": "team",
-        "displayName": "Team",
-        "permissions": { "view": ["admin", "user"], "edit": ["admin"] },
-        "multivalued": false
-      }
-    ],
-    "groups": [],
-    "unmanagedAttributePolicy": "DISABLED"
-  },
   "roles": {
     "realm": [
       { "name": "task:read" },
@@ -45,7 +21,32 @@
       { "name": "usage:read" },
       { "name": "quota:write" },
       { "name": "team:read" },
-      { "name": "team:write" }
+      { "name": "team:write" },
+      { "name": "team:approve" },
+      { "name": "model:read" },
+      { "name": "model:write" },
+      { "name": "agent-spec:read" },
+      { "name": "agent-spec:write" },
+      { "name": "skill:read" },
+      { "name": "skill:write" },
+      { "name": "mcp:read" },
+      { "name": "mcp:write" },
+      { "name": "memory:read" },
+      { "name": "memory:govern" },
+      { "name": "memory:export" },
+      { "name": "sandbox:read" },
+      { "name": "usage:export" },
+      { "name": "dashboard:write" },
+      { "name": "audit:read" },
+      { "name": "platform:organization:create" },
+      { "name": "platform:organization:read" },
+      { "name": "organization:admin" },
+      { "name": "organization:write" },
+      { "name": "integration:manage" },
+      { "name": "credential:manage" },
+      { "name": "provisioning-policy:manage" },
+      { "name": "external-user:manage" },
+      { "name": "user:manage" }
     ]
   },
   "clients": [
@@ -61,12 +62,14 @@
       "redirectUris": [
         "http://192.168.1.16:30080/auth/callback",
         "http://localhost:30080/auth/callback",
-        "http://127.0.0.1:30080/auth/callback"
+        "http://127.0.0.1:30080/auth/callback",
+        "http://api.agentteams.localhost:30080/auth/callback"
       ],
       "webOrigins": [
         "http://192.168.1.16:30080",
         "http://localhost:30080",
-        "http://127.0.0.1:30080"
+        "http://127.0.0.1:30080",
+        "http://api.agentteams.localhost:30080"
       ],
       "protocolMappers": [
         {
@@ -156,7 +159,7 @@
         "task:read", "task:create", "task:cancel", "task:retry", "task:pause",
         "task:approve", "task:reject", "artifact:read", "artifact:write",
         "agent:read", "agent:write", "config:read", "config:write", "usage:read", "quota:write",
-        "team:read", "team:write"
+        "team:read", "team:write", "memory:read", "sandbox:read"
       ]
     },
     {
@@ -177,7 +180,12 @@
       ],
       "realmRoles": [
         "task:read", "task:create", "agent:read", "agent:write", "team:read", "team:write",
-        "usage:read", "quota:write"
+        "usage:read", "usage:export", "quota:write", "model:read", "model:write",
+        "agent-spec:read", "agent-spec:write", "skill:read", "skill:write",
+        "mcp:read", "mcp:write", "memory:read", "memory:govern", "memory:export",
+        "sandbox:read", "dashboard:write", "audit:read",
+        "platform:organization:create", "platform:organization:read", "organization:admin", "organization:write",
+        "integration:manage", "credential:manage", "provisioning-policy:manage", "external-user:manage", "user:manage"
       ]
     },
     {

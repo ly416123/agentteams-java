@@ -140,7 +140,7 @@ public class JdbcAgentStateStore implements GatewayStateStore {
         int updated = jdbc.update("""
                 UPDATE agents
                    SET runtime = ?, capabilities = ?::jsonb,
-                       updated_at = ?, version = version + 1
+                       updated_at = ?
                  WHERE id = ? AND phase <> 'FAILED'
                 """, runtime, capabilitiesJson(capabilities), Timestamp.from(at), agentId);
         if (updated == 0) {

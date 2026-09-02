@@ -228,6 +228,32 @@ public class JdbcProjectRepository implements ProjectRepository {
                 record.role().name(), timestamp(record.createdAt())) == 1;
     }
 
+    @Override
+    public Optional<ProjectRoleChangeIdempotency> findRoleChangeIdempotency(String tenantId, UUID projectId,
+            String key) {
+        return jdbc.query("""
+                SELECT tenant_id, project_id, idempotency_key, request_hash, subject, role,
+                       expected_version, created_at
+                  FROM project_membership_role_change_idempotency
+                 WHERE tenant_id = ? AND project_id = ? AND idempotency_key = ?
+                """, (rs, row) -> new ProjectRoleChangeIdempotency(rs.getString("tenant_id"),
+                rs.getObject("project_id", UUID.class), rs.getString("idempotency_key"),
+                rs.getString("request_hash"), rs.getString("subject"),
+                ProjectRole.valueOf(rs.getString("role")), rs.getLong("expected_version"),
+                instant(rs, "created_at")), tenantId, projectId, key).stream().findFirst();
+    }
+
+    @Override
+    public boolean insertRoleChangeIdempotency(ProjectRoleChangeIdempotency record) {
+        return jdbc.update("""
+                INSERT INTO project_membership_role_change_idempotency
+                    (tenant_id, project_id, idempotency_key, request_hash, subject, role, expected_version, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (tenant_id, project_id, idempotency_key) DO NOTHING
+                """, record.tenantId(), record.projectId(), record.key(), record.requestHash(), record.subject(),
+                record.role().name(), record.expectedVersion(), timestamp(record.createdAt())) == 1;
+    }
+
     private static ProjectMembershipRecord membership(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new ProjectMembershipRecord(rs.getString("tenant_id"), rs.getObject("project_id", UUID.class),
                 rs.getString("subject"), ProjectRole.valueOf(rs.getString("role")), rs.getString("status"),

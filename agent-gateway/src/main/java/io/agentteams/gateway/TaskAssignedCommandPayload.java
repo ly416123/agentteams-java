@@ -15,11 +15,17 @@ public record TaskAssignedCommandPayload(
         UUID leaseId,
         JsonNode spec,
         SandboxAssignmentPayload sandbox,
+        JsonNode memoryContext,
         Map<String, JsonNode> extensions) {
 
     public TaskAssignedCommandPayload(UUID taskId, String agentId, UUID attemptId, UUID assignmentId,
             UUID leaseId, JsonNode spec, Map<String, JsonNode> extensions) {
-        this(taskId, agentId, attemptId, assignmentId, leaseId, spec, null, extensions);
+        this(taskId, agentId, attemptId, assignmentId, leaseId, spec, null, null, extensions);
+    }
+
+    public TaskAssignedCommandPayload(UUID taskId, String agentId, UUID attemptId, UUID assignmentId,
+            UUID leaseId, JsonNode spec, SandboxAssignmentPayload sandbox, Map<String, JsonNode> extensions) {
+        this(taskId, agentId, attemptId, assignmentId, leaseId, spec, sandbox, null, extensions);
     }
 
     public TaskAssignedCommandPayload {
@@ -39,6 +45,9 @@ public record TaskAssignedCommandPayload(
         }
         if (sandbox != null && !attemptId.equals(sandbox.ownerAttemptId())) {
             throw new IllegalArgumentException("sandbox ownerAttemptId does not match attemptId");
+        }
+        if (memoryContext != null && !memoryContext.isArray()) {
+            throw new IllegalArgumentException("memoryContext must be an array");
         }
         extensions = Map.copyOf(Objects.requireNonNull(extensions, "extensions"));
     }

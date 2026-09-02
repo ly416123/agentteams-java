@@ -74,6 +74,16 @@ public final class WorkerTemplateService {
         return repository.findTemplates(principal.scope().tenant(), principal.scope().project());
     }
 
+    /** Validates the Project route against the authenticated Project scope. */
+    public void requireProjectScope(String projectId) {
+        if (projectId == null || projectId.isBlank()) return;
+        Principal principal = principal();
+        if (projectId.equals(principal.scope().project())) return;
+        if (!resourceScopes.matchesCallerProject(projectId)) {
+            throw new AuthorizationException("resource is outside caller project");
+        }
+    }
+
     public WorkerTemplateRevision createRevision(UUID templateId, String specJson, String actor, String idempotencyKey) {
         WorkerTemplate template = get(templateId);
         String canonical = canonicalObject(specJson);

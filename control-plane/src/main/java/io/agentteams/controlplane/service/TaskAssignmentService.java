@@ -16,6 +16,9 @@ import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
 import io.agentteams.controlplane.persistence.TaskSandboxRecord;
 import io.agentteams.controlplane.sandbox.SandboxLifecycleService;
+import io.agentteams.controlplane.memory.ContextAssemblyService;
+import io.agentteams.controlplane.memory.TaskMemoryContextAssembler;
+import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.controlplane.team.TeamSchedulingPolicy;
 import io.agentteams.controlplane.observability.TaskMetricsPort;
@@ -35,6 +38,7 @@ public final class TaskAssignmentService {
     private final FoundationPersistenceService persistence;
     private final Duration leaseDuration;
     private final TaskMetricsPort metrics;
+    private final TaskMemoryContextAssembler memoryContexts;
 
     public TaskAssignmentService(FoundationPersistenceService persistence, Duration leaseDuration) {
         this(persistence, leaseDuration, TaskMetricsPort.noop());
@@ -42,9 +46,17 @@ public final class TaskAssignmentService {
 
     public TaskAssignmentService(FoundationPersistenceService persistence, Duration leaseDuration,
             TaskMetricsPort metrics) {
+        this(persistence, leaseDuration, metrics, null, null);
+    }
+
+    public TaskAssignmentService(FoundationPersistenceService persistence, Duration leaseDuration,
+            TaskMetricsPort metrics, ExecutionContextResolver contextResolver,
+            ContextAssemblyService contextAssembly) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.leaseDuration = Objects.requireNonNull(leaseDuration, "leaseDuration");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
+        this.memoryContexts = contextResolver == null || contextAssembly == null ? null
+                : new TaskMemoryContextAssembler(contextAssembly, contextResolver);
         if (leaseDuration.isZero() || leaseDuration.isNegative()) {
             throw new IllegalArgumentException("leaseDuration must be positive");
         }
@@ -94,9 +106,10 @@ public final class TaskAssignmentService {
             });
             java.util.Optional<TaskSandboxRecord> sandbox = SandboxLifecycleService.requestInTransaction(
                     tx, assigned, attempt, now);
+            String assignmentPayload = taskAssignedPayload(assigned, agent, attempt, assignment, lease,
+                    sandbox.orElse(null), memoryContexts == null ? null : memoryContexts.assemble(assigned));
             UUID eventId = sandbox.isPresent() ? null : FoundationPersistenceService.appendEvent(tx, "task", taskId,
-                    "TaskAssigned", taskAssignedPayload(assigned, agent, attempt, assignment, lease, null), now,
-                    assigned.version());
+                    "TaskAssigned", assignmentPayload, now, assigned.version());
         return new AssignmentResult(assigned, agent, attempt, assignment, lease, eventId);
     });
         metrics.taskAssigned();
@@ -133,7 +146,10 @@ public final class TaskAssignmentService {
                 }
                 return java.util.Optional.empty();
             }
-            return tx.agents().findReadyMatching(task.specJson(), now);
+            // A task without an explicit Team still has a durable TASK resource scope.
+            // Never fall back to the global READY pool: project scope is the minimum
+            // boundary for Worker reuse.
+            return tx.agents().findReadyMatchingInTaskProject(task.specJson(), task.id(), now);
         } catch (java.io.IOException | IllegalArgumentException error) {
             throw new IllegalArgumentException("task spec cannot be parsed for assignment", error);
         }
@@ -219,6 +235,12 @@ public final class TaskAssignmentService {
 
     public static String taskAssignedPayload(TaskRecord task, AgentRecord agent, TaskAttemptRecord attempt,
             TaskAssignmentRecord assignment, AgentLeaseRecord lease, TaskSandboxRecord sandbox) {
+        return taskAssignedPayload(task, agent, attempt, assignment, lease, sandbox, null);
+    }
+
+    public static String taskAssignedPayload(TaskRecord task, AgentRecord agent, TaskAttemptRecord attempt,
+            TaskAssignmentRecord assignment, AgentLeaseRecord lease, TaskSandboxRecord sandbox,
+            String memoryContextJson) {
         try {
             JsonNode spec = OBJECT_MAPPER.readTree(task.specJson());
             if (spec == null || !spec.isObject()) {
@@ -245,6 +267,9 @@ public final class TaskAssignmentService {
             }
             payload.set("requiredCapabilities", capabilityArray);
             payload.put("leaseExpiresAt", lease.expiresAt().toString());
+            if (memoryContextJson != null && !memoryContextJson.isBlank()) {
+                payload.set("memoryContext", OBJECT_MAPPER.readTree(memoryContextJson));
+            }
             if (sandbox != null) {
                 ObjectNode sandboxNode = OBJECT_MAPPER.createObjectNode();
                 sandboxNode.put("id", sandbox.id().toString());

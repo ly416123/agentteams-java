@@ -38,6 +38,7 @@ class TaskSandboxResourceFactoryTest {
         assertThat(job.getSpec().getTemplate().getSpec().getVolumes()).isNullOrEmpty();
         assertThat(job.getSpec().getTemplate().getSpec().getContainers()).singleElement()
                 .satisfies(container -> {
+                    assertThat(container.getImagePullPolicy()).isEqualTo("IfNotPresent");
                     assertThat(container.getSecurityContext().getPrivileged()).isFalse();
                     assertThat(container.getSecurityContext().getAllowPrivilegeEscalation()).isFalse();
                     assertThat(container.getSecurityContext().getReadOnlyRootFilesystem()).isTrue();
@@ -83,6 +84,7 @@ class TaskSandboxResourceFactoryTest {
 
         assertThat(job.getSpec().getTemplate().getSpec().getContainers()).singleElement().satisfies(container -> {
             assertThat(container.getImage()).isEqualTo(TaskSandboxResourceFactory.SANDBOX_IMAGE);
+            assertThat(container.getImagePullPolicy()).isEqualTo("IfNotPresent");
             assertThat(container.getSecurityContext().getPrivileged()).isFalse();
             assertThat(container.getSecurityContext().getAllowPrivilegeEscalation()).isFalse();
             assertThat(container.getSecurityContext().getRunAsNonRoot()).isTrue();

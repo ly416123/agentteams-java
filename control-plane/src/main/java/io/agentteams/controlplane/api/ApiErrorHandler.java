@@ -9,6 +9,8 @@ import io.agentteams.controlplane.service.WorkerLifecycleConflictException;
 import io.agentteams.controlplane.project.ProjectMembershipConflictException;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.quota.QuotaExceededException;
+import io.agentteams.controlplane.dashboard.DashboardAlertRuleConflictException;
+import io.agentteams.controlplane.artifact.ArtifactRetentionPolicyConflictException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import org.springframework.dao.DataAccessException;
@@ -43,7 +45,8 @@ public final class ApiErrorHandler {
         return error(HttpStatus.NOT_FOUND, "NOT_FOUND", "resource not found");
     }
 
-    @ExceptionHandler({IdempotencyConflictException.class, DuplicateKeyException.class})
+    @ExceptionHandler({IdempotencyConflictException.class, DuplicateKeyException.class,
+            DashboardAlertRuleConflictException.class, ArtifactRetentionPolicyConflictException.class})
     ResponseEntity<ApiError> conflict(Exception ignored) {
         return error(HttpStatus.CONFLICT, "CONFLICT", "request conflicts with current resource state");
     }
@@ -74,7 +77,8 @@ public final class ApiErrorHandler {
     }
 
     @ExceptionHandler({UnavailableDependencyException.class, DataAccessException.class})
-    ResponseEntity<ApiError> unavailable(Exception ignored) {
+    ResponseEntity<ApiError> unavailable(Exception error) {
+        LOG.warn("API dependency unavailable type={} message={}", error.getClass().getName(), error.getMessage(), error);
         return error(HttpStatus.SERVICE_UNAVAILABLE, "UNAVAILABLE_DEPENDENCY",
                 "required dependency is unavailable");
     }

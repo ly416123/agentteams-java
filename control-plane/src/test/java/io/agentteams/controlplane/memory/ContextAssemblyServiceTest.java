@@ -44,6 +44,23 @@ class ContextAssemblyServiceTest {
         assertThat(result.snippets()).isEmpty();
     }
 
+    @Test
+    void onlyExplicitTaskAssemblyCanReadTaskMemory() {
+        UUID taskId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        MemoryPolicy policy = new MemoryPolicy(MemoryPolicy.Scope.TASK, "org-1", "tenant-1", "project-1", null,
+                null, taskId.toString(), MemoryPolicy.Sensitivity.NORMAL, MemoryPolicy.Consent.CONFIRMED,
+                Duration.ofHours(1));
+        MemoryRecord taskMemory = new MemoryRecord(UUID.randomUUID(), policy, "secret://task-summary",
+                "task-only", "task", Instant.parse("2099-01-01T00:00:00Z"), Instant.parse("2026-08-31T00:00:00Z"),
+                Instant.parse("2026-08-31T00:00:00Z"), 0);
+        ContextAssemblyService service = new ContextAssemblyService(new InMemoryMemoryRepository(List.of(taskMemory)),
+                new MemoryPolicyService());
+
+        assertThat(service.assemble(CONTEXT, 20).snippets()).isEmpty();
+        assertThat(service.assemble(CONTEXT, taskId, 20).snippets())
+                .extracting(ContextAssemblyService.MemorySnippet::summary).containsExactly("task-only");
+    }
+
     private static MemoryRecord memory(String summary, MemoryPolicy.Scope scope, String subject,
             String project, String team) {
         MemoryPolicy policy = new MemoryPolicy(scope, "org-1", "tenant-1", project, team, subject,

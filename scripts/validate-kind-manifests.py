@@ -125,7 +125,7 @@ def main():
     for required in ("controlPlaneServiceAccountName", "AGENTTEAMS_TEAM_SYNC_ENABLED",
                      "AGENTTEAMS_TEAM_SYNC_NAMESPACE", "AGENTTEAMS_SECURITY_OIDC_ENABLED",
                      "AGENTTEAMS_SECURITY_OIDC_JWK_SET_URI",
-                     "automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}"):
+                     "automountServiceAccountToken: {{ or .Values.controlPlane.teamSync.enabled .Values.controlPlane.workerProvisioner.enabled }}"):
         if required not in control_plane:
             fail(f"Control Plane security/team sync manifest missing {required}")
     rbac = (ROOT / "deploy/helm/agentteams-java/templates/rbac.yaml").read_text(encoding="utf-8")

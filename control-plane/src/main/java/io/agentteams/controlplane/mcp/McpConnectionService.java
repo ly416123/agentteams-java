@@ -16,10 +16,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Tenant-aware MCP connection registry used as the seam for the JDBC implementation. */
-public final class McpConnectionService {
+@Service
+public class McpConnectionService {
     private final McpConnectionRepository repository;
     private final Map<UUID, McpConnection> connections = new LinkedHashMap<>();
     private final Map<String, McpConnection> idempotency = new LinkedHashMap<>();

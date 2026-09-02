@@ -5,15 +5,19 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.agentteams.controlplane.project.ProjectAuthorizationService;
 import io.agentteams.controlplane.project.ProjectInvitationService;
+import io.agentteams.controlplane.project.ProjectRole;
 import io.agentteams.controlplane.project.ProjectRecord;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceAction;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -56,5 +60,32 @@ class ProjectListControllerTest {
 
         verify(service).list(any(), org.mockito.ArgumentMatchers.eq("ACTIVE"),
                 org.mockito.ArgumentMatchers.eq("project"));
+    }
+
+    @Test
+    void exposesAuthoritativeRolePermissionMatrix() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        when(service.listRolePermissions(projectId)).thenReturn(List.of(
+                new ProjectAuthorizationService.RolePermissions(ProjectRole.DEVELOPER,
+                        List.of(ResourceAction.PROJECT_READ, ResourceAction.TASK_CREATE))));
+
+        mvc.perform(get("/api/v1/projects/{projectId}/authorization/roles", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].role").value("DEVELOPER"))
+                .andExpect(jsonPath("$[0].permissions[0]").value("PROJECT_READ"))
+                .andExpect(jsonPath("$[0].permissions[1]").value("TASK_CREATE"));
+    }
+
+    @Test
+    void requiresIdempotencyKeyForRoleChange() throws Exception {
+        UUID projectId = UUID.randomUUID();
+
+        mvc.perform(post("/api/v1/projects/{projectId}/members/{subject}/role", projectId, "developer")
+                .header("Idempotency-Key", "role-key-1")
+                .contentType(APPLICATION_JSON)
+                .content("{\"role\":\"OPERATOR\",\"expectedMembershipVersion\":2}"))
+                .andExpect(status().isNoContent());
+
+        verify(service).changeRole(projectId, "role-key-1", "developer", ProjectRole.OPERATOR, 2);
     }
 }

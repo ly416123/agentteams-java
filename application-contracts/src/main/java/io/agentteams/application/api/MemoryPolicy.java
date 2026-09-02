@@ -5,7 +5,12 @@ import java.util.Objects;
 
 /** Scope and governance metadata for durable memory; behavior telemetry is not prompt content. */
 public record MemoryPolicy(Scope scope, String organizationId, String tenantId, String projectId, String teamId,
-        String subjectId, Sensitivity sensitivity, Consent consent, Duration retention) {
+        String subjectId, String taskId, Sensitivity sensitivity, Consent consent, Duration retention) {
+
+    public MemoryPolicy(Scope scope, String organizationId, String tenantId, String projectId, String teamId,
+            String subjectId, Sensitivity sensitivity, Consent consent, Duration retention) {
+        this(scope, organizationId, tenantId, projectId, teamId, subjectId, null, sensitivity, consent, retention);
+    }
 
     public MemoryPolicy {
         Objects.requireNonNull(scope, "scope");
@@ -26,6 +31,9 @@ public record MemoryPolicy(Scope scope, String organizationId, String tenantId, 
         }
         if (scope == Scope.TASK && blank(projectId) && blank(teamId)) {
             throw new IllegalArgumentException("TASK memory requires projectId or teamId");
+        }
+        if (scope == Scope.TASK && blank(taskId)) {
+            throw new IllegalArgumentException("TASK memory requires taskId");
         }
     }
 

@@ -3,6 +3,7 @@ package io.agentteams.controlplane.persistence;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -34,6 +35,14 @@ public final class TaskAttemptRepository {
                        failure_code, redacted_failure_message, created_at, updated_at, version
                   FROM task_attempts WHERE id = ?
                 """, this::map, id).stream().findFirst();
+    }
+
+    public List<TaskAttemptRecord> findByTaskId(UUID taskId) {
+        return jdbc.query("""
+                SELECT id, task_id, lease_id, phase, lease_expires_at, completed_at, actor, source,
+                       failure_code, redacted_failure_message, created_at, updated_at, version
+                  FROM task_attempts WHERE task_id = ? ORDER BY created_at DESC, id DESC
+                """, this::map, taskId);
     }
 
     public long count() {

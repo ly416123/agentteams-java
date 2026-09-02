@@ -3,7 +3,9 @@ controlPlane:
     apiEnabled: true
     oidc:
       enabled: true
-      issuerUri: http://keycloak:8080/realms/agentteams
+      # JWT issuer is the browser-visible local endpoint; JWK retrieval stays
+      # on the in-cluster Service so the Control Plane needs no host route.
+      issuerUri: http://127.0.0.1:18082/realms/agentteams
       jwkSetUri: http://keycloak:8080/realms/agentteams/protocol/openid-connect/certs
       audience: agentteams-api
       tenantClaim: tenant

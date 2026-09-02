@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL persistence for the run identity and monotonic process cursor. */
 @Repository
-public final class JdbcTaskRunObservationRepository implements TaskRunObservationRepository {
+public class JdbcTaskRunObservationRepository implements TaskRunObservationRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

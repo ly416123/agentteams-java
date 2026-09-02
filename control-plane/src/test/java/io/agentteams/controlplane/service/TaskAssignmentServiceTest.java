@@ -93,6 +93,28 @@ class TaskAssignmentServiceTest {
     }
 
     @Test
+    void noTeamTaskMatchesOnlyReadyAgentsInTheTaskProjectScope() {
+        UUID taskId = UUID.randomUUID();
+        AgentRecord sameProjectDifferentTeam = agent(UUID.randomUUID(), "same-project-agent", AgentPhase.READY,
+                "{\"python\":true}");
+        AgentRecord differentTenant = agent(UUID.randomUUID(), "different-tenant-agent", AgentPhase.READY,
+                "{\"python\":true}");
+        TaskRecord queued = queuedTask(taskId, "{\"requiredCapabilities\":[\"python\"]}");
+        insertWithScopes(sameProjectDifferentTeam, "tenant-a", "project-a", "team-b", queued,
+                "tenant-a", "project-a", "team-a");
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(differentTenant);
+            tx.insertResourceScope("WORKER", differentTenant.id(), "tenant-b", "project-a", "team-a", START);
+            return null;
+        });
+
+        TaskAssignmentService.AssignmentResult result = new TaskAssignmentService(persistence, LEASE_DURATION)
+                .queueReadyTask(taskId, START);
+
+        assertThat(result.agent().id()).isEqualTo(sameProjectDifferentTeam.id());
+    }
+
+    @Test
     void expiresLeaseReleasesAssignmentQueuesTaskAndAllowsASecondAssignment() {
         UUID taskId = UUID.randomUUID();
         AgentRecord ready = agent(UUID.randomUUID(), "recoverable-agent", AgentPhase.READY,
@@ -162,6 +184,9 @@ class TaskAssignmentServiceTest {
             tx.agents().insert(agent);
             tx.tasks().insert(queuedA);
             tx.tasks().insert(queuedB);
+            tx.insertResourceScope("WORKER", agent.id(), "tenant-test", "project-test", "team-test", START);
+            tx.insertResourceScope("TASK", taskA, "tenant-test", "project-test", "team-test", START);
+            tx.insertResourceScope("TASK", taskB, "tenant-test", "project-test", "team-test", START);
             return null;
         });
 
@@ -221,6 +246,10 @@ class TaskAssignmentServiceTest {
             tx.agents().insert(second);
             tx.agents().insert(third);
             tx.tasks().insert(task);
+            for (AgentRecord agent : java.util.List.of(first, second, third)) {
+                tx.insertResourceScope("WORKER", agent.id(), "tenant-test", "project-test", "team-test", START);
+            }
+            tx.insertResourceScope("TASK", task.id(), "tenant-test", "project-test", "team-test", START);
             return null;
         });
     }
@@ -229,6 +258,19 @@ class TaskAssignmentServiceTest {
         persistence.inTransaction(tx -> {
             tx.agents().insert(agent);
             tx.tasks().insert(task);
+            tx.insertResourceScope("WORKER", agent.id(), "tenant-test", "project-test", "team-test", START);
+            tx.insertResourceScope("TASK", task.id(), "tenant-test", "project-test", "team-test", START);
+            return null;
+        });
+    }
+
+    private void insertWithScopes(AgentRecord agent, String agentTenant, String agentProject, String agentTeam,
+            TaskRecord task, String taskTenant, String taskProject, String taskTeam) {
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            tx.tasks().insert(task);
+            tx.insertResourceScope("WORKER", agent.id(), agentTenant, agentProject, agentTeam, START);
+            tx.insertResourceScope("TASK", task.id(), taskTenant, taskProject, taskTeam, START);
             return null;
         });
     }

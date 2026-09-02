@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +53,26 @@ class DashboardAlertDeliveryServiceTest {
         assertThat(events.findDue(NOW.plus(Duration.ofMinutes(2)), 10)).isEmpty();
         assertThat(events.findRecent("tenant-a", "project-a", 10))
                 .singleElement().extracting(DashboardAlertEvent::attempts).isEqualTo(2);
+        assertThat(notification.notifications()).hasSize(2);
+    }
+
+    @Test
+    void manualRetryIsIdempotentForTheSameRequestKey() {
+        InMemoryDashboardAlertRuleRepository rules = new InMemoryDashboardAlertRuleRepository();
+        rules.save(new DashboardAlertRule("COST", "WARNING", 1, true));
+        InMemoryDashboardAlertEventRepository events = new InMemoryDashboardAlertEventRepository();
+        RecordingNotification notification = new RecordingNotification();
+        notification.failNext.set(true);
+        DashboardAlertDeliveryService service = service(rules, events, notification);
+
+        service.deliver("tenant-a", "project-a", FROM, TO);
+        UUID eventId = events.findRecent("tenant-a", "project-a", 10).get(0).id();
+
+        DashboardAlertEvent sent = service.retryNow("tenant-a", "project-a", eventId, "retry-key");
+        DashboardAlertEvent replay = service.retryNow("tenant-a", "project-a", eventId, "retry-key");
+
+        assertThat(sent.status()).isEqualTo(DashboardAlertEvent.Status.SENT);
+        assertThat(replay).isEqualTo(sent);
         assertThat(notification.notifications()).hasSize(2);
     }
 

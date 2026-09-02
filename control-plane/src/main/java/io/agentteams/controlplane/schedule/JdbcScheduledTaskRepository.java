@@ -11,7 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL repository for durable schedule definitions and atomic state changes. */
-public final class JdbcScheduledTaskRepository implements ScheduledTaskRepository {
+public class JdbcScheduledTaskRepository implements ScheduledTaskRepository {
     private final JdbcTemplate jdbc;
 
     public JdbcScheduledTaskRepository(JdbcTemplate jdbc) {

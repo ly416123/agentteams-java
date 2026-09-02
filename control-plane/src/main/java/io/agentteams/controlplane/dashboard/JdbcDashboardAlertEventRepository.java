@@ -1,7 +1,11 @@
 package io.agentteams.controlplane.dashboard;
 
 import java.sql.Timestamp;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -10,6 +14,7 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL-backed alert event state with a unique fingerprint for idempotency. */
 @Repository
@@ -54,6 +59,52 @@ public class JdbcDashboardAlertEventRepository implements DashboardAlertEventRep
                  WHERE fingerprint = ? AND status = 'FAILED' AND next_attempt_at <= ?
                 """, timestamp(now), candidate.fingerprint(), timestamp(now));
         return retried == 1 ? selectByFingerprint(candidate.fingerprint()) : Optional.empty();
+    }
+
+    @Override
+    @Transactional
+    public synchronized Optional<RetryRequest> requestRetry(String tenantId, String projectId, UUID eventId,
+            String idempotencyKey, Instant now) {
+        requireScope(tenantId, projectId);
+        requireKey(idempotencyKey);
+        Objects.requireNonNull(now, "now");
+        Optional<DashboardAlertEvent> current = findById(tenantId, projectId, eventId);
+        if (current.isEmpty()) return Optional.empty();
+        String requestHash = requestHash(tenantId, projectId, eventId);
+        List<String> prior = jdbc.query("""
+                SELECT request_hash
+                  FROM dashboard_alert_retry_requests
+                 WHERE event_id = ? AND idempotency_key = ?
+                """, (rs, row) -> rs.getString("request_hash").trim(), eventId, idempotencyKey);
+        if (!prior.isEmpty()) {
+            if (!prior.get(0).equals(requestHash)) throw new IllegalArgumentException("idempotency key was reused");
+            return Optional.of(new RetryRequest(current.get(), true));
+        }
+        if (current.get().status() != DashboardAlertEvent.Status.FAILED) {
+            throw new IllegalStateException("only failed alert events can be retried");
+        }
+        int inserted = jdbc.update("""
+                INSERT INTO dashboard_alert_retry_requests
+                    (event_id, tenant_id, project_id, idempotency_key, request_hash, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (event_id, idempotency_key) DO NOTHING
+                """, eventId, tenantId, projectId, idempotencyKey, requestHash, timestamp(now));
+        if (inserted == 0) {
+            return requestRetry(tenantId, projectId, eventId, idempotencyKey, now);
+        }
+        jdbc.update("""
+                UPDATE dashboard_alert_events
+                   SET status = 'FAILED', next_attempt_at = ?, last_error = NULL, updated_at = ?
+                 WHERE id = ? AND tenant_id = ? AND project_id = ? AND status = 'FAILED'
+                """, timestamp(now), timestamp(now), eventId, tenantId, projectId);
+        return findById(tenantId, projectId, eventId).map(event -> new RetryRequest(event, false));
+    }
+
+    @Override
+    public Optional<DashboardAlertEvent> findById(String tenantId, String projectId, UUID eventId) {
+        requireScope(tenantId, projectId);
+        return jdbc.query(SELECT_COLUMNS + " WHERE id = ? AND tenant_id = ? AND project_id = ?",
+                this::map, eventId, tenantId, projectId).stream().findFirst();
     }
 
     @Override
@@ -103,6 +154,27 @@ public class JdbcDashboardAlertEventRepository implements DashboardAlertEventRep
     private Optional<DashboardAlertEvent> selectByFingerprint(String fingerprint) {
         return jdbc.query(SELECT_COLUMNS + " WHERE fingerprint = ?", this::map, fingerprint)
                 .stream().findFirst();
+    }
+
+    private static String requestHash(String tenantId, String projectId, UUID eventId) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest((tenantId + "\n" + projectId + "\n" + eventId)
+                            .getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private static void requireScope(String tenantId, String projectId) {
+        if (tenantId == null || tenantId.isBlank()) throw new IllegalArgumentException("tenantId is required");
+        if (projectId == null || projectId.isBlank()) throw new IllegalArgumentException("projectId is required");
+    }
+
+    private static void requireKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 255) {
+            throw new IllegalArgumentException("Idempotency-Key must be between 1 and 255 characters");
+        }
     }
 
     private DashboardAlertEvent map(java.sql.ResultSet rs, int row) throws java.sql.SQLException {

@@ -103,6 +103,21 @@ class UsageQueryServiceTest {
     }
 
     @Test
+    void appliesAnOffsetForPaginatedUsageGroups() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
+                .thenReturn(new UsageQueryService.UsageTotals(25, 0, 100, 40, 42.5));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        UsageQueryService.UsageSummary summary = service().summarize(null, NOW, "provider", 10,
+                UsageQueryService.UsageFilters.empty(), 20);
+
+        assertThat(summary.groups()).isEmpty();
+        verify(jdbc).query(org.mockito.ArgumentMatchers.contains("LIMIT ? OFFSET ?"),
+                ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any(), eq(11), eq(20));
+    }
+
+    @Test
     void scopesTotalsAndGroupsToTheAuthenticatedProject() {
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
                 any(), any(), eq("tenant-a"), eq("project-a"), eq("team-a")))
@@ -153,12 +168,12 @@ class UsageQueryServiceTest {
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
         try {
-            UsageQueryService.UsageCompleteness completeness = service().completeness(
+                    UsageQueryService.UsageCompleteness completeness = service().completeness(
                     NOW.minusSeconds(3600), NOW);
 
             assertThat(completeness.totalCalls()).isEqualTo(12);
             assertThat(completeness.dimensions()).extracting(UsageQueryService.UsageDimensionCompleteness::name)
-                    .containsExactly("tenantId", "projectId", "teamId", "workerId", "taskId", "provider", "model",
+                            .containsExactly("organizationId", "tenantId", "projectId", "teamId", "actorSubject", "workerId", "taskId", "provider", "model",
                             "tool", "quotaDimension");
             UsageQueryService.UsageDimensionCompleteness worker = completeness.dimensions().stream()
                     .filter(value -> value.name().equals("workerId")).findFirst().orElseThrow();
@@ -209,17 +224,65 @@ class UsageQueryServiceTest {
     }
 
     @Test
+    void appliesTaskProviderAndModelFiltersInsideTheAuthenticatedProjectScope() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("team-a"), eq("task-a"), eq("deepseek"),
+                eq("deepseek-chat"))).thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
+                any(), any(), eq(10), eq("tenant-a"), eq("project-a"), eq("team-a"), eq("task-a"),
+                eq("deepseek"), eq("deepseek-chat"))).thenReturn(List.of());
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            UsageQueryService.UsageFilters filters = new UsageQueryService.UsageFilters(
+                    "task-a", "deepseek", "deepseek-chat");
+            service().summarize(null, NOW, "task", 10, filters);
+
+            org.mockito.ArgumentCaptor<Object[]> arguments = org.mockito.ArgumentCaptor.forClass(Object[].class);
+            verify(jdbc).queryForObject(org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("task_id = ?")
+                            && sql.contains("provider = ?") && sql.contains("model = ?")),
+                    ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), arguments.capture());
+            assertThat(java.util.Arrays.asList(arguments.getValue()))
+                    .contains("tenant-a", "project-a", "team-a", "task-a", "deepseek", "deepseek-chat");
+        } finally {
+            PrincipalContext.clear();
+        }
+    }
+
+    @Test
     void acceptsAllOperationalDimensionNames() {
-        for (String dimension : List.of("worker", "task", "team", "tool", "quota")) {
+        for (String dimension : List.of("organization", "tenant", "project", "team", "user", "worker", "task", "tool", "quota")) {
             assertThat(UsageQueryService.GroupBy.parse(dimension).isDimension()).isTrue();
         }
+    }
+
+    @Test
+    void groupsUserUsageByPersistedActorSubject() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
+                .thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
+        when(jdbc.query(org.mockito.ArgumentMatchers.contains("GROUP BY COALESCE(NULLIF(actor_subject, '')"),
+                ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        service().summarize(null, NOW, "user", 10);
+    }
+
+    @Test
+    void groupsOrganizationUsageByPersistedAuditDimension() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(), any(), any()))
+                .thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
+        when(jdbc.query(org.mockito.ArgumentMatchers.contains("GROUP BY COALESCE(NULLIF(organization_id, '')"),
+                ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        service().summarize(null, NOW, "organization", 10);
     }
 
     @Test
     void rejectsUnknownGroupByAndOutOfBoundsLimitBeforeQuerying() {
         assertThatThrownBy(() -> service().summarize(null, NOW, "unknown", null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("groupBy must be provider, model, status, worker, task, team, tool, or quota");
+                .hasMessage("groupBy must be organization, tenant, project, user, provider_model, provider, model, status, worker, task, team, tool, or quota");
         assertThatThrownBy(() -> service().summarize(null, NOW, "provider", 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("limit must be between 1 and " + UsageQueryService.MAX_LIMIT);
@@ -283,9 +346,11 @@ class UsageQueryServiceTest {
     private static ResultSet completenessResult() throws java.sql.SQLException {
         ResultSet resultSet = mock(ResultSet.class);
         when(resultSet.getLong("total_calls")).thenReturn(12L);
+        when(resultSet.getLong("organization_present")).thenReturn(12L);
         when(resultSet.getLong("tenant_present")).thenReturn(10L);
         when(resultSet.getLong("project_present")).thenReturn(11L);
         when(resultSet.getLong("team_present")).thenReturn(8L);
+        when(resultSet.getLong("actor_subject_present")).thenReturn(11L);
         when(resultSet.getLong("worker_present")).thenReturn(9L);
         when(resultSet.getLong("task_present")).thenReturn(7L);
         when(resultSet.getLong("provider_present")).thenReturn(12L);

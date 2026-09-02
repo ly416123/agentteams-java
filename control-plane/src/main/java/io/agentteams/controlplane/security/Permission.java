@@ -25,7 +25,12 @@ public enum Permission {
     SKILL_WRITE("skill:write"),
     MCP_READ("mcp:read"),
     MCP_WRITE("mcp:write"),
+    MEMORY_READ("memory:read"),
+    MEMORY_GOVERN("memory:govern"),
+    MEMORY_EXPORT("memory:export"),
+    SANDBOX_READ("sandbox:read"),
     USAGE_READ("usage:read"),
+    USAGE_EXPORT("usage:export"),
     DASHBOARD_WRITE("dashboard:write"),
     QUOTA_WRITE("quota:write"),
     AUDIT_READ("audit:read");

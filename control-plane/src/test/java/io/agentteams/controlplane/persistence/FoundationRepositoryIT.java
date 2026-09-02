@@ -173,7 +173,6 @@ class FoundationRepositoryIT {
                 .target("54")
                 .load()
                 .migrate();
-
         Instant assignedAt = Instant.parse("2026-08-28T08:00:00Z");
         Instant occurredAt = assignedAt.plusSeconds(5);
         UUID agentId = UUID.randomUUID();
@@ -224,21 +223,46 @@ class FoundationRepositoryIT {
 
         Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .target("60")
+                .load()
+                .migrate();
+
+        UUID organizationId = UUID.randomUUID();
+        UUID tenantUuid = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO organizations(id, external_key, display_name, status, created_at, updated_at, version)
+                VALUES (?, 'org-backfill', 'Backfill Organization', 'ACTIVE', ?, ?, 0)
+                """, organizationId, Timestamp.from(assignedAt), Timestamp.from(assignedAt));
+        jdbc.update("""
+                INSERT INTO tenants(id, organization_id, external_key, display_name, status, created_at, updated_at, version)
+                VALUES (?, ?, 'tenant-backfill', 'Backfill Tenant', 'ACTIVE', ?, ?, 0)
+                """, tenantUuid, organizationId, Timestamp.from(assignedAt), Timestamp.from(assignedAt));
+        jdbc.update("""
+                INSERT INTO legacy_tenant_mappings(legacy_tenant_key, organization_id, tenant_id, created_at)
+                VALUES ('tenant-backfill', ?, ?, ?)
+                """, organizationId, tenantUuid, Timestamp.from(assignedAt));
+
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load()
                 .migrate();
 
         assertThat(jdbc.queryForMap("""
-                SELECT tenant_id, project_id, team_id, worker_id
+                SELECT organization_id, actor_subject, tenant_id, project_id, team_id, worker_id
                   FROM model_call_audits WHERE id = ?
                 """, recoverableAuditId))
+                .containsEntry("organization_id", organizationId.toString())
+                .containsEntry("actor_subject", "test")
                 .containsEntry("tenant_id", "tenant-backfill")
                 .containsEntry("project_id", "project-backfill")
                 .containsEntry("team_id", teamId.toString())
                 .containsEntry("worker_id", agentId.toString());
         assertThat(jdbc.queryForMap("""
-                SELECT tenant_id, project_id, team_id, worker_id
+                SELECT organization_id, actor_subject, tenant_id, project_id, team_id, worker_id
                   FROM model_call_audits WHERE id = ?
                 """, unknownAuditId))
+                .containsEntry("organization_id", null)
+                .containsEntry("actor_subject", null)
                 .containsEntry("tenant_id", null)
                 .containsEntry("project_id", null)
                 .containsEntry("team_id", null)

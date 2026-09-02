@@ -51,12 +51,13 @@ class AgentListControllerTest {
                 .thenReturn(new CursorPage<>(List.of(agent), null, false, now));
 
         mvc.perform(get("/api/v1/agents").param("pageSize", "20").param("search", "worker")
-                .param("status", "READY"))
+                .param("status", "READY").param("projectId", "project-uuid"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("worker-a"))
                 .andExpect(jsonPath("$.items[0].phase").value("READY"));
 
         verify(service).list(any(), org.mockito.ArgumentMatchers.eq("READY"),
                 org.mockito.ArgumentMatchers.eq("worker"));
+        verify(service).requireProjectScope("project-uuid");
     }
 }

@@ -6,6 +6,22 @@ import { Timeline } from '../../components/Timeline';
 import { useWorker, useWorkerOperations } from '../../queries/useWorkerQueries';
 import { WorkerOperationPanel } from './WorkerOperationPanel';
 import { CursorPagination } from '../../components/CursorPagination';
+import type { WorkerOperation } from '../../api/types';
+
+function operationDescription(operation: WorkerOperation) {
+  const details = [`状态：${operation.status}`];
+  if (operation.failureCategory) details.push(`失败原因：${operation.failureCategory}`);
+  if (operation.operatorReady !== undefined) {
+    details.push(`Operator：${operation.operatorReady ? '已就绪' : '未就绪'}`);
+  }
+  if (operation.gatewayOnline !== undefined) {
+    details.push(`Gateway：${operation.gatewayOnline ? '在线' : '离线'}`);
+  }
+  if (operation.observationsMatch !== undefined) {
+    details.push(`观测结果：${operation.observationsMatch ? '匹配' : '不匹配'}`);
+  }
+  return details.join(' · ');
+}
 
 export function WorkerDetailPage({ projectId, workerId }: { projectId: string; workerId: string }) {
   const worker = useWorker(projectId, workerId);
@@ -103,7 +119,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
             items={operationItems.map((operation) => ({
               id: operation.id,
               title: operation.type,
-              description: operation.status,
+              description: operationDescription(operation),
               time: operation.updatedAt,
               tone: operation.status === 'FAILED' ? 'danger' : 'success',
             }))}

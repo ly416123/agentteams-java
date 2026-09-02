@@ -33,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Converts validated Worker observations into durable task projections and Webhook outbox events. */
 @Service
-public final class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutionObservationPort {
+public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutionObservationPort {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int MAX_SUMMARY_LENGTH = 4096;
     private final TaskRunObservationRepository runs;

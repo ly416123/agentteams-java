@@ -37,6 +37,18 @@ const navItems = [
   { to: 'teams', label: 'Teams', icon: '◇' },
   { to: 'workers', label: 'Workers', icon: '⬡' },
   { to: 'conversations/new', label: '对话', icon: '◌' },
+  { to: 'templates', label: 'Templates', icon: '▤' },
+  { to: 'agentspecs', label: 'Agent Specs', icon: '◆' },
+  { to: 'models', label: 'Models', icon: '◉' },
+  { to: 'mcp', label: 'MCP', icon: '⌘' },
+  { to: 'skills', label: 'Skills', icon: '✦' },
+  { to: 'usage', label: 'Usage', icon: '▥' },
+  { to: 'budgets', label: 'Budgets', icon: '◫' },
+  { to: 'alerts', label: 'Alerts', icon: '!' },
+  { to: 'audit', label: 'Audit', icon: '≡' },
+  { to: 'memory', label: 'Memory', icon: '◌' },
+  { to: 'sandboxes', label: 'Sandboxes', icon: '□' },
+  { to: 'artifacts', label: 'Artifacts', icon: '◇' },
 ];
 
 export function ConsoleLayout() {
@@ -60,6 +72,41 @@ export function ConsoleLayout() {
               {item.label}
             </NavLink>
           ))}
+          <NavLink
+            className={({ isActive }) => (isActive ? 'nav-item nav-item--active' : 'nav-item')}
+            to="/settings/identity"
+          >
+            <span>⚙</span>
+            身份管理
+          </NavLink>
+          <NavLink
+            className={({ isActive }) => (isActive ? 'nav-item nav-item--active' : 'nav-item')}
+            to="/settings/organizations"
+          >
+            <span>◎</span>
+            组织管理
+          </NavLink>
+          <NavLink
+            className={({ isActive }) => (isActive ? 'nav-item nav-item--active' : 'nav-item')}
+            to="/settings/integrations"
+          >
+            <span>⌁</span>
+            集成凭据
+          </NavLink>
+          <NavLink
+            className={({ isActive }) => (isActive ? 'nav-item nav-item--active' : 'nav-item')}
+            to="/settings/roles"
+          >
+            <span>♙</span>
+            角色与权限
+          </NavLink>
+          <NavLink
+            className={({ isActive }) => (isActive ? 'nav-item nav-item--active' : 'nav-item')}
+            to="/settings/projects"
+          >
+            <span>▦</span>
+            Project 管理
+          </NavLink>
         </nav>
         <div className="sidebar-footer">
           <span className="status-dot status-dot--online" />

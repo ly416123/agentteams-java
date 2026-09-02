@@ -9,8 +9,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.agentteams.controlplane.usage.UsageQueryService;
+import io.agentteams.controlplane.audit.AuditRecorder;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +31,8 @@ class DashboardAlertControllerTest {
     @Mock private DashboardAlertService alerts;
     @Mock private DashboardAlertNotificationPort notifications;
     @Mock private DashboardAlertEventRepository events;
+    @Mock private DashboardAlertDeliveryService delivery;
+    @Mock private AuditRecorder audit;
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -71,5 +79,29 @@ class DashboardAlertControllerTest {
                 .andExpect(jsonPath("$[0].rule").value("COST"));
 
         verify(events).findRecent("tenant-a", "project-a", 10);
+    }
+
+    @Test
+    void retriesOneFailedEventWithAnIdempotencyKeyAndRecordsAudit() throws Exception {
+        Instant now = Instant.parse("2026-08-25T01:00:00Z");
+        UUID eventId = UUID.randomUUID();
+        DashboardAlertEvent event = DashboardAlertEvent.pending("fingerprint", "tenant-a", "project-a",
+                new DashboardAlertService.Alert("COST", "WARNING", 150, "cost exceeded"),
+                now.minusSeconds(60), now, now).sentAt(now);
+        when(delivery.retryNow("tenant-a", "project-a", eventId, "retry-key")).thenReturn(event);
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            MockMvcBuilders.standaloneSetup(new DashboardAlertController(
+                    usage, alerts, notifications, delivery, events, audit)).build()
+                    .perform(post("/api/v1/dashboard/alerts/events/{eventId}/retry", eventId)
+                            .header("Idempotency-Key", "retry-key"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("SENT"));
+            verify(delivery).retryNow("tenant-a", "project-a", eventId, "retry-key");
+            verify(audit).record(any());
+        } finally {
+            PrincipalContext.clear();
+        }
     }
 }

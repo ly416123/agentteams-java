@@ -24,10 +24,15 @@ import io.agentteams.controlplane.team.TeamDeployment;
 import io.agentteams.controlplane.team.TeamRevision;
 import io.agentteams.controlplane.team.TeamRevisionService;
 import io.agentteams.controlplane.team.TeamRevisionStatus;
+import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.PrincipalContext;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -51,6 +56,11 @@ class TeamControllerTest {
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(new TeamController(service))
                 .setControllerAdvice(new ApiErrorHandler()).build();
+    }
+
+    @AfterEach
+    void clearPrincipal() {
+        PrincipalContext.clear();
     }
 
     @Test
@@ -130,6 +140,18 @@ class TeamControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"maxConcurrentTasks\":1,\"expectedVersion\":0}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsTeamRequestOutsideExplicitProjectScope() throws Exception {
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                Set.of("team:read", "team:write")));
+
+        mockMvc.perform(get("/api/v1/teams/page").param("projectId", "project-b"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(service);
     }
 
     @Test

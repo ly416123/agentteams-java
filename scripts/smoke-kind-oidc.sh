@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NAMESPACE=${KIND_NAMESPACE:-agentteams}
-KEYCLOAK_PORT=${KIND_KEYCLOAK_LOCAL_PORT:-18080}
+KEYCLOAK_PORT=${KIND_KEYCLOAK_LOCAL_PORT:-18082}
 API_PORT=${KIND_CONTROL_PLANE_LOCAL_PORT:-18081}
 KEYCLOAK_SERVICE=${KIND_KEYCLOAK_SERVICE:-keycloak}
 CONTROL_PLANE_SERVICE=${AGENTTEAMS_CONTROL_PLANE_SERVICE:-agentteams-agentteams-java-control-plane}
@@ -74,6 +74,7 @@ export API_URL
 export TOKEN="$(token_for alice alice-dev)"
 export TOKEN_NO_PERMISSION="$(token_for reader reader-dev)"
 export TOKEN_CROSS_SCOPE="$(token_for tenant-b-user tenant-b-dev)"
+TOKEN_QUOTA_ADMIN="$(token_for quota-admin quota-admin-dev)"
 export SCOPE_TENANT=tenant-a
 export SCOPE_PROJECT=project-a
 export SCOPE_TEAM=team-a
@@ -86,6 +87,11 @@ TOKEN_SUBJECT="$(python3 -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]
   echo "OIDC token subject has an unexpected format" >&2
   exit 1
 }
+QUOTA_ADMIN_SUBJECT="$(python3 -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))["sub"])' "${TOKEN_QUOTA_ADMIN}")"
+[[ "${QUOTA_ADMIN_SUBJECT}" =~ ^[A-Za-z0-9._:-]{1,255}$ ]] || {
+  echo "OIDC quota-admin token subject has an unexpected format" >&2
+  exit 1
+}
 DB_PASSWORD=$(kubectl -n "${NAMESPACE}" get secret agentteams-database \
   -o jsonpath='{.data.password}' | base64 --decode)
 kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
@@ -95,8 +101,27 @@ kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PA
       FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'
     ON CONFLICT (tenant_id, project_id, subject)
     DO UPDATE SET role = 'DEVELOPER', status = 'ACTIVE', updated_at = now();
+    INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
+    SELECT 'tenant-a', id, '${QUOTA_ADMIN_SUBJECT}', 'DEVELOPER', 'ACTIVE', now(), now(), 0
+      FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'
+    ON CONFLICT (tenant_id, project_id, subject)
+    DO UPDATE SET role = 'DEVELOPER', status = 'ACTIVE', updated_at = now();
+    INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
+    SELECT 'MODEL_PROVIDER', id, 'tenant-a', 'project-a', 'team-a', now(), now()
+      FROM model_providers WHERE name = 'deepseek'
+    ON CONFLICT (resource_type, resource_id)
+    DO UPDATE SET tenant_id = EXCLUDED.tenant_id, project_id = EXCLUDED.project_id,
+                  team = EXCLUDED.team, updated_at = EXCLUDED.updated_at;
+    INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
+    SELECT 'MODEL', m.id, 'tenant-a', 'project-a', 'team-a', now(), now()
+      FROM models m JOIN model_providers p ON p.id = m.provider_id
+     WHERE p.name = 'deepseek' AND m.model_id = 'deepseek-chat'
+    ON CONFLICT (resource_type, resource_id)
+    DO UPDATE SET tenant_id = EXCLUDED.tenant_id, project_id = EXCLUDED.project_id,
+                  team = EXCLUDED.team, updated_at = EXCLUDED.updated_at;
   " >/dev/null
 echo "OIDC authorization membership fixture ready: tenant-a/project-a subject=${TOKEN_SUBJECT} role=DEVELOPER"
+echo "OIDC quota-admin membership fixture ready: tenant-a/project-a role=DEVELOPER"
 
 bash "${ROOT}/scripts/validate-oidc-acceptance.sh"
 echo "KIND_OIDC_SMOKE_OK"

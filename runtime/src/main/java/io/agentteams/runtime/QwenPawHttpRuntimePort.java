@@ -375,6 +375,14 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
                 ? task.id().toString() : sessionId);
         body.put("user_id", task.metadata().getOrDefault("userId", configuration.userId()));
         body.put("channel", task.metadata().getOrDefault("channel", configuration.channel()));
+        String memoryContext = task.metadata().get("memoryContextJson");
+        if (memoryContext != null && !memoryContext.isBlank()) {
+            try {
+                body.set("memory_context", objectMapper.readTree(memoryContext));
+            } catch (IOException | RuntimeException error) {
+                throw new IOException("memory context is invalid", error);
+            }
+        }
         return objectMapper.writeValueAsString(body);
     }
 

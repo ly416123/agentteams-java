@@ -94,6 +94,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--tenant", default=None)
     parser.add_argument("--project", default=None)
+    parser.add_argument("--leave-failed", action="store_true",
+                        help="keep the controlled FAILURE_RATE event FAILED for browser acceptance")
     args = parser.parse_args()
     suffix = uuid.uuid4().hex[:12]
     tenant = args.tenant or f"kind-dashboard-alert-{suffix}"
@@ -129,13 +131,20 @@ def main() -> int:
         if not failed[3]:
             raise KindTestError(f"FAILED event must have next_attempt_at, got {failed}")
 
-        set_receiver_mode(args, "success")
-        recovered = wait_for_event(args, tenant, project, "FAILURE_RATE", "SENT", minimum_attempts=2)
+        if args.leave_failed:
+            recovered = failed
+        else:
+            set_receiver_mode(args, "success")
+            recovered = wait_for_event(args, tenant, project, "FAILURE_RATE", "SENT", minimum_attempts=2)
         final_rows = event_rows(args.namespace, args.postgres_pod, tenant, project)
         if not any(row[0] == "COST" and row[1] == "SENT" for row in final_rows):
             raise KindTestError(f"expected a durable SENT COST event, got {final_rows}")
-        if not any(row[0] == "FAILURE_RATE" and row[1] == "SENT" and int(row[2]) >= 2
-                   for row in final_rows):
+        if args.leave_failed:
+            if not any(row[0] == "FAILURE_RATE" and row[1] == "FAILED" and row[3]
+                       for row in final_rows):
+                raise KindTestError(f"expected a retryable FAILED FAILURE_RATE event, got {final_rows}")
+        elif not any(row[0] == "FAILURE_RATE" and row[1] == "SENT" and int(row[2]) >= 2
+                     for row in final_rows):
             raise KindTestError(f"expected a retried SENT FAILURE_RATE event, got {final_rows}")
 
         events_response = api_request(
@@ -147,7 +156,8 @@ def main() -> int:
             raise KindTestError(f"events API missing expected rules: {events_response.payload!r}")
 
     print(f"KIND_DASHBOARD_ALERTS_OK tenant={tenant} project={project} "
-          f"audits={first_audit},{second_audit} recovered_attempts={recovered[2]}")
+          f"audits={first_audit},{second_audit} recovered_attempts={recovered[2]} "
+          f"leave_failed={args.leave_failed}")
     return 0
 
 

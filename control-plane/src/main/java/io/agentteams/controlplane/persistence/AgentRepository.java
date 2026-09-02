@@ -109,6 +109,43 @@ public final class AgentRepository {
                 .stream().findFirst();
     }
 
+    /** Matches an unassigned task only against agents in the same tenant/project. */
+    public Optional<AgentRecord> findReadyMatchingInTaskProject(String taskSpecJson, UUID taskId, Instant now) {
+        return jdbc.query("""
+                SELECT a.id, a.name, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
+                       a.created_at, a.updated_at, a.version
+                  FROM agents a
+                  JOIN resource_scopes worker_scope
+                    ON worker_scope.resource_type = 'WORKER' AND worker_scope.resource_id = a.id
+                  JOIN resource_scopes task_scope
+                    ON task_scope.resource_type = 'TASK' AND task_scope.resource_id = ?
+                   AND task_scope.tenant_id = worker_scope.tenant_id
+                   AND task_scope.project_id = worker_scope.project_id
+                 WHERE a.phase = 'READY'
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM worker_operations operation
+                        WHERE operation.agent_id = a.id
+                          AND operation.status IN ('PENDING', 'RUNNING')
+                          AND operation.lease_expires_at > ?
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM jsonb_array_elements_text(
+                              CASE
+                                  WHEN jsonb_typeof(CAST(? AS jsonb)->'requiredCapabilities') = 'array'
+                                  THEN CAST(? AS jsonb)->'requiredCapabilities'
+                                  ELSE '[]'::jsonb
+                              END) AS required(capability)
+                        WHERE NOT jsonb_exists(a.capabilities, required.capability)
+                   )
+                 ORDER BY a.id
+                 LIMIT 1
+                 FOR UPDATE OF a SKIP LOCKED
+                """, this::map, taskId, JdbcSupport.timestamp(now), JdbcSupport.json(taskSpecJson),
+                JdbcSupport.json(taskSpecJson)).stream().findFirst();
+    }
+
     public Optional<AgentRecord> findReadyMatchingForTeam(String taskSpecJson, UUID teamId, Instant now) {
         return jdbc.query("""
                 SELECT agents.id, agents.name, agents.phase, agents.runtime,

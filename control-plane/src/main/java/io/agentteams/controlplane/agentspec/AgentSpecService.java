@@ -30,15 +30,16 @@ public class AgentSpecService {
     private final AgentSpecSchemaValidator schemaValidator;
     private final AgentSpecReferenceParser referenceParser;
     private final AgentSpecReferenceValidator referenceValidator;
+    private final io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes;
 
     public AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog) {
         this(repository, modelCatalog, Clock.systemUTC(), new AgentSpecSchemaValidator(),
-                new NoopAgentSpecReferenceValidator());
+                new NoopAgentSpecReferenceValidator(), null);
     }
 
     AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock) {
         this(repository, modelCatalog, clock, new AgentSpecSchemaValidator(),
-                new NoopAgentSpecReferenceValidator());
+                new NoopAgentSpecReferenceValidator(), null);
     }
 
     AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock,
@@ -48,19 +49,28 @@ public class AgentSpecService {
 
     @Autowired
     public AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock,
-            ObjectProvider<AgentSpecReferenceValidator> referenceValidators) {
+            ObjectProvider<AgentSpecReferenceValidator> referenceValidators,
+            ObjectProvider<io.agentteams.controlplane.security.ResourceScopeRepository> scopes) {
         this(repository, modelCatalog, clock, new AgentSpecSchemaValidator(),
-                referenceValidators.getIfAvailable(NoopAgentSpecReferenceValidator::new));
+                referenceValidators.getIfAvailable(NoopAgentSpecReferenceValidator::new),
+                scopes.getIfAvailable());
     }
 
     AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock,
             AgentSpecSchemaValidator schemaValidator, AgentSpecReferenceValidator referenceValidator) {
+        this(repository, modelCatalog, clock, schemaValidator, referenceValidator, null);
+    }
+
+    AgentSpecService(AgentSpecRepository repository, AgentSpecModelCatalog modelCatalog, Clock clock,
+            AgentSpecSchemaValidator schemaValidator, AgentSpecReferenceValidator referenceValidator,
+            io.agentteams.controlplane.security.ResourceScopeRepository resourceScopes) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.modelCatalog = Objects.requireNonNull(modelCatalog, "modelCatalog");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.schemaValidator = Objects.requireNonNull(schemaValidator, "schemaValidator");
         this.referenceParser = new AgentSpecReferenceParser();
         this.referenceValidator = Objects.requireNonNull(referenceValidator, "referenceValidator");
+        this.resourceScopes = resourceScopes;
     }
 
     @Transactional
@@ -103,6 +113,17 @@ public class AgentSpecService {
 
     public List<AgentSpecRecord> list() {
         return repository.findAll().stream().filter(this::visibleToCurrentPrincipal).toList();
+    }
+
+    /** Validates the Project route against the authenticated Project scope. */
+    public void requireProjectScope(String projectId) {
+        if (projectId == null || projectId.isBlank()) return;
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new AuthorizationException("authentication required"));
+        if (projectId.equals(principal.scope().project())) return;
+        if (resourceScopes == null || !resourceScopes.matchesCallerProject(projectId)) {
+            throw new AuthorizationException("resource is outside caller project");
+        }
     }
 
     public AgentSpecRecord get(UUID id) {

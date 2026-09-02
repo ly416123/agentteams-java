@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.api.ApiErrorHandler;
 import java.time.Instant;
+import java.net.URL;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +28,9 @@ class SkillControllerTest {
 
     @Mock
     private SkillService service;
+
+    @Mock
+    private SkillPackageStorageService packageStorage;
 
     private MockMvc mockMvc;
 
@@ -127,5 +131,35 @@ class SkillControllerTest {
                 .andExpect(jsonPath("$[0].manifest.credentials").doesNotExist())
                 .andExpect(jsonPath("$[0].capabilities.profile").value("ISOLATED"))
                 .andExpect(jsonPath("$[0].capabilities.ttlSeconds").value(600));
+    }
+
+    @Test
+    void preparesAndCompletesPackageUploadWithoutAcceptingCallerStorageKey() throws Exception {
+        UUID skillId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        SkillVersionRecord version = new SkillVersionRecord(versionId, skillId, "1.0.0", "sha256:abc", "{}",
+                "PRIVATE", "DRAFT", now, now, 1);
+        SkillPackageStorageService.SkillPackageUpload upload = new SkillPackageStorageService.SkillPackageUpload(
+                skillId, versionId, "skills/" + skillId + "/versions/" + versionId + "/package.tar.gz", 4,
+                "a".repeat(64), new URL("https://minio.test/upload"), new URL("https://minio.test/download"));
+        when(packageStorage.prepareUpload(eq(skillId), eq(versionId), any())).thenReturn(upload);
+        when(packageStorage.completeUpload(skillId, versionId)).thenReturn(version);
+        MockMvc packageMockMvc = MockMvcBuilders
+                .standaloneSetup(new SkillController(service, new ObjectMapper(), packageStorage))
+                .setControllerAdvice(new ApiErrorHandler()).build();
+
+        packageMockMvc.perform(post("/api/v1/skills/{skillId}/versions/{versionId}/package/upload", skillId, versionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sizeBytes\":4,\"sha256\":\"" + "a".repeat(64)
+                                + "\",\"contentType\":\"application/gzip\",\"storageKey\":\"caller-owned\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.storageKey").value(upload.storageKey()))
+                .andExpect(jsonPath("$.uploadUrl").value(upload.uploadUrl().toString()));
+
+        packageMockMvc.perform(post("/api/v1/skills/{skillId}/versions/{versionId}/package/complete", skillId,
+                        versionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(versionId.toString()));
     }
 }

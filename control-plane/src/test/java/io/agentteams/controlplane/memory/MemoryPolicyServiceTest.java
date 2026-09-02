@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.application.api.MemoryPolicy;
 import java.time.Duration;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class MemoryPolicyServiceTest {
@@ -32,6 +33,19 @@ class MemoryPolicyServiceTest {
                 "project-1", null, null, MemoryPolicy.Sensitivity.RESTRICTED, MemoryPolicy.Consent.CONFIRMED,
                 Duration.ofHours(1));
         assertThatThrownBy(() -> service.requireReadable(restricted, CONTEXT)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void taskMemoryRequiresTheExplicitTaskIdentity() {
+        UUID taskId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        MemoryPolicy task = new MemoryPolicy(MemoryPolicy.Scope.TASK, "org-1", "tenant-1", "project-1", null,
+                null, taskId.toString(), MemoryPolicy.Sensitivity.NORMAL, MemoryPolicy.Consent.CONFIRMED,
+                Duration.ofHours(1));
+        MemoryPolicyService service = new MemoryPolicyService();
+
+        assertThat(service.canRead(task, CONTEXT)).isFalse();
+        assertThat(service.canRead(task, CONTEXT, taskId)).isTrue();
+        assertThat(service.canRead(task, CONTEXT, UUID.randomUUID())).isFalse();
     }
 
     private static MemoryPolicy policy(MemoryPolicy.Scope scope, String subject, String project, String team) {

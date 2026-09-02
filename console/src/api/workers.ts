@@ -26,10 +26,11 @@ export function listWorkers(
     })
     .then(normalizeCursorPage);
 }
-export function getWorker(workerId: string, client: HttpClient = apiClient) {
-  return client.request<Worker>(`/api/v1/agents/${workerId}`);
+export function getWorker(projectId: string, workerId: string, client: HttpClient = apiClient) {
+  return client.request<Worker>(`/api/v1/agents/${workerId}`, { query: { projectId } });
 }
 export function listOperations(
+  projectId: string,
   workerId: string,
   filters: { cursor?: string } = {},
   client: HttpClient = apiClient,
@@ -37,11 +38,12 @@ export function listOperations(
   return client
     .request<CursorPage<WorkerOperation> | WorkerOperation[]>(
       `/api/v1/agents/${workerId}/operations`,
-      { query: filters },
+      { query: { projectId, ...filters } },
     )
     .then(normalizeCursorPage);
 }
 export function workerAction(
+  projectId: string,
   workerId: string,
   action: 'drain' | 'terminate',
   expectedVersion: number,
@@ -50,9 +52,11 @@ export function workerAction(
   return client.request<WorkerOperation>(`/api/v1/agents/${workerId}/operations/${action}`, {
     method: 'POST',
     body: { expectedVersion },
+    query: { projectId },
   });
 }
 export function rolloutWorker(
+  projectId: string,
   workerId: string,
   body: WorkerRolloutRequest,
   client: HttpClient = apiClient,
@@ -60,9 +64,11 @@ export function rolloutWorker(
   return client.request<WorkerOperation>(`/api/v1/agents/${workerId}/operations/rollout`, {
     method: 'POST',
     body,
+    query: { projectId },
   });
 }
 export function rollbackWorker(
+  projectId: string,
   workerId: string,
   operationId: string,
   expectedVersion: number,
@@ -70,6 +76,6 @@ export function rollbackWorker(
 ) {
   return client.request<WorkerOperation>(
     `/api/v1/agents/${workerId}/operations/${operationId}/rollback`,
-    { method: 'POST', body: { expectedVersion } },
+    { method: 'POST', body: { expectedVersion }, query: { projectId } },
   );
 }

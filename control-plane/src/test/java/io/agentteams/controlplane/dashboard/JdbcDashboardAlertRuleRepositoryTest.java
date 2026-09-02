@@ -60,8 +60,9 @@ class JdbcDashboardAlertRuleRepositoryTest {
 
         repository.save(rule);
 
-        verify(jdbc).update(contains("ON CONFLICT (rule) DO UPDATE"), eq("COST"), eq("WARNING"),
-                eq(12.5), eq(false));
+        verify(jdbc).update(contains("ON CONFLICT (tenant_id, project_id, rule) DO UPDATE"),
+                eq(DashboardAlertRuleRepository.GLOBAL_SCOPE), eq(DashboardAlertRuleRepository.GLOBAL_SCOPE),
+                eq("COST"), eq("WARNING"), eq(12.5), eq(false), eq(0L));
     }
 
     @Test

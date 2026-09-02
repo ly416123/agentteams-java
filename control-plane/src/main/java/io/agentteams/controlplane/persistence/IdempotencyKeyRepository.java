@@ -8,7 +8,7 @@ public final class IdempotencyKeyRepository {
 
     private final JdbcTemplate jdbc;
 
-    IdempotencyKeyRepository(JdbcTemplate jdbc) {
+    public IdempotencyKeyRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

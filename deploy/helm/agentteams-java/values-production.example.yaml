@@ -113,6 +113,8 @@ database:
 storage:
   enabled: true
   endpoint: https://s3.example.internal
+  presignEndpoint: ""
+  region: ""
   bucket: agentteams
   existingSecret: agentteams-storage
 

@@ -102,6 +102,8 @@ message TaskAssigned {
   string quota_id = 10;
   string quota_dimension = 11;
   SandboxAssignment sandbox = 12;
+  // Minimal summary-only memory context assembled by the Control Plane.
+  bytes memory_context_json = 13;
 }
 
 message TaskAccepted {

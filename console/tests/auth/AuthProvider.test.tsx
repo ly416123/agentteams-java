@@ -37,7 +37,7 @@ describe('OIDC authentication', () => {
     expect(shouldDisablePkce({ protocol: 'https:', hostname: '192.168.1.16' })).toBe(false);
   });
 
-  it('keeps the access token in provider memory only', async () => {
+  it('keeps the access token in provider memory after loading the current session', async () => {
     const manager = {
       getUser: vi
         .fn()
@@ -57,6 +57,14 @@ describe('OIDC authentication', () => {
     );
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it('configures OIDC user state in session storage rather than local storage', async () => {
+    const store = oidcSettings().userStore;
+    await store?.set('oidc.user.test', 'session-only-user');
+
+    expect(window.sessionStorage.getItem('oidc.oidc.user.test')).toBe('session-only-user');
+    expect(window.localStorage.getItem('oidc.oidc.user.test')).toBeNull();
   });
 
   it('redirects an unauthenticated user to login with the original path', async () => {

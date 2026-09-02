@@ -3,8 +3,10 @@ package io.agentteams.controlplane.api;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.agentteams.controlplane.template.WorkerTemplate;
@@ -59,5 +61,17 @@ class WorkerTemplateControllerTest {
                         templateId, instanceId, 2)
                 .header("Idempotency-Key", "upgrade-key"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void forwardsExplicitProjectScopeToTemplateService() throws Exception {
+        WorkerTemplateService service = mock(WorkerTemplateService.class);
+        when(service.list()).thenReturn(java.util.List.of());
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new WorkerTemplateController(service)).build();
+
+        mvc.perform(get("/api/v1/worker-templates").param("projectId", "project-uuid"))
+                .andExpect(status().isOk());
+
+        verify(service).requireProjectScope("project-uuid");
     }
 }

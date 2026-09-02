@@ -51,9 +51,16 @@ public interface ProjectRepository {
 
     boolean insertMembershipIdempotency(ProjectMembershipIdempotency record);
 
+    Optional<ProjectRoleChangeIdempotency> findRoleChangeIdempotency(String tenantId, UUID projectId, String key);
+
+    boolean insertRoleChangeIdempotency(ProjectRoleChangeIdempotency record);
+
     record ProjectCreateIdempotency(String tenantId, String key, String requestHash, UUID projectId,
             Instant createdAt) { }
 
     record ProjectMembershipIdempotency(String tenantId, UUID projectId, String key, String requestHash,
             String subject, ProjectRole role, Instant createdAt) { }
+
+    record ProjectRoleChangeIdempotency(String tenantId, UUID projectId, String key, String requestHash,
+            String subject, ProjectRole role, long expectedVersion, Instant createdAt) { }
 }

@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 
 /** Resolves legacy tenant identifiers only when the subject belongs to both org and tenant. */
 @Repository
-public final class JdbcExecutionContextDirectory implements ExecutionContextResolver.ScopeDirectory {
+public class JdbcExecutionContextDirectory implements ExecutionContextResolver.ScopeDirectory {
     private final JdbcTemplate jdbc;
 
     public JdbcExecutionContextDirectory(JdbcTemplate jdbc) {
@@ -35,9 +35,18 @@ public final class JdbcExecutionContextDirectory implements ExecutionContextReso
                    AND EXISTS (SELECT 1 FROM tenant_memberships tenant_member
                                 WHERE tenant_member.tenant_id = tenant.id
                                   AND tenant_member.subject = ?)
+                   AND EXISTS (SELECT 1 FROM projects project
+                                JOIN project_memberships project_member
+                                  ON project_member.project_id = project.id
+                                 WHERE project.tenant_id = tenant.external_key
+                                   AND project.name = ?
+                                   AND project.status = 'ACTIVE'
+                                   AND project_member.tenant_id = tenant.external_key
+                                   AND project_member.subject = ?
+                                   AND project_member.status = 'ACTIVE')
                 """, (rs, row) -> new ExecutionContext(rs.getString("organization_id"),
                 rs.getString("tenant_id"), projectId, teamId, subjectId), legacyTenantId, legacyTenantId,
-                legacyTenantId, subjectId, subjectId).stream().findFirst();
+                legacyTenantId, subjectId, subjectId, projectId, subjectId).stream().findFirst();
     }
 
     private static void requireText(String value, String field) {

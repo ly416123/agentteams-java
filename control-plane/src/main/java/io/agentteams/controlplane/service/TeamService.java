@@ -10,6 +10,7 @@ import io.agentteams.controlplane.persistence.TeamMemberRecord;
 import io.agentteams.controlplane.persistence.TeamPolicyRecord;
 import io.agentteams.controlplane.persistence.TeamRecord;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.controlplane.team.TeamSchedulingPolicy;
 import java.time.Instant;
@@ -126,6 +127,21 @@ public final class TeamService {
         requireVisible(teamId);
         return persistence.inTransaction(tx -> tx.teams().findById(teamId)
                 .orElseThrow(() -> new ResourceNotFoundException("team", teamId)));
+    }
+
+    /** Verifies that a Console route Project belongs to the caller's authenticated Project scope. */
+    public void requireProjectScope(String projectId) {
+        if (projectId == null || projectId.isBlank()) return;
+        Principal principal = requireScopeContext();
+        if (projectId.equals(principal.scope().project())) return;
+        if (resourceScopes == null || !resourceScopes.matchesCallerProject(projectId)) {
+            throw new io.agentteams.controlplane.security.AuthorizationException(
+                    "resource is outside the caller project scope");
+        }
+        PrincipalContext.set(new Principal(principal.subject(),
+                new io.agentteams.controlplane.security.AuthorizationService.Scope(
+                        principal.scope().tenant(), projectId, principal.scope().team()),
+                principal.permissions()));
     }
 
     public List<TeamRecord> list() {

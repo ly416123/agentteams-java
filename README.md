@@ -58,7 +58,23 @@ POST /api/v1/worker-templates/{id}/instances/{instanceId}/upgrade/{revision}
 
 写操作使用 `Idempotency-Key`；状态变更使用 `expectedVersion`。模板实例通过
 现有 AgentSpec/Worker 服务边界创建，不直接操作 Kubernetes。企业审批、外部
-Skill/MCP/Secret 深度校验和 L6 真实验收不属于当前纵切完成条件。
+Skill/MCP/Secret 深度校验和 L6 真实验收不属于当前纵切完成条件。L6 统一保留到项目最终阶段；
+除非用户明确说“启动 L6 验收”，否则当前不纳入执行计划，不创建 L6 计划、不排入当前任务、不自动执行。
+
+Worker Pod 创建时机、Worker 归属与并发、Task Sandbox 分级，以及用户私人、企业、
+Project/Team 和 Task 记忆的隔离规则，统一以
+[Worker Pod 与记忆隔离需求基线](docs/superpowers/specs/2026-09-01-work-pod-and-memory-isolation-requirements.md)
+为准。企业注册、激活和用户初始化不会隐式创建 Worker Pod；Worker 必须显式实例化并
+通过 Worker CR/Operator 达到 `READY` 后才能接收任务。
+
+后续功能开发暂不更新 Java SDK；SDK 已有能力必须由管理 API 与 Console 逐项提供，管理端
+可以拥有 SDK 尚未暴露的更多管理、治理和运营能力。最终页面功能验证通过后才允许单独规划
+Java SDK 同步。完整实施顺序、
+能力矩阵、记忆隔离和无生产 Secret Manager Credential 时的验收边界见
+[管理端优先与 Java SDK 冻结实施方案](docs/superpowers/plans/2026-09-01-management-first-console-completion-plan.md)。
+
+当前阶段已完成管理端 Usage（含 Organization/Tenant/Project/Team/User 聚合）、预算评估、Project 作用域告警规则/自动重试详情、人工重试幂等、告警历史和审计入口的首轮页面闭环；验证结果与
+OIDC/生产凭据限制记录在[管理端阶段验证报告](docs/acceptance/2026-09-01-management-verification-report.md)。
 
 ## Public API 与 SDK（v1.0 第一纵切）
 
@@ -168,6 +184,10 @@ after the object deletion succeeds. The `2h` temporary window applies to tracked
 non-available artifact rows; the existing config-upload lifecycle keeps its
 dedicated pending-upload cleanup until the unified result-manifest/payload-ref
 retention model is delivered.
+Project administrators can read and update the project policy through
+`GET/PUT /api/v1/artifacts/retention`; updates require the current
+`expectedVersion` and use the existing `artifact:write` permission. The
+management Console exposes these controls without exposing artifact bytes.
 
 Task state consistency is protected at two layers. The `tasks.phase` state remains
 authoritative, while `task_runs` is a monotonic projection whose terminal state,

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createTask,
   getTask,
+  getTaskExecution,
   listTasks,
   streamTaskEvents,
   taskAction,
@@ -29,6 +30,13 @@ export function useTask(projectId: string, taskId: string) {
   return useQuery({
     queryKey: queryKeys.task(projectId, taskId),
     queryFn: () => getTask(taskId),
+    enabled: Boolean(projectId && taskId),
+  });
+}
+export function useTaskExecution(projectId: string, taskId: string) {
+  return useQuery({
+    queryKey: ['task-execution', projectId, taskId],
+    queryFn: () => getTaskExecution(taskId),
     enabled: Boolean(projectId && taskId),
   });
 }

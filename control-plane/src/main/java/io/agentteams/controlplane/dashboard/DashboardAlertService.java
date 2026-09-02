@@ -24,10 +24,22 @@ public final class DashboardAlertService {
     }
 
     public List<Alert> evaluate(DashboardSummaryController.DashboardSummary summary) {
+        return evaluate(summary, rules.findAll());
+    }
+
+    public List<Alert> evaluate(DashboardSummaryController.DashboardSummary summary,
+            String tenantId, String projectId) {
+        if (summary == null) throw new IllegalArgumentException("summary is required");
+        DashboardAlertRuleRepository.requireScope(tenantId, projectId);
+        return evaluate(summary, rules.findForScope(tenantId, projectId));
+    }
+
+    private List<Alert> evaluate(DashboardSummaryController.DashboardSummary summary,
+            List<DashboardAlertRule> configuredRules) {
         if (summary == null) throw new IllegalArgumentException("summary is required");
         List<Alert> alerts = new ArrayList<>();
         double actualFailureRate = summary.calls() == 0 ? 0 : (double) summary.failures() / summary.calls();
-        for (DashboardAlertRule rule : rules.findAll()) {
+        for (DashboardAlertRule rule : configuredRules) {
             if (!rule.enabled()) continue;
             switch (rule.rule()) {
                 case "FAILURE_RATE" -> addIfExceeded(alerts, rule, actualFailureRate,

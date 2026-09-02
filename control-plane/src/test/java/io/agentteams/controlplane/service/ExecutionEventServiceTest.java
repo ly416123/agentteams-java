@@ -67,6 +67,8 @@ class ExecutionEventServiceTest {
         persistence.inTransaction(tx -> {
             tx.agents().insert(agent);
             tx.tasks().insert(queued);
+            tx.insertResourceScope("WORKER", agent.id(), "test", "test", "test", START);
+            tx.insertResourceScope("TASK", taskId, "test", "test", "test", START);
             return null;
         });
 
@@ -142,6 +144,8 @@ class ExecutionEventServiceTest {
         persistence.inTransaction(tx -> {
             tx.agents().insert(agent);
             tx.tasks().insert(queued);
+            tx.insertResourceScope("WORKER", agent.id(), "test", "test", "test", START);
+            tx.insertResourceScope("TASK", taskId, "test", "test", "test", START);
             return null;
         });
 
@@ -204,6 +208,8 @@ class ExecutionEventServiceTest {
         persistence.inTransaction(tx -> {
             tx.agents().insert(agent);
             tx.tasks().insert(queued);
+            tx.insertResourceScope("WORKER", agent.id(), "test", "test", "test", START);
+            tx.insertResourceScope("TASK", taskId, "test", "test", "test", START);
             return null;
         });
 

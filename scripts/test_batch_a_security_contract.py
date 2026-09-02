@@ -63,7 +63,7 @@ class BatchASecurityContractTest(unittest.TestCase):
 
         self.assertIn("automountServiceAccountToken: false", gateway)
         self.assertIn(
-            "automountServiceAccountToken: {{ .Values.controlPlane.teamSync.enabled }}",
+            "automountServiceAccountToken: {{ or .Values.controlPlane.teamSync.enabled .Values.controlPlane.workerProvisioner.enabled }}",
             control_plane,
         )
 
@@ -98,12 +98,26 @@ class BatchASecurityContractTest(unittest.TestCase):
 
     def test_control_plane_has_no_pod_job_or_secret_write_permission(self):
         rbac = read_chart("templates/rbac.yaml")
-        control_plane_role = rbac.split("-control-plane-team-sync", 1)[1]
+        control_plane_role = rbac.split("-control-plane-team-sync", 1)[1].split(
+            "{{- if .Values.controlPlane.workerProvisioner.enabled }}", 1
+        )[0]
 
         self.assertNotRegex(control_plane_role, r"resources:.*\bpods\b")
         self.assertNotRegex(control_plane_role, r"resources:.*\bjobs\b")
         self.assertNotRegex(control_plane_role, r"resources:.*\bsecrets\b")
         self.assertNotRegex(control_plane_role, r"verbs:.*\b(create|update|patch|delete)\b")
+
+        enabled = render_chart("--set", "controlPlane.workerProvisioner.enabled=true")
+        worker_role = next(
+            doc for doc in enabled
+            if doc.get("kind") == "Role"
+            and doc["metadata"]["name"].endswith("-control-plane-worker-provisioner")
+        )
+        self.assertEqual(["workers"], worker_role["rules"][0]["resources"])
+        self.assertEqual(
+            {"get", "list", "watch", "create", "patch", "update"},
+            set(worker_role["rules"][0]["verbs"]),
+        )
 
     def test_network_policies_do_not_allow_unbounded_default_egress(self):
         policy = read_chart("templates/networkpolicy.yaml")

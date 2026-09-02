@@ -75,6 +75,12 @@ class KindDashboardAlertsContractTest(unittest.TestCase):
             encoding="utf-8")
 
         self.assertTrue(values["networkPolicy"]["dashboardAlertReceiver"]["enabled"])
+        self.assertEqual(values["controlPlane"]["env"]["AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_ENABLED"], "true")
+        self.assertEqual(values["controlPlane"]["env"]["AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_ENABLED"], "true")
+        self.assertEqual(
+            values["controlPlane"]["env"]["AGENTTEAMS_DASHBOARD_ALERTS_NOTIFICATION_WEBHOOK_URL"],
+            "http://dashboard-alert-receiver:8080/alerts",
+        )
         self.assertIn("dashboardAlertReceiver.enabled", network_policy)
         self.assertIn("app.kubernetes.io/name: dashboard-alert-receiver", network_policy)
 

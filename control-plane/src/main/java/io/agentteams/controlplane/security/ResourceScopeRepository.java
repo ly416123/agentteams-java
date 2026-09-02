@@ -43,4 +43,19 @@ public class ResourceScopeRepository {
             throw new AuthorizationException("resource is outside caller project");
         }
     }
+
+    /** Accepts either the stable Project UUID used by the Console route or its external name. */
+    public boolean matchesCallerProject(String projectId) {
+        return PrincipalContext.current().map(principal -> jdbc.query("""
+                SELECT 1
+                  FROM projects p
+                 WHERE p.tenant_id = ?
+                   AND (p.id::text = ? OR p.name = ?)
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = p.tenant_id AND m.project_id = p.id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')
+                """, (rs, row) -> true, principal.scope().tenant(), projectId, projectId,
+                principal.subject()).stream().findFirst().orElse(false))
+                .orElse(false);
+    }
 }

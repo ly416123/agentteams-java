@@ -19,6 +19,44 @@ export type CreateTaskRequest = {
   spec: { scope: TaskScope; teamId: string; workerId?: string; [key: string]: unknown };
 };
 
+export type TaskExecution = {
+  attempt: {
+    id: string;
+    taskId: string;
+    leaseId: string;
+    phase: string;
+    leaseExpiresAt: string;
+    completedAt?: string | null;
+    actor: string;
+    source: string;
+    failureCode?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    version: number;
+  };
+  assignment?: {
+    id: string;
+    taskId: string;
+    attemptId: string;
+    agentId: string;
+    phase: string;
+    assignedAt: string;
+    acceptedAt?: string | null;
+    releasedAt?: string | null;
+    version: number;
+  } | null;
+  lease?: {
+    id: string;
+    agentId: string;
+    taskAttemptId: string;
+    acquiredAt: string;
+    expiresAt: string;
+    releasedAt?: string | null;
+    status: string;
+    version: number;
+  } | null;
+};
+
 function taskQuery(projectId: string, filters: TaskFilters) {
   return Object.fromEntries(
     Object.entries({ projectId, ...filters })
@@ -38,6 +76,9 @@ export function listTasks(
 }
 export function getTask(taskId: string, client: HttpClient = apiClient) {
   return client.request<Task>(`/api/v1/tasks/${taskId}`);
+}
+export function getTaskExecution(taskId: string, client: HttpClient = apiClient) {
+  return client.request<TaskExecution[]>(`/api/v1/tasks/${taskId}/execution`);
 }
 export function createTask(body: CreateTaskRequest, client: HttpClient = apiClient) {
   if (

@@ -139,6 +139,12 @@ public final class TaskSandboxRepository {
                 """, this::map, JdbcSupport.timestamp(now), limit);
     }
 
+    /** Metadata listing used by the management console; scope filtering is applied by the controller. */
+    public java.util.List<TaskSandboxRecord> findLatest(int limit) {
+        if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
+        return jdbc.query(SELECT_COLUMNS + " ORDER BY updated_at DESC, id DESC LIMIT ?", this::map, limit);
+    }
+
     public java.util.List<TaskSandboxRecord> findExpiring(Instant now, java.time.Duration renewBefore, int limit) {
         if (renewBefore == null || renewBefore.isNegative()) throw new IllegalArgumentException("renewBefore must not be negative");
         if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");

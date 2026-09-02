@@ -558,6 +558,13 @@ jobs:
           kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
           kubectl apply -f deploy/helm/agentteams-java/crds/workers.yaml
           ./deploy/install-kind-oidc.sh
+      - name: Run Kind memory scope isolation acceptance
+        env:
+          AGENTTEAMS_E2E_USERNAME: alice
+          AGENTTEAMS_E2E_PASSWORD: alice-dev
+          AGENTTEAMS_E2E_QUOTA_ADMIN_USERNAME: quota-admin
+          AGENTTEAMS_E2E_QUOTA_ADMIN_PASSWORD: quota-admin-dev
+        run: python3 scripts/run-kind-memory-scope.py --namespace agentteams --postgres-pod postgresql-0
       - name: Verify live JWKS key rotation
         run: ./scripts/smoke-kind-oidc-rotation.sh
       - name: Install and verify local Tuwunel AppService

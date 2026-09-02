@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NAMESPACE=${AGENTTEAMS_NAMESPACE:-agentteams}
+CONTROL_PLANE_IMAGE=${AGENTTEAMS_CONTROL_PLANE_IMAGE:-}
 source "$ROOT/deploy/console-deployment.sh"
 
 for command_name in helm kubectl kind; do
@@ -28,9 +29,23 @@ if kubectl -n "${NAMESPACE}" get secret matrix-appservice >/dev/null 2>&1; then
   HELM_VALUES+=( -f "${ROOT}/deploy/helm/kind-matrix-values.yaml" )
 fi
 HELM_VALUES+=( --set "console.enabled=$CONSOLE_ENABLED" )
+HELM_UPGRADE_ARGS=(
+  --namespace "${NAMESPACE}" --create-namespace --timeout 5m --force-conflicts --wait
+)
+if [[ -n "${CONTROL_PLANE_IMAGE}" ]]; then
+  HELM_VALUES+=( --set-string "images.controlPlane=${CONTROL_PLANE_IMAGE}" )
+  # A local dev tag can point to a newly loaded image without changing the
+  # Deployment template. Apply the image first, then restart it below.
+  HELM_UPGRADE_ARGS=(
+    --namespace "${NAMESPACE}" --create-namespace --timeout 5m --force-conflicts
+  )
+fi
 helm upgrade --install agentteams "${ROOT}/deploy/helm/agentteams-java" \
-  --namespace "${NAMESPACE}" --create-namespace --wait --timeout 5m \
+  "${HELM_UPGRADE_ARGS[@]}" \
   "${HELM_VALUES[@]}"
+if [[ -n "${CONTROL_PLANE_IMAGE}" ]]; then
+  kubectl -n "${NAMESPACE}" rollout restart deployment/agentteams-agentteams-java-control-plane
+fi
 
 kubectl -n "${NAMESPACE}" rollout status \
   deployment/agentteams-agentteams-java-control-plane --timeout=180s

@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/httpClient';
-import { useTask, useTaskAction, useTaskEvents } from '../../queries/useTaskQueries';
+import {
+  useTask,
+  useTaskAction,
+  useTaskEvents,
+  useTaskExecution,
+} from '../../queries/useTaskQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Timeline } from '../../components/Timeline';
@@ -29,6 +34,7 @@ const actionImpacts: Record<TaskActionName, string> = {
 export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskId: string }) {
   const task = useTask(projectId, taskId);
   const events = useTaskEvents(projectId, taskId);
+  const execution = useTaskExecution(projectId, taskId);
   const action = useTaskAction(projectId, taskId);
   const [conflict, setConflict] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -157,6 +163,50 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           </div>
         </section>
       </div>
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">ATTEMPT / ASSIGNMENT / LEASE</p>
+            <h2>执行尝试</h2>
+          </div>
+        </div>
+        {execution.isLoading ? (
+          <div className="loading-block">加载执行实体…</div>
+        ) : execution.isError ? (
+          <ErrorState error={execution.error} onRetry={() => void execution.refetch()} />
+        ) : !execution.data?.length ? (
+          <p className="muted-text">当前任务尚未产生执行尝试。</p>
+        ) : (
+          <div className="stack-list">
+            {execution.data.map((item) => (
+              <article className="stack-list__item" key={item.attempt.id}>
+                <div>
+                  <strong>{item.attempt.id}</strong>
+                  <div className="muted-text">
+                    {item.attempt.actor} · {item.attempt.source} · version {item.attempt.version}
+                  </div>
+                </div>
+                <StatusBadge phase={item.attempt.phase} />
+                <div className="detail-list">
+                  <span>
+                    Assignment<strong>{item.assignment?.id || '未创建'}</strong>
+                  </span>
+                  <span>
+                    Lease<strong>{item.lease?.id || item.attempt.leaseId}</strong>
+                  </span>
+                  <span>
+                    Worker
+                    <strong>{item.assignment?.agentId || item.lease?.agentId || '待分配'}</strong>
+                  </span>
+                  <span>
+                    Lease 状态<strong>{item.lease?.status || 'UNKNOWN'}</strong>
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
       <VersionConflictModal
         open={conflict}
         actionLabel={conflictAction ? actionLabels[conflictAction] : '继续操作'}

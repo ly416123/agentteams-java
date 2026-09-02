@@ -54,6 +54,9 @@ class TaskPushInfrastructureIT {
     private static final String DATABASE_PASSWORD = "agentteams-dev";
     private static final String STORAGE_ACCESS_KEY = "minioadmin";
     private static final String STORAGE_SECRET_KEY = "minioadmin";
+    private static final String TEST_TENANT = "tenant-a";
+    private static final String TEST_PROJECT = "project-a";
+    private static final String TEST_TEAM = "team-a";
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -262,8 +265,10 @@ class TaskPushInfrastructureIT {
         String body = """
                 {"name":"%s","runtime":"fake-agent","capabilities":{"tasks":"1"},"metadata":{}}
                 """.formatted("infrastructure-agent-" + UUID.randomUUID());
-        return UUID.fromString(postJson("/api/v1/agents", "agent-create-" + UUID.randomUUID(), body)
+        UUID agentId = UUID.fromString(postJson("/api/v1/agents", "agent-create-" + UUID.randomUUID(), body)
                 .path("id").asText());
+        bindInfrastructureResourceScope("WORKER", agentId);
+        return agentId;
     }
 
     private static UUID createAndQueueTask() throws Exception {
@@ -272,8 +277,18 @@ class TaskPushInfrastructureIT {
                 """;
         UUID taskId = UUID.fromString(postJson("/api/v1/tasks", "task-create-" + UUID.randomUUID(), body)
                 .path("id").asText());
+        bindInfrastructureResourceScope("TASK", taskId);
         postJson("/api/v1/tasks/" + taskId + "/queue", "task-queue-" + UUID.randomUUID(), "{}");
         return taskId;
+    }
+
+    /** The infrastructure test uses trusted unauthenticated APIs, so it must bind fixture scopes explicitly. */
+    private static void bindInfrastructureResourceScope(String resourceType, UUID resourceId) {
+        jdbc().update("""
+                INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team,
+                                            created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, resourceType, resourceId, TEST_TENANT, TEST_PROJECT, TEST_TEAM);
     }
 
     private static com.fasterxml.jackson.databind.JsonNode postJson(String path, String idempotencyKey,

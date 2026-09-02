@@ -12,10 +12,17 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.stereotype.Service;
 
 class McpGatewayRouteServiceTest {
     private static final ExecutionContext CONTEXT = new ExecutionContext("org-1", "tenant-1", "project-1", "team-1", "user-1");
     private static final UUID CONNECTION_ID = UUID.randomUUID();
+
+    @Test
+    void isRegisteredAsAProxyableSpringService() {
+        assertThat(McpGatewayRouteService.class.getAnnotation(Service.class)).isNotNull();
+        assertThat(java.lang.reflect.Modifier.isFinal(McpGatewayRouteService.class.getModifiers())).isFalse();
+    }
 
     @Test
     void registersRouteForTheOwnedConnectorAndUpdatesHeartbeat() {
