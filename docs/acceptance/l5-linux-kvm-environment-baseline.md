@@ -2,7 +2,7 @@
 
 **用途：** 记录 L5 验收主机、`ly` 权限边界、gVisor/Kata 运行时配置，以及已确认的镜像拉取故障和修复方式。后续执行 L5 验收前必须先阅读本文，避免把镜像拉取问题误判为 RuntimeClass 或 handler 故障。
 
-**最后核验：** 2026-09-02
+**最后核验：** 2026-09-03
 
 **关联验收入口：** [`deploy/production/l5-linux-kvm-acceptance.md`](../../deploy/production/l5-linux-kvm-acceptance.md)
 
@@ -19,7 +19,7 @@
 | Kubernetes 节点 | `ly-macbookair7-2`，状态为 `Ready` |
 | gVisor | `/usr/local/bin/runsc`，`release-20260817.0` |
 | runner 镜像 | `ghcr.io/ly416123/agentteams-task-sandbox:latest`，已预加载到 K3s containerd 镜像存储 |
-| Operator | `agentteams-agentteams-java-operator`，滚动更新后 `1/1 Running` |
+| Operator | `agentteams-agentteams-java-operator`，滚动更新后 `2/2 Running` |
 
 当前 RuntimeClass 与 containerd handler 的对应关系如下：
 
@@ -89,6 +89,27 @@ sudo -n /usr/local/bin/k3s crictl info
 - 两个 Pod 均取得 guest kernel 与宿主机 kernel 证据；
 - 验收资源已清理完成。
 
+### 3.4 资源耗尽与验收残留（2026-09-03）
+
+本次 L5 受控排查发现，主机只有约 7.2 GiB 内存，历史浏览器验收产生的 20 个
+`worker-*` Worker CR 各维持 1 个 JVM Pod，导致主机可用内存降至约 200 MiB，Swap
+也基本耗尽。期间出现以下连锁现象：
+
+- 节点短暂进入 `NotReady`，k3s API 请求出现超时；
+- Control Plane 被 `OOMKilled` 并重启；
+- Operator informer 无法在 10 秒内连接 Kubernetes API，进程以退出码 1 重启；
+- Operator 轮询 Control Plane 时出现连接超时和 Vert.x event-loop blocked 警告。
+
+处理方式是保留 Worker CR、任务和数据库数据，仅将这 20 个明确属于开发验收残留的
+Worker CR 的 `spec.replicas` 置为 `0`，随后滚动重启 Operator。处理后节点、Control
+Plane、Gateway、Operator 均恢复 Ready，稳定观察 35 秒无新的 Operator 异常；保留的
+`l5-demo-qwenpaw-worker` 仍为 `1/1 Ready`。这不是生产清理，也不应作为常规验收清理
+手段，若资源归属不明确必须先确认。
+
+后续验收必须在结束阶段清理 Worker CR 的副本数或删除明确创建的临时 Worker；只删除
+Deployment/Pod 不够，因为 Operator 会依据 Worker CR 的期望副本数重新创建它们。
+执行前应记录创建的资源名称，执行后确认 `worker-*` 数量、`spec.replicas` 和主机内存。
+
 ## 4. 后续 L5 排查顺序
 
 再次出现“Sandbox 不 READY”时，必须按以下顺序排查：
@@ -99,6 +120,8 @@ sudo -n /usr/local/bin/k3s crictl info
 4. 再使用 `sudo -n /usr/local/bin/k3s crictl info` 检查 `gvisor` 是否映射到 `io.containerd.runsc.v1`；
 5. 最后使用显式 `imagePullPolicy: IfNotPresent` 的最小探针验证 `runsc`，并检查 guest kernel；
 6. 不得仅凭 Pod 消失或 `PROVISIONING` 状态认定 gVisor handler 损坏，必须保留 `kubectl describe` 和 Events 证据。
+7. 先检查节点资源和 Worker 数量；L5 单节点环境不得让历史验收 Worker 无限累积。若发现
+   节点可用内存不足，应先停用已确认的开发验收残留 Worker，再继续 Sandbox 诊断。
 
 推荐的最小只读检查：
 
@@ -115,4 +138,6 @@ sudo -n /usr/local/bin/k3s crictl info
 - runner 镜像必须由平台预置或通过受控镜像导入流程加载，禁止把匿名 registry 拉取成功作为 L5 前置条件；
 - `ly` 的 SSH 私钥不写入仓库；本文只记录 SSH 用户、主机和权限类型；
 - 每次验收结束必须确认临时 `TaskSandbox`、Job、Service 和 Pod 已清理；
+- 每次验收结束还必须确认由验收创建的 Worker CR 已停用或删除；仅检查 Pod/Deployment
+  不足以证明 Worker 已清理；
 - L6 外部供应商、生产 Secret Manager 和长期运行验收仍按项目约束保留至最终阶段。
