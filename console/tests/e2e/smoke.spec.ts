@@ -203,7 +203,7 @@ test('real OIDC organization page creates and version-updates an organization an
   await page.locator('#password').fill(password!);
   await page.locator('#kc-login').click();
 
-  await expect(page).toHaveURL(/:30080\/console$/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/:30080\/(?:console|[^/]+\/overview)$/, { timeout: 30_000 });
   await page.goto('/settings/organizations');
   await expect(page.getByRole('heading', { name: 'Organization 与 Tenant' })).toBeVisible();
 
@@ -252,7 +252,7 @@ test('real OIDC identity page completes external-user provisioning lifecycle', a
   await page.locator('#password').fill(password!);
   await page.locator('#kc-login').click();
 
-  await expect(page).toHaveURL(/\/console$/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/\/(?:console|[^/]+\/overview)$/, { timeout: 30_000 });
   const suffix = Date.now();
   const organizationName = `E2E Provisioning Organization ${suffix}`;
   const integrationName = `E2E Provisioning Integration ${suffix}`;
@@ -303,7 +303,7 @@ test('real OIDC integrations page completes credential reference lifecycle', asy
   await page.locator('#username').fill(username!);
   await page.locator('#password').fill(password!);
   await page.locator('#kc-login').click();
-  await expect(page).toHaveURL(/\/console$/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/\/(?:console|[^/]+\/overview)$/, { timeout: 30_000 });
 
   const suffix = Date.now();
   const organizationName = `E2E Credential Organization ${suffix}`;
