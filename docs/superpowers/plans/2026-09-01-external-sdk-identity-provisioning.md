@@ -10,7 +10,9 @@
 
 **设计依据：** `docs/superpowers/specs/2026-09-01-external-sdk-identity-provisioning-design.md`。
 
-## 当前执行状态（2026-09-01）
+## 历史执行状态快照（2026-09-01）
+
+> 本节记录的是 2026-09-01 管理端收口前的分支同步快照，不是当前主线的待办清单。后续身份、组织、Integration、Provisioning、权限、Console 和验收状态，以 [管理端完成计划](2026-09-01-management-first-console-completion-plan.md) 及 [管理端能力矩阵](../../acceptance/management-capability-matrix.yaml) 为准；本计划中“未合并/未完成”的判断不得重新作为当前开发任务创建。Java SDK 继续按项目约束冻结，L6 继续保留到项目最终阶段。
 
 以下状态以 `main` 分支实际可见的提交和文件为准；独立 worktree 中的提交、未提交文件和仅存在于其他分支的提交，均不计入 `main` 已完成。这里区分“提交未成为 `main` 祖先”和“代码内容已经通过其他提交进入 `main`”，避免只看分支名造成误判。
 
