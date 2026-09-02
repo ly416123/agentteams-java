@@ -11,7 +11,8 @@ L5 主机、`ly` 权限边界和 gVisor 故障复盘见：[L5 Linux/KVM 环境�
 ## 已通过
 
 - Console 格式检查、Lint、单元测试和生产构建通过。
-- Console 当前测试结果：29 个测试文件、120 个测试通过；生产构建通过。
+- Console 当前测试结果：29 个测试文件、121 个测试通过；生产构建通过。
+- Conversation 页面本地回归已补齐：执行中追加消息进入有序队列，后续请求使用前一条响应返回的最新会话版本；发送失败时恢复当前及未发送草稿，不静默丢失补充信息。
 - Agent Gateway 全量单元回归通过：85 个测试通过，0 failure、0 error、0 skipped；心跳刷新不再递增 Agent 生命周期版本，避免正常多副本心跳造成错误的乐观锁冲突。
 - Console E2E：15 个用例通过；包括未登录入口、登录引导、Alice 真实 OIDC 登录进入 Project，以及 Alice/Reader/Tenant-B 独立浏览器会话的 Project 隔离。Alice 可在整页导航后访问 Memory/Sandbox 页面；Reader 访问同一项目资源页面返回“无权访问”；Alice 可在告警页面看到失败投递并执行“立即重试”；Quota Admin 可从 Skill 页面完成真实 MinIO 预签名直传和 package complete，并可在 MCP 页面完成 credentialRef 脱敏、不可达端点 fail-closed、Discovery 状态、编辑和删除；Organization/Tenant 页面已通过真实 OIDC 完成创建、幂等状态变更和版本保护操作；角色页面已通过真实 OIDC 展示当前 Project 的有效权限矩阵；Project 管理页面已通过真实 OIDC 完成当前 Tenant 内 Project 创建；Team 页面已通过真实 OIDC 完成当前 Project 内创建、详情加载和发布不自动部署 Worker 的边界展示，并验证伪造跨 Project UUID 返回“无权访问”；Template 页面已通过真实 OIDC 完成 Template → Revision → Publish → 显式实例化 Worker，并可进入 Worker 详情查看操作记录；AgentSpec 页面已通过真实 OIDC 独立完成创建、发布和停用生命周期；外部用户生命周期页面已通过真实 OIDC 完成初始化、更新、Membership 查询和停用；Integration Credential 页面已通过真实 OIDC 完成 Credential Ref 登记、轮换、撤销、版本保护和危险操作确认。凭据轮换和撤销的成功提示均在列表刷新完成后展示，后续操作使用最新版本号，避免连续操作触发错误的乐观锁冲突。
 - Worker 真实供给验收已通过：显式实例化写入逻辑 Worker 后，Control Plane 创建对应 `agentteams.io/v1alpha1 Worker` CR，Operator 创建 Deployment 和 Worker Pod，数据库 Worker 状态达到 `READY`；注册、激活、用户初始化、Team 创建或 Template 发布阶段均不会隐式创建 Pod。

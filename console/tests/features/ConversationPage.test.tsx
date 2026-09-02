@@ -143,6 +143,44 @@ describe('ConversationPage', () => {
     expect(screen.getByPlaceholderText('输入消息')).toHaveValue('请重试');
   });
 
+  it('queues supplementary messages and sends them with the latest conversation version', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 1,
+    });
+    mocks.streamConversationEvents.mockResolvedValue(undefined);
+    mocks.sendConversationMessage.mockClear();
+    let resolveFirst: (value: { session: { version: number } }) => void = () => undefined;
+    const firstResponse = new Promise<{ session: { version: number } }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    mocks.sendConversationMessage
+      .mockImplementationOnce(() => firstResponse)
+      .mockResolvedValueOnce({ session: { version: 3 } });
+
+    renderPage('c-1');
+    await screen.findByText('Team team-1');
+    await userEvent.type(screen.getByPlaceholderText('输入消息'), '第一条');
+    await userEvent.click(screen.getByRole('button', { name: '发送' }));
+    await userEvent.type(screen.getByPlaceholderText('输入消息'), '补充信息');
+    await userEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(mocks.sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('已排队 1 条补充信息')).toBeInTheDocument();
+    resolveFirst({ session: { version: 2 } });
+    await waitFor(() => expect(mocks.sendConversationMessage).toHaveBeenCalledTimes(2));
+    expect(mocks.sendConversationMessage).toHaveBeenNthCalledWith(
+      2,
+      'c-1',
+      { content: '补充信息', expectedVersion: 2 },
+      expect.anything(),
+      expect.any(String),
+    );
+  });
+
   it('offers an actionable team selection state when no team context exists', async () => {
     mocks.listTeams.mockResolvedValue({ items: [] });
 

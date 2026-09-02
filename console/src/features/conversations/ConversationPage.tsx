@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   cancelConversation,
@@ -26,8 +26,12 @@ export function ConversationPage({
   conversationId?: string;
 }) {
   const [conversation, setConversation] = useState<Conversation>();
+  const conversationRef = useRef<Conversation>();
   const [events, setEvents] = useState<ConversationEvent[]>([]);
   const [content, setContent] = useState('');
+  const pendingMessages = useRef<{ content: string; idempotencyKey: string }[]>([]);
+  const sendingMessages = useRef(false);
+  const [queuedMessageCount, setQueuedMessageCount] = useState(0);
   const [streamState, setStreamState] = useState<
     'connecting' | 'connected' | 'reconnecting' | 'error'
   >('connecting');
@@ -55,6 +59,7 @@ export function ConversationPage({
     void getConversation(conversationId)
       .then((next) => {
         if (!active) return;
+        conversationRef.current = next;
         setConversation(next);
         setTeamId(next.teamId || '');
         void Promise.resolve(getConversationHistory(conversationId))
@@ -164,35 +169,70 @@ export function ConversationPage({
     .filter((event) => event.type === 'message.delta')
     .map(conversationEventText)
     .join('');
+  async function drainPendingMessages() {
+    if (sendingMessages.current) return;
+    sendingMessages.current = true;
+    try {
+      while (pendingMessages.current.length) {
+        const pending = pendingMessages.current.shift();
+        setQueuedMessageCount(pendingMessages.current.length);
+        if (!pending) break;
+        const current = conversationRef.current;
+        if (!current || current.status === 'CANCELLED') {
+          setContent((draft) => (draft ? `${pending.content}\n${draft}` : pending.content));
+          continue;
+        }
+        const sessionId = current.id || current.sessionId || conversationId;
+        if (!sessionId) {
+          setContent((draft) => (draft ? `${pending.content}\n${draft}` : pending.content));
+          setSendError(new Error('会话标识不可用'));
+          break;
+        }
+        try {
+          const result = await sendConversationMessage(
+            sessionId,
+            { content: pending.content, expectedVersion: current.version },
+            apiClient,
+            pending.idempotencyKey,
+          );
+          const nextVersion = result?.session?.version;
+          if (nextVersion !== undefined && conversationRef.current) {
+            const nextConversation = { ...conversationRef.current, version: nextVersion };
+            conversationRef.current = nextConversation;
+            setConversation(nextConversation);
+          }
+        } catch (nextError) {
+          const queuedDrafts = pendingMessages.current.splice(0).map((item) => item.content);
+          setQueuedMessageCount(0);
+          setContent((draft) =>
+            [pending.content, ...queuedDrafts, draft].filter(Boolean).join('\n'),
+          );
+          setSendError(nextError);
+          break;
+        }
+      }
+    } finally {
+      sendingMessages.current = false;
+      setQueuedMessageCount(pendingMessages.current.length);
+    }
+  }
   const send = () => {
     const message = content.trim();
     if (!message || !conversation || status === 'CANCELLED') return;
     setSendError(undefined);
     setContent('');
+    pendingMessages.current.push({ content: message, idempotencyKey: crypto.randomUUID() });
+    setQueuedMessageCount(pendingMessages.current.length);
     setEvents((current) => [
       ...current,
       {
-        id: `local-${Date.now()}`,
+        id: `local-${crypto.randomUUID()}`,
         type: 'user.message',
         data: message,
         payload: { text: message },
       },
     ]);
-    void sendConversationMessage(
-      conversation.id || conversation.sessionId || conversationId,
-      { content: message, expectedVersion: conversation.version },
-      apiClient,
-      crypto.randomUUID(),
-    )
-      .then((result) =>
-        setConversation((current) =>
-          current ? { ...current, version: result?.session?.version ?? current.version } : current,
-        ),
-      )
-      .catch((nextError) => {
-        setContent(message);
-        setSendError(nextError);
-      });
+    void drainPendingMessages();
   };
   return (
     <div className="page conversation-page">
@@ -217,6 +257,11 @@ export function ConversationPage({
           error={streamError || new Error('事件流连接失败')}
           onRetry={() => window.location.reload()}
         />
+      )}
+      {queuedMessageCount > 0 && (
+        <div className="info-box" role="status">
+          已排队 {queuedMessageCount} 条补充信息
+        </div>
       )}
       <section className="panel conversation-transcript" aria-label="对话记录">
         {events
@@ -286,15 +331,19 @@ export function ConversationPage({
         onConfirm={() => {
           setCancelOpen(false);
           setCancelError(undefined);
+          pendingMessages.current = [];
+          setQueuedMessageCount(0);
           void cancelConversation(
             conversation?.id || conversation?.sessionId || conversationId,
             { expectedVersion: conversation?.version },
             apiClient,
             crypto.randomUUID(),
           )
-            .then((next) =>
-              setConversation((current) => ({ ...current, ...next, status: 'CANCELLED' })),
-            )
+            .then((next) => {
+              const updated = { ...conversationRef.current, ...next, status: 'CANCELLED' };
+              conversationRef.current = updated;
+              setConversation(updated);
+            })
             .catch(setCancelError);
         }}
       />
