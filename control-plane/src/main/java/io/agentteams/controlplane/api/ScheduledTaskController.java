@@ -34,6 +34,7 @@ public final class ScheduledTaskController {
         this(service, null, null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ScheduledTaskController(ScheduledTaskService service, ScheduledTaskRunRepository runs,
             TaskService tasks) {
         this.service = service;

@@ -11,7 +11,7 @@ import org.springframework.stereotype.Repository;
 
 /** Read-only task-run projection used by the management console. */
 @Repository
-public final class TaskRunQueryRepository {
+public class TaskRunQueryRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

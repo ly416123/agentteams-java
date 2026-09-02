@@ -11,7 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class JdbcTaskRecoveryCheckpointRepository implements TaskRecoveryCheckpointRepository {
+public class JdbcTaskRecoveryCheckpointRepository implements TaskRecoveryCheckpointRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired
