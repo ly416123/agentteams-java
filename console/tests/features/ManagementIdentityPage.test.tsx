@@ -2,10 +2,23 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import { updateManagementUserStatus } from '../../src/api/management';
 import { ManagementIdentityPage } from '../../src/features/management/ManagementIdentityPage';
 
 vi.mock('../../src/api/management', () => ({
   createManagementUser: vi.fn().mockResolvedValue({ id: 'u-1', status: 'ACTIVE' }),
+  listManagementUsers: vi
+    .fn()
+    .mockResolvedValue([
+      { id: 'u-1', subject: 'alice', displayName: 'Alice', status: 'ACTIVE', version: 2 },
+    ]),
+  updateManagementUserStatus: vi.fn().mockResolvedValue({
+    id: 'u-1',
+    subject: 'alice',
+    displayName: 'Alice',
+    status: 'DISABLED',
+    version: 3,
+  }),
   upsertOrganizationMembership: vi.fn().mockResolvedValue({ role: 'ADMIN' }),
   upsertExternalIdentity: vi.fn().mockResolvedValue({ status: 'ACTIVE' }),
   initializeProvisionedUser: vi.fn().mockResolvedValue({ status: 'ACTIVE' }),
@@ -69,5 +82,22 @@ describe('Management identity page', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '停用外部用户' }));
     expect(await screen.findByText('外部用户已停用')).toBeInTheDocument();
+  });
+
+  it('disables an internal user with the current version', async () => {
+    render(
+      <MemoryRouter>
+        <ManagementIdentityPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/Alice · alice/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '停用内部用户 Alice' }));
+
+    expect(updateManagementUserStatus).toHaveBeenCalledWith('u-1', {
+      expectedVersion: 2,
+      status: 'DISABLED',
+    });
+    expect(await screen.findByText('内部用户已停用')).toBeInTheDocument();
   });
 });

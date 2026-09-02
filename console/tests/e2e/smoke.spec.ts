@@ -93,6 +93,76 @@ test('real OIDC browser sessions isolate users and tenant scopes', async ({ brow
   await Promise.all([alice.close(), reader.close(), tenantB.close()]);
 });
 
+test('real OIDC identity page manages internal user status lifecycle', async ({ page }) => {
+  const username = process.env.AGENTTEAMS_E2E_QUOTA_ADMIN_USERNAME;
+  const password = process.env.AGENTTEAMS_E2E_QUOTA_ADMIN_PASSWORD;
+  const oidcPort = process.env.AGENTTEAMS_E2E_OIDC_PORT || '18082';
+  test.skip(!username || !password, 'set non-production quota-admin OIDC credentials');
+
+  await page.goto('/console');
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByRole('button', { name: '使用组织账号登录' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`:${oidcPort}/realms/agentteams/protocol/openid-connect/auth(?:/|\\?)`),
+  );
+  await page.locator('#username').fill(username!);
+  await page.locator('#password').fill(password!);
+  await page.locator('#kc-login').click();
+
+  await expect(page).toHaveURL(/:30080\/(?:console|[^/]+\/overview)$/, { timeout: 30_000 });
+  await page.goto('/settings/identity');
+  await expect(page.getByRole('heading', { name: '身份与权限管理' })).toBeVisible();
+  const subject = `e2e-internal-${Date.now()}`;
+  const displayName = `E2E Internal ${Date.now()}`;
+  await page.getByLabel('内部用户 Subject').fill(subject);
+  await page.getByLabel('内部用户名称').fill(displayName);
+  await page.getByRole('button', { name: '创建内部用户' }).click();
+  await expect(page.getByText('内部用户已创建')).toBeVisible({ timeout: 10_000 });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '身份与权限管理' })).toBeVisible();
+
+  const userRow = page.locator('[aria-label="已登记内部用户"] .stack-list__item').filter({
+    hasText: `${displayName} · ${subject}`,
+  });
+  await expect(userRow).toContainText('ACTIVE');
+  await userRow.getByRole('button', { name: `停用内部用户 ${displayName}` }).click();
+  await expect(page.getByText('内部用户已停用')).toBeVisible({ timeout: 10_000 });
+  await expect(userRow).toContainText('DISABLED');
+
+  await userRow.getByRole('button', { name: `重新激活内部用户 ${displayName}` }).click();
+  await expect(page.getByText('内部用户已重新激活')).toBeVisible({ timeout: 10_000 });
+  await expect(userRow).toContainText('ACTIVE');
+});
+
+test('real OIDC artifact page reads project metadata and retention policy', async ({ page }) => {
+  const username = process.env.AGENTTEAMS_E2E_USERNAME;
+  const password = process.env.AGENTTEAMS_E2E_PASSWORD;
+  const oidcPort = process.env.AGENTTEAMS_E2E_OIDC_PORT || '18082';
+  test.skip(!username || !password, 'set Alice non-production OIDC credentials');
+
+  await page.goto('/console');
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByRole('button', { name: '使用组织账号登录' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(':' + oidcPort + '/realms/agentteams/protocol/openid-connect/auth(?:/|\\?)'),
+  );
+  await page.locator('#username').fill(username!);
+  await page.locator('#password').fill(password!);
+  await page.locator('#kc-login').click();
+
+  await expect(page).toHaveURL(/:30080\/[^/]+\/overview$/, { timeout: 30_000 });
+  const projectPath = new URL(page.url()).pathname.split('/')[1];
+  await page.goto('/' + projectPath + '/artifacts');
+  await expect(page.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Artifact 保留策略' })).toBeVisible();
+  await expect(page.getByLabel('成功任务保留（秒）')).toBeVisible();
+  await expect(page.getByLabel('失败任务保留（秒）')).toBeVisible();
+  await expect(page.getByLabel('临时上传保留（秒）')).toBeVisible();
+  await expect(page.getByRole('button', { name: '保存保留策略' })).toBeEnabled();
+  await expect(page.getByText(/SHA-256|暂无产物/).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: '下载' })).toHaveCount(0);
+});
+
 test('real OIDC conversation recovers history and supports cancellation', async ({ page }) => {
   const username = process.env.AGENTTEAMS_E2E_USERNAME;
   const password = process.env.AGENTTEAMS_E2E_PASSWORD;
@@ -121,7 +191,9 @@ test('real OIDC conversation recovers history and supports cancellation', async 
   const firstMessage = `E2E conversation ${Date.now()}`;
   const transcript = page.getByRole('region', { name: '对话记录' });
   await page.getByRole('textbox', { name: '输入消息' }).fill(firstMessage);
-  await page.getByRole('button', { name: '发送' }).click();
+  const sendButton = page.getByRole('button', { name: '发送' });
+  await expect(sendButton).toBeEnabled({ timeout: 10_000 });
+  await sendButton.click();
   await expect(transcript).toContainText(firstMessage, { timeout: 10_000 });
   await expect(transcript).toContainText('CONVERSATION_MOCK_DELTA', { timeout: 10_000 });
 
@@ -207,7 +279,7 @@ test('real OIDC task page creates, inspects and cancels a normal task', async ({
     .fill('Create and cancel a development task through the Console.');
   await page.getByRole('button', { name: '创建任务' }).click();
   await expect(page).toHaveURL(new RegExp(`/${projectPath}/tasks/[^/]+$`));
-  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page.getByRole('heading', { name: title })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('当前任务尚未产生执行尝试。')).toBeVisible();
   await expect(page.getByText('当前任务尚未发生租约恢复。')).toBeVisible();
 
@@ -279,6 +351,9 @@ test('real OIDC Skill page uploads a package through object storage and complete
   await page.getByLabel('描述').fill('Real object storage upload acceptance');
   await page.getByRole('button', { name: '创建 Skill' }).click();
   await expect(page.getByText('Skill 已创建')).toBeVisible();
+  // Skill 列表刷新是异步的；重新加载确保版本选择器读取已提交的目录数据。
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Skills' })).toBeVisible();
 
   const skillOption = page.locator('#skill-version-skill option').filter({ hasText: displayName });
   await expect(skillOption).toHaveCount(1);

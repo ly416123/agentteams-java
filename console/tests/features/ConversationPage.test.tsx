@@ -143,6 +143,18 @@ describe('ConversationPage', () => {
     expect(screen.getByPlaceholderText('输入消息')).toHaveValue('请重试');
   });
 
+  it('does not send while the conversation is still loading', async () => {
+    mocks.getConversation.mockReturnValue(new Promise(() => undefined));
+    mocks.streamConversationEvents.mockResolvedValue(undefined);
+    mocks.sendConversationMessage.mockClear();
+
+    renderPage('c-1');
+    await userEvent.type(screen.getByPlaceholderText('输入消息'), '等待加载');
+
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
+    expect(mocks.sendConversationMessage).not.toHaveBeenCalled();
+  });
+
   it('queues supplementary messages and sends them with the latest conversation version', async () => {
     mocks.getConversation.mockResolvedValue({
       id: 'c-1',

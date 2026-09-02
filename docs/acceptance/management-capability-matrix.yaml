@@ -51,8 +51,8 @@ capabilities:
     version_guard: required
     memory_impact: read
     secret_dependency: none
-    acceptance: "L1/L2/Browser"
-    status: implemented
+    acceptance: "L1/L2/Browser；真实开发 OIDC 使用 quota-admin 创建内部用户，并按当前 version 完成停用与重新激活"
+    status: verified
 
   - id: external_user.provisioning
     domain: external_identity
@@ -247,8 +247,8 @@ capabilities:
     version_guard: required
     memory_impact: none
     secret_dependency: none
-    acceptance: "L1/L2/L4/Browser"
-    status: implemented
+    acceptance: "L1/L2/L4/Browser；真实开发 OIDC Alice 可访问当前 Project Artifact 页面并查看项目级元数据/保留策略，页面不提供绕过授权的下载入口"
+    status: verified
 
   - id: usage.cost_budget_alert
     domain: usage

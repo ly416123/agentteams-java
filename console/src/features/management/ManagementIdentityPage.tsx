@@ -5,18 +5,18 @@ import {
   initializeProvisionedUser,
   listProvisionedUserMemberships,
   listManagementUsers,
+  updateManagementUserStatus,
   upsertExternalIdentity,
   upsertOrganizationMembership,
   updateProvisionedUser,
+  type ManagementUser,
 } from '../../api/management';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
 export function ManagementIdentityPage() {
   const [notice, setNotice] = useState<Notice>();
-  const [users, setUsers] = useState<
-    Array<{ id: string; subject: string; displayName: string; status: string }>
-  >([]);
+  const [users, setUsers] = useState<ManagementUser[]>([]);
   const [user, setUser] = useState({ subject: '', displayName: '' });
   const [membership, setMembership] = useState({ organizationId: '', subject: '', role: 'MEMBER' });
   const [identity, setIdentity] = useState({
@@ -60,7 +60,22 @@ export function ManagementIdentityPage() {
 
   function submitUser(event: FormEvent) {
     event.preventDefault();
-    void submit(() => createManagementUser(user), '内部用户已创建');
+    void submit(async () => {
+      await createManagementUser(user);
+      await refreshUsers();
+    }, '内部用户已创建');
+  }
+
+  function toggleInternalUser(item: (typeof users)[number]) {
+    const nextStatus = item.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
+    const action = nextStatus === 'DISABLED' ? '停用' : '重新激活';
+    void submit(async () => {
+      await updateManagementUserStatus(item.id, {
+        expectedVersion: item.version,
+        status: nextStatus,
+      });
+      await refreshUsers();
+    }, `内部用户已${action}`);
   }
 
   function submitMembership(event: FormEvent) {
@@ -188,7 +203,16 @@ export function ManagementIdentityPage() {
                   <span>
                     {item.displayName} · {item.subject}
                   </span>
-                  <span className="muted-text">{item.status}</span>
+                  <span className="muted-text">
+                    {item.status}
+                    <button
+                      className="button button--ghost"
+                      type="button"
+                      onClick={() => toggleInternalUser(item)}
+                    >
+                      {item.status === 'ACTIVE' ? '停用' : '重新激活'}内部用户 {item.displayName}
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>

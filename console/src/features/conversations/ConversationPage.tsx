@@ -310,14 +310,14 @@ export function ConversationPage({
           <button
             className="button button--danger"
             onClick={() => setCancelOpen(true)}
-            disabled={status === 'CANCELLED'}
+            disabled={!conversation || status === 'CANCELLED'}
           >
             取消会话
           </button>
           <button
             className="button button--primary"
             onClick={send}
-            disabled={!content.trim() || status === 'CANCELLED'}
+            disabled={!conversation || !content.trim() || status === 'CANCELLED'}
           >
             发送
           </button>
