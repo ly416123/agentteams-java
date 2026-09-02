@@ -47,7 +47,11 @@ class ConsoleDeploymentContractTest(unittest.TestCase):
             self.assertIn(required, dockerfile)
         self.assertIn("listen 8080", nginx)
         self.assertIn("try_files $uri $uri/ /index.html;", nginx)
-        self.assertNotIn("proxy_pass", nginx)
+        self.assertIn("location ^~ /api/v1/conversations", nginx)
+        self.assertIn("location ^~ /api/v1/manager", nginx)
+        self.assertIn("proxy_pass http://agentteams-agentteams-java-manager:8080;", nginx)
+        self.assertIn("location ^~ /api/", nginx)
+        self.assertIn("proxy_pass http://agentteams-agentteams-java-control-plane:8080;", nginx)
         self.assertIn('<script src="/config.js"></script>', read("console/index.html"))
         self.assertIn("__AGENTTEAMS_CONFIG__", read("console/src/auth/oidc.ts"))
 

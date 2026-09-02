@@ -34,6 +34,10 @@ spec:
         # Service and therefore needs an explicit ingress allowance here.
         - podSelector:
             matchLabels: { app.kubernetes.io/name: agentteams-console }
+        # Manager verifies stable Console resource IDs by calling the
+        # Control Plane with the caller's bearer token.
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agentteams-manager }
         - podSelector:
             matchLabels: { app.kubernetes.io/name: agentteams-gateway }
         - podSelector:

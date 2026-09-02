@@ -14,6 +14,7 @@ import io.agentteams.manager.session.SessionCancelledException;
 import io.agentteams.manager.session.SessionVersionConflictException;
 import io.agentteams.manager.security.ManagerAuthenticationException;
 import io.agentteams.manager.security.ManagerAuthorizationException;
+import io.agentteams.manager.security.ManagerScopeUnavailableException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 import java.util.UUID;
@@ -46,6 +47,13 @@ public final class ManagerErrorHandler {
     @ExceptionHandler({ManagerAuthorizationException.class, SecurityException.class})
     ResponseEntity<ErrorResponse> authorization(SecurityException error, HttpServletRequest request) {
         return error(HttpStatus.FORBIDDEN, "AUTHORIZATION_REJECTED", "permission denied", request, Map.of());
+    }
+
+    @ExceptionHandler(ManagerScopeUnavailableException.class)
+    ResponseEntity<ErrorResponse> scopeUnavailable(ManagerScopeUnavailableException error,
+            HttpServletRequest request) {
+        return error(HttpStatus.SERVICE_UNAVAILABLE, "SCOPE_AUTHORIZATION_UNAVAILABLE",
+                "conversation scope authorization is unavailable", request, Map.of());
     }
 
     @ExceptionHandler(InvalidModelOutputException.class)

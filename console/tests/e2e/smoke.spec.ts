@@ -357,7 +357,7 @@ test('real OIDC role page exposes the scoped project authorization matrix', asyn
   await page.goto('/settings/roles');
   await expect(page.getByRole('heading', { name: '角色与权限' })).toBeVisible();
   await expect(page.getByText('有效权限矩阵')).toBeVisible();
-  await expect(page.getByText('OWNER')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'OWNER' })).toBeVisible();
   await expect(page.getByText('PROJECT_READ').first()).toBeVisible();
 });
 

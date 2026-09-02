@@ -71,6 +71,52 @@ class BatchAHelmContractTest(unittest.TestCase):
         }
         self.assertIn(18088, egress_ports)
 
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_manager_network_policy_allows_console_proxy_ingress(self):
+        docs = render_chart(
+            "--set", "console.enabled=true",
+            "--set", "manager.enabled=true",
+            "--set", "manager.security.enabled=true",
+            "--set", "manager.security.issuerUri=http://keycloak/realms/agentteams",
+            "--set", "manager.security.jwkSetUri=http://keycloak/realms/agentteams/protocol/openid-connect/certs",
+            "--set", "manager.security.audience=agentteams-api",
+        )
+        policy = next(
+            doc for doc in docs
+            if doc.get("kind") == "NetworkPolicy"
+            and doc["metadata"]["name"].endswith("-manager")
+        )
+        console_allowed = any(
+            source.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+            == "agentteams-console"
+            for rule in policy["spec"]["ingress"]
+            for source in rule.get("from", [])
+        )
+        self.assertTrue(console_allowed)
+
+    @unittest.skipUnless(HELM, "helm is unavailable")
+    def test_control_plane_network_policy_allows_manager_scope_authorization(self):
+        docs = render_chart(
+            "--set", "console.enabled=true",
+            "--set", "manager.enabled=true",
+            "--set", "manager.security.enabled=true",
+            "--set", "manager.security.issuerUri=http://keycloak/realms/agentteams",
+            "--set", "manager.security.jwkSetUri=http://keycloak/realms/agentteams/protocol/openid-connect/certs",
+            "--set", "manager.security.audience=agentteams-api",
+        )
+        policy = next(
+            doc for doc in docs
+            if doc.get("kind") == "NetworkPolicy"
+            and doc["metadata"]["name"].endswith("-control-plane")
+        )
+        manager_allowed = any(
+            source.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+            == "agentteams-manager"
+            for rule in policy["spec"]["ingress"]
+            for source in rule.get("from", [])
+        )
+        self.assertTrue(manager_allowed)
+
     def test_values_schema_rejects_unknown_controlled_keys(self):
         schema = json.loads(read_chart("values.schema.json"))
 

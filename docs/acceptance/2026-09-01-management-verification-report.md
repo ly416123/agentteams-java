@@ -61,6 +61,8 @@ L5 主机、`ly` 权限边界和 gVisor 故障复盘见：[L5 Linux/KVM 环境�
 - 模型管理页已补齐 Provider 的专用启用/停用和删除确认；请求只提交状态或资源 ID，不回传脱敏 Provider 对象，避免覆盖真实凭据引用。
 - 模型管理页已展示 Provider 下属 Model，并补齐 Model 专用启用/停用和删除确认；Model 生命周期操作按所属 Provider 刷新列表，不改变凭据引用。
 - 任务可靠性增量已通过本地与 L5 回归：租约恢复状态写入 `task_recovery_states`，默认最多自动恢复 3 次并按 1/2/4 秒退避，超限进入 `FAILED/RECOVERY_REQUIRED`；任务详情提供恢复状态查询和展示，未发生恢复的空响应也能正确显示空态。L5 最新 Control Plane/Console Deployment 均为 Ready，数据库已处于 v86。
+- L5 Console 直连 NodePort 的对话入口已修复并复验：Console Nginx 将 `/api/v1/conversations`、`/api/v1/manager` 代理到 Manager，将其他 `/api/` 代理到 Control Plane；Manager NetworkPolicy 同时允许同命名空间的 Console Pod 访问 8080。修复前该路径因策略拒绝返回 502，修复后未认证请求正确返回 401，页面已能正常加载 Team 列表；未改变 OIDC 或业务授权边界。
+- 对话稳定资源 ID 授权已打通并复验：当 Console 使用稳定 Project/Team UUID 而 OIDC scope 使用外部名称时，Manager 将原始 Bearer Token 透传给 Control Plane 的 Team 授权接口；Control Plane 2xx 放行、4xx fail-closed 为 403、依赖异常返回 503。L5 真实开发 OIDC Alice 已进入稳定 UUID 对话页并发送测试消息，页面收到 `CONVERSATION_MOCK_DELTA`；未使用生产凭据。
 
 ## 当前受控边界
 

@@ -4,7 +4,7 @@
 
 **目标：** 为独立 Console SPA 提供非 root Nginx 静态镜像、可控 Helm 部署、Kind 入口和清晰的 CI/manifest 契约。
 
-**架构：** Node 多阶段构建生成 `console/dist`，运行阶段使用非 root Nginx 和 `try_files` 完成 SPA fallback。Helm 在 `console.enabled` 时渲染 ConfigMap、Deployment 和 Service，公开 runtime config 只允许 API/OIDC 公共字段；Ingress 将 `/api` 送到 Control Plane、其余根路径送到 Console。
+**架构：** Node 多阶段构建生成 `console/dist`，运行阶段使用非 root Nginx 和 `try_files` 完成 SPA fallback。Helm 在 `console.enabled` 时渲染 ConfigMap、Deployment 和 Service，公开 runtime config 只允许 API/OIDC 公共字段；Ingress 将 `/api` 送到 Control Plane、其余根路径送到 Console；当 Kind/L5 通过 Console NodePort 直连时，Nginx 对 `/api/v1/conversations`、`/api/v1/manager` 和其他 `/api/` 提供等价的内部反向代理。
 
 **技术栈：** Docker multi-stage、nginx-unprivileged、Helm/Kubernetes YAML、Python 3 标准库与 PyYAML、GitHub Actions、Python unittest。
 
@@ -21,7 +21,7 @@
 
 - 创建 `scripts/test_console_manifests_contract.py`：以失败优先的静态和渲染契约测试锁定部署行为。
 - 创建 `deploy/docker/console.Dockerfile`：Node 构建和非 root Nginx 运行镜像。
-- 创建 `deploy/docker/console-nginx.conf`：Nginx 8080 监听、静态资源缓存和 SPA history fallback。
+- 创建 `deploy/docker/console-nginx.conf`：Nginx 8080 监听、静态资源缓存、SPA history fallback，以及 NodePort 直连所需的 API 反向代理。
 - 创建 `deploy/helm/agentteams-java/templates/console.yaml`：公开 runtime ConfigMap、Console Deployment 和 Service。
 - 修改 `deploy/helm/agentteams-java/values.yaml`：添加 Console 启用开关、镜像和公开配置默认值。
 - 修改 `deploy/helm/agentteams-java/values.schema.json`：约束 Console values，拒绝未声明字段和 Secret 型配置键。

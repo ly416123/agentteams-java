@@ -9,6 +9,7 @@ import io.agentteams.manager.conversation.ConversationRuntimePort;
 import io.agentteams.manager.conversation.ConversationOwner;
 import io.agentteams.manager.conversation.ConversationService;
 import io.agentteams.manager.security.ManagerAuthorizationException;
+import io.agentteams.manager.security.ConversationScopeAuthorizer;
 import io.agentteams.manager.security.ManagerPrincipal;
 import io.agentteams.manager.security.ManagerRequestContext;
 import java.util.List;
@@ -35,15 +36,18 @@ public final class ConversationController {
     private static final long EVENT_POLL_INTERVAL_MILLIS = 25L;
     private final ConversationService service;
     private final ObjectMapper mapper;
+    private final ConversationScopeAuthorizer scopeAuthorizer;
 
     public ConversationController(ConversationService service) {
-        this(service, new ObjectMapper());
+        this(service, new ObjectMapper(), ConversationScopeAuthorizer.legacy());
     }
 
     @Autowired
-    public ConversationController(ConversationService service, ObjectMapper mapper) {
+    public ConversationController(ConversationService service, ObjectMapper mapper,
+            ConversationScopeAuthorizer scopeAuthorizer) {
         this.service = service;
         this.mapper = mapper;
+        this.scopeAuthorizer = scopeAuthorizer;
     }
 
     @PostMapping
@@ -153,21 +157,19 @@ public final class ConversationController {
         return new ConversationOwner(principal.tenantId(), principal.subject());
     }
 
-    private static void requireScope(ConversationService.Conversation conversation, ManagerPrincipal principal) {
+    private void requireScope(ConversationService.Conversation conversation, ManagerPrincipal principal) {
         ConversationRuntimePort.Context context = conversation.context();
         ConversationOwner owner = conversation.owner();
         boolean ownerMatches = owner != null && principal.tenantId().equals(owner.tenantId())
                 && principal.subject().equals(owner.subject());
-        if (!principal.projectId().equals(context.project()) || !principal.teamId().equals(context.team())
-                || !ownerMatches) {
+        if (!ownerMatches) {
             throw new ManagerAuthorizationException("conversation scope does not match authenticated principal");
         }
+        scopeAuthorizer.requireAccessible(context.project(), context.team(), principal);
     }
 
-    private static void requireScope(String project, String team, ManagerPrincipal principal) {
-        if (!principal.projectId().equals(project) || !principal.teamId().equals(team)) {
-            throw new ManagerAuthorizationException("conversation scope does not match authenticated principal");
-        }
+    private void requireScope(String project, String team, ManagerPrincipal principal) {
+        scopeAuthorizer.requireAccessible(project, team, principal);
     }
 
     private static void requireKey(String key) {

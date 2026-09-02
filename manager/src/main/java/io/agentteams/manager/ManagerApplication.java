@@ -11,6 +11,8 @@ import io.agentteams.manager.conversation.ConversationRepository;
 import io.agentteams.manager.conversation.JdbcConversationRepository;
 import io.agentteams.manager.conversation.FakeConversationRuntime;
 import io.agentteams.manager.conversation.QwenPawConversationRuntime;
+import io.agentteams.manager.security.ConversationScopeAuthorizer;
+import io.agentteams.manager.security.ControlPlaneConversationScopeAuthorizer;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Clock;
@@ -139,6 +141,12 @@ public class ManagerApplication {
     @Bean(destroyMethod = "close")
     ConversationService conversationService(ConversationRuntimePort runtime, ConversationRepository repository) {
         return new ConversationService(runtime, repository);
+    }
+
+    @Bean
+    ConversationScopeAuthorizer conversationScopeAuthorizer(
+            @Value("${AGENTTEAMS_CONTROL_PLANE_URL:}") String controlPlaneUrl) {
+        return new ControlPlaneConversationScopeAuthorizer(controlPlaneUrl, HttpClient.newHttpClient());
     }
 
     /** Composition-test/local fallback that keeps the fake runtime constructor convenient. */

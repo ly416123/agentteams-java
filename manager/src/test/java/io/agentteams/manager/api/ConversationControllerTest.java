@@ -13,8 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.agentteams.manager.conversation.ConversationRuntimePort;
 import io.agentteams.manager.conversation.ConversationService;
 import io.agentteams.manager.conversation.FakeConversationRuntime;
+import io.agentteams.manager.security.ConversationScopeAuthorizer;
 import io.agentteams.manager.security.ManagerPrincipal;
 import io.agentteams.manager.security.ManagerRequestContext;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -24,17 +26,31 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.verify;
+
 class ConversationControllerTest {
     private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
     private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-000000000101");
 
     private ConversationService service;
+    private ConversationScopeAuthorizer scopeAuthorizer;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         service = new ConversationService(new FakeConversationRuntime());
-        mvc = MockMvcBuilders.standaloneSetup(new ConversationController(service))
+        scopeAuthorizer = mock(ConversationScopeAuthorizer.class);
+        doAnswer(invocation -> {
+            ConversationScopeAuthorizer.legacy().requireAccessible(
+                    invocation.getArgument(0), invocation.getArgument(1), invocation.getArgument(2));
+            return null;
+        }).when(scopeAuthorizer).requireAccessible(any(), any(), any());
+        mvc = MockMvcBuilders.standaloneSetup(new ConversationController(service, new ObjectMapper(), scopeAuthorizer))
                 .setControllerAdvice(new ManagerErrorHandler()).build();
         ManagerRequestContext.set(new ManagerPrincipal("manager-a", "tenant-a", "project-a", "team-a",
                 Set.of("conversation:write")));
@@ -118,6 +134,25 @@ class ConversationControllerTest {
                 .content(createBody("project-b", "team-b")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("AUTHORIZATION_REJECTED"));
+    }
+
+    @Test
+    void acceptsStableConsoleIdsAfterControlPlaneAuthorizesExternalOidcScope() throws Exception {
+        String projectId = "00000000-0000-0000-0000-000000000201";
+        String teamId = "00000000-0000-0000-0000-000000000202";
+        doNothing().when(scopeAuthorizer).requireAccessible(eq(projectId), eq(teamId), any());
+        mvc.perform(post("/api/v1/conversations")
+                .header(IDEMPOTENCY_KEY, "stable-scope-create")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sessionId\":\"" + SESSION_ID
+                        + "\",\"project\":\"" + projectId + "\",\"team\":\"" + teamId + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.context.project").value(projectId))
+                .andExpect(jsonPath("$.context.team").value(teamId));
+
+        verify(scopeAuthorizer).requireAccessible(projectId, teamId,
+                new ManagerPrincipal("manager-a", "tenant-a", "project-a", "team-a",
+                        Set.of("conversation:write")));
     }
 
     @Test

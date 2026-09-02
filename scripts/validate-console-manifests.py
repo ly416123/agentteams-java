@@ -51,7 +51,17 @@ def validate_static_contracts():
         require(required in dockerfile, f"Console Dockerfile 缺少：{required}")
     require("listen 8080" in nginx, "Nginx 必须监听非特权端口 8080")
     require("try_files $uri $uri/ /index.html;" in nginx, "Nginx 缺少 SPA history fallback")
-    require("proxy_pass" not in nginx, "Console Nginx 不得代理 API，API 必须由 Ingress 路由")
+    # Ingress sends API traffic directly to the backend, while the Kind/L5
+    # Console NodePort is also a supported browser entry. Keep both paths
+    # equivalent: the direct Console path must proxy API requests internally.
+    for route in (
+        "location ^~ /api/v1/conversations",
+        "location ^~ /api/v1/manager",
+        "location ^~ /api/",
+        "proxy_pass http://agentteams-agentteams-java-manager:8080;",
+        "proxy_pass http://agentteams-agentteams-java-control-plane:8080;",
+    ):
+        require(route in nginx, f"Console Nginx 缺少直连 NodePort API 路由：{route}")
 
     console = values.get("console")
     require(isinstance(console, dict), "values.yaml 缺少 console 对象")
