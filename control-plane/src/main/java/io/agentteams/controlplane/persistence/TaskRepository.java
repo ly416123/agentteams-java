@@ -98,14 +98,33 @@ public final class TaskRepository {
     }
 
     public List<UUID> findIdsByPhase(TaskPhase phase, int limit) {
+        return findIdsByPhase(phase, limit, null);
+    }
+
+    public List<UUID> findIdsByPhase(TaskPhase phase, int limit, Instant now) {
         if (phase == null) throw new IllegalArgumentException("phase must not be null");
         if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
-        return jdbc.query("""
+        String recoveryFilter = now == null ? "" : """
+                AND NOT EXISTS (SELECT 1 FROM task_recovery_states recovery
+                                 WHERE recovery.task_id = tasks.id
+                                   AND recovery.status = 'READY'
+                                   AND recovery.next_attempt_at > ?)
+                """;
+        if (now == null) {
+            return jdbc.query("""
                 SELECT id FROM tasks
                  WHERE phase = ?
                  ORDER BY priority DESC, created_at ASC, id ASC
                  LIMIT ?
                 """, (rs, row) -> rs.getObject("id", UUID.class), phase.name(), limit);
+        }
+        return jdbc.query("""
+                SELECT tasks.id FROM tasks
+                 WHERE tasks.phase = ?
+                """ + recoveryFilter + """
+                 ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC
+                 LIMIT ?
+                """, (rs, row) -> rs.getObject("id", UUID.class), phase.name(), JdbcSupport.timestamp(now), limit);
     }
 
     public TaskRecord updateState(TaskRecord next, long expectedVersion) {

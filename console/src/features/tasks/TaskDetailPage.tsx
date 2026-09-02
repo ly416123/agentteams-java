@@ -8,6 +8,7 @@ import {
   useTaskExecution,
   useTaskRuns,
   useTaskCheckpoints,
+  useTaskRecovery,
 } from '../../queries/useTaskQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -38,6 +39,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const events = useTaskEvents(projectId, taskId);
   const execution = useTaskExecution(projectId, taskId);
   const runs = useTaskRuns(projectId, taskId);
+  const recovery = useTaskRecovery(projectId, taskId);
   const action = useTaskAction(projectId, taskId);
   const [conflict, setConflict] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -249,6 +251,36 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           </div>
         )}
       </section>
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">RECOVERY POLICY</p>
+            <h2>崩溃恢复</h2>
+          </div>
+        </div>
+        {recovery.isLoading ? (
+          <div className="loading-block">加载恢复状态…</div>
+        ) : recovery.isError ? (
+          <ErrorState error={recovery.error} onRetry={() => void recovery.refetch()} />
+        ) : !recovery.data ? (
+          <p className="muted-text">当前任务尚未发生租约恢复。</p>
+        ) : (
+          <div className="detail-list">
+            <span>
+              恢复状态<strong>{recovery.data.status === 'RECOVERY_REQUIRED' ? '需人工介入' : '等待重试'}</strong>
+            </span>
+            <span>
+              恢复次数<strong>{recovery.data.recoveryCount} / {recovery.data.maxRecoveryAttempts}</strong>
+            </span>
+            <span>
+              最近原因<strong>{recovery.data.lastReason || '未记录'}</strong>
+            </span>
+            <span>
+              下次尝试<strong>{formatRecoveryTime(recovery.data.nextAttemptAt)}</strong>
+            </span>
+          </div>
+        )}
+      </section>
       <VersionConflictModal
         open={conflict}
         actionLabel={conflictAction ? actionLabels[conflictAction] : '继续操作'}
@@ -274,6 +306,10 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
       />
     </div>
   );
+}
+
+function formatRecoveryTime(value?: string | null) {
+  return value ? new Date(value).toLocaleString('zh-CN') : '不再自动重试';
 }
 
 function RunCheckpoints({

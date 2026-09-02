@@ -20,6 +20,15 @@ describe('HTTP client', () => {
     fetchMock.mockRestore();
   });
 
+  it('treats an empty successful response as an empty result', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+    const client = createHttpClient();
+
+    await expect(client.request('/api/v1/tasks/task-1/recovery')).resolves.toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
+
   it.each([
     [401, 'UNAUTHENTICATED'],
     [403, 'FORBIDDEN'],

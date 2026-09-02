@@ -6,6 +6,7 @@ import {
   getTaskExecution,
   getTaskRuns,
   getTaskCheckpoints,
+  getTaskRecovery,
   listTasks,
   streamTaskEvents,
   taskAction,
@@ -55,6 +56,14 @@ export function useTaskCheckpoints(projectId: string, taskId: string, runId: str
     queryKey: ['task-checkpoints', projectId, taskId, runId],
     queryFn: () => getTaskCheckpoints(taskId, runId),
     enabled: Boolean(projectId && taskId && runId),
+  });
+}
+export function useTaskRecovery(projectId: string, taskId: string) {
+  return useQuery({
+    queryKey: ['task-recovery', projectId, taskId],
+    queryFn: () => getTaskRecovery(taskId),
+    enabled: Boolean(projectId && taskId),
+    refetchInterval: 5_000,
   });
 }
 export function useTaskEvents(projectId: string, taskId: string) {

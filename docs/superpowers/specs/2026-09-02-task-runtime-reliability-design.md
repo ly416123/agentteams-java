@@ -32,7 +32,7 @@
 
 ### 崩溃恢复
 
-租约过期或 Worker 崩溃后，系统保留旧 Attempt 的审计记录，生成新的 Attempt 并重新排队。恢复从最近一个已持久化、幂等的执行检查点开始；没有检查点的任务从当前步骤边界重新执行。重复副作用必须由步骤幂等键去重。恢复次数、退避和最终失败状态必须可查询。
+租约过期或 Worker 崩溃后，系统保留旧 Attempt 的审计记录，生成新的 Attempt 并重新排队。恢复从最近一个已持久化、幂等的执行检查点开始；没有检查点的任务从当前步骤边界重新执行。重复副作用必须由步骤幂等键去重。恢复状态保存在 `task_recovery_states`，默认最多自动恢复 3 次，退避为 1/2/4 秒；超过上限时任务进入 `FAILED`，恢复状态进入 `RECOVERY_REQUIRED`，并向管理端暴露原因。显式人工重试会清空本轮自动恢复预算并重新开始。
 
 ### 断链与重试
 
@@ -51,9 +51,8 @@
 - Java SDK 的对应数据交互接口只在最终 Console 验证完成后实现。
 
 当前实现落点：V84 增加 `tasks.task_type` 与 `scheduled_task_runs`，V85 增加
-`task_recovery_checkpoints`；Control Plane 提供定时运行查询/终止、Task Run 和
-Checkpoint 查询。运行观察契约增加内部 `checkpoint` 扩展，恢复时将最近检查点以
-`recoveryCheckpoint` 安全引用注入下一次 Task 规格。Java SDK 暂不暴露这些接口。
+`task_recovery_checkpoints`，V86 增加 `task_recovery_states`；Control Plane 提供定时运行查询/终止、Task Run、Checkpoint 和恢复状态查询。运行观察契约增加内部 `checkpoint` 扩展，恢复时将最近检查点以
+`recoveryCheckpoint` 安全引用注入下一次 Task 规格。恢复状态不保存 prompt、Token、Secret 或原始 Payload。Java SDK 暂不暴露这些接口。
 
 ## 失败处理
 

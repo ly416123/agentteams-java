@@ -94,7 +94,9 @@ export function createHttpClient(options: ClientOptions = {}): HttpClient {
     async request<T>(path: string, requestOptions: RequestOptions = {}) {
       const response = await send(path, requestOptions);
       if (response.status === 204) return undefined as T;
-      return (await response.json()) as T;
+      const text = await response.text();
+      if (!text.trim()) return undefined as T;
+      return JSON.parse(text) as T;
     },
     async requestText(path: string, requestOptions: RequestOptions = {}) {
       return (await send(path, requestOptions)).text();

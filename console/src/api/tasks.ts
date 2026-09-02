@@ -82,6 +82,18 @@ export type TaskCheckpoint = {
   updatedAt: string;
   version: number;
 };
+export type TaskRecoveryState = {
+  taskId: string;
+  recoveryCount: number;
+  maxRecoveryAttempts: number;
+  status: 'READY' | 'RECOVERY_REQUIRED' | string;
+  lastReason?: string | null;
+  nextAttemptAt?: string | null;
+  lastRecoveredAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
 
 function taskQuery(projectId: string, filters: TaskFilters) {
   return Object.fromEntries(
@@ -111,6 +123,11 @@ export function getTaskRuns(taskId: string, client: HttpClient = apiClient) {
 }
 export function getTaskCheckpoints(taskId: string, runId: string, client: HttpClient = apiClient) {
   return client.request<TaskCheckpoint[]>(`/api/v1/tasks/${taskId}/runs/${runId}/checkpoints`);
+}
+export function getTaskRecovery(taskId: string, client: HttpClient = apiClient) {
+  return client
+    .request<TaskRecoveryState | null | undefined>(`/api/v1/tasks/${taskId}/recovery`)
+    .then((value) => value ?? null);
 }
 export function createTask(body: CreateTaskRequest, client: HttpClient = apiClient) {
   if (

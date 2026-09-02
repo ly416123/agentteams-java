@@ -20,6 +20,7 @@ public final class FoundationTransaction {
     private final TaskSandboxRepository taskSandboxes;
     private final io.agentteams.controlplane.worker.WorkerOperationRepository workerOperations;
     private final io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository recoveryCheckpoints;
+    private final io.agentteams.controlplane.task.TaskRecoveryStateRepository recoveryStates;
 
     FoundationTransaction(org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -40,6 +41,7 @@ public final class FoundationTransaction {
         taskSandboxes = new TaskSandboxRepository(jdbc);
         workerOperations = new io.agentteams.controlplane.worker.WorkerOperationRepository(jdbc);
         recoveryCheckpoints = new io.agentteams.controlplane.task.JdbcTaskRecoveryCheckpointRepository(jdbc);
+        recoveryStates = new io.agentteams.controlplane.task.JdbcTaskRecoveryStateRepository(jdbc);
     }
 
     public AgentRepository agents() {
@@ -108,6 +110,10 @@ public final class FoundationTransaction {
 
     public io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository recoveryCheckpoints() {
         return recoveryCheckpoints;
+    }
+
+    public io.agentteams.controlplane.task.TaskRecoveryStateRepository recoveryStates() {
+        return recoveryStates;
     }
 
     /** Test and migration helper for resources whose ownership is stored separately from the domain row. */
@@ -209,15 +215,29 @@ public final class FoundationTransaction {
                 attempt.version(), at);
         cancelGatewayCommands(attempt.id(), at);
         if (!task.phase().terminal()) {
-            String recoveredSpec = withRecoveryCheckpoint(task.specJson(),
-                    recoveryCheckpoints.findLatestByTask(task.id()).orElse(null));
-            TaskRecord queued = new TaskRecord(task.id(), task.title(), task.description(),
-                    io.agentteams.domain.task.TaskPhase.QUEUED, task.priority(), recoveredSpec,
-                    task.actor(), task.source(), null, null, task.createdAt(), at, task.version() + 1,
-                    task.taskType());
-            tasks().updateState(queued, task.version());
-            FoundationPersistenceService.appendEvent(this, eventId, "task", task.id(), eventType,
-                    reclaimPayload(task, attempt, lease, assignment, at, reason), at, queued.version());
+            io.agentteams.controlplane.task.TaskRecoveryState recoveryState = recoveryStates()
+                    .recordLeaseExpiry(task.id(), at, reason);
+            if ("RECOVERY_REQUIRED".equals(recoveryState.status())) {
+                TaskRecord failed = new TaskRecord(task.id(), task.title(), task.description(),
+                        io.agentteams.domain.task.TaskPhase.FAILED, task.priority(), task.specJson(),
+                        task.actor(), task.source(), "TASK_RECOVERY_EXHAUSTED", "任务恢复次数已达到策略上限",
+                        task.createdAt(), at, task.version() + 1, task.taskType());
+                tasks().updateState(failed, task.version());
+                FoundationPersistenceService.appendEvent(this, eventId, "task", task.id(), "TaskRecoveryRequired",
+                        reclaimPayload(task, attempt, lease, assignment, at, reason, recoveryState), at,
+                        failed.version());
+            } else {
+                String recoveredSpec = withRecoveryCheckpoint(task.specJson(),
+                        recoveryCheckpoints.findLatestByTask(task.id()).orElse(null));
+                TaskRecord queued = new TaskRecord(task.id(), task.title(), task.description(),
+                        io.agentteams.domain.task.TaskPhase.QUEUED, task.priority(), recoveredSpec,
+                        task.actor(), task.source(), null, null, task.createdAt(), at, task.version() + 1,
+                        task.taskType());
+                tasks().updateState(queued, task.version());
+                FoundationPersistenceService.appendEvent(this, eventId, "task", task.id(), eventType,
+                        reclaimPayload(task, attempt, lease, assignment, at, reason, recoveryState), at,
+                        queued.version());
+            }
         }
         return new ReclaimOutcome(true, attempt.id(), task.id());
     }
@@ -251,11 +271,13 @@ public final class FoundationTransaction {
     }
 
     private static String reclaimPayload(TaskRecord task, TaskAttemptRecord attempt, AgentLeaseRecord lease,
-            TaskAssignmentRecord assignment, java.time.Instant at, String reason) {
+            TaskAssignmentRecord assignment, java.time.Instant at, String reason,
+            io.agentteams.controlplane.task.TaskRecoveryState recoveryState) {
         return "{\"taskId\":\"" + task.id() + "\",\"attemptId\":\"" + attempt.id()
                 + "\",\"assignmentId\":\"" + (assignment == null ? "" : assignment.id())
                 + "\",\"leaseId\":\"" + lease.id() + "\",\"recoveredAt\":\"" + at
-                + "\",\"reason\":\"" + reason + "\"}";
+                + "\",\"reason\":\"" + reason + "\",\"recoveryCount\":"
+                + recoveryState.recoveryCount() + ",\"recoveryStatus\":\"" + recoveryState.status() + "\"}";
     }
 
     private static String withRecoveryCheckpoint(String specJson,

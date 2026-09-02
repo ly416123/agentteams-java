@@ -8,6 +8,8 @@ import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.task.TaskRunQueryRepository;
 import io.agentteams.controlplane.task.TaskRecoveryCheckpoint;
 import io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository;
+import io.agentteams.controlplane.task.TaskRecoveryState;
+import io.agentteams.controlplane.task.TaskRecoveryStateRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -24,18 +26,26 @@ public final class TaskExecutionController {
     private final FoundationPersistenceService persistence;
     private final TaskRunQueryRepository runs;
     private final TaskRecoveryCheckpointRepository checkpoints;
+    private final TaskRecoveryStateRepository recoveryStates;
 
     public TaskExecutionController(TaskService tasks, FoundationPersistenceService persistence) {
-        this(tasks, persistence, null, null);
+        this(tasks, persistence, null, null, null);
+    }
+
+    public TaskExecutionController(TaskService tasks, FoundationPersistenceService persistence,
+            TaskRunQueryRepository runs, TaskRecoveryCheckpointRepository checkpoints) {
+        this(tasks, persistence, runs, checkpoints, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public TaskExecutionController(TaskService tasks, FoundationPersistenceService persistence,
-            TaskRunQueryRepository runs, TaskRecoveryCheckpointRepository checkpoints) {
+            TaskRunQueryRepository runs, TaskRecoveryCheckpointRepository checkpoints,
+            TaskRecoveryStateRepository recoveryStates) {
         this.tasks = tasks;
         this.persistence = persistence;
         this.runs = runs;
         this.checkpoints = checkpoints;
+        this.recoveryStates = recoveryStates;
     }
 
     @GetMapping("/{taskId}/execution")
@@ -59,6 +69,13 @@ public final class TaskExecutionController {
                 .map(CheckpointResponse::from).toList();
     }
 
+    @GetMapping("/{taskId}/recovery")
+    public RecoveryResponse recovery(@PathVariable UUID taskId) {
+        tasks.get(taskId);
+        if (recoveryStates == null) throw new IllegalStateException("task recovery query is not configured");
+        return recoveryStates.findByTaskId(taskId).map(RecoveryResponse::from).orElse(null);
+    }
+
     public record RunResponse(UUID id, UUID taskId, String status, Instant startedAt, Instant completedAt,
             Instant createdAt, Instant updatedAt, long version, String resultStatus, String resultSummary) {
         static RunResponse from(TaskRunQueryRepository.TaskRunRecord value) {
@@ -74,6 +91,16 @@ public final class TaskExecutionController {
             return new CheckpointResponse(value.id(), value.taskId(), value.runId(), value.attemptId(), value.stepKey(),
                     value.idempotencyKey(), value.status(), value.checkpointRef(), value.createdAt(), value.updatedAt(),
                     value.version());
+        }
+    }
+
+    public record RecoveryResponse(UUID taskId, int recoveryCount, int maxRecoveryAttempts, String status,
+            String lastReason, Instant nextAttemptAt, Instant lastRecoveredAt, Instant createdAt, Instant updatedAt,
+            long version) {
+        static RecoveryResponse from(TaskRecoveryState value) {
+            return new RecoveryResponse(value.taskId(), value.recoveryCount(), value.maxRecoveryAttempts(),
+                    value.status(), value.lastReason(), value.nextAttemptAt(), value.lastRecoveredAt(),
+                    value.createdAt(), value.updatedAt(), value.version());
         }
     }
 

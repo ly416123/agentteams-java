@@ -7,6 +7,7 @@ import { ApiError } from '../../src/api/httpClient';
 import {
   getTask,
   getTaskExecution,
+  getTaskRecovery,
   listTasks,
   streamTaskEvents,
   taskAction,
@@ -86,6 +87,7 @@ vi.mock('../../src/api/tasks', () => ({
       },
     },
   ]),
+  getTaskRecovery: vi.fn().mockResolvedValue(null),
   streamTaskEvents: vi.fn().mockImplementation(async (_taskId, options) => {
     options.onEvents([
       {
@@ -175,6 +177,26 @@ describe('Task pages', () => {
     expect(screen.getByText('assignment-1')).toBeInTheDocument();
     expect(screen.getByText('lease-1')).toBeInTheDocument();
     expect(getTaskExecution).toHaveBeenCalledWith('task-1');
+  });
+
+  it('shows durable recovery count, reason and next retry time', async () => {
+    vi.mocked(getTaskRecovery).mockResolvedValueOnce({
+      taskId: 'task-1',
+      recoveryCount: 2,
+      maxRecoveryAttempts: 3,
+      status: 'READY',
+      lastReason: 'LEASE_EXPIRED',
+      nextAttemptAt: '2026-08-29T03:00:04Z',
+      lastRecoveredAt: '2026-08-29T03:00:00Z',
+      createdAt: '2026-08-29T02:00:00Z',
+      updatedAt: '2026-08-29T03:00:00Z',
+      version: 2,
+    });
+    renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+    expect(await screen.findByText('崩溃恢复')).toBeInTheDocument();
+    expect(screen.getByText('2 / 3')).toBeInTheDocument();
+    expect(screen.getByText('LEASE_EXPIRED')).toBeInTheDocument();
+    expect(getTaskRecovery).toHaveBeenCalledWith('task-1');
   });
 
   it('refetches the latest task before retrying a conflicted action', async () => {

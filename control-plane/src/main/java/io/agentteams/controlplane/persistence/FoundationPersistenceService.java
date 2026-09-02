@@ -440,6 +440,9 @@ public final class FoundationPersistenceService {
             }
 
             TaskRecord updated = tx.tasks().updatePhase(id, phase, expectedVersion, at);
+            if ("RETRY_TASK".equals(operation)) {
+                tx.recoveryStates().resetForManualRetry(id, at);
+            }
             appendEvent(tx, "task", id, "TaskPhaseChanged", idPayload(id), at, updated.version());
             return updated;
         });

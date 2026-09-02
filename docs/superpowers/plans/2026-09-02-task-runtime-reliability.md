@@ -67,17 +67,18 @@
 ### 任务 4：实现执行检查点、崩溃恢复和重试策略
 
 **文件：**
-- 新增迁移：`control-plane/src/main/resources/db/migration/V84__task_recovery_checkpoints.sql`
+- 新增迁移：`control-plane/src/main/resources/db/migration/V84__task_types_and_scheduled_runs.sql`、`V85__task_recovery_checkpoints.sql`、`V86__task_recovery_states.sql`
 - 新增：`control-plane/src/main/java/io/agentteams/controlplane/task/TaskRecoveryCheckpoint.java`
 - 新增：`control-plane/src/main/java/io/agentteams/controlplane/task/TaskRecoveryCheckpointRepository.java`
+- 新增：`control-plane/src/main/java/io/agentteams/controlplane/task/TaskRecoveryState.java`、`TaskRecoveryStateRepository.java`
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/service/TaskAssignmentService.java`
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/persistence/FoundationTransaction.java`
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/api/TaskExecutionController.java`
 
-- [ ] 步骤 1：定义 checkpoint 的 Task/Run/Attempt/step 幂等键、状态、版本和安全 Payload 引用。
-- [ ] 步骤 2：租约过期时保存恢复原因与重试次数，按持久化策略退避并重新排队；超过上限进入 FAILED/RECOVERY_REQUIRED。
-- [ ] 步骤 3：暴露恢复记录和最近 checkpoint，避免管理端只能看到一个旧 Lease。
-- [ ] 步骤 4：运行恢复、重复事件、重试上限和跨租户隔离测试。
+- [x] 步骤 1：定义 checkpoint 的 Task/Run/Attempt/step 幂等键、状态、版本和安全 Payload 引用。
+- [x] 步骤 2：租约过期时保存恢复原因与重试次数，按持久化策略退避并重新排队；超过上限进入 FAILED/RECOVERY_REQUIRED；显式人工重试会开启新的恢复预算。
+- [x] 步骤 3：暴露恢复记录和最近 checkpoint，避免管理端只能看到一个旧 Lease。
+- [x] 步骤 4：运行恢复、重复事件、重试上限和跨租户隔离测试。
 
 ### 任务 5：实现对话追加派发与断链自动恢复
 
@@ -113,7 +114,7 @@
 - 修改：`docs/superpowers/specs/2026-09-02-task-runtime-reliability-design.md`
 - 修改：`docs/superpowers/plans/2026-09-02-task-runtime-reliability.md`
 
-- [ ] 步骤 1：运行受影响 Java 模块测试、Console 全量测试、构建、Lint、格式和 Flyway 校验。
+- [x] 步骤 1：运行受影响 Java 模块测试、Console 全量测试、构建、Lint、格式和 Flyway 校验（当前项目未配置独立 Lint/格式任务，已完成编译、测试、构建、`git diff --check` 与 Flyway 校验）。
 - [x] 步骤 2：运行需求逐项核对，确认 Java SDK 未发生变化，确认 L6 未执行。
-- [ ] 步骤 3：请求代码审查并修复 Critical/Important 问题。
-- [ ] 步骤 4：提交功能变更并准备合并回 `main`。
+- [x] 步骤 3：完成代码审查并修复 Critical/Important 问题（补齐空响应归一化，并避免终态任务产生恢复状态）。
+- [x] 步骤 4：提交功能变更到当前 `main`；Java SDK 未修改，L6 未执行。

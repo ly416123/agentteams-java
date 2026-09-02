@@ -75,6 +75,14 @@ public final class TaskAssignmentService {
             if (queued.phase() != TaskPhase.QUEUED) {
                 throw new IllegalStateException("task must be QUEUED: " + taskId);
             }
+            tx.recoveryStates().findByTaskId(taskId).ifPresent(state -> {
+                if ("RECOVERY_REQUIRED".equals(state.status())) {
+                    throw new IllegalStateException("task recovery requires operator attention: " + taskId);
+                }
+                if (state.nextAttemptAt() != null && state.nextAttemptAt().isAfter(now)) {
+                    throw new IllegalStateException("task recovery backoff is active until " + state.nextAttemptAt());
+                }
+            });
             AgentRecord agent = matchingAgent(tx, queued, now)
                     .orElseThrow(() -> new IllegalStateException("no READY agent matches task capabilities"));
 
@@ -214,8 +222,8 @@ public final class TaskAssignmentService {
                     recovered++;
                 }
             } catch (Exception error) {
-                LOGGER.log(Level.WARNING, "Lease recovery skipped for lease {0}; it will be retried next round",
-                        keyMessage(leaseId, error));
+                LOGGER.log(Level.WARNING, "Lease recovery skipped for lease " + leaseId
+                        + "; it will be retried next round", error);
             }
         }
         for (int i = 0; i < recovered; i++) {
@@ -224,13 +232,13 @@ public final class TaskAssignmentService {
         return recovered;
     }
 
-    private static Object[] keyMessage(UUID leaseId, Exception error) {
-        return new Object[] {leaseId + ": " + error.getClass().getSimpleName() + ": " + error.getMessage()};
+    public java.util.List<UUID> queuedTaskIds(int limit) {
+        return queuedTaskIds(limit, null);
     }
 
-    public java.util.List<UUID> queuedTaskIds(int limit) {
+    public java.util.List<UUID> queuedTaskIds(int limit, Instant now) {
         if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
-        return persistence.inTransaction(tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, limit));
+        return persistence.inTransaction(tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, limit, now));
     }
 
     public static String taskAssignedPayload(TaskRecord task, AgentRecord agent, TaskAttemptRecord attempt,

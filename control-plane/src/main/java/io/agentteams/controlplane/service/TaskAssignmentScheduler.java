@@ -51,7 +51,7 @@ public final class TaskAssignmentScheduler {
             int recovered = assignments.recoverExpiredLeases(now);
             int assigned = 0;
             int unavailable = 0;
-            for (UUID taskId : assignments.queuedTaskIds(batchSize)) {
+            for (UUID taskId : assignments.queuedTaskIds(batchSize, now)) {
                 try {
                     assignments.queueReadyTask(taskId, clock.instant());
                     assigned++;
