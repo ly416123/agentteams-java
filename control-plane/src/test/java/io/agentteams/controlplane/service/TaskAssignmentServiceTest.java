@@ -152,7 +152,18 @@ class TaskAssignmentServiceTest {
             assertThat(attempt.completedAt()).isEqualTo(recoveryTime);
         });
 
-        TaskAssignmentService.AssignmentResult second = service.queueReadyTask(taskId, recoveryTime);
+        var recoveryState = persistence.inTransaction(tx -> tx.recoveryStates().findByTaskId(taskId));
+        assertThat(recoveryState).get().satisfies(state -> {
+            assertThat(state.recoveryCount()).isEqualTo(1);
+            assertThat(state.status()).isEqualTo("READY");
+            assertThat(state.nextAttemptAt()).isEqualTo(recoveryTime.plusSeconds(1));
+        });
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.queueReadyTask(taskId, recoveryTime))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("recovery backoff");
+
+        TaskAssignmentService.AssignmentResult second = service.queueReadyTask(taskId,
+                recoveryTime.plusSeconds(1));
 
         assertThat(second.attempt().id()).isNotEqualTo(first.attempt().id());
         assertThat(second.assignment().id()).isNotEqualTo(first.assignment().id());
@@ -166,6 +177,43 @@ class TaskAssignmentServiceTest {
                     "TaskLeaseExpired");
             return null;
         });
+    }
+
+    @Test
+    void marksTaskFailedAndPersistsRecoveryRequiredAfterRecoveryLimit() {
+        UUID taskId = UUID.randomUUID();
+        AgentRecord ready = agent(UUID.randomUUID(), "recovery-limit-agent", AgentPhase.READY,
+                "{\"python\":true}");
+        TaskRecord queued = queuedTask(taskId, "{\"requiredCapabilities\":[\"python\"]}");
+        insert(ready, queued);
+
+        TaskAssignmentService service = new TaskAssignmentService(persistence, LEASE_DURATION);
+        TaskAssignmentService.AssignmentResult assignment = service.queueReadyTask(taskId, START);
+        Instant recoveryTime = assignment.lease().expiresAt().plusSeconds(1);
+
+        for (int cycle = 1; cycle <= 3; cycle++) {
+            assertThat(service.recoverExpiredLeases(recoveryTime)).isEqualTo(1);
+            var state = persistence.inTransaction(tx -> tx.recoveryStates().findByTaskId(taskId)).orElseThrow();
+            assertThat(state.recoveryCount()).isEqualTo(cycle);
+            assertThat(state.status()).isEqualTo("READY");
+            assignment = service.queueReadyTask(taskId, state.nextAttemptAt());
+            recoveryTime = assignment.lease().expiresAt().plusSeconds(1);
+        }
+
+        assertThat(service.recoverExpiredLeases(recoveryTime)).isEqualTo(1);
+        assertThat(persistence.findTask(taskId)).get().satisfies(task -> {
+            assertThat(task.phase()).isEqualTo(TaskPhase.FAILED);
+            assertThat(task.failureCode()).isEqualTo("TASK_RECOVERY_EXHAUSTED");
+            assertThat(task.redactedFailureMessage()).isEqualTo("任务恢复次数已达到策略上限");
+        });
+        var finalRecoveryState = persistence.inTransaction(tx -> tx.recoveryStates().findByTaskId(taskId));
+        assertThat(finalRecoveryState).isPresent();
+        assertThat(finalRecoveryState.orElseThrow()).satisfies(state -> {
+                    assertThat(state.recoveryCount()).isEqualTo(4);
+                    assertThat(state.status()).isEqualTo("RECOVERY_REQUIRED");
+                    assertThat(state.nextAttemptAt()).isNull();
+                    assertThat(state.lastReason()).isEqualTo("LEASE_EXPIRED");
+                });
     }
 
     @Test

@@ -23,7 +23,7 @@ class TaskAssignmentSchedulerTest {
         when(repository.tryAcquire("task-assignment", "cp-1", NOW, Duration.ofSeconds(30))).thenReturn(true);
         UUID taskId = UUID.randomUUID();
         when(assignments.recoverExpiredLeases(NOW)).thenReturn(2);
-        when(assignments.queuedTaskIds(16)).thenReturn(List.of(taskId));
+        when(assignments.queuedTaskIds(16, NOW)).thenReturn(List.of(taskId));
 
         TaskAssignmentScheduler scheduler = new TaskAssignmentScheduler(assignments,
                 new SchedulerLeaseService(repository), Clock.fixed(NOW, ZoneOffset.UTC), "cp-1",

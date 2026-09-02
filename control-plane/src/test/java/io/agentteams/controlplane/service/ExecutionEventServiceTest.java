@@ -191,7 +191,8 @@ class ExecutionEventServiceTest {
         assertThat(pendingCommands).isZero();
 
         TaskAssignmentService.AssignmentResult redelivered =
-                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, rejectionAt);
+                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId,
+                        rejectionAt.plusSeconds(1));
         assertThat(redelivered.attempt().id()).isNotEqualTo(assignment.attempt().id());
         assertThat(redelivered.lease().id()).isNotEqualTo(assignment.lease().id());
         assertThat(redelivered.task().phase()).isEqualTo(TaskPhase.ASSIGNED);
