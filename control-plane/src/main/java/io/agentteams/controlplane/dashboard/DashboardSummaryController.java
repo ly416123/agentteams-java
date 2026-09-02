@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /** Stable dashboard read model backed by the Usage API's canonical aggregation. */
 @RestController
@@ -23,6 +24,7 @@ public final class DashboardSummaryController {
         this(usage, null);
     }
 
+    @Autowired
     public DashboardSummaryController(UsageQueryService usage, ProjectRepository projects) {
         this.usage = usage;
         this.projects = projects;
