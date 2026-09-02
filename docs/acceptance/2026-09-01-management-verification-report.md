@@ -24,6 +24,7 @@ L5 主机、`ly` 权限边界和 gVisor 故障复盘见：[L5 Linux/KVM 环境�
 - Maven `integration-tests` profile 全量回归通过：10 个 Failsafe 测试通过，0 failure、0 error、0 skipped，包含真实 PostgreSQL/NATS/MinIO Task Push、Gateway replay、配置广播和 Team scheduling 链路。
 - `git diff --check` 通过。
 - `sdk/java` 无变更。
+- Java SDK 对账评审已完成：现有 Project 创建、Task 查询/取消/进度/结果/过程事件、Artifact 结果元数据和外部用户 Provisioning 能力均已由管理 API 与 Console 逐项覆盖；管理端新增能力不反向强制进入 SDK，因此当前无必须新增的 Java SDK 功能。
 - 管理端外部用户 Provisioning 生命周期已补齐：初始化、更新、停用和 Membership 查询均有管理 API 与 `/settings/identity` 页面入口；写操作要求 `Idempotency-Key`，并按 `integrationId + externalOrganizationId + externalUserId` 精确定位，成功操作记录脱敏审计。Repository PostgreSQL 集成测试验证重复初始化不重复创建内部用户、Membership 只返回当前组织、更新和停用状态生效；Controller/Console 回归及真实 OIDC 浏览器用例通过。
 - 管理端新增 Usage、预算、告警和审计页面均只调用管理 API，不直接访问数据库、Kubernetes、消息系统、对象存储或 Secret Manager。
 - Memory 与 Sandbox 页面只展示治理/运维元数据，不展示记忆内容、workspace 内容或 Secret；Memory 治理操作要求原因并通过管理 API 使用幂等键。

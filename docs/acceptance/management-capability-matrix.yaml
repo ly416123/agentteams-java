@@ -225,7 +225,7 @@ capabilities:
   - id: task.attempt_assignment_lease
     domain: task
     sdk_status: existing
-    management_api: "GET /api/v1/tasks；GET /api/v1/tasks/{taskId}/execution；POST lifecycle actions"
+    management_api: "GET /api/v1/tasks；GET /api/v1/tasks/{taskId}/execution；GET /api/v1/tasks/{taskId}/runs/{runId}/progress、/result、/process-events；POST lifecycle actions"
     console_route: "/:projectId/tasks"
     permission: "task:read|create|operate"
     scope: tenant|project|team|user
