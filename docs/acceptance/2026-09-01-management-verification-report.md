@@ -1,8 +1,8 @@
 # 管理端阶段验证报告
 
-**日期：** 2026-09-02
+**日期：** 2026-09-03
 
-**分支：** `codex/management-stage-1-identity-continued`
+**分支：** `main`
 
 **验证范围：** 管理端身份、组织、角色、目录、Task、Artifact、Usage、预算、告警和审计入口，以及 Work Pod、记忆隔离、Secret 引用和 Java SDK 冻结约束。
 
@@ -11,7 +11,7 @@ L5 主机、`ly` 权限边界和 gVisor 故障复盘见：[L5 Linux/KVM 环境�
 ## 已通过
 
 - Console 格式检查、Lint、单元测试和生产构建通过。
-- Console 当前测试结果：29 个测试文件、117 个测试通过。
+- Console 当前测试结果：29 个测试文件、120 个测试通过；生产构建通过。
 - Agent Gateway 全量单元回归通过：85 个测试通过，0 failure、0 error、0 skipped；心跳刷新不再递增 Agent 生命周期版本，避免正常多副本心跳造成错误的乐观锁冲突。
 - Console E2E：15 个用例通过；包括未登录入口、登录引导、Alice 真实 OIDC 登录进入 Project，以及 Alice/Reader/Tenant-B 独立浏览器会话的 Project 隔离。Alice 可在整页导航后访问 Memory/Sandbox 页面；Reader 访问同一项目资源页面返回“无权访问”；Alice 可在告警页面看到失败投递并执行“立即重试”；Quota Admin 可从 Skill 页面完成真实 MinIO 预签名直传和 package complete，并可在 MCP 页面完成 credentialRef 脱敏、不可达端点 fail-closed、Discovery 状态、编辑和删除；Organization/Tenant 页面已通过真实 OIDC 完成创建、幂等状态变更和版本保护操作；角色页面已通过真实 OIDC 展示当前 Project 的有效权限矩阵；Project 管理页面已通过真实 OIDC 完成当前 Tenant 内 Project 创建；Team 页面已通过真实 OIDC 完成当前 Project 内创建、详情加载和发布不自动部署 Worker 的边界展示，并验证伪造跨 Project UUID 返回“无权访问”；Template 页面已通过真实 OIDC 完成 Template → Revision → Publish → 显式实例化 Worker，并可进入 Worker 详情查看操作记录；AgentSpec 页面已通过真实 OIDC 独立完成创建、发布和停用生命周期；外部用户生命周期页面已通过真实 OIDC 完成初始化、更新、Membership 查询和停用；Integration Credential 页面已通过真实 OIDC 完成 Credential Ref 登记、轮换、撤销、版本保护和危险操作确认。
 - Worker 真实供给验收已通过：显式实例化写入逻辑 Worker 后，Control Plane 创建对应 `agentteams.io/v1alpha1 Worker` CR，Operator 创建 Deployment 和 Worker Pod，数据库 Worker 状态达到 `READY`；注册、激活、用户初始化、Team 创建或 Template 发布阶段均不会隐式创建 Pod。
@@ -19,7 +19,7 @@ L5 主机、`ly` 权限边界和 gVisor 故障复盘见：[L5 Linux/KVM 环境�
 - 受控 Ubuntu/K3s L5 Sandbox 验收已通过：gVisor 与 Kata 两个 TaskSandbox 均达到 `READY`，Job/Pod 的 `runtimeClassName` 分别为 `gvisor`、`kata-qemu`，并取得 guest kernel 与宿主机 kernel 证据。此前失败原因是 Operator 旧镜像生成的 runner Job 对预加载的 `:latest` 镜像使用默认 `Always` 拉取策略，匿名 GHCR 拉取返回 403；已将 Job 模板固定为 `imagePullPolicy: IfNotPresent`，重新部署 Operator 后复验通过。
 - 真实 OIDC 浏览器验收使用 `api.agentteams.localhost:30080` 作为 Ingress 入口，已确认 Alice/Reader/Tenant-B 的登录、跨用户和跨租户 Project 可见性边界；测试凭据均来自开发 Realm。
 - Kind OIDC API smoke：真实 Keycloak JWT 验签通过；无 Token/无效 Token 返回 401，Alice 有权限创建 Task 返回 201，Reader 缺少权限返回 403，Tenant-B 跨作用域返回 403。
-- Control Plane 全量单元回归通过：801 个测试通过，0 failure、0 error、0 skipped；Flyway 已验证到 v79。
+- Control Plane 全量回归通过：809 个测试通过，0 failure、0 error、0 skipped；统一企业执行平面门禁已验证 Flyway 从空库升级到 v86，`FoundationRepositoryIT` 通过。
 - Maven `integration-tests` profile 全量回归通过：10 个 Failsafe 测试通过，0 failure、0 error、0 skipped，包含真实 PostgreSQL/NATS/MinIO Task Push、Gateway replay、配置广播和 Team scheduling 链路。
 - `git diff --check` 通过。
 - `sdk/java` 无变更。
@@ -59,6 +59,7 @@ L5 主机、`ly` 权限边界和 gVisor 故障复盘见：[L5 Linux/KVM 环境�
 - 模型管理页已展示当前作用域价格目录的 Provider/Model、输入输出单价、生效时间、生命周期和价格版本；价格目录保持只读展示，不绕过同步权威链路写入。
 - 模型管理页已补齐 Provider 的专用启用/停用和删除确认；请求只提交状态或资源 ID，不回传脱敏 Provider 对象，避免覆盖真实凭据引用。
 - 模型管理页已展示 Provider 下属 Model，并补齐 Model 专用启用/停用和删除确认；Model 生命周期操作按所属 Provider 刷新列表，不改变凭据引用。
+- 任务可靠性增量已通过本地与 L5 回归：租约恢复状态写入 `task_recovery_states`，默认最多自动恢复 3 次并按 1/2/4 秒退避，超限进入 `FAILED/RECOVERY_REQUIRED`；任务详情提供恢复状态查询和展示，未发生恢复的空响应也能正确显示空态。L5 最新 Control Plane/Console Deployment 均为 Ready，数据库已处于 v86。
 
 ## 当前受控边界
 

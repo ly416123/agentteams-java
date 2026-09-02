@@ -4,7 +4,7 @@
 # sdk_status: existing 表示当前 SDK 已有对应能力；not_yet_exposed 表示产品范围要求管理端提供，
 # 但当前 SDK 尚未暴露；not_applicable 表示该能力属于管理端/内部运维边界。
 version: 1
-as_of: 2026-09-02
+as_of: 2026-09-03
 capability_relation: "sdk_existing_subset_of_management"
 sdk_freeze:
   java: true
