@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -6,6 +6,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { ManagementIntegrationPage } from '../../src/features/management/ManagementIntegrationPage';
 
 const mocks = vi.hoisted(() => ({
+  credentialState: {
+    current: {
+      id: 'credential-1',
+      integrationId: 'integration-1',
+      label: 'primary',
+      accessKeyId: 'AKIA-1',
+      version: 2,
+      status: 'ACTIVE',
+    },
+  },
+  credentialListCallCount: 0,
+  credentialRefreshes: [] as Array<() => void>,
   listManagementOrganizations: vi
     .fn()
     .mockResolvedValue([{ id: 'org-1', name: 'Platform', status: 'ACTIVE', version: 0 }]),
@@ -19,23 +31,31 @@ const mocks = vi.hoisted(() => ({
     },
   ]),
   createManagementIntegration: vi.fn().mockResolvedValue({ id: 'integration-2' }),
-  listIntegrationCredentials: vi.fn().mockResolvedValue([
-    {
-      id: 'credential-1',
-      integrationId: 'integration-1',
-      label: 'primary',
-      accessKeyId: 'AKIA-1',
-      version: 2,
-      status: 'ACTIVE',
-    },
-  ]),
+  listIntegrationCredentials: vi.fn().mockImplementation(async () => {
+    mocks.credentialListCallCount += 1;
+    if (mocks.credentialListCallCount <= 2) {
+      return [mocks.credentialState.current];
+    }
+    return new Promise((resolve) => {
+      mocks.credentialRefreshes.push(() => resolve([mocks.credentialState.current]));
+    });
+  }),
   createManagementCredential: vi.fn().mockResolvedValue({ id: 'credential-2' }),
-  rotateManagementCredential: vi
-    .fn()
-    .mockResolvedValue({ id: 'credential-1', version: 3, status: 'ACTIVE' }),
-  revokeManagementCredential: vi
-    .fn()
-    .mockResolvedValue({ id: 'credential-1', version: 3, status: 'REVOKED' }),
+  rotateManagementCredential: vi.fn().mockImplementation(async () => {
+    mocks.credentialState.current = {
+      ...mocks.credentialState.current,
+      version: 3,
+    };
+    return mocks.credentialState.current;
+  }),
+  revokeManagementCredential: vi.fn().mockImplementation(async () => {
+    mocks.credentialState.current = {
+      ...mocks.credentialState.current,
+      version: 4,
+      status: 'REVOKED',
+    };
+    return mocks.credentialState.current;
+  }),
 }));
 
 vi.mock('../../src/api/management', () => ({ ...mocks }));
@@ -78,10 +98,18 @@ describe('Management integration page', () => {
       expectedVersion: 2,
       credentialRef: 'secret://integration/rotated',
     });
+    await waitFor(() => expect(mocks.credentialRefreshes).toHaveLength(1));
+    expect(screen.queryByText('Credential 已轮换')).not.toBeInTheDocument();
+    mocks.credentialRefreshes.shift()?.();
+    expect(await screen.findByText('Credential 已轮换')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '撤销' }));
     expect(mocks.revokeManagementCredential).toHaveBeenCalledWith('credential-1', {
-      expectedVersion: 2,
+      expectedVersion: 3,
     });
+    await waitFor(() => expect(mocks.credentialRefreshes).toHaveLength(1));
+    mocks.credentialRefreshes.shift()?.();
+    expect(await screen.findByText('Credential 已撤销')).toBeInTheDocument();
+    expect(await screen.findByText('primary · AKIA-1 · REVOKED')).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledWith(
       '确认撤销 Credential？撤销后引用它的运行时将无法继续使用。',
     );

@@ -267,10 +267,16 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
         ) : (
           <div className="detail-list">
             <span>
-              恢复状态<strong>{recovery.data.status === 'RECOVERY_REQUIRED' ? '需人工介入' : '等待重试'}</strong>
+              恢复状态
+              <strong>
+                {recovery.data.status === 'RECOVERY_REQUIRED' ? '需人工介入' : '等待重试'}
+              </strong>
             </span>
             <span>
-              恢复次数<strong>{recovery.data.recoveryCount} / {recovery.data.maxRecoveryAttempts}</strong>
+              恢复次数
+              <strong>
+                {recovery.data.recoveryCount} / {recovery.data.maxRecoveryAttempts}
+              </strong>
             </span>
             <span>
               最近原因<strong>{recovery.data.lastReason || '未记录'}</strong>

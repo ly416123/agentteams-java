@@ -55,19 +55,19 @@ export function ManagementIntegrationPage() {
   const createIntegration = useMutation({
     mutationFn: () =>
       createManagementIntegration(selectedOrganizationId, { name: integrationName }),
-    onSuccess: () => {
+    onSuccess: async () => {
       setIntegrationName('');
+      await refreshIntegrations();
       setNotice({ kind: 'success', text: 'Integration 已创建' });
-      void refreshIntegrations();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
   const createCredential = useMutation({
     mutationFn: () => createManagementCredential(selectedIntegrationId, credential),
-    onSuccess: () => {
+    onSuccess: async () => {
       setCredential({ label: '', credentialRef: '' });
+      await refreshCredentials();
       setNotice({ kind: 'success', text: 'Credential Ref 已登记' });
-      void refreshCredentials();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
@@ -77,19 +77,19 @@ export function ManagementIntegrationPage() {
         expectedVersion: item.version,
         credentialRef: rotateRef,
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       setRotateRef('');
+      await refreshCredentials();
       setNotice({ kind: 'success', text: 'Credential 已轮换' });
-      void refreshCredentials();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
   const revoke = useMutation({
     mutationFn: (item: Credential) =>
       revokeManagementCredential(item.id, { expectedVersion: item.version }),
-    onSuccess: () => {
+    onSuccess: async () => {
+      await refreshCredentials();
       setNotice({ kind: 'success', text: 'Credential 已撤销' });
-      void refreshCredentials();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
