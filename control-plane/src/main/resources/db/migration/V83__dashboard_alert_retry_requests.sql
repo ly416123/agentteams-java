@@ -1,4 +1,4 @@
-CREATE TABLE dashboard_alert_retry_requests (
+CREATE TABLE IF NOT EXISTS dashboard_alert_retry_requests (
     event_id UUID NOT NULL REFERENCES dashboard_alert_events(id) ON DELETE CASCADE,
     tenant_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
@@ -11,5 +11,5 @@ CREATE TABLE dashboard_alert_retry_requests (
     CONSTRAINT dashboard_alert_retry_hash_check CHECK (request_hash ~ '^[0-9a-f]{64}$')
 );
 
-CREATE INDEX dashboard_alert_retry_scope_idx
+CREATE INDEX IF NOT EXISTS dashboard_alert_retry_scope_idx
     ON dashboard_alert_retry_requests (tenant_id, project_id, created_at DESC);

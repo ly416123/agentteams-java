@@ -1,4 +1,4 @@
-ALTER TABLE memories DROP CONSTRAINT memories_scope_owner_check;
+ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_scope_owner_check;
 ALTER TABLE memories ADD CONSTRAINT memories_scope_owner_check CHECK (
     (scope = 'USER_PRIVATE' AND subject_id IS NOT NULL)
     OR (scope = 'ORGANIZATION_SHARED')
