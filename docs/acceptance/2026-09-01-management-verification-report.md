@@ -82,7 +82,7 @@ Kind OIDC 已统一为浏览器可访问的 `127.0.0.1:18082` issuer，JWK 读�
 Service；浏览器通过 `api.agentteams.localhost` 的 Ingress 访问 Console 和 Control Plane。
 开发验收使用本地控制面镜像和幂等 Project/membership 夹具；不改变生产部署策略。
 
-## 尚未完成
+## 仍保留的受控边界
 
 - Memory、Sandbox 页面已完成结构化展示和资源页面级浏览器隔离验收；Kind 已使用两名真实开发 OIDC subject 和临时 metadata-only fixtures 完成 USER_PRIVATE、PROJECT_SHARED、TEAM_SHARED、ORGANIZATION_SHARED、跨 Project、跨 Tenant 的逐项资源数据不串验收；受控 Ubuntu/K3s 的 gVisor/Kata L5 运行时验收也已通过。
 - 当前 Kind L5 入口已执行到前置检查，并因集群不存在 `RuntimeClass gvisor`（同时未提供 `kata-qemu`）安全停止，未创建 Sandbox 夹具且清理成功；这证明当前环境不具备 L5 运行时，不将 Kind 默认容器结果冒充 gVisor/Kata 验收。

@@ -1,7 +1,7 @@
 # 管理端优先、记忆隔离与 Java SDK 冻结实施方案
 
 **日期：** 2026-09-01
-**状态：** 执行中（阶段 1 Organization/Tenant、Project 角色/权限和 Project 创建首个切片的幂等、版本保护和真实 OIDC 页面验收已补齐；阶段 2 Template → Worker CR → Operator → Ready Kind 闭环、AgentSpec 独立页面验收、Worker 详情诊断以及单/双副本 lease 过期自动回滚已通过；阶段 3 Memory/Sandbox 页面级和 Memory 多 subject/Team/Project/Tenant 隔离验收已通过，受控 Ubuntu/K3s gVisor/Kata Sandbox L5 已通过；阶段 4 Usage 运营闭环及告警失败/重试浏览器验收已补齐；Skill 页面级上传验收已通过；管理端 15/15 真实 OIDC 浏览器回归已通过；L6 已明确保留至项目最终阶段，当前不纳入执行计划）
+**状态：** 阶段 5 页面最终验证完成（管理端 19/19 真实 OIDC 浏览器回归已通过；能力矩阵中 Integration、Model、MCP 的 partial 仅表示需生产/外部凭据的 L6 连通性；Java SDK 保持冻结，L6 按约束保留至项目最终阶段，当前不纳入执行计划）
 **适用范围：** Control Plane、Console、Agent Gateway、Worker、Runtime、Operator、数据库迁移、OpenAPI 和验收脚本
 **明确不做：** 管理端最终页面功能验证通过前，不更新 `sdk/java`
 
@@ -208,7 +208,7 @@ status: planned|implemented|verified
 5. 只有所有 P0 能力通过且没有未登记的管理端缺口，才单独创建 Java SDK 更新计划；
 6. SDK 更新必须基于最终 OpenAPI 和能力矩阵，一次性补齐必要方法、模型、鉴权、错误、幂等、重试和安全回归。
 
-当前页面验证证据记录在 `docs/acceptance/2026-09-01-management-verification-report.md`：15 个 Console E2E 用例已使用 Kind 开发 Realm 的真实 OIDC 登录通过，其中 Template 显式实例化已继续由脚本核验 Worker CR、Operator Deployment 和 Ready Pod，Worker lease 过期恢复由独立脚本核验稳定快照、事件和回滚状态；另有 Memory scope acceptance 脚本和受控 Ubuntu/K3s gVisor/Kata Sandbox L5 通过；这不构成生产认证或生产外部依赖的通过证明。
+当前页面验证证据记录在 `docs/acceptance/2026-09-01-management-verification-report.md`：19 个 Console E2E 用例已使用 Kind 开发 Realm 的真实 OIDC 登录通过，其中 Template 显式实例化已继续由脚本核验 Worker CR、Operator Deployment 和 Ready Pod，Worker lease 过期恢复由独立脚本核验稳定快照、事件和回滚状态；另有 Memory scope acceptance 脚本和受控 Ubuntu/K3s gVisor/Kata Sandbox L5 通过；这不构成生产认证或生产外部依赖的通过证明。
 
 ### L6 最终阶段约束（不属于当前执行计划）
 
