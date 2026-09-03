@@ -106,8 +106,14 @@ public final class TeamService {
                         .orElseThrow(() -> new IllegalStateException("idempotent team member is missing"));
             }
             tx.teams().findById(teamId).orElseThrow(() -> new ResourceNotFoundException("team", teamId));
-            tx.agents().findById(agentId).orElseThrow(() -> new ResourceNotFoundException("agent", agentId));
-            TeamMemberRecord member = new TeamMemberRecord(UUID.randomUUID(), teamId, agentId, role,
+            AgentRecord agent = tx.agents().findById(agentId)
+                    .orElseThrow(() -> new ResourceNotFoundException("agent", agentId));
+            String normalizedRole = role == null ? "" : role.trim().toUpperCase();
+            if ("LEADER".equals(normalizedRole) && agent.workerType() != io.agentteams.domain.agent.WorkerType.LEADER) {
+                throw new IllegalArgumentException(
+                        "WORKER_TYPE_NOT_ALLOWED_FOR_ROLE: only Leader Worker can be assigned as Team Leader");
+            }
+            TeamMemberRecord member = new TeamMemberRecord(UUID.randomUUID(), teamId, agentId, normalizedRole,
                     "ACTIVE", now, now, 0);
             IdempotencyKeyRecord record = idempotencyRecord(key, ADD_MEMBER, hash, member.id(), now);
             if (!tx.idempotencyKeys().insertIfAbsent(record)) {

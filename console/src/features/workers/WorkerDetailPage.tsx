@@ -56,7 +56,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
           <p className="eyebrow">WORKER DETAIL</p>
           <h1>{data.name}</h1>
           <p>
-            {data.id} · {data.runtime}
+            {data.id} · {data.runtime} · {data.workerType || 'EXECUTOR'}
           </p>
         </div>
         <StatusBadge phase={data.phase} />

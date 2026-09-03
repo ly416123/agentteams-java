@@ -19,16 +19,16 @@ public final class AgentRepository {
     public void insert(AgentRecord agent) {
         jdbc.update("""
                 INSERT INTO agents
-                    (id, name, phase, runtime, capabilities, metadata, created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, agent.id(), agent.name(), agent.phase().name(), agent.runtime(),
+                    (id, name, worker_type, phase, runtime, capabilities, metadata, created_at, updated_at, version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, agent.id(), agent.name(), agent.workerType().name(), agent.phase().name(), agent.runtime(),
                 JdbcSupport.json(agent.capabilitiesJson()), JdbcSupport.json(agent.metadataJson()),
                 JdbcSupport.timestamp(agent.createdAt()), JdbcSupport.timestamp(agent.updatedAt()), agent.version());
     }
 
     public Optional<AgentRecord> findById(UUID id) {
         return jdbc.query("""
-                SELECT id, name, phase, runtime, capabilities::text, metadata::text,
+                SELECT id, name, worker_type, phase, runtime, capabilities::text, metadata::text,
                        created_at, updated_at, version
                   FROM agents WHERE id = ?
                 """, this::map, id).stream().findFirst();
@@ -36,7 +36,7 @@ public final class AgentRepository {
 
     public Optional<AgentRecord> findByIdForUpdate(UUID id) {
         return jdbc.query("""
-                SELECT id, name, phase, runtime, capabilities::text, metadata::text,
+                SELECT id, name, worker_type, phase, runtime, capabilities::text, metadata::text,
                        created_at, updated_at, version
                   FROM agents WHERE id = ? FOR UPDATE
                 """, this::map, id).stream().findFirst();
@@ -55,7 +55,7 @@ public final class AgentRepository {
         String cursor = after == null ? "" : direction == CursorPageRequest.Direction.ASC
                 ? " AND (a.updated_at, a.id) > (?, ?)" : " AND (a.updated_at, a.id) < (?, ?)";
         StringBuilder sql = new StringBuilder("""
-                SELECT a.id, a.name, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
+                SELECT a.id, a.name, a.worker_type, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
                        a.created_at, a.updated_at, a.version
                  FROM agents a JOIN resource_scopes s ON s.resource_type = 'WORKER' AND s.resource_id = a.id
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
@@ -80,7 +80,7 @@ public final class AgentRepository {
 
     public Optional<AgentRecord> findReadyMatching(String taskSpecJson, Instant now) {
         return jdbc.query("""
-                SELECT id, name, phase, runtime, capabilities::text, metadata::text,
+                SELECT id, name, worker_type, phase, runtime, capabilities::text, metadata::text,
                        created_at, updated_at, version
                  FROM agents
                  WHERE phase = 'READY'
@@ -112,7 +112,7 @@ public final class AgentRepository {
     /** Matches an unassigned task only against agents in the same tenant/project. */
     public Optional<AgentRecord> findReadyMatchingInTaskProject(String taskSpecJson, UUID taskId, Instant now) {
         return jdbc.query("""
-                SELECT a.id, a.name, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
+                SELECT a.id, a.name, a.worker_type, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
                        a.created_at, a.updated_at, a.version
                   FROM agents a
                   JOIN resource_scopes worker_scope
@@ -148,7 +148,7 @@ public final class AgentRepository {
 
     public Optional<AgentRecord> findReadyMatchingForTeam(String taskSpecJson, UUID teamId, Instant now) {
         return jdbc.query("""
-                SELECT agents.id, agents.name, agents.phase, agents.runtime,
+                SELECT agents.id, agents.name, agents.worker_type, agents.phase, agents.runtime,
                        agents.capabilities::text, agents.metadata::text,
                        agents.created_at, agents.updated_at, agents.version
                   FROM agents
@@ -204,6 +204,7 @@ public final class AgentRepository {
 
     private AgentRecord map(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
         return new AgentRecord(rs.getObject("id", UUID.class), rs.getString("name"),
+                io.agentteams.domain.agent.WorkerType.valueOf(rs.getString("worker_type")),
                 AgentPhase.valueOf(rs.getString("phase")), rs.getString("runtime"),
                 rs.getString("capabilities"), rs.getString("metadata"),
                 JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"),

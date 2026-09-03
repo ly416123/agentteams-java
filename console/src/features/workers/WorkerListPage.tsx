@@ -67,6 +67,11 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
             },
             { key: 'runtime', header: 'Runtime', render: (worker) => worker.runtime },
             {
+              key: 'workerType',
+              header: '类型',
+              render: (worker) => <span className="status-badge">{worker.workerType || 'EXECUTOR'}</span>,
+            },
+            {
               key: 'phase',
               header: '连接状态',
               render: (worker) => <StatusBadge phase={worker.phase} />,

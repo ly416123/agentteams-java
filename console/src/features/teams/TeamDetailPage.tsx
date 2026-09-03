@@ -20,12 +20,14 @@ import {
   useRollbackTeam,
   useUpdateTeamPolicy,
 } from '../../queries/useTeamQueries';
+import { useWorkers } from '../../queries/useWorkerQueries';
 
 const tabs = ['概览', '成员 Agent', '策略', '版本与部署', '运行记录'] as const;
 export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamId: string }) {
   const [tab, setTab] = useState<(typeof tabs)[number]>('概览');
   const team = useTeam(projectId, teamId);
   const members = useTeamMembers(projectId, teamId);
+  const workers = useWorkers(projectId, { search: '', phase: '', cursor: undefined });
   const policy = useTeamPolicy(projectId, teamId);
   const revisions = useTeamRevisions(projectId, teamId);
   const deployments = useTeamDeployments(projectId, teamId);
@@ -48,7 +50,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
   });
   const [revisionForm, setRevisionForm] = useState({
     leaderAgentId: '',
-    memberAgentIds: '',
+    memberAgentIds: [] as string[],
     overlayJson: '{}',
     actor: '',
   });
@@ -85,14 +87,14 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
     createRevision.mutate(
       {
         leaderAgentId: revisionForm.leaderAgentId,
-        memberAgentIds: splitValues(revisionForm.memberAgentIds),
+        memberAgentIds: revisionForm.memberAgentIds,
         overlayJson: revisionForm.overlayJson,
         actor: revisionForm.actor || undefined,
       },
       {
         onSuccess: () => {
           setLifecycleNotice('Team Revision 草稿已创建');
-          setRevisionForm({ leaderAgentId: '', memberAgentIds: '', overlayJson: '{}', actor: '' });
+          setRevisionForm({ leaderAgentId: '', memberAgentIds: [], overlayJson: '{}', actor: '' });
         },
       },
     );
@@ -128,6 +130,18 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
         <ErrorState error={team.error} onRetry={() => void team.refetch()} />
       </div>
     );
+  const workerItems = workers.data?.items || [];
+  const workerById = new Map(workerItems.map((worker) => [worker.id, worker]));
+  const activeMemberIds = (members.data || [])
+    .filter((member) => member.status === 'ACTIVE')
+    .map((member) => member.agentId);
+  const availableWorkers = workerItems.filter(
+    (worker) => !activeMemberIds.includes(worker.id),
+  );
+  const activeTeamWorkers = activeMemberIds
+    .map((agentId) => workerById.get(agentId))
+    .filter((worker): worker is (typeof workerItems)[number] => Boolean(worker));
+  const leaderTeamWorkers = activeTeamWorkers.filter((worker) => worker.workerType === 'LEADER');
   return (
     <div className="page">
       <Link className="back-link" to={`/${projectId}/teams`}>
@@ -196,20 +210,37 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
             }}
           >
             <label>
-              Worker / Agent ID
-              <input
-                aria-label="Worker / Agent ID"
+              Worker / Agent
+              <select
+                aria-label="Worker / Agent"
                 value={memberForm.agentId}
                 onChange={(event) => setMemberForm({ ...memberForm, agentId: event.target.value })}
                 required
-              />
+              >
+                <option value="">选择 Worker</option>
+                {availableWorkers
+                  .filter((worker) => memberForm.role !== 'LEADER' || worker.workerType === 'LEADER')
+                  .map((worker) => (
+                    <option value={worker.id} key={worker.id}>
+                      {worker.name} · {worker.workerType || 'EXECUTOR'}
+                    </option>
+                  ))}
+              </select>
             </label>
             <label>
               角色
               <select
                 aria-label="成员角色"
                 value={memberForm.role}
-                onChange={(event) => setMemberForm({ ...memberForm, role: event.target.value })}
+                onChange={(event) => {
+                  const role = event.target.value;
+                  setMemberForm({
+                    agentId: role === 'LEADER' && workerById.get(memberForm.agentId)?.workerType !== 'LEADER'
+                      ? ''
+                      : memberForm.agentId,
+                    role,
+                  });
+                }}
               >
                 <option value="MEMBER">成员</option>
                 <option value="LEADER">Leader</option>
@@ -239,6 +270,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                   <strong>{member.agentId}</strong>
                   <small>
                     {member.runtime || 'runtime 未知'} · {(member.capabilities || []).join('、')}
+                    {workerById.get(member.agentId)?.workerType
+                      ? ` · ${workerById.get(member.agentId)?.workerType}`
+                      : ''}
                   </small>
                 </div>
                 <StatusBadge phase={member.status} />
@@ -363,26 +397,40 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
             <form onSubmit={submitRevision}>
               <div className="form-grid">
                 <label>
-                  Leader Agent ID
-                  <input
-                    aria-label="Leader Agent ID"
+                  Leader Worker
+                  <select
+                    aria-label="Leader Worker"
                     value={revisionForm.leaderAgentId}
                     onChange={(event) =>
                       setRevisionForm({ ...revisionForm, leaderAgentId: event.target.value })
                     }
                     required
-                  />
+                  >
+                    <option value="">选择 Leader Worker</option>
+                    {leaderTeamWorkers.map((worker) => (
+                      <option value={worker.id} key={worker.id}>{worker.name} · {worker.id}</option>
+                    ))}
+                  </select>
                 </label>
                 <label>
-                  成员 Agent ID（逗号分隔）
-                  <input
-                    aria-label="成员 Agent ID"
+                  成员 Worker（可多选）
+                  <select
+                    aria-label="成员 Worker"
+                    multiple
+                    size={Math.min(Math.max(activeTeamWorkers.length, 2), 6)}
                     value={revisionForm.memberAgentIds}
                     onChange={(event) =>
-                      setRevisionForm({ ...revisionForm, memberAgentIds: event.target.value })
+                      setRevisionForm({
+                        ...revisionForm,
+                        memberAgentIds: Array.from(event.target.selectedOptions, (option) => option.value),
+                      })
                     }
                     required
-                  />
+                  >
+                    {activeTeamWorkers.map((worker) => (
+                      <option value={worker.id} key={worker.id}>{worker.name} · {worker.workerType || 'EXECUTOR'}</option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   变更说明人

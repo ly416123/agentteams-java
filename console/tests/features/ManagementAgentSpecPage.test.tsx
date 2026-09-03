@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
       id: 'spec-1',
       name: 'research-agent',
       runtime: 'qwenpaw',
+      workerType: 'EXECUTOR',
       modelProvider: 'local',
       modelName: 'qwen',
       teamRef: null,
@@ -51,6 +52,7 @@ describe('Management AgentSpec page', () => {
     expect(mocks.createAgentSpec).toHaveBeenCalledWith('project-1', {
       name: 'new-agent',
       runtime: 'qwenpaw',
+      workerType: 'EXECUTOR',
       modelProvider: 'local',
       modelName: 'qwen',
       teamRef: undefined,

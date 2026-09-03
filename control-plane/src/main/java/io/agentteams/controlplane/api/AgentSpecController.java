@@ -5,6 +5,7 @@ import io.agentteams.controlplane.agentspec.AgentSpecRecord;
 import io.agentteams.controlplane.agentspec.AgentSpecDeploymentService;
 import io.agentteams.controlplane.agentspec.AgentSpecService;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -88,19 +89,19 @@ public final class AgentSpecController {
     }
 
     public record CreateAgentSpecRequest(String name, String runtime, String modelProvider,
-            String modelName, String teamRef, String desiredState, JsonNode spec) {
+            String modelName, String teamRef, String desiredState, WorkerType workerType, JsonNode spec) {
         AgentSpecService.Input toInput() {
             return new AgentSpecService.Input(name, runtime, modelProvider, modelName, teamRef, desiredState,
-                    spec == null || spec.isNull() ? "{}" : spec.toString());
+                    workerType, spec == null || spec.isNull() ? "{}" : spec.toString());
         }
     }
 
     public record AgentSpecResponse(UUID id, String name, String runtime, String modelProvider,
-            String modelName, String teamRef, String desiredState, String lifecycleStatus,
+            String modelName, String teamRef, WorkerType workerType, String desiredState, String lifecycleStatus,
             String spec, Instant createdAt, Instant updatedAt, long version, String tenantId, String projectId) {
         static AgentSpecResponse from(AgentSpecRecord record) {
             return new AgentSpecResponse(record.id(), record.name(), record.runtime(), record.modelProvider(),
-                    record.modelName(), record.teamRef(), record.desiredState(), record.lifecycleStatus(),
+                    record.modelName(), record.teamRef(), record.workerType(), record.desiredState(), record.lifecycleStatus(),
                     record.specJson(), record.createdAt(), record.updatedAt(), record.version(), record.tenantId(),
                     record.projectId());
         }

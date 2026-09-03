@@ -42,10 +42,10 @@
 
 ### 测试命令
 
-- Control Plane 聚焦测试：`./mvnw -pl control-plane -Dtest=TeamWorkerTypeTest,AgentListControllerTest,WorkerTemplateServiceTest test`
-- Console 聚焦测试：`npm test -- --run console/tests/features/TeamDetailPage.test.tsx console/tests/features/WorkerPages.test.tsx`
+- Control Plane 聚焦测试：`mvn -pl control-plane -Dtest=TeamWorkerTypeTest,AgentListControllerTest,WorkerTemplateServiceTest test`
+- Console 聚焦测试：`npm test --prefix console -- --run tests/features/TeamDetailPage.test.tsx tests/features/WorkerPages.test.tsx`
 - Console 构建：`npm run build --prefix console`
-- 全量相关 Java 测试：`./mvnw -pl control-plane test`
+- 全量相关 Java 测试：`mvn -pl control-plane test`
 
 ## 任务 1：先建立 Worker 类型与数据库兼容层
 
@@ -57,7 +57,7 @@
 - 测试 `AgentListControllerTest.java`、`AgentServiceScopeTest.java`。
 
 - [ ] **步骤 1：编写失败测试**：让 Agent 列表断言 `workerType`，并增加创建请求携带 `LEADER` 后持久化记录为 `LEADER` 的服务测试；测试使用 `WorkerType.LEADER`，在枚举和字段尚未存在时必须编译失败。
-- [ ] **步骤 2：运行红灯测试**：运行 `./mvnw -pl control-plane -Dtest=AgentListControllerTest,AgentServiceScopeTest test`，预期失败原因是 `workerType` 不存在或响应未返回类型，不接受测试基础设施错误作为红灯。
+- [ ] **步骤 2：运行红灯测试**：运行 `mvn -pl control-plane -Dtest=AgentListControllerTest,AgentServiceScopeTest test`，预期失败原因是 `workerType` 不存在或响应未返回类型，不接受测试基础设施错误作为红灯。
 - [ ] **步骤 3：实现最小代码**：增加 `WorkerType`；在 `AgentRecord` 增加字段并保留旧构造器；在 `agents` 表增加 `worker_type` 默认 `EXECUTOR` 和值约束；同步 Repository SQL、创建输入、Controller 请求与响应。旧 `AgentRecord.create(...)` 与旧 `AgentInput(...)` 全部委托到 `EXECUTOR`。
 - [ ] **步骤 4：运行绿灯测试**：再次运行同一命令，预期相关测试全部通过，并确认旧测试夹具无需批量改写。
 - [ ] **步骤 5：Commit**：`git add domain control-plane/src/main/java/io/agentteams/controlplane/{api,persistence,service} control-plane/src/main/resources/db/migration control-plane/src/test/java/io/agentteams/controlplane/{api,service}`，提交 `feat(Worker): 增加显式 Worker 类型`。
@@ -73,7 +73,7 @@
 - 修改 `control-plane/src/test/java/io/agentteams/controlplane/api/TeamControllerTest.java`、`TeamServiceScopeTest.java`。
 
 - [ ] **步骤 1：编写失败测试**：覆盖 `EXECUTOR + LEADER` 添加成员被拒绝、`LEADER + LEADER` 添加成功、跨 Project 仍先返回授权错误、Revision 的非 Leader Worker 不能作为 Leader、Leader 不在成员列表时被拒绝。
-- [ ] **步骤 2：运行红灯测试**：运行 `./mvnw -pl control-plane -Dtest=TeamWorkerTypeTest,TeamServiceScopeTest,TeamControllerTest test`，预期新增类型校验测试失败，既有 Scope 测试不得因测试夹具兼容构造器缺失而失败。
+- [ ] **步骤 2：运行红灯测试**：运行 `mvn -pl control-plane -Dtest=TeamWorkerTypeTest,TeamServiceScopeTest,TeamControllerTest test`，预期新增类型校验测试失败，既有 Scope 测试不得因测试夹具兼容构造器缺失而失败。
 - [ ] **步骤 3：实现最小代码**：TeamService 在确认 Team/Worker 可见后读取 AgentRecord；当角色为 `LEADER` 且类型不是 `LEADER` 时抛出带业务错误标识的异常。Revision 创建沿用当前 UUID 请求，增加 Scope、有效成员、Leader 类型和唯一 Leader 校验；不把类型错误转换成 `AuthorizationException`。
 - [ ] **步骤 4：运行绿灯测试**：运行聚焦 Java 测试，确认错误消息和 HTTP 状态均符合测试断言。
 - [ ] **步骤 5：Commit**：提交 `feat(团队): 增加 Leader Worker 任命校验`。
@@ -87,7 +87,7 @@
 - 修改 `WorkerTemplateServiceTest.java`、`WorkerTemplateControllerTest.java`、`AgentSpecWorkerTemplateProvisionerTest.java`。
 
 - [ ] **步骤 1：编写失败测试**：创建 `LEADER` Template，断言查询返回 `LEADER`；创建 Revision 断言继承模板类型；实例化断言 AgentSpec、Worker 输入和 Manifest 的类型一致。
-- [ ] **步骤 2：运行红灯测试**：运行 `./mvnw -pl control-plane -Dtest=WorkerTemplateServiceTest,WorkerTemplateControllerTest,AgentSpecWorkerTemplateProvisionerTest test`，预期新增断言失败。
+- [ ] **步骤 2：运行红灯测试**：运行 `mvn -pl control-plane -Dtest=WorkerTemplateServiceTest,WorkerTemplateControllerTest,AgentSpecWorkerTemplateProvisionerTest test`，预期新增断言失败。
 - [ ] **步骤 3：实现最小代码**：新增模板与 Revision 类型字段及兼容构造器；V87 为现有模板和 Revision 默认 `EXECUTOR`，并为 `worker_template_revisions.worker_type` 增加值约束；实例化适配器接收 Revision 类型，调用 AgentService 时传递类型，并在配置 Manifest 增加 `workerType`。
 - [ ] **步骤 4：运行绿灯测试**：再次运行模板聚焦测试，确认旧模板测试仍按 `EXECUTOR` 通过。
 - [ ] **步骤 5：Commit**：提交 `feat(模板): 继承 Worker 类型并校验实例化一致性`。

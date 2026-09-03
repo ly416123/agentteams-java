@@ -44,17 +44,18 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
     public void insertTemplate(WorkerTemplate template) {
         jdbc.update("""
                 INSERT INTO worker_templates(id, tenant_id, project_id, name, display_name,
-                    current_published_revision, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    current_published_revision, version, created_at, updated_at, worker_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, template.id(), template.tenantId(), template.projectId(), template.name(), template.displayName(),
-                template.currentPublishedRevision(), template.version(), ts(template.createdAt()), ts(template.updatedAt()));
+                template.currentPublishedRevision(), template.version(), ts(template.createdAt()), ts(template.updatedAt()),
+                template.workerType().name());
     }
 
     @Override
     public List<WorkerTemplate> findTemplates(String tenantId, String projectId) {
         return jdbc.query("""
                 SELECT id, tenant_id, project_id, name, display_name, current_published_revision,
-                       version, created_at, updated_at
+                       version, created_at, updated_at, worker_type
                   FROM worker_templates WHERE tenant_id = ? AND project_id = ? ORDER BY name, id
                 """, this::mapTemplate, tenantId, projectId);
     }
@@ -63,7 +64,7 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
     public Optional<WorkerTemplate> findTemplate(UUID templateId) {
         return jdbc.query("""
                 SELECT id, tenant_id, project_id, name, display_name, current_published_revision,
-                       version, created_at, updated_at FROM worker_templates WHERE id = ?
+                       version, created_at, updated_at, worker_type FROM worker_templates WHERE id = ?
                 """, this::mapTemplate, templateId).stream().findFirst();
     }
 
@@ -90,11 +91,14 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
                 }
                 return replay.get();
             }
+            String workerType = jdbc.queryForObject("SELECT worker_type FROM worker_templates WHERE id = ?",
+                    String.class, templateId);
             jdbc.update("""
                     INSERT INTO worker_template_revisions(template_id, revision, spec, digest, status, created_by,
-                        created_at, updated_at, version, idempotency_key, request_hash)
-                    VALUES (?, ?, CAST(? AS jsonb), ?, 'DRAFT', ?, ?, ?, 0, ?, ?)
-                    """, templateId, revision, specJson, digest, actor, ts(now), ts(now), idempotencyKey, requestHash);
+                        created_at, updated_at, version, idempotency_key, request_hash, worker_type)
+                    VALUES (?, ?, CAST(? AS jsonb), ?, 'DRAFT', ?, ?, ?, 0, ?, ?, ?)
+                    """, templateId, revision, specJson, digest, actor, ts(now), ts(now), idempotencyKey, requestHash,
+                    workerType);
             return findRevision(templateId, revision).orElseThrow();
         });
     }
@@ -102,7 +106,8 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
     @Override
     public Optional<WorkerTemplateRevision> findRevision(UUID templateId, long revision) {
         return jdbc.query("""
-                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version
+                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version,
+                       worker_type
                   FROM worker_template_revisions WHERE template_id = ? AND revision = ?
                 """, this::mapRevision, templateId, revision).stream().findFirst();
     }
@@ -110,7 +115,8 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
     @Override
     public List<WorkerTemplateRevision> findRevisions(UUID templateId) {
         return jdbc.query("""
-                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version
+                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version,
+                       worker_type
                   FROM worker_template_revisions WHERE template_id = ? ORDER BY revision
                 """, this::mapRevision, templateId);
     }
@@ -233,7 +239,8 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
 
     private Optional<WorkerTemplateRevision> findRevisionByKey(UUID templateId, String key) {
         return jdbc.query("""
-                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version
+                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version,
+                       worker_type
                   FROM worker_template_revisions WHERE template_id = ? AND idempotency_key = ?
                 """, this::mapRevision, templateId, key).stream().findFirst();
     }
@@ -259,7 +266,8 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
 
     private WorkerTemplateRevision lockedRevision(UUID templateId, long revision) {
         return jdbc.query("""
-                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version
+                SELECT template_id, revision, spec::text, digest, status, created_by, created_at, updated_at, version,
+                       worker_type
                   FROM worker_template_revisions WHERE template_id = ? AND revision = ? FOR UPDATE
                 """, this::mapRevision, templateId, revision).stream().findFirst()
                 .orElseThrow(() -> new TemplateConflictException("worker template revision does not exist"));
@@ -267,14 +275,16 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
 
     private WorkerTemplate mapTemplate(ResultSet rs, int row) throws SQLException {
         return new WorkerTemplate(rs.getObject("id", UUID.class), rs.getString("tenant_id"), rs.getString("project_id"),
-                rs.getString("name"), rs.getString("display_name"), (Long) rs.getObject("current_published_revision"),
+                rs.getString("name"), rs.getString("display_name"), io.agentteams.domain.agent.WorkerType.valueOf(rs.getString("worker_type")),
+                (Long) rs.getObject("current_published_revision"),
                 rs.getLong("version"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
                 rs.getLong("version"));
     }
 
     private WorkerTemplateRevision mapRevision(ResultSet rs, int row) throws SQLException {
         return new WorkerTemplateRevision(rs.getObject("template_id", UUID.class), rs.getLong("revision"),
-                rs.getString("spec"), rs.getString("digest"), TemplateStatus.valueOf(rs.getString("status")),
+                rs.getString("spec"), rs.getString("digest"), io.agentteams.domain.agent.WorkerType.valueOf(rs.getString("worker_type")),
+                TemplateStatus.valueOf(rs.getString("status")),
                 rs.getString("created_by"), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant(), rs.getLong("version"));
     }

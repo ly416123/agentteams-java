@@ -1,4 +1,5 @@
 export type ProjectId = string;
+export type WorkerType = 'LEADER' | 'EXECUTOR';
 
 export type ApiErrorShape = {
   status?: number;
@@ -61,6 +62,7 @@ export type TeamMember = {
   version: number;
   runtime?: string;
   capabilities?: string[];
+  workerType?: WorkerType;
 };
 
 export type TeamPolicy = {
@@ -192,6 +194,7 @@ export type Worker = {
   name: string;
   phase: string;
   runtime: string;
+  workerType?: WorkerType;
   createdAt: string;
   updatedAt: string;
   version: number;

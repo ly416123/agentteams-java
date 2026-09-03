@@ -125,6 +125,23 @@ class TeamRevisionServiceTest {
     }
 
     @Test
+    void rejectsNonLeaderWorkerBeforeCreatingRevision() {
+        TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
+        UUID teamId = UUID.randomUUID();
+        UUID workerId = UUID.randomUUID();
+        org.mockito.Mockito.doThrow(new IllegalArgumentException(
+                "WORKER_TYPE_NOT_ALLOWED_FOR_ROLE: only Leader Worker can be assigned as Team Leader"))
+                .when(repository).validateLeaderType(teamId, workerId);
+        TeamRevisionService service = new TeamRevisionService(repository, repository::validatePublish, scopes);
+
+        assertThatThrownBy(() -> service.createDraft(teamId, workerId, "{}", List.of(workerId),
+                "alice", "type-key", NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("WORKER_TYPE_NOT_ALLOWED_FOR_ROLE");
+        verify(repository, never()).createDraft(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void draftStoresCanonicalResourceBindingsAndIncludesThemInDigest() {
         TeamRevisionRepository repository = mock(TeamRevisionRepository.class);
         UUID teamId = UUID.randomUUID();

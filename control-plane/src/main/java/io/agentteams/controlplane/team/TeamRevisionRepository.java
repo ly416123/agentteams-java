@@ -118,6 +118,22 @@ public class TeamRevisionRepository {
                 """, this::map, teamId, revision).stream().findFirst();
     }
 
+    public void validateLeaderType(UUID teamId, UUID leaderAgentId) {
+        String workerType = jdbc.query("""
+                SELECT a.worker_type
+                  FROM agents a
+                  JOIN team_memberships membership ON membership.agent_id = a.id
+                 WHERE membership.team_id = ? AND membership.agent_id = ?
+                   AND membership.status = 'ACTIVE'
+                """, (rs, row) -> rs.getString(1), teamId, leaderAgentId)
+                .stream().findFirst()
+                .orElseThrow(() -> new TeamRevisionConflictException("leader must be an ACTIVE Team member"));
+        if (!"LEADER".equals(workerType)) {
+            throw new IllegalArgumentException(
+                    "WORKER_TYPE_NOT_ALLOWED_FOR_ROLE: only Leader Worker can be assigned as Team Leader");
+        }
+    }
+
     public List<TeamRevision> findAll(UUID teamId) {
         return jdbc.query("""
                 SELECT team_id, revision, leader_agent_id, overlay::text, digest, status,

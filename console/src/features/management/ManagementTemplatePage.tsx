@@ -8,6 +8,7 @@ import {
   publishWorkerTemplateRevision,
   type WorkerTemplateRevision,
 } from '../../api/managementCatalog';
+import type { WorkerType } from '../../api/types';
 import { ErrorState } from '../../components/ErrorState';
 import { EmptyState } from '../../components/EmptyState';
 
@@ -20,7 +21,9 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
     queryFn: () => listWorkerTemplates(projectId),
   });
   const [notice, setNotice] = useState<Notice>();
-  const [template, setTemplate] = useState({ name: '', displayName: '' });
+  const [template, setTemplate] = useState<{ name: string; displayName: string; workerType: WorkerType }>({
+    name: '', displayName: '', workerType: 'EXECUTOR',
+  });
   const [revision, setRevision] = useState({ templateId: '', specJson: '{}', actor: '' });
   const [lastRevision, setLastRevision] = useState<WorkerTemplateRevision>();
 
@@ -29,7 +32,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
     mutationFn: () => createWorkerTemplate(projectId, template),
     onSuccess: () => {
       setNotice({ kind: 'success', text: 'Worker Template 已创建' });
-      setTemplate({ name: '', displayName: '' });
+      setTemplate({ name: '', displayName: '', workerType: 'EXECUTOR' });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -111,6 +114,15 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
             onChange={(event) => setTemplate({ ...template, displayName: event.target.value })}
             required
           />
+          <label htmlFor="template-worker-type">Worker 类型</label>
+          <select
+            id="template-worker-type"
+            value={template.workerType}
+            onChange={(event) => setTemplate({ ...template, workerType: event.target.value as WorkerType })}
+          >
+            <option value="EXECUTOR">Executor Worker</option>
+            <option value="LEADER">Leader Worker</option>
+          </select>
           <button className="button button--primary" type="submit" disabled={create.isPending}>
             {create.isPending ? '创建中…' : '创建模板'}
           </button>
@@ -185,7 +197,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
               <div className="panel-heading">
                 <div>
                   <h2>{item.displayName}</h2>
-                  <p className="muted-text">{item.name}</p>
+                  <p className="muted-text">{item.name} · {item.workerType || 'EXECUTOR'}</p>
                 </div>
                 <span className="status-badge">
                   {item.currentPublishedRevision

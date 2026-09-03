@@ -214,8 +214,8 @@ class AgentSpecServiceTest {
 
     private static String sha(AgentSpecService.Input input) {
         try {
-            String value = String.join("\u0000", input.name(), input.runtime(), input.modelProvider(),
-                    input.modelName(), "", input.desiredState(), input.specJson());
+            String value = String.join("\u0000", input.name(), input.workerType().name(), input.runtime(),
+                    input.modelProvider(), input.modelName(), "", input.desiredState(), input.specJson());
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                     .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         } catch (java.security.NoSuchAlgorithmException error) {
