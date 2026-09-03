@@ -67,6 +67,9 @@ public final class AgentRepository {
                 SELECT a.id, a.name, a.worker_type, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
                        a.created_at, a.updated_at, a.version, template.template_name
                  FROM agents a JOIN resource_scopes s ON s.resource_type = 'WORKER' AND s.resource_id = a.id
+                 JOIN projects scoped_project
+                   ON scoped_project.tenant_id = s.tenant_id
+                  AND (scoped_project.id::text = s.project_id OR scoped_project.name = s.project_id)
                  LEFT JOIN LATERAL (
                       SELECT COALESCE(t.display_name, t.name) AS template_name
                         FROM worker_template_instances i
@@ -75,7 +78,9 @@ public final class AgentRepository {
                        ORDER BY i.updated_at DESC, i.id DESC
                        LIMIT 1
                  ) template ON TRUE
-                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                 WHERE s.tenant_id = ?
+                   AND (scoped_project.id::text = ? OR scoped_project.name = ?)
+                   AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
                                 JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
                                 WHERE m.tenant_id = s.tenant_id
@@ -83,7 +88,7 @@ public final class AgentRepository {
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                 """);
         java.util.List<Object> values = new java.util.ArrayList<>(java.util.List.of(principal.scope().tenant(),
-                principal.scope().project(), principal.scope().team(), principal.subject()));
+                principal.scope().project(), principal.scope().project(), principal.scope().team(), principal.subject()));
         if (status != null && !status.isBlank()) { sql.append(" AND a.phase = ?"); values.add(status.trim()); }
         if (query != null && !query.isBlank()) {
             sql.append(" AND (a.name ILIKE ? OR a.runtime ILIKE ?)");

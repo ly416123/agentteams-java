@@ -67,10 +67,25 @@ class JdbcScopedResourceListRepositoryTest {
         new AgentRepository(jdbc).findPage(PRINCIPAL, null, 21, CursorPageRequest.Direction.DESC,
                 "READY", "worker");
 
-        verify(jdbc).query(contains("s.tenant_id = ? AND s.project_id = ? AND s.team = ?"),
+        verify(jdbc).query(contains("scoped_project.id::text = ? OR scoped_project.name = ?"),
                 any(RowMapper.class), any(Object[].class));
         verify(jdbc).query(contains("a.phase = ?"), any(RowMapper.class), any(Object[].class));
         verify(jdbc).query(contains("(a.name ILIKE ? OR a.runtime ILIKE ?)"),
+                any(RowMapper.class), any(Object[].class));
+    }
+
+    @Test
+    void agentListResolvesProjectNameScopesAgainstProjectUuid() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        new AgentRepository(jdbc).findPage(
+                new Principal("actor-a", new AuthorizationService.Scope("tenant-a", "project-uuid", "team-a"), Set.of("read")),
+                null, 21, CursorPageRequest.Direction.DESC);
+
+        verify(jdbc).query(contains("scoped_project.id::text = s.project_id"),
+                any(RowMapper.class), any(Object[].class));
+        verify(jdbc).query(contains("scoped_project.id::text = ? OR scoped_project.name = ?"),
                 any(RowMapper.class), any(Object[].class));
     }
 }
