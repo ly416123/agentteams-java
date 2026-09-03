@@ -2,6 +2,8 @@ package io.agentteams.controlplane.api;
 
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.ProjectScopeResolver;
 import io.agentteams.controlplane.webhook.WebhookScope;
 import io.agentteams.controlplane.webhook.WebhookSubscription;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
@@ -26,10 +28,17 @@ public final class WebhookController {
     private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     private final WebhookDeliveryService service;
     private final Clock clock;
+    private final ProjectScopeResolver projectScopes;
 
     public WebhookController(WebhookDeliveryService service, Clock clock) {
+        this(service, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WebhookController(WebhookDeliveryService service, Clock clock, ProjectScopeResolver projectScopes) {
         this.service = service;
         this.clock = clock;
+        this.projectScopes = projectScopes;
     }
 
     @PostMapping
@@ -38,16 +47,18 @@ public final class WebhookController {
             @RequestBody CreateWebhookRequest request) {
         requireKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
-        requireCallerScope(request.tenantId(), request.projectId());
-        WebhookSubscription created = service.create(request.toServiceRequest(), clock);
+        String project = canonicalProject(request.tenantId(), request.projectId());
+        requireCallerScope(request.tenantId(), project);
+        WebhookSubscription created = service.create(request.toServiceRequest(project), clock);
         return ResponseEntity.status(201).body(WebhookResponse.from(created));
     }
 
     @GetMapping
     public List<WebhookResponse> list(@RequestParam String organizationId, @RequestParam String tenantId,
             @RequestParam(required = false) String projectId) {
-        requireCallerScope(tenantId, projectId);
-        return serviceSubscriptions(new WebhookScope(organizationId, tenantId, projectId));
+        String project = canonicalProject(tenantId, projectId);
+        requireCallerScope(tenantId, project);
+        return serviceSubscriptions(new WebhookScope(organizationId, tenantId, project));
     }
 
     private List<WebhookResponse> serviceSubscriptions(WebhookScope scope) {
@@ -58,6 +69,17 @@ public final class WebhookController {
         if (value == null || value.isBlank() || value.length() > 255) {
             throw new IllegalArgumentException("Idempotency-Key is required and must be at most 255 characters");
         }
+    }
+
+    private String canonicalProject(String tenantId, String projectId) {
+        if (projectId == null || projectId.isBlank()) return projectId;
+        if (projectScopes == null) return projectId;
+        Principal principal = PrincipalContext.current().orElseThrow(
+                () -> new AuthorizationException("authentication required"));
+        if (!principal.scope().tenant().equals(tenantId)) {
+            throw new AuthorizationException("Webhook is outside the caller scope");
+        }
+        return projectScopes.resolve(principal, projectId).projectIdValue();
     }
 
     private static void requireCallerScope(String tenantId, String projectId) {
@@ -72,8 +94,12 @@ public final class WebhookController {
     public record CreateWebhookRequest(String organizationId, String tenantId, String projectId,
             String endpoint, String secretRef, Set<String> eventTypes) {
         WebhookDeliveryService.CreateRequest toServiceRequest() {
+            return toServiceRequest(projectId);
+        }
+
+        WebhookDeliveryService.CreateRequest toServiceRequest(String canonicalProjectId) {
             return new WebhookDeliveryService.CreateRequest(
-                    new WebhookScope(organizationId, tenantId, projectId), endpoint, secretRef, eventTypes);
+                    new WebhookScope(organizationId, tenantId, canonicalProjectId), endpoint, secretRef, eventTypes);
         }
     }
 

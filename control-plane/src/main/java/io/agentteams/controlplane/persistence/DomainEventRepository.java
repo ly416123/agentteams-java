@@ -43,13 +43,15 @@ public final class DomainEventRepository {
                 SELECT e.id, e.event_id, e.aggregate_type, e.aggregate_id, e.event_type, e.payload::text,
                        e.occurred_at, e.aggregate_version, e.created_at, e.updated_at, e.version
                  FROM domain_events e
-                  JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = e.aggregate_id
+                 JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = e.aggregate_id
+                  JOIN projects scoped_project ON scoped_project.tenant_id = s.tenant_id
+                                             AND (scoped_project.id::text = s.project_id
+                                                  OR scoped_project.name = s.project_id)
                  WHERE e.aggregate_type = 'task' AND e.aggregate_id = ? AND e.aggregate_version > ?
-                   AND s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                   AND s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
-                                WHERE m.tenant_id = s.tenant_id
-                                  AND (m.project_id::text = s.project_id OR p.name = s.project_id)
+                                WHERE m.tenant_id = scoped_project.tenant_id
+                                  AND m.project_id = scoped_project.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                  ORDER BY e.aggregate_version ASC, e.id ASC LIMIT ?
                 """, this::map, taskId, after, principal.scope().tenant(), principal.scope().project(),

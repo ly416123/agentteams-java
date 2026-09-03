@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -25,6 +26,7 @@ import io.agentteams.controlplane.team.TeamRevision;
 import io.agentteams.controlplane.team.TeamRevisionService;
 import io.agentteams.controlplane.team.TeamRevisionStatus;
 import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import java.time.Instant;
@@ -147,11 +149,13 @@ class TeamControllerTest {
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
                 Set.of("team:read", "team:write")));
+        doThrow(new AuthorizationException("resource is outside the caller project scope"))
+                .when(service).requireProjectScope("project-b");
 
         mockMvc.perform(get("/api/v1/teams/page").param("projectId", "project-b"))
                 .andExpect(status().isForbidden());
 
-        verifyNoInteractions(service);
+        verify(service).requireProjectScope("project-b");
     }
 
     @Test

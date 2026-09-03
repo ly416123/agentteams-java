@@ -61,12 +61,15 @@ public final class WorkerOperationRepository {
                        operation.failure_category, operation.correlation_id, operation.created_at,
                        operation.updated_at, operation.version
                   FROM worker_operations operation
-                  JOIN resource_scopes scope ON scope.resource_type = 'WORKER'
+                 JOIN resource_scopes scope ON scope.resource_type = 'WORKER'
                                             AND scope.resource_id = operation.agent_id
-                 WHERE operation.agent_id = ? AND scope.tenant_id = ? AND scope.project_id = ?
+                  JOIN projects scoped_project ON scoped_project.tenant_id = scope.tenant_id
+                                             AND (scoped_project.id::text = scope.project_id
+                                                  OR scoped_project.name = scope.project_id)
+                 WHERE operation.agent_id = ? AND scope.tenant_id = ? AND scoped_project.id::text = ?
                    AND scope.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                WHERE m.tenant_id = scope.tenant_id AND m.project_id::text = scope.project_id
+                                WHERE m.tenant_id = scoped_project.tenant_id AND m.project_id = scoped_project.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                 """ + cursor + order;
         List<Object> args = new java.util.ArrayList<>(List.of(agentId, principal.scope().tenant(),

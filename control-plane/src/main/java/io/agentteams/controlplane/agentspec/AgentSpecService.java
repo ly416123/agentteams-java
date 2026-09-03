@@ -97,8 +97,17 @@ public class AgentSpecService {
         validateModelReference(providerName, modelId);
 
         Instant now = clock.instant();
-        String tenantId = PrincipalContext.current().map(p -> p.scope().tenant()).orElse(null);
-        String projectId = PrincipalContext.current().map(p -> p.scope().project()).orElse(null);
+        io.agentteams.controlplane.security.Principal current = PrincipalContext.current().orElse(null);
+        if (current != null && resourceScopes != null) {
+            io.agentteams.controlplane.security.Principal canonical = resourceScopes.canonicalize(current,
+                    current.scope().project());
+            if (canonical != null) {
+                current = canonical;
+                PrincipalContext.set(canonical);
+            }
+        }
+        String tenantId = current == null ? null : current.scope().tenant();
+        String projectId = current == null ? null : current.scope().project();
         WorkerType workerType = input.workerType() == null ? WorkerType.EXECUTOR : input.workerType();
         AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), name, workerType, runtime, providerName,
                 modelId, optional(input.teamRef()), desiredState, DRAFT, specJson, now, now, 1, tenantId, projectId);
@@ -122,10 +131,19 @@ public class AgentSpecService {
         if (projectId == null || projectId.isBlank()) return;
         io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
                 .orElseThrow(() -> new AuthorizationException("authentication required"));
+        if (resourceScopes != null) {
+            io.agentteams.controlplane.security.Principal canonical = resourceScopes.canonicalize(principal, projectId);
+            if (canonical != null) {
+                PrincipalContext.set(canonical);
+                return;
+            }
+        }
         if (projectId.equals(principal.scope().project())) return;
         if (resourceScopes == null || !resourceScopes.matchesCallerProject(projectId)) {
             throw new AuthorizationException("resource is outside caller project");
         }
+        io.agentteams.controlplane.security.Principal canonical = resourceScopes.canonicalize(principal, projectId);
+        if (canonical != null) PrincipalContext.set(canonical);
     }
 
     public AgentSpecRecord get(UUID id) {
@@ -260,7 +278,9 @@ public class AgentSpecService {
         return PrincipalContext.current().map(principal -> {
             AuthorizationService.Scope scope = principal.scope();
             return record.tenantId() != null && record.projectId() != null
-                    && record.tenantId().equals(scope.tenant()) && record.projectId().equals(scope.project());
+                    && record.tenantId().equals(scope.tenant())
+                    && (record.projectId().equals(scope.project())
+                        || (resourceScopes != null && resourceScopes.matchesCallerProject(record.projectId())));
         }).orElse(true);
     }
 

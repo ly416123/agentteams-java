@@ -82,6 +82,19 @@ class ResourceAuthorizationServiceTest {
     }
 
     @Test
+    void taskAuthorizationResolvesProjectUuidWithinTenant() {
+        when(repository.findProject("tenant-a", PROJECT_ID)).thenReturn(Optional.of(
+                ProjectRecord.create(PROJECT_ID, "tenant-a", "project-a", "alice", Instant.EPOCH)));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "alice")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "alice", ProjectRole.DEVELOPER,
+                        Instant.EPOCH)));
+
+        assertThatCode(() -> authorization.require(ResourceAction.TASK_CREATE,
+                new AuthorizationService.Scope("tenant-a", PROJECT_ID.toString(), "team-a")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void developerCannotOperateTasks() {
         when(repository.findProjectByName("tenant-a", "project-a")).thenReturn(Optional.of(
                 ProjectRecord.create(PROJECT_ID, "tenant-a", "project-a", "alice", Instant.EPOCH)));

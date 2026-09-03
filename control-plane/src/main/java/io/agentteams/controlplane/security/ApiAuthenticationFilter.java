@@ -12,9 +12,15 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
     public static final String PRINCIPAL_ATTRIBUTE = ApiAuthenticationFilter.class.getName() + ".principal";
 
     private final IdentityTokenValidator validator;
+    private final ProjectScopeResolver projectScopes;
 
     public ApiAuthenticationFilter(IdentityTokenValidator validator) {
+        this(validator, null);
+    }
+
+    public ApiAuthenticationFilter(IdentityTokenValidator validator, ProjectScopeResolver projectScopes) {
         this.validator = java.util.Objects.requireNonNull(validator, "validator");
+        this.projectScopes = projectScopes;
     }
 
     @Override
@@ -47,13 +53,22 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
         }
 
         Principal principal = new Principal(identity.subject(), identity.scope(), identity.permissions());
-        request.setAttribute(PRINCIPAL_ATTRIBUTE, principal);
-        PrincipalContext.set(principal);
+        try {
+            if (projectScopes != null) {
+                principal = projectScopes.canonicalize(principal, request.getParameter("projectId"));
+            }
+        } catch (AuthorizationException denied) {
+            forbidden(response);
+            return;
+        }
+        final Principal authenticatedPrincipal = principal;
+        request.setAttribute(PRINCIPAL_ATTRIBUTE, authenticatedPrincipal);
+        PrincipalContext.set(authenticatedPrincipal);
         try {
             try {
                 ApiAuthorizationPolicy.requiredPermission(request)
                         .ifPresent(permission -> new AuthorizationService().require(
-                                principal.subject(), permission, principal.permissions()));
+                                authenticatedPrincipal.subject(), permission, authenticatedPrincipal.permissions()));
             } catch (AuthorizationException denied) {
                 forbidden(response);
                 return;

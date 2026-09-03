@@ -28,12 +28,14 @@ public final class DashboardResourcesService {
             WITH visible_scopes AS (
                 SELECT resource_type, resource_id
                   FROM resource_scopes s
-                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                  JOIN projects scoped_project ON scoped_project.tenant_id = s.tenant_id
+                                             AND (scoped_project.id::text = s.project_id
+                                                  OR scoped_project.name = s.project_id)
+                 WHERE s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?
                    AND EXISTS (SELECT 1
                                 FROM project_memberships m
-                                JOIN projects p ON p.tenant_id = m.tenant_id AND p.id = m.project_id
-                               WHERE m.tenant_id = s.tenant_id
-                                 AND (p.name = s.project_id OR p.id::text = s.project_id)
+                               WHERE m.tenant_id = scoped_project.tenant_id
+                                 AND m.project_id = scoped_project.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
             )
             SELECT

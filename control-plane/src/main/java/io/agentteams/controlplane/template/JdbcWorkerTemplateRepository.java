@@ -56,7 +56,10 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
         return jdbc.query("""
                 SELECT id, tenant_id, project_id, name, display_name, current_published_revision,
                        version, created_at, updated_at, worker_type
-                  FROM worker_templates WHERE tenant_id = ? AND project_id = ? ORDER BY name, id
+                  FROM worker_templates t
+                  JOIN projects p ON p.tenant_id = t.tenant_id
+                                 AND (p.id::text = t.project_id OR p.name = t.project_id)
+                 WHERE t.tenant_id = ? AND p.id::text = ? ORDER BY t.name, t.id
                 """, this::mapTemplate, tenantId, projectId);
     }
 

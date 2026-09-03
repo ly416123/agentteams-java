@@ -7,6 +7,8 @@ import io.agentteams.controlplane.schedule.ScheduledTaskRun;
 import io.agentteams.controlplane.schedule.ScheduledTaskRunRepository;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.ProjectScopeResolver;
 import io.agentteams.controlplane.service.TaskService;
 import java.time.Instant;
 import java.util.List;
@@ -29,17 +31,24 @@ public final class ScheduledTaskController {
     private final ScheduledTaskService service;
     private final ScheduledTaskRunRepository runs;
     private final TaskService tasks;
+    private final ProjectScopeResolver projectScopes;
 
     public ScheduledTaskController(ScheduledTaskService service) {
-        this(service, null, null);
+        this(service, null, null, null);
+    }
+
+    public ScheduledTaskController(ScheduledTaskService service, ScheduledTaskRunRepository runs,
+            TaskService tasks) {
+        this(service, runs, tasks, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public ScheduledTaskController(ScheduledTaskService service, ScheduledTaskRunRepository runs,
-            TaskService tasks) {
+            TaskService tasks, ProjectScopeResolver projectScopes) {
         this.service = service;
         this.runs = runs;
         this.tasks = tasks;
+        this.projectScopes = projectScopes;
     }
 
     @PostMapping
@@ -48,24 +57,27 @@ public final class ScheduledTaskController {
             @RequestBody CreateScheduleRequest request) {
         requireKey(idempotencyKey);
         if (request == null) throw new IllegalArgumentException("request body is required");
-        requireCallerScope(request.tenantId(), request.projectId());
-        ScheduledTaskDefinition created = service.create(request.toServiceRequest());
+        String project = canonicalProject(request.tenantId(), request.projectId());
+        requireCallerScope(request.tenantId(), project);
+        ScheduledTaskDefinition created = service.create(request.toServiceRequest(project));
         return ResponseEntity.status(201).body(ScheduleResponse.from(created));
     }
 
     @GetMapping
     public List<ScheduleResponse> list(@RequestParam String organizationId, @RequestParam String tenantId,
             @RequestParam(required = false) String projectId) {
-        requireCallerScope(tenantId, projectId);
-        return service.list(new ScheduledTaskScope(organizationId, tenantId, projectId)).stream()
+        String project = canonicalProject(tenantId, projectId);
+        requireCallerScope(tenantId, project);
+        return service.list(new ScheduledTaskScope(organizationId, tenantId, project)).stream()
                 .map(ScheduleResponse::from).toList();
     }
 
     @GetMapping("/{id}")
     public ScheduleResponse get(@PathVariable UUID id, @RequestParam String organizationId,
             @RequestParam String tenantId, @RequestParam(required = false) String projectId) {
-        requireCallerScope(tenantId, projectId);
-        return ScheduleResponse.from(service.find(new ScheduledTaskScope(organizationId, tenantId, projectId), id));
+        String project = canonicalProject(tenantId, projectId);
+        requireCallerScope(tenantId, project);
+        return ScheduleResponse.from(service.find(new ScheduledTaskScope(organizationId, tenantId, project), id));
     }
 
     @PostMapping("/{id}/pause")
@@ -73,8 +85,8 @@ public final class ScheduledTaskController {
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String operationKey,
             @RequestBody ScopeRequest request) {
         requireKey(operationKey);
-        requireCallerScope(request.tenantId(), request.projectId());
-        return ScheduleResponse.from(service.pause(request.scope(), id, operationKey));
+        requireCallerScope(request.tenantId(), canonicalProject(request.tenantId(), request.projectId()));
+        return ScheduleResponse.from(service.pause(canonicalScope(request.scope()), id, operationKey));
     }
 
     @PostMapping("/{id}/resume")
@@ -82,8 +94,8 @@ public final class ScheduledTaskController {
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String operationKey,
             @RequestBody ScopeRequest request) {
         requireKey(operationKey);
-        requireCallerScope(request.tenantId(), request.projectId());
-        return ScheduleResponse.from(service.resume(request.scope(), id, operationKey));
+        requireCallerScope(request.tenantId(), canonicalProject(request.tenantId(), request.projectId()));
+        return ScheduleResponse.from(service.resume(canonicalScope(request.scope()), id, operationKey));
     }
 
     @GetMapping("/{id}/runs")
@@ -91,8 +103,8 @@ public final class ScheduledTaskController {
             @RequestParam String tenantId, @RequestParam(required = false) String projectId,
             @RequestParam(defaultValue = "100") int limit) {
         requireRunDependencies();
-        ScheduledTaskScope scope = new ScheduledTaskScope(organizationId, tenantId, projectId);
-        requireCallerScope(tenantId, projectId);
+        ScheduledTaskScope scope = canonicalScope(new ScheduledTaskScope(organizationId, tenantId, projectId));
+        requireCallerScope(tenantId, scope.projectId());
         service.find(scope, id);
         return runs.list(scope, id, limit).stream().map(ScheduleRunResponse::from).toList();
     }
@@ -102,8 +114,8 @@ public final class ScheduledTaskController {
             @RequestParam String organizationId, @RequestParam String tenantId,
             @RequestParam(required = false) String projectId) {
         requireRunDependencies();
-        ScheduledTaskScope scope = new ScheduledTaskScope(organizationId, tenantId, projectId);
-        requireCallerScope(tenantId, projectId);
+        ScheduledTaskScope scope = canonicalScope(new ScheduledTaskScope(organizationId, tenantId, projectId));
+        requireCallerScope(tenantId, scope.projectId());
         return ScheduleRunResponse.from(runs.find(scope, id, runId)
                 .orElseThrow(io.agentteams.controlplane.schedule.ScheduledTaskNotFoundException::new));
     }
@@ -115,8 +127,8 @@ public final class ScheduledTaskController {
         requireKey(operationKey);
         requireRunDependencies();
         if (request == null) throw new IllegalArgumentException("request body is required");
-        requireCallerScope(request.tenantId(), request.projectId());
-        ScheduledTaskScope scope = request.scope();
+        ScheduledTaskScope scope = canonicalScope(request.scope());
+        requireCallerScope(request.tenantId(), scope.projectId());
         ScheduledTaskRun current = runs.find(scope, id, runId)
                 .orElseThrow(io.agentteams.controlplane.schedule.ScheduledTaskNotFoundException::new);
         if (!current.active()) return ScheduleRunResponse.from(current);
@@ -135,6 +147,23 @@ public final class ScheduledTaskController {
         }
     }
 
+    private ScheduledTaskScope canonicalScope(ScheduledTaskScope scope) {
+        if (scope.projectId() == null || scope.projectId().isBlank()) return scope;
+        return new ScheduledTaskScope(scope.organizationId(), scope.tenantId(),
+                canonicalProject(scope.tenantId(), scope.projectId()));
+    }
+
+    private String canonicalProject(String tenantId, String projectId) {
+        if (projectId == null || projectId.isBlank()) return projectId;
+        if (projectScopes == null) return projectId;
+        Principal principal = PrincipalContext.current().orElseThrow(
+                () -> new AuthorizationException("authentication required"));
+        if (!principal.scope().tenant().equals(tenantId)) {
+            throw new AuthorizationException("schedule is outside the caller scope");
+        }
+        return projectScopes.resolve(principal, projectId).projectIdValue();
+    }
+
     private static void requireCallerScope(String tenantId, String projectId) {
         PrincipalContext.current().ifPresent(principal -> {
             if (!principal.scope().tenant().equals(tenantId)
@@ -148,8 +177,12 @@ public final class ScheduledTaskController {
             String cronExpression, String timeZone, String title, String description, com.fasterxml.jackson.databind.JsonNode spec,
             String actor, String source) {
         ScheduledTaskService.CreateRequest toServiceRequest() {
+            return toServiceRequest(projectId);
+        }
+
+        ScheduledTaskService.CreateRequest toServiceRequest(String canonicalProjectId) {
             return new ScheduledTaskService.CreateRequest(name,
-                    new ScheduledTaskScope(organizationId, tenantId, projectId), cronExpression, timeZone,
+                    new ScheduledTaskScope(organizationId, tenantId, canonicalProjectId), cronExpression, timeZone,
                     title, description, spec == null || spec.isNull() ? "{}" : spec.toString(), actor, source);
         }
     }

@@ -129,7 +129,10 @@ class TeamServiceScopeTest {
     @Test
     void switchesTheRequestScopeToAnAuthorizedProjectRoute() {
         String projectId = "00000000-0000-0000-0000-000000000099";
-        when(resourceScopes.matchesCallerProject(projectId)).thenReturn(true);
+        Principal canonical = new Principal(PRINCIPAL.subject(),
+                new AuthorizationService.Scope(PRINCIPAL.scope().tenant(), projectId, PRINCIPAL.scope().team()),
+                PRINCIPAL.permissions());
+        when(resourceScopes.canonicalize(PRINCIPAL, projectId)).thenReturn(canonical);
 
         service.requireProjectScope(projectId);
 

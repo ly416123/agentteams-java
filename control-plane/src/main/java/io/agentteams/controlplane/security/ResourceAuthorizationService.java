@@ -3,6 +3,7 @@ package io.agentteams.controlplane.security;
 import io.agentteams.controlplane.project.ProjectMembershipRecord;
 import io.agentteams.controlplane.project.ProjectRecord;
 import io.agentteams.controlplane.project.ProjectRepository;
+import java.util.UUID;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 
@@ -34,8 +35,16 @@ public class ResourceAuthorizationService {
     /** Resolves the externally visible project name before applying the same role matrix. */
     public void require(ResourceAction action, AuthorizationService.Scope scope) {
         Objects.requireNonNull(scope, "scope");
-        ProjectRecord project = projects.findProjectByName(scope.tenant(), scope.project())
+        ProjectRecord project = findProject(scope.tenant(), scope.project())
                 .orElseThrow(() -> new AuthorizationException("project scope not found"));
         require(action, ResourceRef.team(scope.tenant(), project.id(), scope.team()));
+    }
+
+    private java.util.Optional<ProjectRecord> findProject(String tenantId, String projectValue) {
+        try {
+            return projects.findProject(tenantId, UUID.fromString(projectValue));
+        } catch (IllegalArgumentException notUuid) {
+            return projects.findProjectByName(tenantId, projectValue);
+        }
     }
 }

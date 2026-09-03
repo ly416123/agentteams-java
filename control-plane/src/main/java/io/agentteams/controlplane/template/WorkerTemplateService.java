@@ -41,7 +41,8 @@ public final class WorkerTemplateService {
     }
 
     public WorkerTemplate create(String idempotencyKey, CreateInput input, Instant now) {
-        Principal principal = principal();
+        Principal principal = canonicalPrincipal();
+        PrincipalContext.set(principal);
         String key = required(idempotencyKey, "Idempotency-Key");
         Objects.requireNonNull(input, "input");
         String name = required(input.name(), "name");
@@ -72,7 +73,8 @@ public final class WorkerTemplateService {
     }
 
     public List<WorkerTemplate> list() {
-        Principal principal = principal();
+        Principal principal = canonicalPrincipal();
+        PrincipalContext.set(principal);
         return repository.findTemplates(principal.scope().tenant(), principal.scope().project());
     }
 
@@ -80,10 +82,8 @@ public final class WorkerTemplateService {
     public void requireProjectScope(String projectId) {
         if (projectId == null || projectId.isBlank()) return;
         Principal principal = principal();
-        if (projectId.equals(principal.scope().project())) return;
-        if (!resourceScopes.matchesCallerProject(projectId)) {
-            throw new AuthorizationException("resource is outside caller project");
-        }
+        Principal canonical = resourceScopes.canonicalize(principal, projectId);
+        if (canonical != null) PrincipalContext.set(canonical);
     }
 
     public WorkerTemplateRevision createRevision(UUID templateId, String specJson, String actor, String idempotencyKey) {
@@ -187,7 +187,7 @@ public final class WorkerTemplateService {
     }
 
     private void requireVisible(WorkerTemplate template) {
-        Principal principal = principal();
+        Principal principal = canonicalPrincipal();
         if (!template.tenantId().equals(principal.scope().tenant())
                 || !template.projectId().equals(principal.scope().project())) {
             throw new AuthorizationException("worker template is outside caller project");
@@ -196,6 +196,12 @@ public final class WorkerTemplateService {
 
     private static Principal principal() {
         return PrincipalContext.current().orElseThrow(() -> new AuthorizationException("authentication required"));
+    }
+
+    private Principal canonicalPrincipal() {
+        Principal current = principal();
+        Principal canonical = resourceScopes.canonicalize(current, current.scope().project());
+        return canonical == null ? current : canonical;
     }
 
     private static String canonicalObject(String value) {

@@ -27,29 +27,36 @@ public class JdbcSkillBindingRepository implements SkillBindingRepository {
 
     @Override
     public SkillBindingRecord bind(SkillBindingRecord record) {
+        String projectId = canonicalProject(record.tenantId(), record.projectId());
         jdbc.update("""
                 INSERT INTO skill_bindings
                     (id, organization_id, tenant_id, project_id, team_id, skill_id, skill_version_id,
                      digest, created_at, created_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (organization_id, tenant_id, skill_id, skill_version_id, digest) DO NOTHING
-                """, record.id(), record.organizationId(), record.tenantId(), record.projectId(), record.teamId(),
+                """, record.id(), record.organizationId(), record.tenantId(), projectId, record.teamId(),
                 record.skillId(), record.skillVersionId(), record.digest(), JdbcSupport.timestamp(record.createdAt()),
                 record.createdBy());
-        return findOne(record.organizationId(), record.tenantId(), record.projectId(), record.teamId(), record.skillId(),
+        return findOne(record.organizationId(), record.tenantId(), projectId, record.teamId(), record.skillId(),
                 record.skillVersionId(), record.digest());
     }
 
     @Override
     public List<SkillBindingRecord> find(String organizationId, String tenantId, String projectId, String teamId) {
-        return jdbc.query(select() + " WHERE organization_id = ? AND tenant_id = ? AND project_id = ? AND team_id = ?"
-                        + " ORDER BY created_at, id", this::map, organizationId, tenantId, projectId, teamId);
+        return jdbc.query(select() + " JOIN projects p ON p.tenant_id = skill_bindings.tenant_id"
+                        + " AND (p.id::text = skill_bindings.project_id OR p.name = skill_bindings.project_id)"
+                        + " WHERE skill_bindings.organization_id = ? AND skill_bindings.tenant_id = ?"
+                        + " AND p.id::text = ? AND skill_bindings.team_id = ? ORDER BY skill_bindings.created_at, skill_bindings.id",
+                this::map, organizationId, tenantId, projectId, teamId);
     }
 
     private SkillBindingRecord findOne(String organizationId, String tenantId, String projectId, String teamId,
             UUID skillId, UUID versionId, String digest) {
-        return jdbc.query(select() + " WHERE organization_id = ? AND tenant_id = ? AND project_id = ? AND team_id = ?"
-                        + " AND skill_id = ? AND skill_version_id = ? AND digest = ?", this::map,
+        return jdbc.query(select() + " JOIN projects p ON p.tenant_id = skill_bindings.tenant_id"
+                        + " AND (p.id::text = skill_bindings.project_id OR p.name = skill_bindings.project_id)"
+                        + " WHERE skill_bindings.organization_id = ? AND skill_bindings.tenant_id = ?"
+                        + " AND p.id::text = ? AND skill_bindings.team_id = ?"
+                        + " AND skill_bindings.skill_id = ? AND skill_bindings.skill_version_id = ? AND skill_bindings.digest = ?", this::map,
                 organizationId, tenantId, projectId, teamId, skillId, versionId, digest).stream().findFirst()
                 .orElseThrow(() -> new IllegalStateException("skill binding was not persisted"));
     }
@@ -67,5 +74,11 @@ public class JdbcSkillBindingRepository implements SkillBindingRepository {
                        digest, created_at, created_by
                   FROM skill_bindings
                 """;
+    }
+
+    private String canonicalProject(String tenantId, String projectId) {
+        if (projectId == null || projectId.isBlank()) return projectId;
+        return jdbc.query("SELECT id::text FROM projects WHERE tenant_id = ? AND (id::text = ? OR name = ?)",
+                (rs, row) -> rs.getString(1), tenantId, projectId, projectId).stream().findFirst().orElse(projectId);
     }
 }

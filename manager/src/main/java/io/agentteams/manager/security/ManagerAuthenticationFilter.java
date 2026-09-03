@@ -9,9 +9,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 public final class ManagerAuthenticationFilter extends OncePerRequestFilter {
     private final ManagerIdentityTokenValidator validator;
+    private final ManagerProjectScopeResolver projectScopes;
 
     public ManagerAuthenticationFilter(ManagerIdentityTokenValidator validator) {
+        this(validator, null);
+    }
+
+    public ManagerAuthenticationFilter(ManagerIdentityTokenValidator validator,
+            ManagerProjectScopeResolver projectScopes) {
         this.validator = java.util.Objects.requireNonNull(validator, "validator");
+        this.projectScopes = projectScopes;
     }
 
     @Override
@@ -37,6 +44,16 @@ public final class ManagerAuthenticationFilter extends OncePerRequestFilter {
         }
         if (principal == null) {
             unauthorized(response);
+            return;
+        }
+        try {
+            if (projectScopes != null) {
+                principal = projectScopes.canonicalize(principal, request.getParameter("projectId"));
+            }
+        } catch (ManagerAuthorizationException denied) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"code\":\"FORBIDDEN\",\"message\":\"project access denied\"}");
             return;
         }
         ManagerRequestContext.set(principal, token);

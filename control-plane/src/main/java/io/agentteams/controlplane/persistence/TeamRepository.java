@@ -50,11 +50,13 @@ public final class TeamRepository {
                 SELECT t.id, t.name, t.display_name, t.status, t.created_at, t.updated_at, t.version
                   FROM teams t
                   JOIN resource_scopes s ON s.resource_type = 'TEAM' AND s.resource_id = t.id
-                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                  JOIN projects scoped_project ON scoped_project.tenant_id = s.tenant_id
+                                             AND (scoped_project.id::text = s.project_id
+                                                  OR scoped_project.name = s.project_id)
+                 WHERE s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
-                                WHERE m.tenant_id = s.tenant_id
-                                  AND (m.project_id::text = s.project_id OR p.name = s.project_id)
+                                WHERE m.tenant_id = scoped_project.tenant_id
+                                  AND m.project_id = scoped_project.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                  ORDER BY t.name, t.id
                 """, (rs, row) -> new TeamRecord(rs.getObject("id", UUID.class), rs.getString("name"),
@@ -78,11 +80,13 @@ public final class TeamRepository {
         StringBuilder sql = new StringBuilder("""
                 SELECT t.id, t.name, t.display_name, t.status, t.created_at, t.updated_at, t.version
                  FROM teams t JOIN resource_scopes s ON s.resource_type = 'TEAM' AND s.resource_id = t.id
-                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                  JOIN projects scoped_project ON scoped_project.tenant_id = s.tenant_id
+                                             AND (scoped_project.id::text = s.project_id
+                                                  OR scoped_project.name = s.project_id)
+                 WHERE s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
-                                WHERE m.tenant_id = s.tenant_id
-                                  AND (m.project_id::text = s.project_id OR p.name = s.project_id)
+                                WHERE m.tenant_id = scoped_project.tenant_id
+                                  AND m.project_id = scoped_project.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                 """);
         List<Object> values = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),

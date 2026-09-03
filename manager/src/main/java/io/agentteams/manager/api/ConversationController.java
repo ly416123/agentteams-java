@@ -12,6 +12,7 @@ import io.agentteams.manager.security.ManagerAuthorizationException;
 import io.agentteams.manager.security.ConversationScopeAuthorizer;
 import io.agentteams.manager.security.ManagerPrincipal;
 import io.agentteams.manager.security.ManagerRequestContext;
+import io.agentteams.manager.security.ManagerProjectScopeResolver;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,17 +38,24 @@ public final class ConversationController {
     private final ConversationService service;
     private final ObjectMapper mapper;
     private final ConversationScopeAuthorizer scopeAuthorizer;
+    private final ManagerProjectScopeResolver projectScopes;
 
     public ConversationController(ConversationService service) {
-        this(service, new ObjectMapper(), ConversationScopeAuthorizer.legacy());
+        this(service, new ObjectMapper(), ConversationScopeAuthorizer.legacy(), null);
+    }
+
+    public ConversationController(ConversationService service, ObjectMapper mapper,
+            ConversationScopeAuthorizer scopeAuthorizer) {
+        this(service, mapper, scopeAuthorizer, null);
     }
 
     @Autowired
     public ConversationController(ConversationService service, ObjectMapper mapper,
-            ConversationScopeAuthorizer scopeAuthorizer) {
+            ConversationScopeAuthorizer scopeAuthorizer, ManagerProjectScopeResolver projectScopes) {
         this.service = service;
         this.mapper = mapper;
         this.scopeAuthorizer = scopeAuthorizer;
+        this.projectScopes = projectScopes;
     }
 
     @PostMapping
@@ -59,9 +67,10 @@ public final class ConversationController {
         if (request == null || request.sessionId() == null) {
             throw new IllegalArgumentException("sessionId is required");
         }
-        requireScope(request.projectValue(), request.teamValue(), principal);
+        String project = canonicalProject(principal, request.projectValue());
+        requireScope(project, request.teamValue(), principal);
         ConversationRuntimePort.Context context = new ConversationRuntimePort.Context(
-                request.projectValue(), request.teamValue(), request.workerValue(), request.taskValue(), request.sessionId());
+                project, request.teamValue(), request.workerValue(), request.taskValue(), request.sessionId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SessionResponse.from(service.createAndStart(context, idempotencyKey,
                         new ConversationOwner(principal.tenantId(), principal.subject()))));
@@ -71,7 +80,7 @@ public final class ConversationController {
     public ConversationPageResponse list(@RequestParam(required = false) String projectId,
             @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String cursor) {
         ManagerPrincipal principal = ManagerRequestContext.require();
-        String requestedProject = projectId == null || projectId.isBlank() ? principal.projectId() : projectId;
+        String requestedProject = canonicalProject(principal, projectId);
         scopeAuthorizer.requireProjectAccessible(requestedProject, principal);
         ConversationService.ConversationPage page = service.list(requestedProject, pageSize, cursor, owner(principal));
         return ConversationPageResponse.from(page);
@@ -180,6 +189,13 @@ public final class ConversationController {
 
     private void requireScope(String project, String team, ManagerPrincipal principal) {
         scopeAuthorizer.requireAccessible(project, team, principal);
+    }
+
+    private String canonicalProject(ManagerPrincipal principal, String requestedProject) {
+        if (projectScopes == null) {
+            return requestedProject == null || requestedProject.isBlank() ? principal.projectId() : requestedProject;
+        }
+        return projectScopes.canonicalize(principal, requestedProject).projectId();
     }
 
     private static void requireKey(String key) {

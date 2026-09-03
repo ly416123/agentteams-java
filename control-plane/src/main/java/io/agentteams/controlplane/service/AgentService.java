@@ -94,15 +94,20 @@ public final class AgentService {
         io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
                 .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
                         "authentication required"));
+        if (resourceScopes != null) {
+            io.agentteams.controlplane.security.Principal canonical = resourceScopes.canonicalize(principal, projectId);
+            if (canonical != null) {
+                PrincipalContext.set(canonical);
+                return;
+            }
+        }
         if (projectId.equals(principal.scope().project())) return;
         if (resourceScopes == null || !resourceScopes.matchesCallerProject(projectId)) {
             throw new io.agentteams.controlplane.security.AuthorizationException(
                     "resource is outside caller project");
         }
-        PrincipalContext.set(new io.agentteams.controlplane.security.Principal(principal.subject(),
-                new io.agentteams.controlplane.security.AuthorizationService.Scope(
-                        principal.scope().tenant(), projectId, principal.scope().team()),
-                principal.permissions()));
+        io.agentteams.controlplane.security.Principal canonical = resourceScopes.canonicalize(principal, projectId);
+        if (canonical != null) PrincipalContext.set(canonical);
     }
 
     public record AgentInput(String name, String runtime, WorkerType workerType, String capabilitiesJson,

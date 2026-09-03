@@ -28,7 +28,7 @@ class JdbcScopedResourceListRepositoryTest {
         new TeamRepository(jdbc).findPage(PRINCIPAL, null, 21, CursorPageRequest.Direction.DESC,
                 "ACTIVE", "research");
 
-        verify(jdbc).query(contains("s.tenant_id = ? AND s.project_id = ? AND s.team = ?"),
+        verify(jdbc).query(contains("s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?"),
                 any(RowMapper.class), any(Object[].class));
         verify(jdbc).query(contains("t.status = ?"), any(RowMapper.class), any(Object[].class));
         verify(jdbc).query(contains("(t.name ILIKE ? OR t.display_name ILIKE ?)"),
@@ -42,9 +42,9 @@ class JdbcScopedResourceListRepositoryTest {
 
         new TeamRepository(jdbc).findPage(PRINCIPAL, null, 21, CursorPageRequest.Direction.DESC);
 
-        verify(jdbc).query(contains("JOIN projects p ON p.id = m.project_id"),
+        verify(jdbc).query(contains("JOIN projects scoped_project"),
                 any(RowMapper.class), any(Object[].class));
-        verify(jdbc).query(contains("p.name = s.project_id"),
+        verify(jdbc).query(contains("scoped_project.name = s.project_id"),
                 any(RowMapper.class), any(Object[].class));
     }
 

@@ -59,17 +59,19 @@ public final class TaskRepository {
                        s.tenant_id, s.project_id, s.team,
                        team_ref.team_id, worker_ref.agent_id
                   FROM tasks t JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id
+                  JOIN projects scoped_project ON scoped_project.tenant_id = s.tenant_id
+                                             AND (scoped_project.id::text = s.project_id
+                                                  OR scoped_project.name = s.project_id)
                   LEFT JOIN LATERAL (SELECT tt.team_id FROM team_tasks tt
                                       WHERE tt.task_id = t.id ORDER BY tt.created_at, tt.team_id LIMIT 1) team_ref
                     ON TRUE
                   LEFT JOIN LATERAL (SELECT ta.agent_id FROM task_assignments ta
                                       WHERE ta.task_id = t.id ORDER BY ta.created_at, ta.id LIMIT 1) worker_ref
                     ON TRUE
-                 WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
+                 WHERE s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
-                                JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
-                                WHERE m.tenant_id = s.tenant_id
-                                  AND (m.project_id::text = s.project_id OR p.name = s.project_id)
+                                WHERE m.tenant_id = scoped_project.tenant_id
+                                  AND m.project_id = scoped_project.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                 """);
         List<Object> args = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),

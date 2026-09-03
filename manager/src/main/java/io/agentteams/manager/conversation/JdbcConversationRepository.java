@@ -75,8 +75,10 @@ public class JdbcConversationRepository implements ConversationRepository {
             return jdbc.query("""
                     SELECT id, project_id, team_id, worker_id, task_id, status, created_at, updated_at,
                            tenant_id, actor_subject, version
-                      FROM conversation_sessions
-                     WHERE tenant_id = ? AND project_id = ? AND actor_subject = ?
+                      FROM conversation_sessions c
+                      JOIN projects p ON p.tenant_id = c.tenant_id
+                                     AND (p.id::text = c.project_id OR p.name = c.project_id)
+                     WHERE c.tenant_id = ? AND p.id::text = ? AND c.actor_subject = ?
                      ORDER BY updated_at DESC, id DESC
                      LIMIT ?
                     """, this::mapSession, tenantId, projectId, actorSubject, limit);
@@ -84,9 +86,11 @@ public class JdbcConversationRepository implements ConversationRepository {
         return jdbc.query("""
                 SELECT id, project_id, team_id, worker_id, task_id, status, created_at, updated_at,
                        tenant_id, actor_subject, version
-                  FROM conversation_sessions
-                 WHERE tenant_id = ? AND project_id = ? AND actor_subject = ?
-                   AND (updated_at < ? OR (updated_at = ? AND id < ?))
+                  FROM conversation_sessions c
+                  JOIN projects p ON p.tenant_id = c.tenant_id
+                                 AND (p.id::text = c.project_id OR p.name = c.project_id)
+                 WHERE c.tenant_id = ? AND p.id::text = ? AND c.actor_subject = ?
+                   AND (c.updated_at < ? OR (c.updated_at = ? AND c.id < ?))
                  ORDER BY updated_at DESC, id DESC
                  LIMIT ?
                 """, this::mapSession, tenantId, projectId, actorSubject,

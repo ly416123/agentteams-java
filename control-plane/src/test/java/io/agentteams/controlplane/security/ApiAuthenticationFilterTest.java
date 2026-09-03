@@ -1,8 +1,16 @@
 package io.agentteams.controlplane.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import io.agentteams.controlplane.project.ProjectMembershipRecord;
+import io.agentteams.controlplane.project.ProjectRecord;
+import io.agentteams.controlplane.project.ProjectRepository;
+import io.agentteams.controlplane.project.ProjectRole;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import jakarta.servlet.FilterChain;
 import org.springframework.mock.web.MockFilterChain;
 import org.junit.jupiter.api.Test;
@@ -56,6 +64,25 @@ class ApiAuthenticationFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentAsString()).contains("FORBIDDEN");
+    }
+
+    @Test
+    void canonicalizesAuthenticatedProjectNameAtApiBoundary() throws Exception {
+        UUID id = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        ProjectRepository projects = mock(ProjectRepository.class);
+        ProjectRecord project = ProjectRecord.create(id, "tenant", "project", "alice", Instant.EPOCH);
+        when(projects.findProjectByName("tenant", "project")).thenReturn(Optional.of(project));
+        when(projects.findMembership("tenant", id, "alice")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant", id, "alice", ProjectRole.DEVELOPER, Instant.EPOCH)));
+        IdentityTokenValidator validator = token -> Optional.of(new IdentityTokenValidator.IdentityPrincipal(
+                "alice", new AuthorizationService.Scope("tenant", "project", "team"), Set.of("task:read")));
+        ApiAuthenticationFilter filter = new ApiAuthenticationFilter(validator, new ProjectScopeResolver(projects));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/tasks");
+        request.addHeader("Authorization", "Bearer test-token");
+        FilterChain chain = (req, ignored) -> assertThat(PrincipalContext.current().orElseThrow().scope().project())
+                .isEqualTo(id.toString());
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
     }
 
     @Test

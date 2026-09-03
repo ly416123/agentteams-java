@@ -84,7 +84,9 @@ class AgentServiceScopeTest {
     @Test
     void switchesRequestScopeToAuthorizedProjectRoute() {
         String projectId = "00000000-0000-0000-0000-000000000099";
-        when(resourceScopes.matchesCallerProject(projectId)).thenReturn(true);
+        Principal canonical = new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", projectId, "team-a"), PRINCIPAL.permissions());
+        when(resourceScopes.canonicalize(PRINCIPAL, projectId)).thenReturn(canonical);
 
         service.requireProjectScope(projectId);
 

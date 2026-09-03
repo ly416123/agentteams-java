@@ -102,7 +102,7 @@ class DashboardSummaryControllerTest {
         when(projects.findMembership("tenant-a", projectId, "alice"))
                 .thenReturn(java.util.Optional.of(ProjectMembershipRecord.create("tenant-a", projectId, "alice",
                         ProjectRole.DEVELOPER, now)));
-        when(usage.summarizeForScope("tenant-a", "project-a", null, null, null, null))
+        when(usage.summarizeForScope("tenant-a", projectId.toString(), null, null, null, null))
                 .thenReturn(new UsageQueryService.UsageSummary(Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
                         new UsageQueryService.UsageTotals(4, 0, 10, 20, 1.25), List.of()));
 

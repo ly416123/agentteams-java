@@ -349,20 +349,8 @@ public final class TeamController {
     private void requireProjectScope(String projectId) {
         if (projectId == null || projectId.isBlank()) return;
         PrincipalContext.current().ifPresent(principal -> {
-            if (!projectId.equals(principal.scope().project()) && !isUuid(projectId)) {
-                throw new AuthorizationException("resource is outside the caller project scope");
-            }
             service.requireProjectScope(projectId);
         });
-    }
-
-    private static boolean isUuid(String value) {
-        try {
-            UUID.fromString(value);
-            return true;
-        } catch (IllegalArgumentException invalidUuid) {
-            return false;
-        }
     }
 
     private static long expectedVersion(VersionRequest request) {

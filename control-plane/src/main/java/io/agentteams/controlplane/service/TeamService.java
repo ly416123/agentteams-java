@@ -139,15 +139,20 @@ public final class TeamService {
     public void requireProjectScope(String projectId) {
         if (projectId == null || projectId.isBlank()) return;
         Principal principal = requireScopeContext();
+        if (resourceScopes != null) {
+            Principal canonical = resourceScopes.canonicalize(principal, projectId);
+            if (canonical != null) {
+                PrincipalContext.set(canonical);
+                return;
+            }
+        }
         if (projectId.equals(principal.scope().project())) return;
         if (resourceScopes == null || !resourceScopes.matchesCallerProject(projectId)) {
             throw new io.agentteams.controlplane.security.AuthorizationException(
                     "resource is outside the caller project scope");
         }
-        PrincipalContext.set(new Principal(principal.subject(),
-                new io.agentteams.controlplane.security.AuthorizationService.Scope(
-                        principal.scope().tenant(), projectId, principal.scope().team()),
-                principal.permissions()));
+        Principal canonical = resourceScopes.canonicalize(principal, projectId);
+        if (canonical != null) PrincipalContext.set(canonical);
     }
 
     public List<TeamRecord> list() {
