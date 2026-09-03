@@ -15,6 +15,7 @@ import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.worker.WorkerOperationService;
 import io.agentteams.domain.agent.AgentPhase;
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -44,7 +45,7 @@ class AgentListControllerTest {
     @Test
     void listsOnlyAgentsReturnedForCurrentScopeAsCursorPage() throws Exception {
         Instant now = Instant.parse("2026-08-29T00:00:00Z");
-        AgentRecord agent = new AgentRecord(UUID.randomUUID(), "worker-a", AgentPhase.READY, "qwenpaw", "{}",
+        AgentRecord agent = new AgentRecord(UUID.randomUUID(), "worker-a", WorkerType.LEADER, AgentPhase.READY, "qwenpaw", "{}",
                 "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}",
                 now, now, 0);
         when(service.list(any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
@@ -54,7 +55,8 @@ class AgentListControllerTest {
                 .param("status", "READY").param("projectId", "project-uuid"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("worker-a"))
-                .andExpect(jsonPath("$.items[0].phase").value("READY"));
+                .andExpect(jsonPath("$.items[0].phase").value("READY"))
+                .andExpect(jsonPath("$.items[0].workerType").value("LEADER"));
 
         verify(service).list(any(), org.mockito.ArgumentMatchers.eq("READY"),
                 org.mockito.ArgumentMatchers.eq("worker"));

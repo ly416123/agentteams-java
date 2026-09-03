@@ -8,6 +8,7 @@ import io.agentteams.controlplane.worker.WorkerOperation;
 import io.agentteams.controlplane.worker.WorkerOperationObservation;
 import io.agentteams.controlplane.worker.WorkerOperationService;
 import io.agentteams.controlplane.worker.WorkerRolloutRequest;
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -154,10 +155,11 @@ public final class AgentController {
         }
     }
 
-    public record CreateAgentRequest(String name, String runtime, JsonNode capabilities, JsonNode metadata) {
+    public record CreateAgentRequest(String name, String runtime, WorkerType workerType,
+            JsonNode capabilities, JsonNode metadata) {
 
         AgentService.AgentInput toServiceInput() {
-            return new AgentService.AgentInput(name, runtime, json(capabilities), json(metadata));
+            return new AgentService.AgentInput(name, runtime, workerType, json(capabilities), json(metadata));
         }
 
         private static String json(JsonNode value) {
@@ -171,11 +173,11 @@ public final class AgentController {
         }
     }
 
-    public record AgentResponse(UUID id, String name, String phase, String runtime,
+    public record AgentResponse(UUID id, String name, WorkerType workerType, String phase, String runtime,
             Instant createdAt, Instant updatedAt, long version) {
 
         static AgentResponse from(AgentRecord agent) {
-            return new AgentResponse(agent.id(), agent.name(), agent.phase().name(), agent.runtime(),
+            return new AgentResponse(agent.id(), agent.name(), agent.workerType(), agent.phase().name(), agent.runtime(),
                     agent.createdAt(), agent.updatedAt(), agent.version());
         }
     }

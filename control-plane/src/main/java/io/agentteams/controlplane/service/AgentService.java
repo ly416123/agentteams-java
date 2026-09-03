@@ -7,6 +7,7 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.domain.agent.AgentPhase;
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -50,12 +51,13 @@ public final class AgentService {
         String key = idempotency.requireKey(idempotencyKey);
         String name = required(input.name(), "name");
         String runtime = required(input.runtime(), "runtime");
+        WorkerType workerType = input.workerType() == null ? WorkerType.EXECUTOR : input.workerType();
         String capabilities = jsonObjectOrDefault(input.capabilitiesJson());
         String metadata = jsonObjectOrDefault(input.metadataJson());
         Instant now = clock.instant();
-        AgentRecord agent = new AgentRecord(UUID.randomUUID(), name, AgentPhase.PROVISIONING, runtime,
+        AgentRecord agent = new AgentRecord(UUID.randomUUID(), name, workerType, AgentPhase.PROVISIONING, runtime,
                 capabilities, metadata, now, now, 0);
-        String requestHash = idempotency.requestHash(name, runtime, capabilities, metadata);
+        String requestHash = idempotency.requestHash(name, runtime, workerType.name(), capabilities, metadata);
         AgentRecord result = persistence.createAgent(agent, key, requestHash);
         bindIfAuthenticated(result.id());
         requireVisible(result.id());
@@ -99,7 +101,11 @@ public final class AgentService {
         }
     }
 
-    public record AgentInput(String name, String runtime, String capabilitiesJson, String metadataJson) {
+    public record AgentInput(String name, String runtime, WorkerType workerType, String capabilitiesJson,
+            String metadataJson) {
+        public AgentInput(String name, String runtime, String capabilitiesJson, String metadataJson) {
+            this(name, runtime, WorkerType.EXECUTOR, capabilitiesJson, metadataJson);
+        }
     }
 
     private static String required(String value, String field) {
