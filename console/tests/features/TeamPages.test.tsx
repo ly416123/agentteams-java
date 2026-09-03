@@ -11,6 +11,7 @@ import {
   createRevision,
   deployRevision,
   listDeployments,
+  listMembers,
   listRevisions,
   publishRevision,
   removeMember,
@@ -227,6 +228,32 @@ describe('Team pages', () => {
       await userEvent.click(screen.getByRole('tab', { name: tab }));
       expect(screen.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
     }
+  });
+
+  it('explains how to proceed when a Team has no Leader Worker', async () => {
+    vi.mocked(listMembers).mockResolvedValueOnce([
+      {
+        id: 'm-executor',
+        teamId: 'team-1',
+        agentId: 'worker-2',
+        role: 'MEMBER',
+        status: 'ACTIVE',
+        joinedAt: '2026-08-29T01:00:00Z',
+        updatedAt: '2026-08-29T02:00:00Z',
+        version: 1,
+        runtime: 'FAKE',
+        capabilities: ['reports'],
+      },
+    ]);
+    renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
+    await userEvent.click(await screen.findByRole('tab', { name: '版本与部署' }));
+
+    expect(await screen.findByText('当前 Team 没有可用的 Leader Worker')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前往 Worker Templates' })).toHaveAttribute(
+      'href',
+      '/p-1/templates',
+    );
+    expect(screen.getByRole('button', { name: '创建 Revision 草稿' })).toBeDisabled();
   });
 
   it('adds and removes Team members through the management controls', async () => {

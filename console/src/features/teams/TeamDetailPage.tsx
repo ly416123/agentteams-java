@@ -403,6 +403,30 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
               </div>
               <span className="muted-text">发布不会自动部署 Worker</span>
             </div>
+            {leaderTeamWorkers.length === 0 && (
+              <div className="info-box" role="status">
+                <strong>当前 Team 没有可用的 Leader Worker</strong>
+                <p className="muted-text">
+                  Team Leader 必须是类型为 LEADER 且已加入 Team 的 READY Worker；当前成员不能担任
+                  Leader。
+                </p>
+                <div className="form-actions">
+                  <button
+                    className="button button--small button--ghost"
+                    type="button"
+                    onClick={() => setTab('成员 Agent')}
+                  >
+                    去成员 Agent
+                  </button>
+                  <Link
+                    className="button button--small button--ghost"
+                    to={`/${projectId}/templates`}
+                  >
+                    前往 Worker Templates
+                  </Link>
+                </div>
+              </div>
+            )}
             <form onSubmit={submitRevision}>
               <div className="form-grid">
                 <label>
@@ -472,7 +496,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
               <button
                 className="button button--primary"
                 type="submit"
-                disabled={createRevision.isPending}
+                disabled={createRevision.isPending || leaderTeamWorkers.length === 0}
               >
                 {createRevision.isPending ? '创建中…' : '创建 Revision 草稿'}
               </button>
