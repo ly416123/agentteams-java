@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -78,5 +79,21 @@ class AgentServiceScopeTest {
         assertThatThrownBy(() -> service.get(workerId))
                 .isInstanceOf(AuthorizationException.class)
                 .hasMessage("resource is outside caller project");
+    }
+
+    @Test
+    void switchesRequestScopeToAuthorizedProjectRoute() {
+        String projectId = "00000000-0000-0000-0000-000000000099";
+        when(resourceScopes.matchesCallerProject(projectId)).thenReturn(true);
+
+        service.requireProjectScope(projectId);
+
+        assertThat(PrincipalContext.current()).get().satisfies(principal -> {
+            assertThat(principal.subject()).isEqualTo(PRINCIPAL.subject());
+            assertThat(principal.scope().tenant()).isEqualTo(PRINCIPAL.scope().tenant());
+            assertThat(principal.scope().project()).isEqualTo(projectId);
+            assertThat(principal.scope().team()).isEqualTo(PRINCIPAL.scope().team());
+            assertThat(principal.permissions()).isEqualTo(PRINCIPAL.permissions());
+        });
     }
 }

@@ -164,6 +164,13 @@ vi.mock('../../src/api/workers', () => ({
         phase: 'READY',
         runtime: 'FAKE',
       },
+      {
+        id: 'worker-4',
+        name: 'Provisioning Worker',
+        workerType: 'EXECUTOR',
+        phase: 'PROVISIONING',
+        runtime: 'FAKE',
+      },
     ],
     hasMore: false,
   }),
@@ -226,6 +233,7 @@ describe('Team pages', () => {
     renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
     await userEvent.click(await screen.findByRole('tab', { name: '成员 Agent' }));
     await screen.findByRole('option', { name: /Available Leader/ });
+    expect(screen.queryByRole('option', { name: /Provisioning Worker/ })).not.toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText('成员角色'), 'LEADER');
     expect(screen.getByRole('option', { name: /Available Leader/ })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /Executor Worker/ })).not.toBeInTheDocument();

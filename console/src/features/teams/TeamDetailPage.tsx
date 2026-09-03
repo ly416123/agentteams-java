@@ -135,7 +135,12 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
   const activeMemberIds = (members.data || [])
     .filter((member) => member.status === 'ACTIVE')
     .map((member) => member.agentId);
-  const availableWorkers = workerItems.filter((worker) => !activeMemberIds.includes(worker.id));
+  const availableWorkers = workerItems.filter(
+    (worker) => worker.phase === 'READY' && !activeMemberIds.includes(worker.id),
+  );
+  const roleAvailableWorkers = availableWorkers.filter(
+    (worker) => memberForm.role !== 'LEADER' || worker.workerType === 'LEADER',
+  );
   const activeTeamWorkers = activeMemberIds
     .map((agentId) => workerById.get(agentId))
     .filter((worker): worker is (typeof workerItems)[number] => Boolean(worker));
@@ -215,16 +220,18 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 onChange={(event) => setMemberForm({ ...memberForm, agentId: event.target.value })}
                 required
               >
-                <option value="">选择 Worker</option>
-                {availableWorkers
-                  .filter(
-                    (worker) => memberForm.role !== 'LEADER' || worker.workerType === 'LEADER',
-                  )
-                  .map((worker) => (
-                    <option value={worker.id} key={worker.id}>
-                      {worker.name} · {worker.workerType || 'EXECUTOR'}
-                    </option>
-                  ))}
+                <option value="">
+                  {roleAvailableWorkers.length
+                    ? '选择 Worker'
+                    : memberForm.role === 'LEADER'
+                      ? '暂无可用 Leader Worker'
+                      : '暂无可用 READY Worker'}
+                </option>
+                {roleAvailableWorkers.map((worker) => (
+                  <option value={worker.id} key={worker.id}>
+                    {worker.name} · {worker.workerType || 'EXECUTOR'}
+                  </option>
+                ))}
               </select>
             </label>
             <label>

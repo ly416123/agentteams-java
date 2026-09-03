@@ -99,6 +99,10 @@ public final class AgentService {
             throw new io.agentteams.controlplane.security.AuthorizationException(
                     "resource is outside caller project");
         }
+        PrincipalContext.set(new io.agentteams.controlplane.security.Principal(principal.subject(),
+                new io.agentteams.controlplane.security.AuthorizationService.Scope(
+                        principal.scope().tenant(), projectId, principal.scope().team()),
+                principal.permissions()));
     }
 
     public record AgentInput(String name, String runtime, WorkerType workerType, String capabilitiesJson,
