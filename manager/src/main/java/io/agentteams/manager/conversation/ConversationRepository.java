@@ -22,6 +22,9 @@ public interface ConversationRepository {
 
     Optional<ConversationRecord> findSessionByIdempotencyKey(String idempotencyKey);
 
+    List<ConversationRecord> findSessions(String tenantId, String projectId, String actorSubject,
+            Instant beforeUpdatedAt, UUID beforeId, int limit);
+
     default ConversationRecord updateStatus(UUID sessionId, ConversationService.Status status, Instant updatedAt) {
         ConversationRecord current = findSession(sessionId).orElseThrow(ConversationRuntimeException::sessionNotFound);
         return updateStatus(sessionId, status, updatedAt, current.version());

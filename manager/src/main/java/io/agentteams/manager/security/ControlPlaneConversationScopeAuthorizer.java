@@ -59,4 +59,37 @@ public final class ControlPlaneConversationScopeAuthorizer implements Conversati
             throw new ManagerScopeUnavailableException("Control Plane scope check failed", error);
         }
     }
+
+    @Override
+    public void requireProjectAccessible(String projectId, ManagerPrincipal principal) {
+        Objects.requireNonNull(principal, "principal");
+        if (principal.projectId().equals(projectId)) return;
+        UUID projectUuid;
+        try {
+            projectUuid = UUID.fromString(Objects.requireNonNull(projectId, "projectId"));
+        } catch (IllegalArgumentException error) {
+            throw new ManagerAuthorizationException("conversation project scope is not accessible");
+        }
+        HttpRequest request = HttpRequest.newBuilder(controlPlaneBase.resolve(
+                "/api/v1/projects/" + projectUuid + "/role"))
+                .timeout(Duration.ofSeconds(5))
+                .header("Authorization", "Bearer " + ManagerRequestContext.requireBearerToken())
+                .GET()
+                .build();
+        try {
+            int status = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+            if (status >= 200 && status < 300) return;
+            if (status >= 400 && status < 500) {
+                throw new ManagerAuthorizationException("conversation project scope is not accessible");
+            }
+            throw new ManagerScopeUnavailableException("Control Plane project scope check failed", null);
+        } catch (ManagerAuthorizationException | ManagerScopeUnavailableException error) {
+            throw error;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new ManagerScopeUnavailableException("Control Plane project scope check was interrupted", error);
+        } catch (IOException | RuntimeException error) {
+            throw new ManagerScopeUnavailableException("Control Plane project scope check failed", error);
+        }
+    }
 }

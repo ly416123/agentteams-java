@@ -25,6 +25,7 @@ describe('conversation SSE client', () => {
         type: 'message.delta',
         data: '{"delta":"<b>hello</b>",\n"unsafe": true}',
         payload: { delta: '<b>hello</b>', unsafe: true },
+        order: 7,
       },
     ]);
   });
@@ -125,6 +126,21 @@ describe('conversation SSE client', () => {
         payload: { content: [{ text: 'one' }, { text: 'two' }] },
       }),
     ).toBe('onetwo');
+  });
+
+  it('extracts assistant text from a completed response output', () => {
+    expect(
+      conversationEventText({
+        type: 'message.completed',
+        data: '',
+        payload: {
+          output: [
+            { type: 'reasoning', role: 'assistant', content: [{ type: 'text', text: '内部推理' }] },
+            { type: 'message', role: 'assistant', content: [{ type: 'text', text: '最终回答' }] },
+          ],
+        },
+      }),
+    ).toBe('最终回答');
   });
 
   it('uses capped exponential reconnect delays', () => {

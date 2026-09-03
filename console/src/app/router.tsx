@@ -16,6 +16,7 @@ import { ScheduledTaskPage } from '../features/tasks/ScheduledTaskPage';
 import { WorkerDetailPage } from '../features/workers/WorkerDetailPage';
 import { WorkerListPage } from '../features/workers/WorkerListPage';
 import { ConversationPage } from '../features/conversations/ConversationPage';
+import { ConversationListPage } from '../features/conversations/ConversationListPage';
 import { ConsoleEntryPage } from '../features/projects/ConsoleEntryPage';
 import { ConsoleLayout } from './AppShell';
 import { AppShell } from './AppShell';
@@ -136,6 +137,7 @@ function ProtectedProjectRoutes() {
             <Route path="memory" element={<ManagementMemoryPage projectId={projectId} />} />
             <Route path="sandboxes" element={<ManagementSandboxPage projectId={projectId} />} />
             <Route path="artifacts" element={<ManagementArtifactPage projectId={projectId} />} />
+            <Route path="conversations" element={<ConversationListPage projectId={projectId} />} />
             <Route path="conversations/new" element={<ConversationPage projectId={projectId} />} />
             <Route
               path="conversations/:conversationId"

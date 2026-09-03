@@ -19,9 +19,11 @@ import java.nio.channels.UnresolvedAddressException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -409,7 +411,23 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             return true;
         }
         String eventTypeValue = event.path("type").asText();
+        if ("reasoning".equals(eventTypeValue)) {
+            String messageId = event.path("id").asText();
+            if (!messageId.isBlank()) {
+                if ("completed".equals(status)) {
+                    state.reasoningMessageIds.remove(messageId);
+                } else {
+                    state.reasoningMessageIds.add(messageId);
+                }
+            }
+            // Reasoning is an internal model trace and must not be exposed as
+            // an assistant message to Console clients.
+            return false;
+        }
         if ("text".equals(eventTypeValue) && event.has("delta")) {
+            if (state.reasoningMessageIds.contains(event.path("msg_id").asText())) {
+                return false;
+            }
             if (event.path("delta").asBoolean(false)) {
                 appendIfNotCancelled(state, "message.delta", data.toString(), sourceEventId);
             }
@@ -734,6 +752,7 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
     private static final class SessionState {
         private final Context context;
         private final List<ConversationEvent> events = new ArrayList<>();
+        private final Set<String> reasoningMessageIds = new HashSet<>();
         private RequestHandle request;
         private boolean started;
         private boolean cancelled;

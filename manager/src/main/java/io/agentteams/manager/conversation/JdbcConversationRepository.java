@@ -69,6 +69,31 @@ public class JdbcConversationRepository implements ConversationRepository {
     }
 
     @Override
+    public List<ConversationRecord> findSessions(String tenantId, String projectId, String actorSubject,
+            Instant beforeUpdatedAt, UUID beforeId, int limit) {
+        if (beforeUpdatedAt == null) {
+            return jdbc.query("""
+                    SELECT id, project_id, team_id, worker_id, task_id, status, created_at, updated_at,
+                           tenant_id, actor_subject, version
+                      FROM conversation_sessions
+                     WHERE tenant_id = ? AND project_id = ? AND actor_subject = ?
+                     ORDER BY updated_at DESC, id DESC
+                     LIMIT ?
+                    """, this::mapSession, tenantId, projectId, actorSubject, limit);
+        }
+        return jdbc.query("""
+                SELECT id, project_id, team_id, worker_id, task_id, status, created_at, updated_at,
+                       tenant_id, actor_subject, version
+                  FROM conversation_sessions
+                 WHERE tenant_id = ? AND project_id = ? AND actor_subject = ?
+                   AND (updated_at < ? OR (updated_at = ? AND id < ?))
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT ?
+                """, this::mapSession, tenantId, projectId, actorSubject,
+                Timestamp.from(beforeUpdatedAt), Timestamp.from(beforeUpdatedAt), beforeId, limit);
+    }
+
+    @Override
     public ConversationRecord updateStatus(UUID sessionId, ConversationService.Status status, Instant updatedAt) {
         ConversationRecord current = findSession(sessionId).orElseThrow(ConversationRuntimeException::sessionNotFound);
         return updateStatus(sessionId, status, updatedAt, current.version());

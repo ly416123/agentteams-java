@@ -1,4 +1,5 @@
 import { apiClient, type HttpClient } from './httpClient';
+import { normalizeCursorPage, type CursorPage } from './types';
 
 export type Conversation = {
   id?: string;
@@ -9,6 +10,16 @@ export type Conversation = {
   taskId?: string;
   status: string;
   version?: number;
+};
+
+export type ConversationSummary = {
+  sessionId: string;
+  context: { project: string; team: string; worker?: string | null; task?: string | null };
+  status: string;
+  version?: number;
+  createdAt: string;
+  updatedAt: string;
+  lastMessage?: string | null;
 };
 
 export type ConversationMessageResponse = {
@@ -48,6 +59,18 @@ export function createConversation(
 
 export function getConversation(id: string, client: HttpClient = apiClient) {
   return client.request<Conversation>(`/api/v1/conversations/${id}`);
+}
+
+export function listConversations(
+  projectId: string,
+  filters: { cursor?: string; pageSize?: number } = {},
+  client: HttpClient = apiClient,
+) {
+  return client
+    .request<CursorPage<ConversationSummary> | ConversationSummary[]>('/api/v1/conversations', {
+      query: { projectId, cursor: filters.cursor, pageSize: filters.pageSize },
+    })
+    .then(normalizeCursorPage);
 }
 
 export function getConversationHistory(id: string, client: HttpClient = apiClient) {

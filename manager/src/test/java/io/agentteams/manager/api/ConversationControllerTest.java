@@ -215,6 +215,25 @@ class ConversationControllerTest {
     }
 
     @Test
+    void listsCurrentUsersConversationsForTheRequestedProject() throws Exception {
+        createConversation();
+        mvc.perform(post("/api/v1/conversations/{sessionId}/messages", SESSION_ID)
+                .header(IDEMPOTENCY_KEY, "message-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"历史问题\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/conversations")
+                .param("projectId", "project-a")
+                .param("pageSize", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].sessionId").value(SESSION_ID.toString()))
+                .andExpect(jsonPath("$.items[0].context.team").value("team-a"))
+                .andExpect(jsonPath("$.items[0].lastMessage").value("历史问题"))
+                .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @Test
     void streamsEventsUsingTheGreatestAfterAndLastEventIdCursor() throws Exception {
         createConversation();
         mvc.perform(post("/api/v1/conversations/{sessionId}/messages", SESSION_ID)

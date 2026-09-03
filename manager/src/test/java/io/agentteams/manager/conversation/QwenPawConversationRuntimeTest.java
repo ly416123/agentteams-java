@@ -123,12 +123,12 @@ class QwenPawConversationRuntimeTest {
                     "data: {\"id\":\"response-1\",\"status\":\"created\",\"object\":\"response\"}\n\n"
                             + "data: {\"id\":\"response-1\",\"status\":\"in_progress\",\"object\":\"response\"}\n\n"
                             + "data: {\"id\":\"reasoning-1\",\"type\":\"reasoning\",\"object\":\"message\",\"status\":\"in_progress\"}\n\n"
-                            + "data: {\"type\":\"text\",\"delta\":true,\"object\":\"content\",\"text\":\"thinking\"}\n\n"
-                            + "data: {\"type\":\"text\",\"delta\":false,\"object\":\"content\",\"text\":\"thinking\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":true,\"object\":\"content\",\"msg_id\":\"reasoning-1\",\"text\":\"thinking\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":false,\"object\":\"content\",\"msg_id\":\"reasoning-1\",\"text\":\"thinking\"}\n\n"
                             + "data: {\"id\":\"reasoning-1\",\"type\":\"reasoning\",\"object\":\"message\",\"status\":\"completed\"}\n\n"
                             + "data: {\"id\":\"message-1\",\"type\":\"message\",\"object\":\"message\",\"status\":\"in_progress\"}\n\n"
-                            + "data: {\"type\":\"text\",\"delta\":true,\"object\":\"content\",\"text\":\"hello\"}\n\n"
-                            + "data: {\"type\":\"text\",\"delta\":false,\"object\":\"content\",\"text\":\"hello\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":true,\"object\":\"content\",\"msg_id\":\"message-1\",\"text\":\"hello\"}\n\n"
+                            + "data: {\"type\":\"text\",\"delta\":false,\"object\":\"content\",\"msg_id\":\"message-1\",\"text\":\"hello\"}\n\n"
                             + "data: {\"id\":\"message-1\",\"type\":\"message\",\"object\":\"message\",\"status\":\"completed\"}\n\n"
                             + "event: message.completed\ndata: {\"type\":\"data\",\"object\":\"content\",\"status\":\"completed\",\"name\":\"memory_search\"}\n\n"
                             + "data: {\"id\":\"response-1\",\"status\":\"completed\",\"object\":\"response\",\"output\":[]}\n\n");
@@ -143,7 +143,9 @@ class QwenPawConversationRuntimeTest {
         List<ConversationEvent> events = runtime.events(SESSION_ID, 0);
         assertThat(events).extracting(ConversationEvent::type)
                 .containsExactly("conversation.started", "message.delta", "message.delta",
-                        "message.delta", "message.delta", "message.delta", "message.delta", "message.completed");
+                        "message.delta", "message.delta", "message.completed");
+        assertThat(events).noneMatch(event -> event.data().contains("thinking"));
+        assertThat(events).anyMatch(event -> event.data().contains("hello"));
         assertThat(events).noneMatch(event -> event.type().equals("conversation.failed"));
         runtime.close();
     }

@@ -5,6 +5,10 @@ package io.agentteams.manager.security;
 public interface ConversationScopeAuthorizer {
     void requireAccessible(String projectId, String teamId, ManagerPrincipal principal);
 
+    default void requireProjectAccessible(String projectId, ManagerPrincipal principal) {
+        requireAccessible(projectId, principal.teamId(), principal);
+    }
+
     /** Keeps standalone Manager unit tests and legacy external scopes self-contained. */
     static ConversationScopeAuthorizer legacy() {
         return (projectId, teamId, principal) -> {

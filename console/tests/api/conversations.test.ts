@@ -4,6 +4,7 @@ import {
   createConversation,
   getConversation,
   getConversationHistory,
+  listConversations,
   sendConversationMessage,
 } from '../../src/api/conversations';
 import type { HttpClient } from '../../src/api/httpClient';
@@ -72,5 +73,15 @@ describe('conversation API', () => {
     await getConversationHistory('c-1', http);
 
     expect(http.request).toHaveBeenCalledWith('/api/v1/conversations/c-1/history');
+  });
+
+  it('lists conversations for the current project', async () => {
+    const http = client();
+    http.request.mockResolvedValue({ items: [], hasMore: false });
+    await listConversations('p-1', { cursor: 'next' }, http);
+
+    expect(http.request).toHaveBeenCalledWith('/api/v1/conversations', {
+      query: { projectId: 'p-1', cursor: 'next' },
+    });
   });
 });

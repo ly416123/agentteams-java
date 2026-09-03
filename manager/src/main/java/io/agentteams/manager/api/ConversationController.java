@@ -67,6 +67,16 @@ public final class ConversationController {
                         new ConversationOwner(principal.tenantId(), principal.subject()))));
     }
 
+    @GetMapping
+    public ConversationPageResponse list(@RequestParam(required = false) String projectId,
+            @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String cursor) {
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        String requestedProject = projectId == null || projectId.isBlank() ? principal.projectId() : projectId;
+        scopeAuthorizer.requireProjectAccessible(requestedProject, principal);
+        ConversationService.ConversationPage page = service.list(requestedProject, pageSize, cursor, owner(principal));
+        return ConversationPageResponse.from(page);
+    }
+
     @GetMapping("/{sessionId}")
     public SessionResponse get(@PathVariable UUID sessionId) {
         ManagerPrincipal principal = ManagerRequestContext.require();
@@ -212,6 +222,20 @@ public final class ConversationController {
         static SessionResponse from(ConversationService.Conversation conversation) {
             return new SessionResponse(conversation.sessionId(), conversation.context(), conversation.status().name(),
                     conversation.version());
+        }
+    }
+    public record ConversationPageResponse(List<ConversationSummaryResponse> items, String nextCursor,
+            boolean hasMore, java.time.Instant serverTime) {
+        static ConversationPageResponse from(ConversationService.ConversationPage page) {
+            return new ConversationPageResponse(page.items().stream().map(ConversationSummaryResponse::from).toList(),
+                    page.nextCursor(), page.hasMore(), page.serverTime());
+        }
+    }
+    public record ConversationSummaryResponse(UUID sessionId, ConversationRuntimePort.Context context, String status,
+            long version, java.time.Instant createdAt, java.time.Instant updatedAt, String lastMessage) {
+        static ConversationSummaryResponse from(ConversationService.ConversationSummary summary) {
+            return new ConversationSummaryResponse(summary.sessionId(), summary.context(), summary.status().name(),
+                    summary.version(), summary.createdAt(), summary.updatedAt(), summary.lastMessage());
         }
     }
     public record EventResponse(long id, String event, JsonNode data) { }

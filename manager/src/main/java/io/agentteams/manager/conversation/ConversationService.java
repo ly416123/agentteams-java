@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -33,6 +35,17 @@ public final class ConversationService {
         public History {
             messages = List.copyOf(messages);
             events = List.copyOf(events);
+        }
+    }
+
+    public record ConversationSummary(UUID sessionId, ConversationRuntimePort.Context context, Status status,
+            long version, Instant createdAt, Instant updatedAt, String lastMessage) {
+    }
+
+    public record ConversationPage(List<ConversationSummary> items, String nextCursor, boolean hasMore,
+            Instant serverTime) {
+        public ConversationPage {
+            items = List.copyOf(items);
         }
     }
 
@@ -114,6 +127,26 @@ public final class ConversationService {
         SessionState state = session(sessionId);
         authorize(state, caller);
         return history(sessionId);
+    }
+
+    public ConversationPage list(String projectId, Integer requestedPageSize, String cursor,
+            ConversationOwner owner) {
+        if (projectId == null || projectId.isBlank()) throw new IllegalArgumentException("projectId is required");
+        int pageSize = requestedPageSize == null ? 50 : requestedPageSize;
+        if (pageSize < 1 || pageSize > 200) {
+            throw new IllegalArgumentException("pageSize must be between 1 and 200");
+        }
+        Objects.requireNonNull(owner, "owner");
+        CursorPosition position = decodeCursor(cursor);
+        List<ConversationRepository.ConversationRecord> records = repository.findSessions(owner.tenantId(), projectId,
+                owner.subject(), position.updatedAt(), position.id(), pageSize + 1);
+        boolean hasMore = records.size() > pageSize;
+        List<ConversationRepository.ConversationRecord> page = hasMore ? records.subList(0, pageSize) : records;
+        List<ConversationSummary> items = page.stream().map(record -> new ConversationSummary(
+                record.context().sessionId(), record.context(), record.status(), record.version(), record.createdAt(),
+                record.updatedAt(), lastMessage(record.context().sessionId()))).toList();
+        String nextCursor = hasMore ? encodeCursor(page.get(page.size() - 1)) : null;
+        return new ConversationPage(items, nextCursor, hasMore, Instant.now());
     }
 
     public Conversation start(UUID sessionId) {
@@ -529,6 +562,34 @@ public final class ConversationService {
 
     private static Conversation snapshot(SessionState state) {
         return new Conversation(state.context.sessionId(), state.context, state.status, state.owner, state.version);
+    }
+
+    private String lastMessage(UUID sessionId) {
+        return repository.findMessages(sessionId).stream()
+                .max(java.util.Comparator.comparing(ConversationRepository.MessageRecord::createdAt)
+                        .thenComparing(ConversationRepository.MessageRecord::idempotencyKey))
+                .map(ConversationRepository.MessageRecord::content)
+                .orElse(null);
+    }
+
+    private static String encodeCursor(ConversationRepository.ConversationRecord record) {
+        String value = record.updatedAt() + "|" + record.context().sessionId();
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static CursorPosition decodeCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) return new CursorPosition(null, null);
+        try {
+            String value = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+            String[] parts = value.split("\\|", -1);
+            if (parts.length != 2) throw new IllegalArgumentException();
+            return new CursorPosition(Instant.parse(parts[0]), UUID.fromString(parts[1]));
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("cursor is invalid", error);
+        }
+    }
+
+    private record CursorPosition(Instant updatedAt, UUID id) {
     }
 
     private static void requireVersion(UUID sessionId, SessionState state, Long expectedVersion) {

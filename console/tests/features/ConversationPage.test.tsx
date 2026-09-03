@@ -19,8 +19,26 @@ vi.mock('../../src/api/conversations', () => mocks);
 vi.mock('../../src/api/teams', () => ({ listTeams: mocks.listTeams }));
 vi.mock('../../src/streams/conversationEvents', () => ({
   streamConversationEvents: mocks.streamConversationEvents,
-  conversationEventText: (event: { payload: Record<string, unknown> }) =>
-    typeof event.payload.text === 'string' ? event.payload.text : String(event.payload.delta ?? ''),
+  conversationEventText: (event: { payload: Record<string, unknown> }) => {
+    if (typeof event.payload.text === 'string') return event.payload.text;
+    if (typeof event.payload.delta === 'string') return event.payload.delta;
+    const output = event.payload.output;
+    if (!Array.isArray(output)) return '';
+    return output
+      .filter(
+        (part): part is { role?: unknown; content?: unknown } =>
+          Boolean(part) &&
+          typeof part === 'object' &&
+          part.role === 'assistant' &&
+          (!('type' in part) || part.type === 'message'),
+      )
+      .flatMap((part) =>
+        Array.isArray(part.content)
+          ? part.content.map((item: { text?: unknown }) => item?.text || '')
+          : [],
+      )
+      .join('');
+  },
 }));
 
 function renderPage(conversationId?: string, search = '') {
@@ -68,6 +86,33 @@ describe('ConversationPage', () => {
       expect.anything(),
       expect.any(String),
     );
+  });
+
+  it('shows the final assistant response when the stream has no delta event', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 1,
+    });
+    mocks.streamConversationEvents.mockImplementation(async (_id, options) => {
+      options.onState('connected');
+      options.onEvent({
+        id: '2',
+        type: 'message.completed',
+        data: '',
+        payload: {
+          output: [
+            { type: 'message', role: 'assistant', content: [{ type: 'text', text: '最终回答' }] },
+          ],
+        },
+      });
+    });
+
+    renderPage('c-1');
+
+    expect(await screen.findByText('最终回答')).toBeInTheDocument();
   });
 
   it('confirms cancellation and disables sending after the server confirms it', async () => {
@@ -121,6 +166,45 @@ describe('ConversationPage', () => {
     expect(await screen.findByText('历史问题')).toBeInTheDocument();
     expect(await screen.findByText('历史回答')).toBeInTheDocument();
     expect(mocks.getConversationHistory).toHaveBeenCalledWith('c-1');
+  });
+
+  it('renders multiple turns in chronological order with role-specific bubbles', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 3,
+    });
+    mocks.getConversationHistory.mockResolvedValue({
+      messages: [
+        { idempotencyKey: 'm-1', content: '第一轮问题', startCursor: 1, endCursor: 3 },
+        { idempotencyKey: 'm-2', content: '第二轮问题', startCursor: 4, endCursor: 6 },
+      ],
+      events: [
+        { id: 1, event: 'conversation.started', data: {} },
+        { id: 3, event: 'message.completed', data: { text: '第一轮回答' } },
+        { id: 6, event: 'message.completed', data: { text: '第二轮回答' } },
+      ],
+    });
+    mocks.streamConversationEvents.mockResolvedValue(undefined);
+
+    renderPage('c-1');
+
+    const transcript = await screen.findByRole('region', { name: '对话记录' });
+    const bubbles = Array.from(transcript.querySelectorAll('.conversation-message'));
+    expect(bubbles.map((bubble) => bubble.textContent?.trim())).toEqual([
+      'USER第一轮问题',
+      'ASSISTANT第一轮回答',
+      'USER第二轮问题',
+      'ASSISTANT第二轮回答',
+    ]);
+    expect(bubbles.map((bubble) => bubble.className)).toEqual([
+      'conversation-message conversation-message--user',
+      'conversation-message conversation-message--assistant',
+      'conversation-message conversation-message--user',
+      'conversation-message conversation-message--assistant',
+    ]);
   });
 
   it('shows send failures and restores the failed draft', async () => {

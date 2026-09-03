@@ -2,6 +2,7 @@ package io.agentteams.manager.conversation;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -54,6 +55,24 @@ public final class InMemoryConversationRepository implements ConversationReposit
     public Optional<ConversationRecord> findSessionByIdempotencyKey(String idempotencyKey) {
         UUID sessionId = createKeys.get(idempotencyKey);
         return sessionId == null ? Optional.empty() : findSession(sessionId);
+    }
+
+    @Override
+    public List<ConversationRecord> findSessions(String tenantId, String projectId, String actorSubject,
+            Instant beforeUpdatedAt, UUID beforeId, int limit) {
+        return sessions.values().stream()
+                .filter(session -> session.owner() != null
+                        && tenantId.equals(session.owner().tenantId())
+                        && actorSubject.equals(session.owner().subject())
+                        && projectId.equals(session.context().project()))
+                .filter(session -> beforeUpdatedAt == null
+                        || session.updatedAt().isBefore(beforeUpdatedAt)
+                        || (session.updatedAt().equals(beforeUpdatedAt)
+                                && session.context().sessionId().compareTo(beforeId) < 0))
+                .sorted(Comparator.comparing(ConversationRecord::updatedAt).reversed()
+                        .thenComparing(record -> record.context().sessionId(), Comparator.reverseOrder()))
+                .limit(limit)
+                .toList();
     }
 
     @Override

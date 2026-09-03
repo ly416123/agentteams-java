@@ -71,6 +71,24 @@ class ControlPlaneConversationScopeAuthorizerTest {
     }
 
     @Test
+    void authorizesAStableProjectThroughItsProjectRoleEndpoint() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Void> response = response(200);
+        when(client.<Void>send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
+        ManagerRequestContext.set(PRINCIPAL, "development-token");
+
+        new ControlPlaneConversationScopeAuthorizer("http://control-plane:8080", client)
+                .requireProjectAccessible(PROJECT_ID, PRINCIPAL);
+
+        ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(request.capture(), any(HttpResponse.BodyHandler.class));
+        assertThat(request.getValue().uri().toString())
+                .isEqualTo("http://control-plane:8080/api/v1/projects/" + PROJECT_ID + "/role");
+        assertThat(request.getValue().headers().firstValue("Authorization"))
+                .contains("Bearer development-token");
+    }
+
+    @Test
     void doesNotCallControlPlaneForLegacyExternalScope() {
         HttpClient client = mock(HttpClient.class);
 

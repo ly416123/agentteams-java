@@ -358,6 +358,38 @@ h1 {
 .panel {
   padding: 24px;
 }
+.conversation-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.conversation-message {
+  width: fit-content;
+  max-width: min(82%, 760px);
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.conversation-message--user {
+  align-self: flex-end;
+  border-color: rgb(141 224 207 / 35%);
+  background: rgb(141 224 207 / 12%);
+}
+.conversation-message--assistant {
+  align-self: flex-start;
+  background: var(--panel-soft);
+}
+.conversation-message .eyebrow {
+  margin-bottom: 8px;
+  font-size: 10px;
+}
+.conversation-message p {
+  margin: 0;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .panel h2,
 .form-panel h2 {
   margin: 0;

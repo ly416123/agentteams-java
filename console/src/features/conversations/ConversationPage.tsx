@@ -18,6 +18,77 @@ import {
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { ErrorState } from '../../components/ErrorState';
 
+type TranscriptItem = {
+  key: string;
+  role: 'user' | 'assistant' | 'event';
+  type?: string;
+  text: string;
+};
+
+function eventOrder(event: ConversationEvent) {
+  if (typeof event.order === 'number') return event.order;
+  const numericId = event.id === undefined ? Number.NaN : Number(event.id);
+  return Number.isFinite(numericId) ? numericId : Number.POSITIVE_INFINITY;
+}
+
+function buildTranscript(events: ConversationEvent[]): TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  let assistantDraft = '';
+  let assistantKey = '';
+  const flushAssistant = () => {
+    if (!assistantDraft) return;
+    items.push({
+      key: assistantKey || `assistant-${items.length}`,
+      role: 'assistant',
+      text: assistantDraft,
+    });
+    assistantDraft = '';
+    assistantKey = '';
+  };
+  const ordered = events
+    .map((event, index) => ({ event, index }))
+    .sort(
+      (left, right) => eventOrder(left.event) - eventOrder(right.event) || left.index - right.index,
+    )
+    .map(({ event }) => event);
+
+  ordered.forEach((event, index) => {
+    if (event.type === 'conversation.started') return;
+    if (event.type === 'user.message') {
+      flushAssistant();
+      items.push({
+        key: event.id || `user-${index}`,
+        role: 'user',
+        text: conversationEventText(event) || event.data,
+      });
+      return;
+    }
+    if (event.type === 'message.delta') {
+      const text = conversationEventText(event);
+      if (text) {
+        assistantDraft += text;
+        assistantKey ||= event.id || `assistant-${index}`;
+      }
+      return;
+    }
+    if (event.type === 'message.completed') {
+      flushAssistant();
+      const text = conversationEventText(event);
+      if (text) items.push({ key: event.id || `assistant-${index}`, role: 'assistant', text });
+      return;
+    }
+    flushAssistant();
+    items.push({
+      key: event.id || `event-${index}`,
+      role: 'event',
+      type: event.type,
+      text: conversationEventText(event) || event.data,
+    });
+  });
+  flushAssistant();
+  return items;
+}
+
 export function ConversationPage({
   projectId,
   conversationId,
@@ -88,10 +159,7 @@ export function ConversationPage({
               const byId = new Map(current.map((item) => [item.id, item]));
               historicalEvents.forEach((item) => byId.set(item.id, item));
               return [...byId.values()].sort((left, right) => {
-                const leftOrder = 'order' in left ? Number(left.order) : Number.POSITIVE_INFINITY;
-                const rightOrder =
-                  'order' in right ? Number(right.order) : Number.POSITIVE_INFINITY;
-                return leftOrder - rightOrder;
+                return eventOrder(left) - eventOrder(right);
               });
             });
           })
@@ -102,7 +170,9 @@ export function ConversationPage({
           onEvent: (event) =>
             active &&
             setEvents((current) =>
-              current.some((item) => item.id === event.id) ? current : [...current, event],
+              current.some((item) => item.id === event.id)
+                ? current
+                : [...current, event].sort((left, right) => eventOrder(left) - eventOrder(right)),
             ),
           onState: (state) => active && setStreamState(state),
           signal: streamController.signal,
@@ -165,10 +235,7 @@ export function ConversationPage({
       </div>
     );
   const status = conversation?.status || 'LOADING';
-  const assistantText = events
-    .filter((event) => event.type === 'message.delta')
-    .map(conversationEventText)
-    .join('');
+  const transcript = buildTranscript(events);
   async function drainPendingMessages() {
     if (sendingMessages.current) return;
     sendingMessages.current = true;
@@ -223,15 +290,20 @@ export function ConversationPage({
     setContent('');
     pendingMessages.current.push({ content: message, idempotencyKey: crypto.randomUUID() });
     setQueuedMessageCount(pendingMessages.current.length);
-    setEvents((current) => [
-      ...current,
-      {
-        id: `local-${crypto.randomUUID()}`,
-        type: 'user.message',
-        data: message,
-        payload: { text: message },
-      },
-    ]);
+    setEvents((current) => {
+      const finiteOrders = current.map(eventOrder).filter(Number.isFinite);
+      const nextOrder = (finiteOrders.length ? Math.max(...finiteOrders) : 0) + 0.5;
+      return [
+        ...current,
+        {
+          id: `local-${crypto.randomUUID()}`,
+          type: 'user.message',
+          data: message,
+          payload: { text: message },
+          order: nextOrder,
+        },
+      ];
+    });
     void drainPendingMessages();
   };
   return (
@@ -264,28 +336,14 @@ export function ConversationPage({
         </div>
       )}
       <section className="panel conversation-transcript" aria-label="对话记录">
-        {events
-          .filter(
-            (event) =>
-              event.type !== 'conversation.started' &&
-              event.type !== 'message.completed' &&
-              event.type !== 'message.delta',
-          )
-          .map((event) => (
-            <div
-              className={`conversation-message conversation-message--${event.type}`}
-              key={event.id}
-            >
-              <span className="eyebrow">{event.type}</span>
-              <p>{String(conversationEventText(event) || event.data)}</p>
-            </div>
-          ))}
-        {assistantText && (
-          <div className="conversation-message conversation-message--assistant">
-            <span className="eyebrow">ASSISTANT</span>
-            <p>{assistantText}</p>
+        {transcript.map((item) => (
+          <div className={`conversation-message conversation-message--${item.role}`} key={item.key}>
+            <span className="eyebrow">
+              {item.role === 'user' ? 'USER' : item.role === 'assistant' ? 'ASSISTANT' : item.type}
+            </span>
+            <p>{item.text}</p>
           </div>
-        )}
+        ))}
       </section>
       {status === 'CANCELLED' && <div className="info-box">会话已取消</div>}
       {Boolean(sendError) && (

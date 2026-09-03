@@ -5,6 +5,7 @@ export type ConversationEvent = {
   type: string;
   data: string;
   payload: Record<string, unknown>;
+  order?: number;
 };
 
 export function conversationEventText(event: ConversationEvent): string {
@@ -12,12 +13,27 @@ export function conversationEventText(event: ConversationEvent): string {
   const direct = payload.text ?? payload.delta;
   if (typeof direct === 'string') return direct;
   if (typeof payload.content === 'string') return payload.content;
-  if (Array.isArray(payload.content)) {
-    return payload.content
+  const contentText = (content: unknown) => {
+    if (!Array.isArray(content)) return '';
+    return content
       .map((part) => {
         if (!part || typeof part !== 'object') return '';
         const text = (part as { text?: unknown }).text;
         return typeof text === 'string' ? text : '';
+      })
+      .join('');
+  };
+  const content = contentText(payload.content);
+  if (content) return content;
+  if (Array.isArray(payload.output)) {
+    return payload.output
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        const item = part as { type?: unknown; role?: unknown; text?: unknown; content?: unknown };
+        if (item.type !== undefined && item.type !== 'message') return '';
+        if (item.role !== undefined && item.role !== 'assistant') return '';
+        if (typeof item.text === 'string') return item.text;
+        return contentText(item.content);
       })
       .join('');
   }
@@ -41,7 +57,14 @@ function parseFrame(frame: string): ConversationEvent | null {
   } catch {
     payload = { text: raw };
   }
-  return { id, type, data: raw, payload };
+  const numericId = id === undefined ? undefined : Number(id);
+  return {
+    id,
+    type,
+    data: raw,
+    payload,
+    order: numericId !== undefined && Number.isFinite(numericId) ? numericId : undefined,
+  };
 }
 
 export function createConversationEventParser() {

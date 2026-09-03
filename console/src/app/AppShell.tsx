@@ -37,7 +37,7 @@ const navItems = [
   { to: 'scheduled-tasks', label: '定时任务', icon: '◷' },
   { to: 'teams', label: 'Teams', icon: '◇' },
   { to: 'workers', label: 'Workers', icon: '⬡' },
-  { to: 'conversations/new', label: '对话', icon: '◌' },
+  { to: 'conversations', label: '对话', icon: '◌' },
   { to: 'templates', label: 'Templates', icon: '▤' },
   { to: 'agentspecs', label: 'Agent Specs', icon: '◆' },
   { to: 'models', label: 'Models', icon: '◉' },

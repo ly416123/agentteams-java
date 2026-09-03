@@ -17,4 +17,6 @@ export const queryKeys = {
   worker: (projectId: string, workerId: string) => ['worker', projectId, workerId] as const,
   workerOperations: (projectId: string, workerId: string, cursor?: string) =>
     ['worker-operations', projectId, workerId, cursor] as const,
+  conversations: (projectId: string, cursor?: string) =>
+    ['conversations', projectId, cursor] as const,
 };
