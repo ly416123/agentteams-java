@@ -30,7 +30,12 @@ const mocks = vi.hoisted(() => ({
     status: 'PUBLISHED',
     version: 1,
   }),
-  instantiateWorkerTemplate: vi.fn().mockResolvedValue({ id: 'instance-1' }),
+  instantiateWorkerTemplate: vi.fn().mockResolvedValue({
+    id: 'instance-1',
+    templateId: 'template-1',
+    workerId: 'worker-1',
+    status: 'SUCCEEDED',
+  }),
 }));
 
 vi.mock('../../src/api/managementCatalog', () => ({
@@ -83,5 +88,18 @@ describe('Management template page', () => {
     await userEvent.click(screen.getByRole('button', { name: '显式实例化 Worker' }));
     expect(mocks.instantiateWorkerTemplate).toHaveBeenCalledWith('project-1', 'template-1', 2);
     expect(await screen.findByText('已创建实例 instance-1，等待 Worker Ready')).toBeInTheDocument();
+    expect(await screen.findByText('实例化成功 · Worker worker-1')).toBeInTheDocument();
+  });
+
+  it('shows a failed instantiation result on the template card', async () => {
+    mocks.instantiateWorkerTemplate.mockResolvedValueOnce({
+      id: 'failed-instance-1',
+      templateId: 'template-1',
+      status: 'FAILED',
+    });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: '显式实例化 Worker' }));
+
+    expect(await screen.findByText('实例化失败 · 实例 failed-instance-1')).toBeInTheDocument();
   });
 });

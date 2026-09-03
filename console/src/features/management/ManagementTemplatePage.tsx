@@ -6,6 +6,7 @@ import {
   instantiateWorkerTemplate,
   listWorkerTemplates,
   publishWorkerTemplateRevision,
+  type WorkerTemplateInstance,
   type WorkerTemplateRevision,
 } from '../../api/managementCatalog';
 import type { WorkerType } from '../../api/types';
@@ -21,6 +22,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
     queryFn: () => listWorkerTemplates(projectId),
   });
   const [notice, setNotice] = useState<Notice>();
+  const [lastInstance, setLastInstance] = useState<WorkerTemplateInstance>();
   const [template, setTemplate] = useState<{
     name: string;
     displayName: string;
@@ -69,8 +71,16 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
   const instantiate = useMutation({
     mutationFn: (value: { templateId: string; revision: number }) =>
       instantiateWorkerTemplate(projectId, value.templateId, value.revision),
-    onSuccess: (value) =>
-      setNotice({ kind: 'success', text: `已创建实例 ${value.id}，等待 Worker Ready` }),
+    onMutate: () => setLastInstance(undefined),
+    onSuccess: (value) => {
+      setLastInstance(value);
+      void queryClient.invalidateQueries({ queryKey: ['workers', projectId] });
+      setNotice(
+        value.status === 'SUCCEEDED'
+          ? { kind: 'success', text: `已创建实例 ${value.id}，等待 Worker Ready` }
+          : { kind: 'error', text: `实例化失败：实例 ${value.id}` },
+      );
+    },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
 
@@ -219,18 +229,32 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
                 Project {item.projectId} · version {item.version}
               </p>
               {item.currentPublishedRevision && (
-                <button
-                  className="button button--primary"
-                  disabled={instantiate.isPending}
-                  onClick={() =>
-                    instantiate.mutate({
-                      templateId: item.id,
-                      revision: item.currentPublishedRevision as number,
-                    })
-                  }
-                >
-                  显式实例化 Worker
-                </button>
+                <>
+                  <button
+                    className="button button--primary"
+                    disabled={instantiate.isPending}
+                    onClick={() =>
+                      instantiate.mutate({
+                        templateId: item.id,
+                        revision: item.currentPublishedRevision as number,
+                      })
+                    }
+                  >
+                    {instantiate.isPending ? '实例化中…' : '显式实例化 Worker'}
+                  </button>
+                  {lastInstance?.templateId === item.id && (
+                    <div
+                      className={
+                        lastInstance.status === 'SUCCEEDED' ? 'success-text' : 'error-text'
+                      }
+                      role="status"
+                    >
+                      {lastInstance.status === 'SUCCEEDED'
+                        ? `实例化成功 · Worker ${lastInstance.workerId || '等待分配'}`
+                        : `实例化失败 · 实例 ${lastInstance.id}`}
+                    </div>
+                  )}
+                </>
               )}
             </article>
           ))}
