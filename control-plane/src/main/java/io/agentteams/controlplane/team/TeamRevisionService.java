@@ -51,6 +51,7 @@ public final class TeamRevisionService {
         if (!memberAgentIds.contains(leaderAgentId)) {
             throw new IllegalArgumentException("leader must be included in members");
         }
+        repository.validateLeaderType(teamId, leaderAgentId);
         String overlay = canonicalObject(overlayJson);
         List<TeamResourceBinding> bindings = TeamResourceBindings.canonicalize(resourceBindings);
         String digest = revisionDigest(overlay, bindings);

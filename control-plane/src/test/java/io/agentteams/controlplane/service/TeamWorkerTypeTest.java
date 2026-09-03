@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -83,5 +84,23 @@ class TeamWorkerTypeTest {
         assertThatThrownBy(() -> service.addMember(teamId, agentId, "LEADER", NOW, "member-key"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("WORKER_TYPE_NOT_ALLOWED_FOR_ROLE");
+    }
+
+    @Test
+    void acceptsLeaderWorkerWhenAssignedAsTeamLeader() {
+        UUID teamId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        when(idempotencyKeys.findByKey("leader-key")).thenReturn(Optional.empty());
+        when(idempotencyKeys.insertIfAbsent(any())).thenReturn(true);
+        when(teams.findById(teamId)).thenReturn(Optional.of(new io.agentteams.controlplane.persistence.TeamRecord(
+                teamId, "team-a", "Team A", "ACTIVE", NOW, NOW, 0)));
+        when(agents.findById(agentId)).thenReturn(Optional.of(AgentRecord.create(agentId, "leader-a",
+                WorkerType.LEADER, AgentPhase.READY, "qwenpaw", "{}", NOW)));
+
+        TeamService service = new TeamService(persistence,
+                new io.agentteams.controlplane.team.TeamSchedulingPolicy(), resourceScopes,
+                new IdempotencyService());
+
+        assertThat(service.addMember(teamId, agentId, "LEADER", NOW, "leader-key").role()).isEqualTo("LEADER");
     }
 }
