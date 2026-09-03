@@ -78,9 +78,24 @@ class ApiAuthenticationFilterTest {
                 "alice", new AuthorizationService.Scope("tenant", "project", "team"), Set.of("task:read")));
         ApiAuthenticationFilter filter = new ApiAuthenticationFilter(validator, new ProjectScopeResolver(projects));
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/tasks");
+        request.setParameter("projectId", "project");
         request.addHeader("Authorization", "Bearer test-token");
         FilterChain chain = (req, ignored) -> assertThat(PrincipalContext.current().orElseThrow().scope().project())
                 .isEqualTo(id.toString());
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+    }
+
+    @Test
+    void leavesTenantLevelRequestsUnresolvedWhenProjectIsNotRequested() throws Exception {
+        ProjectRepository projects = mock(ProjectRepository.class);
+        IdentityTokenValidator validator = token -> Optional.of(new IdentityTokenValidator.IdentityPrincipal(
+                "quota-admin", new AuthorizationService.Scope("tenant", "project", "team"), Set.of("team:read")));
+        ApiAuthenticationFilter filter = new ApiAuthenticationFilter(validator, new ProjectScopeResolver(projects));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/projects");
+        request.addHeader("Authorization", "Bearer test-token");
+        FilterChain chain = (req, ignored) -> assertThat(PrincipalContext.current().orElseThrow().scope().project())
+                .isEqualTo("project");
 
         filter.doFilter(request, new MockHttpServletResponse(), chain);
     }

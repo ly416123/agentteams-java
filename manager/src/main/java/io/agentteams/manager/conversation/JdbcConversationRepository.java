@@ -73,25 +73,25 @@ public class JdbcConversationRepository implements ConversationRepository {
             Instant beforeUpdatedAt, UUID beforeId, int limit) {
         if (beforeUpdatedAt == null) {
             return jdbc.query("""
-                    SELECT id, project_id, team_id, worker_id, task_id, status, created_at, updated_at,
-                           tenant_id, actor_subject, version
+                    SELECT c.id, c.project_id, c.team_id, c.worker_id, c.task_id, c.status, c.created_at, c.updated_at,
+                           c.tenant_id, c.actor_subject, c.version
                       FROM conversation_sessions c
                       JOIN projects p ON p.tenant_id = c.tenant_id
                                      AND (p.id::text = c.project_id OR p.name = c.project_id)
                      WHERE c.tenant_id = ? AND p.id::text = ? AND c.actor_subject = ?
-                     ORDER BY updated_at DESC, id DESC
+                     ORDER BY c.updated_at DESC, c.id DESC
                      LIMIT ?
                     """, this::mapSession, tenantId, projectId, actorSubject, limit);
         }
         return jdbc.query("""
-                SELECT id, project_id, team_id, worker_id, task_id, status, created_at, updated_at,
-                       tenant_id, actor_subject, version
+                SELECT c.id, c.project_id, c.team_id, c.worker_id, c.task_id, c.status, c.created_at, c.updated_at,
+                       c.tenant_id, c.actor_subject, c.version
                   FROM conversation_sessions c
                   JOIN projects p ON p.tenant_id = c.tenant_id
                                  AND (p.id::text = c.project_id OR p.name = c.project_id)
                  WHERE c.tenant_id = ? AND p.id::text = ? AND c.actor_subject = ?
                    AND (c.updated_at < ? OR (c.updated_at = ? AND c.id < ?))
-                 ORDER BY updated_at DESC, id DESC
+                ORDER BY c.updated_at DESC, c.id DESC
                  LIMIT ?
                 """, this::mapSession, tenantId, projectId, actorSubject,
                 Timestamp.from(beforeUpdatedAt), Timestamp.from(beforeUpdatedAt), beforeId, limit);

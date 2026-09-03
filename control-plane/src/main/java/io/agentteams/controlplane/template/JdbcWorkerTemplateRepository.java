@@ -54,8 +54,8 @@ public class JdbcWorkerTemplateRepository implements WorkerTemplateRepository {
     @Override
     public List<WorkerTemplate> findTemplates(String tenantId, String projectId) {
         return jdbc.query("""
-                SELECT id, tenant_id, project_id, name, display_name, current_published_revision,
-                       version, created_at, updated_at, worker_type
+                SELECT t.id, t.tenant_id, t.project_id, t.name, t.display_name, t.current_published_revision,
+                       t.version, t.created_at, t.updated_at, t.worker_type
                   FROM worker_templates t
                   JOIN projects p ON p.tenant_id = t.tenant_id
                                  AND (p.id::text = t.project_id OR p.name = t.project_id)

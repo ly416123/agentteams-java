@@ -84,4 +84,21 @@ class JdbcWorkerTemplateRepositoryTest {
     void repositoryRemainsProxyableForSpringExceptionTranslation() {
         assertThat(Modifier.isFinal(JdbcWorkerTemplateRepository.class.getModifiers())).isFalse();
     }
+
+    @Test
+    void findsTemplatesWhenStoredProjectScopeIsLegacyNameAndRequestedScopeIsUuid() {
+        UUID projectId = UUID.randomUUID();
+        UUID templateId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO projects(id, tenant_id, name, created_by, created_at, updated_at)
+                VALUES (?, 'tenant-a', 'project-a', 'alice', ?, ?)
+                """, projectId, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW));
+        WorkerTemplate template = new WorkerTemplate(templateId, "tenant-a", "project-a", "demo", "Demo",
+                null, 0, NOW, NOW, 0);
+        repository.insertTemplate(template);
+
+        assertThat(repository.findTemplates("tenant-a", projectId.toString()))
+                .extracting(WorkerTemplate::id)
+                .containsExactly(templateId);
+    }
 }

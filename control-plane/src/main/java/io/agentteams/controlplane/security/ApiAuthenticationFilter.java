@@ -54,8 +54,9 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
 
         Principal principal = new Principal(identity.subject(), identity.scope(), identity.permissions());
         try {
-            if (projectScopes != null) {
-                principal = projectScopes.canonicalize(principal, request.getParameter("projectId"));
+            String requestedProject = request.getParameter("projectId");
+            if (projectScopes != null && requestedProject != null && !requestedProject.isBlank()) {
+                principal = projectScopes.canonicalize(principal, requestedProject);
             }
         } catch (AuthorizationException denied) {
             forbidden(response);
