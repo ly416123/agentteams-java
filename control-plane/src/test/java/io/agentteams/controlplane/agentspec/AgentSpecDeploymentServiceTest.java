@@ -64,7 +64,8 @@ class AgentSpecDeploymentServiceTest {
         assertThat(result.snapshot()).isSameAs(snapshot);
         verify(snapshots).create("agent-spec:" + specId,
                 "{\"apiVersion\":\"agentteams.io/v1\",\"kind\":\"AgentSpec\",\"agentSpecId\":\""
-                        + specId + "\",\"agentSpecVersion\":2,\"name\":\"analyst\",\"runtime\":\"qwenpaw\","
+                        + specId + "\",\"agentSpecVersion\":2,\"name\":\"analyst\","
+                        + "\"workerType\":\"EXECUTOR\",\"runtime\":\"qwenpaw\","
                         + "\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\",\"teamRef\":\"research\","
                         + "\"scope\":{\"tenant\":\"default\",\"project\":\"default\",\"team\":\"research\"},"
                         + "\"desiredState\":\"RUNNING\",\"spec\":{\"skillRefs\":[\"search-v1\"]}}", "operator");
@@ -137,6 +138,7 @@ class AgentSpecDeploymentServiceTest {
         ArgumentCaptor<String> manifest = ArgumentCaptor.forClass(String.class);
         verify(snapshots).create(any(), manifest.capture(), any());
         JsonNode root = new ObjectMapper().readTree(manifest.getValue());
+        assertThat(root.path("workerType").asText()).isEqualTo("EXECUTOR");
         assertThat(root.path("resourceBindings").size()).isEqualTo(3);
         assertThat(root.path("resourceBindings").get(0).path("type").asText()).isEqualTo("MODEL");
         assertThat(root.path("resourceBindings").get(1).path("type").asText()).isEqualTo("SKILL");

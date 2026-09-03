@@ -4,6 +4,7 @@ import io.agentteams.controlplane.template.WorkerTemplate;
 import io.agentteams.controlplane.template.WorkerTemplateInstance;
 import io.agentteams.controlplane.template.WorkerTemplateRevision;
 import io.agentteams.controlplane.template.WorkerTemplateService;
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -128,26 +129,28 @@ public final class WorkerTemplateController {
         return InstanceResponse.from(service.upgrade(templateId, instanceId, revision, idempotencyKey));
     }
 
-    public record CreateTemplateRequest(String name, String displayName) {
-        WorkerTemplateService.CreateInput toInput() { return new WorkerTemplateService.CreateInput(name, displayName); }
+    public record CreateTemplateRequest(String name, String displayName, WorkerType workerType) {
+        WorkerTemplateService.CreateInput toInput() {
+            return new WorkerTemplateService.CreateInput(name, displayName, workerType);
+        }
     }
 
     public record RevisionRequest(String specJson, String actor) { }
     public record VersionRequest(long expectedVersion) { }
 
     public record TemplateResponse(UUID id, String tenantId, String projectId, String name, String displayName,
-            Long currentPublishedRevision, long version, Instant createdAt, Instant updatedAt) {
+            WorkerType workerType, Long currentPublishedRevision, long version, Instant createdAt, Instant updatedAt) {
         static TemplateResponse from(WorkerTemplate value) {
             return new TemplateResponse(value.id(), value.tenantId(), value.projectId(), value.name(), value.displayName(),
-                    value.currentPublishedRevision(), value.version(), value.createdAt(), value.updatedAt());
+                    value.workerType(), value.currentPublishedRevision(), value.version(), value.createdAt(), value.updatedAt());
         }
     }
 
     public record RevisionResponse(UUID templateId, long revision, String specJson, String digest, String status,
-            String createdBy, Instant createdAt, Instant updatedAt, long version) {
+            WorkerType workerType, String createdBy, Instant createdAt, Instant updatedAt, long version) {
         static RevisionResponse from(WorkerTemplateRevision value) {
             return new RevisionResponse(value.templateId(), value.revision(), value.specJson(), value.digest(),
-                    value.status().name(), value.createdBy(), value.createdAt(), value.updatedAt(), value.version());
+                    value.status().name(), value.workerType(), value.createdBy(), value.createdAt(), value.updatedAt(), value.version());
         }
     }
 

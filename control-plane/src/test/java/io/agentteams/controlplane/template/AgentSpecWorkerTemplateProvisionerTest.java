@@ -14,6 +14,7 @@ import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.worker.WorkerCrdProvisioner;
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -51,11 +52,15 @@ class AgentSpecWorkerTemplateProvisionerTest {
 
         provisioner.provision(new WorkerTemplateRevision(UUID.randomUUID(), 1,
                 "{\"runtime\":\"qwenpaw\",\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\"}",
-                "digest-1", TemplateStatus.PUBLISHED, "subject-1", NOW, NOW, 1),
+                "digest-1", WorkerType.LEADER, TemplateStatus.PUBLISHED, "subject-1", NOW, NOW, 1),
                 instanceId, "instance-key");
 
+        ArgumentCaptor<AgentSpecService.Input> specInput = ArgumentCaptor.forClass(AgentSpecService.Input.class);
+        verify(specs).create(eq("template-spec-" + instanceId), specInput.capture());
+        assertThat(specInput.getValue().workerType()).isEqualTo(WorkerType.LEADER);
         ArgumentCaptor<AgentService.AgentInput> input = ArgumentCaptor.forClass(AgentService.AgentInput.class);
         verify(agents).create(eq("template-worker-" + instanceId), input.capture());
+        assertThat(input.getValue().workerType()).isEqualTo(WorkerType.LEADER);
         assertThat(input.getValue().metadataJson()).isEqualTo(
                 "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}");
         ArgumentCaptor<WorkerCrdProvisioner.Request> request = ArgumentCaptor.forClass(WorkerCrdProvisioner.Request.class);

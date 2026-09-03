@@ -12,6 +12,7 @@ import java.util.UUID;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.AuthorizationException;
+import io.agentteams.domain.agent.WorkerType;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.ObjectProvider;
@@ -98,8 +99,9 @@ public class AgentSpecService {
         Instant now = clock.instant();
         String tenantId = PrincipalContext.current().map(p -> p.scope().tenant()).orElse(null);
         String projectId = PrincipalContext.current().map(p -> p.scope().project()).orElse(null);
-        AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), name, runtime, providerName, modelId,
-                optional(input.teamRef()), desiredState, DRAFT, specJson, now, now, 1, tenantId, projectId);
+        WorkerType workerType = input.workerType() == null ? WorkerType.EXECUTOR : input.workerType();
+        AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), name, workerType, runtime, providerName,
+                modelId, optional(input.teamRef()), desiredState, DRAFT, specJson, now, now, 1, tenantId, projectId);
         if (!repository.insertIdempotency(new AgentSpecRepository.IdempotencyRecord(key, hash, record.id(), now))) {
             var winner = repository.findIdempotency(key).orElseThrow();
             if (!winner.requestHash().equals(hash)) {
@@ -146,7 +148,12 @@ public class AgentSpecService {
     }
 
     public record Input(String name, String runtime, String modelProvider, String modelName,
-            String teamRef, String desiredState, String specJson) { }
+            String teamRef, String desiredState, WorkerType workerType, String specJson) {
+        public Input(String name, String runtime, String modelProvider, String modelName,
+                String teamRef, String desiredState, String specJson) {
+            this(name, runtime, modelProvider, modelName, teamRef, desiredState, WorkerType.EXECUTOR, specJson);
+        }
+    }
 
     private static String normalizeState(String value) {
         String state = value == null || value.isBlank() ? "RUNNING" : value.trim().toUpperCase();
@@ -211,7 +218,7 @@ public class AgentSpecService {
         }
 
         Instant now = clock.instant();
-        AgentSpecRecord next = new AgentSpecRecord(current.id(), current.name(), current.runtime(),
+        AgentSpecRecord next = new AgentSpecRecord(current.id(), current.name(), current.workerType(), current.runtime(),
                 current.modelProvider(), current.modelName(), current.teamRef(), current.desiredState(), target,
                 current.specJson(), current.createdAt(), now, current.version() + 1, current.tenantId(),
                 current.projectId());
@@ -268,7 +275,7 @@ public class AgentSpecService {
 
     private static String hash(Input input) {
         String value = String.join("\u0000", Objects.toString(input.name(), ""),
-                Objects.toString(input.runtime(), ""), Objects.toString(input.modelProvider(), ""),
+                Objects.toString(input.workerType(), ""), Objects.toString(input.runtime(), ""), Objects.toString(input.modelProvider(), ""),
                 Objects.toString(input.modelName(), ""), Objects.toString(input.teamRef(), ""),
                 Objects.toString(input.desiredState(), ""), Objects.toString(input.specJson(), ""));
         try {

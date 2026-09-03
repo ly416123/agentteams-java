@@ -79,9 +79,10 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
                     .orElseThrow(() -> new IllegalStateException("authentication required for Worker provisioning"));
             var spec = specs.create("template-spec-" + instanceId,
-                    new AgentSpecService.Input(name, runtime, provider, model, null, "RUNNING", revision.specJson()));
+                    new AgentSpecService.Input(name, runtime, provider, model, null, "RUNNING", revision.workerType(),
+                            revision.specJson()));
             AgentRecord worker = agents.create("template-worker-" + instanceId,
-                    new AgentService.AgentInput(name, runtime, "{}", scopeMetadata(principal)));
+                    new AgentService.AgentInput(name, runtime, revision.workerType(), "{}", scopeMetadata(principal)));
             workerCrdProvisioner.provision(new WorkerCrdProvisioner.Request(
                     worker.id(), runtime, provider, model,
                     principal.scope().tenant(), principal.scope().project(), principal.scope().team(),

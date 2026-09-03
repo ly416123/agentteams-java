@@ -94,6 +94,7 @@ public final class AgentSpecDeploymentService {
             root.put("agentSpecId", spec.id().toString());
             root.put("agentSpecVersion", spec.version());
             root.put("name", spec.name());
+            root.put("workerType", spec.workerType().name());
             root.put("runtime", spec.runtime());
             root.put("modelProvider", spec.modelProvider());
             root.put("modelName", spec.modelName());

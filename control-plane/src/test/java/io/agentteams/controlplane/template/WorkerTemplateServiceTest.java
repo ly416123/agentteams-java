@@ -13,6 +13,7 @@ import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +57,21 @@ class WorkerTemplateServiceTest {
 
         assertThat(created.specJson()).isEqualTo("{\"modelName\":\"qwen\",\"runtime\":\"java\"}");
         assertThat(created.digest()).hasSize(64);
+    }
+
+    @Test
+    void createsTemplateWithExplicitWorkerType() {
+        WorkerTemplateRepository repository = mock(WorkerTemplateRepository.class);
+        when(repository.findIdempotency("template-key")).thenReturn(Optional.empty());
+        when(repository.insertIdempotency(eq("template-key"), any(), any(), eq(NOW))).thenReturn(true);
+        WorkerTemplateService service = new WorkerTemplateService(repository, mock(TemplateInstanceProvisioner.class),
+                scopes, java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+
+        WorkerTemplate created = service.create("template-key",
+                new WorkerTemplateService.CreateInput("leader", "Leader", WorkerType.LEADER), NOW);
+
+        assertThat(created.workerType()).isEqualTo(WorkerType.LEADER);
+        verify(repository).insertTemplate(created);
     }
 
     @Test

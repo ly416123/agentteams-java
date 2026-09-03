@@ -7,6 +7,7 @@ import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
+import io.agentteams.domain.agent.WorkerType;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
@@ -45,14 +46,15 @@ public final class WorkerTemplateService {
         Objects.requireNonNull(input, "input");
         String name = required(input.name(), "name");
         String displayName = required(input.displayName(), "displayName");
-        String hash = sha256(name + "\u0000" + displayName + "\u0000" + principal.scope());
+        WorkerType workerType = input.workerType() == null ? WorkerType.EXECUTOR : input.workerType();
+        String hash = sha256(name + "\u0000" + displayName + "\u0000" + workerType + "\u0000" + principal.scope());
         var existing = repository.findIdempotency(key);
         if (existing.isPresent()) {
             if (!existing.get().requestHash().equals(hash)) throw new TemplateConflictException("idempotency key request mismatch");
             return get(existing.get().templateId());
         }
         WorkerTemplate template = new WorkerTemplate(UUID.randomUUID(), principal.scope().tenant(),
-                principal.scope().project(), name, displayName, null, 0, now, now, 0);
+                principal.scope().project(), name, displayName, workerType, null, 0, now, now, 0);
         if (!repository.insertIdempotency(key, hash, template.id(), now)) {
             var winner = repository.findIdempotency(key).orElseThrow();
             if (!winner.requestHash().equals(hash)) throw new TemplateConflictException("idempotency key request mismatch");
@@ -178,7 +180,11 @@ public final class WorkerTemplateService {
         return repository.upgradeInstance(upgraded, current.version(), targetRevision, key, requestHash);
     }
 
-    public record CreateInput(String name, String displayName) { }
+    public record CreateInput(String name, String displayName, WorkerType workerType) {
+        public CreateInput(String name, String displayName) {
+            this(name, displayName, WorkerType.EXECUTOR);
+        }
+    }
 
     private void requireVisible(WorkerTemplate template) {
         Principal principal = principal();

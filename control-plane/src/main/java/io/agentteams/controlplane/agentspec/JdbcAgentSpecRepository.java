@@ -24,12 +24,12 @@ public class JdbcAgentSpecRepository implements AgentSpecRepository {
         jdbc.update("""
                 INSERT INTO agent_specs
                     (id, name, runtime, model_provider, model_name, team_ref, desired_state,
-                     lifecycle_status, spec, created_at, updated_at, version, tenant_id, project_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     lifecycle_status, spec, created_at, updated_at, version, tenant_id, project_id, worker_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, record.id(), record.name(), record.runtime(), record.modelProvider(), record.modelName(),
                 record.teamRef(), record.desiredState(), record.lifecycleStatus(), json(record.specJson()),
                 timestamp(record.createdAt()), timestamp(record.updatedAt()), record.version(), record.tenantId(),
-                record.projectId());
+                record.projectId(), record.workerType().name());
     }
 
     @Override
@@ -77,14 +77,15 @@ public class JdbcAgentSpecRepository implements AgentSpecRepository {
     private static String selectSql() {
         return """
                 SELECT id, name, runtime, model_provider, model_name, team_ref, desired_state,
-                       lifecycle_status, spec::text, created_at, updated_at, version, tenant_id, project_id
+                       lifecycle_status, spec::text, created_at, updated_at, version, tenant_id, project_id, worker_type
                   FROM agent_specs
                 """;
     }
 
     private AgentSpecRecord map(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
         return new AgentSpecRecord(rs.getObject("id", UUID.class), rs.getString("name"),
-                rs.getString("runtime"), rs.getString("model_provider"), rs.getString("model_name"),
+                io.agentteams.domain.agent.WorkerType.valueOf(rs.getString("worker_type")), rs.getString("runtime"),
+                rs.getString("model_provider"), rs.getString("model_name"),
                 rs.getString("team_ref"), rs.getString("desired_state"), rs.getString("lifecycle_status"),
                 rs.getString("spec"), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant(), rs.getLong("version"), rs.getString("tenant_id"),

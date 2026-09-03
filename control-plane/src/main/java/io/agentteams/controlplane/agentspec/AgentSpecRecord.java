@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.agentspec;
 
+import io.agentteams.domain.agent.WorkerType;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -7,6 +8,7 @@ import java.util.UUID;
 public record AgentSpecRecord(
         UUID id,
         String name,
+        WorkerType workerType,
         String runtime,
         String modelProvider,
         String modelName,
@@ -23,13 +25,21 @@ public record AgentSpecRecord(
     public AgentSpecRecord(UUID id, String name, String runtime, String modelProvider, String modelName,
             String teamRef, String desiredState, String lifecycleStatus, String specJson,
             Instant createdAt, Instant updatedAt, long version) {
-        this(id, name, runtime, modelProvider, modelName, teamRef, desiredState, lifecycleStatus, specJson,
+        this(id, name, WorkerType.EXECUTOR, runtime, modelProvider, modelName, teamRef, desiredState, lifecycleStatus, specJson,
                 createdAt, updatedAt, version, null, null);
+    }
+
+    public AgentSpecRecord(UUID id, String name, String runtime, String modelProvider, String modelName,
+            String teamRef, String desiredState, String lifecycleStatus, String specJson,
+            Instant createdAt, Instant updatedAt, long version, String tenantId, String projectId) {
+        this(id, name, WorkerType.EXECUTOR, runtime, modelProvider, modelName, teamRef, desiredState,
+                lifecycleStatus, specJson, createdAt, updatedAt, version, tenantId, projectId);
     }
 
     public AgentSpecRecord {
         Objects.requireNonNull(id, "id");
         requireText(name, "name");
+        Objects.requireNonNull(workerType, "workerType");
         requireText(runtime, "runtime");
         requireText(modelProvider, "modelProvider");
         requireText(modelName, "modelName");
