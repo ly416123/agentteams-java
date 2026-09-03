@@ -47,7 +47,7 @@ public final class TeamRepository {
 
     public List<TeamRecord> findAll(Principal principal) {
         return jdbc.query("""
-                SELECT id, name, display_name, status, created_at, updated_at, version
+                SELECT t.id, t.name, t.display_name, t.status, t.created_at, t.updated_at, t.version
                   FROM teams t
                   JOIN resource_scopes s ON s.resource_type = 'TEAM' AND s.resource_id = t.id
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?

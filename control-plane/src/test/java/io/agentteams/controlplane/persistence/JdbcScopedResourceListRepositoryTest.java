@@ -49,6 +49,17 @@ class JdbcScopedResourceListRepositoryTest {
     }
 
     @Test
+    void unpagedTeamListQualifiesColumnsFromTeamsTable() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        new TeamRepository(jdbc).findAll(PRINCIPAL);
+
+        verify(jdbc).query(contains("SELECT t.id, t.name, t.display_name, t.status, t.created_at, t.updated_at, t.version"),
+                any(RowMapper.class), any(Object[].class));
+    }
+
+    @Test
     void agentListUsesPhaseAndSearchPredicatesAfterScopePredicates() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
