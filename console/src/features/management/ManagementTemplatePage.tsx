@@ -21,8 +21,14 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
     queryFn: () => listWorkerTemplates(projectId),
   });
   const [notice, setNotice] = useState<Notice>();
-  const [template, setTemplate] = useState<{ name: string; displayName: string; workerType: WorkerType }>({
-    name: '', displayName: '', workerType: 'EXECUTOR',
+  const [template, setTemplate] = useState<{
+    name: string;
+    displayName: string;
+    workerType: WorkerType;
+  }>({
+    name: '',
+    displayName: '',
+    workerType: 'EXECUTOR',
   });
   const [revision, setRevision] = useState({ templateId: '', specJson: '{}', actor: '' });
   const [lastRevision, setLastRevision] = useState<WorkerTemplateRevision>();
@@ -118,7 +124,9 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
           <select
             id="template-worker-type"
             value={template.workerType}
-            onChange={(event) => setTemplate({ ...template, workerType: event.target.value as WorkerType })}
+            onChange={(event) =>
+              setTemplate({ ...template, workerType: event.target.value as WorkerType })
+            }
           >
             <option value="EXECUTOR">Executor Worker</option>
             <option value="LEADER">Leader Worker</option>
@@ -197,7 +205,9 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
               <div className="panel-heading">
                 <div>
                   <h2>{item.displayName}</h2>
-                  <p className="muted-text">{item.name} · {item.workerType || 'EXECUTOR'}</p>
+                  <p className="muted-text">
+                    {item.name} · {item.workerType || 'EXECUTOR'}
+                  </p>
                 </div>
                 <span className="status-badge">
                   {item.currentPublishedRevision

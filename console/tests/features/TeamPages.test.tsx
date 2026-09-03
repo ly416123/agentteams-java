@@ -143,9 +143,27 @@ vi.mock('../../src/api/teams', () => ({
 vi.mock('../../src/api/workers', () => ({
   listWorkers: vi.fn().mockResolvedValue({
     items: [
-      { id: 'worker-1', name: 'Leader Worker', workerType: 'LEADER', phase: 'READY', runtime: 'FAKE' },
-      { id: 'worker-2', name: 'Executor Worker', workerType: 'EXECUTOR', phase: 'READY', runtime: 'FAKE' },
-      { id: 'worker-3', name: 'Available Leader', workerType: 'LEADER', phase: 'READY', runtime: 'FAKE' },
+      {
+        id: 'worker-1',
+        name: 'Leader Worker',
+        workerType: 'LEADER',
+        phase: 'READY',
+        runtime: 'FAKE',
+      },
+      {
+        id: 'worker-2',
+        name: 'Executor Worker',
+        workerType: 'EXECUTOR',
+        phase: 'READY',
+        runtime: 'FAKE',
+      },
+      {
+        id: 'worker-3',
+        name: 'Available Leader',
+        workerType: 'LEADER',
+        phase: 'READY',
+        runtime: 'FAKE',
+      },
     ],
     hasMore: false,
   }),

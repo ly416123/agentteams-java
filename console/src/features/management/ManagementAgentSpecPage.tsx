@@ -111,7 +111,9 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
             <select
               aria-label="Worker 类型"
               value={form.workerType}
-              onChange={(event) => setForm({ ...form, workerType: event.target.value as WorkerType })}
+              onChange={(event) =>
+                setForm({ ...form, workerType: event.target.value as WorkerType })
+              }
             >
               <option value="EXECUTOR">Executor Worker</option>
               <option value="LEADER">Leader Worker</option>
@@ -169,7 +171,8 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
                 <div>
                   <h2>{spec.name}</h2>
                   <p className="muted-text">
-                    {spec.runtime} · {spec.workerType || 'EXECUTOR'} · {spec.modelProvider}/{spec.modelName}
+                    {spec.runtime} · {spec.workerType || 'EXECUTOR'} · {spec.modelProvider}/
+                    {spec.modelName}
                   </p>
                 </div>
                 <span className="status-badge">{spec.lifecycleStatus}</span>

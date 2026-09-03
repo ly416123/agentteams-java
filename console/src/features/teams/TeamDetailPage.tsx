@@ -135,9 +135,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
   const activeMemberIds = (members.data || [])
     .filter((member) => member.status === 'ACTIVE')
     .map((member) => member.agentId);
-  const availableWorkers = workerItems.filter(
-    (worker) => !activeMemberIds.includes(worker.id),
-  );
+  const availableWorkers = workerItems.filter((worker) => !activeMemberIds.includes(worker.id));
   const activeTeamWorkers = activeMemberIds
     .map((agentId) => workerById.get(agentId))
     .filter((worker): worker is (typeof workerItems)[number] => Boolean(worker));
@@ -219,7 +217,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
               >
                 <option value="">选择 Worker</option>
                 {availableWorkers
-                  .filter((worker) => memberForm.role !== 'LEADER' || worker.workerType === 'LEADER')
+                  .filter(
+                    (worker) => memberForm.role !== 'LEADER' || worker.workerType === 'LEADER',
+                  )
                   .map((worker) => (
                     <option value={worker.id} key={worker.id}>
                       {worker.name} · {worker.workerType || 'EXECUTOR'}
@@ -235,9 +235,11 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 onChange={(event) => {
                   const role = event.target.value;
                   setMemberForm({
-                    agentId: role === 'LEADER' && workerById.get(memberForm.agentId)?.workerType !== 'LEADER'
-                      ? ''
-                      : memberForm.agentId,
+                    agentId:
+                      role === 'LEADER' &&
+                      workerById.get(memberForm.agentId)?.workerType !== 'LEADER'
+                        ? ''
+                        : memberForm.agentId,
                     role,
                   });
                 }}
@@ -408,7 +410,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                   >
                     <option value="">选择 Leader Worker</option>
                     {leaderTeamWorkers.map((worker) => (
-                      <option value={worker.id} key={worker.id}>{worker.name} · {worker.id}</option>
+                      <option value={worker.id} key={worker.id}>
+                        {worker.name} · {worker.id}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -422,13 +426,18 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                     onChange={(event) =>
                       setRevisionForm({
                         ...revisionForm,
-                        memberAgentIds: Array.from(event.target.selectedOptions, (option) => option.value),
+                        memberAgentIds: Array.from(
+                          event.target.selectedOptions,
+                          (option) => option.value,
+                        ),
                       })
                     }
                     required
                   >
                     {activeTeamWorkers.map((worker) => (
-                      <option value={worker.id} key={worker.id}>{worker.name} · {worker.workerType || 'EXECUTOR'}</option>
+                      <option value={worker.id} key={worker.id}>
+                        {worker.name} · {worker.workerType || 'EXECUTOR'}
+                      </option>
                     ))}
                   </select>
                 </label>
