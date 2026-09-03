@@ -140,6 +140,22 @@ vi.mock('../../src/api/teams', () => ({
   rollbackTeam: vi.fn().mockResolvedValue({}),
 }));
 
+vi.mock('../../src/api/workers', () => ({
+  listWorkers: vi.fn().mockResolvedValue({
+    items: [
+      { id: 'worker-1', name: 'Leader Worker', workerType: 'LEADER', phase: 'READY', runtime: 'FAKE' },
+      { id: 'worker-2', name: 'Executor Worker', workerType: 'EXECUTOR', phase: 'READY', runtime: 'FAKE' },
+      { id: 'worker-3', name: 'Available Leader', workerType: 'LEADER', phase: 'READY', runtime: 'FAKE' },
+    ],
+    hasMore: false,
+  }),
+  getWorker: vi.fn(),
+  listOperations: vi.fn(),
+  workerAction: vi.fn(),
+  rolloutWorker: vi.fn(),
+  rollbackWorker: vi.fn(),
+}));
+
 function renderWithQuery(ui: React.ReactNode) {
   return render(
     <MemoryRouter>
@@ -191,7 +207,12 @@ describe('Team pages', () => {
   it('adds and removes Team members through the management controls', async () => {
     renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
     await userEvent.click(await screen.findByRole('tab', { name: '成员 Agent' }));
-    await userEvent.type(screen.getByLabelText('Worker / Agent ID'), 'worker-2');
+    await screen.findByRole('option', { name: /Available Leader/ });
+    await userEvent.selectOptions(screen.getByLabelText('成员角色'), 'LEADER');
+    expect(screen.getByRole('option', { name: /Available Leader/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Executor Worker/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('成员角色'), 'MEMBER');
+    await userEvent.selectOptions(screen.getByLabelText('Worker / Agent'), 'worker-2');
     await userEvent.click(screen.getByRole('button', { name: '添加成员' }));
     expect(addMember).toHaveBeenCalledWith('p-1', 'team-1', {
       agentId: 'worker-2',
@@ -234,8 +255,8 @@ describe('Team pages', () => {
     ]);
     renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
     await userEvent.click(await screen.findByRole('tab', { name: '版本与部署' }));
-    await userEvent.type(screen.getByLabelText('Leader Agent ID'), 'worker-1');
-    await userEvent.type(screen.getByLabelText('成员 Agent ID'), 'worker-1');
+    await userEvent.selectOptions(screen.getByLabelText('Leader Worker'), 'worker-1');
+    await userEvent.selectOptions(screen.getByLabelText('成员 Worker'), 'worker-1');
     await userEvent.click(screen.getByRole('button', { name: '创建 Revision 草稿' }));
     expect(createRevision).toHaveBeenCalledWith('p-1', 'team-1', {
       leaderAgentId: 'worker-1',

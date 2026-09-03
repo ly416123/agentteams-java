@@ -1,4 +1,5 @@
 import { apiClient, type HttpClient } from './httpClient';
+import type { WorkerType } from './types';
 
 export type WorkerTemplate = {
   id: string;
@@ -6,6 +7,7 @@ export type WorkerTemplate = {
   projectId: string;
   name: string;
   displayName: string;
+  workerType?: WorkerType;
   currentPublishedRevision: number | null;
   version: number;
   createdAt: string;
@@ -17,6 +19,7 @@ export type WorkerTemplateRevision = {
   revision: number;
   specJson: string;
   digest: string;
+  workerType?: WorkerType;
   status: string;
   createdBy: string;
   version: number;
@@ -39,7 +42,7 @@ export function listWorkerTemplates(projectId: string, client: HttpClient = apiC
 
 export function createWorkerTemplate(
   projectId: string,
-  body: { name: string; displayName: string },
+  body: { name: string; displayName: string; workerType?: WorkerType },
   client: HttpClient = apiClient,
 ) {
   return client.request<WorkerTemplate>('/api/v1/worker-templates', {
@@ -90,6 +93,7 @@ export type AgentSpec = {
   id: string;
   name: string;
   runtime: string;
+  workerType?: WorkerType;
   modelProvider: string;
   modelName: string;
   teamRef: string | null;
@@ -110,6 +114,7 @@ export function createAgentSpec(
   body: {
     name: string;
     runtime: string;
+    workerType?: WorkerType;
     modelProvider: string;
     modelName: string;
     teamRef?: string;

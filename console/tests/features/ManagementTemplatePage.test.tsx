@@ -58,6 +58,7 @@ describe('Management template page', () => {
     expect(mocks.createWorkerTemplate).toHaveBeenCalledWith('project-1', {
       name: 'new-worker',
       displayName: 'New Worker',
+      workerType: 'EXECUTOR',
     });
 
     await userEvent.selectOptions(screen.getByLabelText('模板'), 'template-1');

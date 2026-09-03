@@ -8,6 +8,7 @@ import {
 } from '../../api/managementCatalog';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import type { WorkerType } from '../../api/types';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -21,6 +22,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
   const [form, setForm] = useState({
     name: '',
     runtime: 'qwenpaw',
+    workerType: 'EXECUTOR' as WorkerType,
     modelProvider: '',
     modelName: '',
     teamRef: '',
@@ -105,6 +107,17 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
             />
           </label>
           <label>
+            Worker 类型
+            <select
+              aria-label="Worker 类型"
+              value={form.workerType}
+              onChange={(event) => setForm({ ...form, workerType: event.target.value as WorkerType })}
+            >
+              <option value="EXECUTOR">Executor Worker</option>
+              <option value="LEADER">Leader Worker</option>
+            </select>
+          </label>
+          <label>
             Model Provider
             <input
               value={form.modelProvider}
@@ -156,7 +169,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
                 <div>
                   <h2>{spec.name}</h2>
                   <p className="muted-text">
-                    {spec.runtime} · {spec.modelProvider}/{spec.modelName}
+                    {spec.runtime} · {spec.workerType || 'EXECUTOR'} · {spec.modelProvider}/{spec.modelName}
                   </p>
                 </div>
                 <span className="status-badge">{spec.lifecycleStatus}</span>
