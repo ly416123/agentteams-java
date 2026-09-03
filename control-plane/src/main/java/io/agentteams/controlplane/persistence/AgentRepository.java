@@ -28,10 +28,19 @@ public final class AgentRepository {
 
     public Optional<AgentRecord> findById(UUID id) {
         return jdbc.query("""
-                SELECT id, name, worker_type, phase, runtime, capabilities::text, metadata::text,
-                       created_at, updated_at, version
-                  FROM agents WHERE id = ?
-                """, this::map, id).stream().findFirst();
+                SELECT a.id, a.name, a.worker_type, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
+                       a.created_at, a.updated_at, a.version, template.template_name
+                  FROM agents a
+                  LEFT JOIN LATERAL (
+                       SELECT COALESCE(t.display_name, t.name) AS template_name
+                         FROM worker_template_instances i
+                         JOIN worker_templates t ON t.id = i.template_id
+                        WHERE i.worker_id = a.id AND i.status = 'SUCCEEDED'
+                        ORDER BY i.updated_at DESC, i.id DESC
+                        LIMIT 1
+                  ) template ON TRUE
+                 WHERE a.id = ?
+                """, this::mapWithTemplate, id).stream().findFirst();
     }
 
     public Optional<AgentRecord> findByIdForUpdate(UUID id) {
@@ -56,8 +65,16 @@ public final class AgentRepository {
                 ? " AND (a.updated_at, a.id) > (?, ?)" : " AND (a.updated_at, a.id) < (?, ?)";
         StringBuilder sql = new StringBuilder("""
                 SELECT a.id, a.name, a.worker_type, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
-                       a.created_at, a.updated_at, a.version
+                       a.created_at, a.updated_at, a.version, template.template_name
                  FROM agents a JOIN resource_scopes s ON s.resource_type = 'WORKER' AND s.resource_id = a.id
+                 LEFT JOIN LATERAL (
+                      SELECT COALESCE(t.display_name, t.name) AS template_name
+                        FROM worker_template_instances i
+                        JOIN worker_templates t ON t.id = i.template_id
+                       WHERE i.worker_id = a.id AND i.status = 'SUCCEEDED'
+                       ORDER BY i.updated_at DESC, i.id DESC
+                       LIMIT 1
+                 ) template ON TRUE
                  WHERE s.tenant_id = ? AND s.project_id = ? AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
                                 JOIN projects p ON p.id = m.project_id AND p.tenant_id = m.tenant_id
@@ -75,7 +92,7 @@ public final class AgentRepository {
         sql.append(cursor).append(order);
         if (after != null) { values.add(JdbcSupport.timestamp(after.updatedAt())); values.add(after.id()); }
         values.add(limit);
-        return jdbc.query(sql.toString(), this::map, values.toArray());
+        return jdbc.query(sql.toString(), this::mapWithTemplate, values.toArray());
     }
 
     public Optional<AgentRecord> findReadyMatching(String taskSpecJson, Instant now) {
@@ -209,5 +226,14 @@ public final class AgentRepository {
                 rs.getString("capabilities"), rs.getString("metadata"),
                 JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"),
                 rs.getLong("version"));
+    }
+
+    private AgentRecord mapWithTemplate(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        return new AgentRecord(rs.getObject("id", UUID.class), rs.getString("name"),
+                io.agentteams.domain.agent.WorkerType.valueOf(rs.getString("worker_type")),
+                AgentPhase.valueOf(rs.getString("phase")), rs.getString("runtime"),
+                rs.getString("capabilities"), rs.getString("metadata"),
+                JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"),
+                rs.getLong("version"), rs.getString("template_name"));
     }
 }

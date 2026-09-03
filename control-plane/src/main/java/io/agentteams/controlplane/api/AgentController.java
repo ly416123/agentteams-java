@@ -174,11 +174,11 @@ public final class AgentController {
     }
 
     public record AgentResponse(UUID id, String name, WorkerType workerType, String phase, String runtime,
-            Instant createdAt, Instant updatedAt, long version) {
+            Instant createdAt, Instant updatedAt, long version, String templateName) {
 
         static AgentResponse from(AgentRecord agent) {
             return new AgentResponse(agent.id(), agent.name(), agent.workerType(), agent.phase().name(), agent.runtime(),
-                    agent.createdAt(), agent.updatedAt(), agent.version());
+                    agent.createdAt(), agent.updatedAt(), agent.version(), agent.templateName());
         }
     }
 

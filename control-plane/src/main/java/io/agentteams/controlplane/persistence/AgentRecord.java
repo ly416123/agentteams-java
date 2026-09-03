@@ -16,7 +16,8 @@ public record AgentRecord(
         String metadataJson,
         Instant createdAt,
         Instant updatedAt,
-        long version) {
+        long version,
+        String templateName) {
 
     public AgentRecord {
         Objects.requireNonNull(id, "id");
@@ -31,6 +32,11 @@ public record AgentRecord(
         if (version < 0) {
             throw new IllegalArgumentException("version must not be negative");
         }
+    }
+
+    public AgentRecord(UUID id, String name, WorkerType workerType, AgentPhase phase, String runtime,
+            String capabilitiesJson, String metadataJson, Instant createdAt, Instant updatedAt, long version) {
+        this(id, name, workerType, phase, runtime, capabilitiesJson, metadataJson, createdAt, updatedAt, version, null);
     }
 
     public AgentRecord(UUID id, String name, AgentPhase phase, String runtime,

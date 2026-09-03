@@ -65,6 +65,11 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
                 </Link>
               ),
             },
+            {
+              key: 'templateName',
+              header: '模板名称',
+              render: (worker) => worker.templateName || '—',
+            },
             { key: 'runtime', header: 'Runtime', render: (worker) => worker.runtime },
             {
               key: 'workerType',

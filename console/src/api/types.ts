@@ -192,6 +192,7 @@ export type TaskEvent = {
 export type Worker = {
   id: string;
   name: string;
+  templateName?: string;
   phase: string;
   runtime: string;
   workerType?: WorkerType;

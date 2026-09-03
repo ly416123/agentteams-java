@@ -20,6 +20,7 @@ vi.mock('../../src/api/workers', () => ({
     {
       id: 'worker-1',
       name: '分析 Worker',
+      templateName: 'analysis-template',
       phase: 'READY',
       runtime: 'FAKE',
       createdAt: '2026-08-29T01:00:00Z',
@@ -120,6 +121,7 @@ describe('Worker pages', () => {
     renderWithQuery(<WorkerListPage projectId="p-1" />);
     expect(await screen.findByText('分析 Worker')).toBeInTheDocument();
     expect(screen.getByText('FAKE')).toBeInTheDocument();
+    expect(screen.getByText('analysis-template')).toBeInTheDocument();
     expect(screen.getByText('reports')).toBeInTheDocument();
   });
 

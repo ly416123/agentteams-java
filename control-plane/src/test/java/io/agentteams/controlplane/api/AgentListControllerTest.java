@@ -47,7 +47,7 @@ class AgentListControllerTest {
         Instant now = Instant.parse("2026-08-29T00:00:00Z");
         AgentRecord agent = new AgentRecord(UUID.randomUUID(), "worker-a", WorkerType.LEADER, AgentPhase.READY, "qwenpaw", "{}",
                 "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}",
-                now, now, 0);
+                now, now, 0, "analysis-template");
         when(service.list(any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new CursorPage<>(List.of(agent), null, false, now));
 
@@ -56,7 +56,8 @@ class AgentListControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("worker-a"))
                 .andExpect(jsonPath("$.items[0].phase").value("READY"))
-                .andExpect(jsonPath("$.items[0].workerType").value("LEADER"));
+                .andExpect(jsonPath("$.items[0].workerType").value("LEADER"))
+                .andExpect(jsonPath("$.items[0].templateName").value("analysis-template"));
 
         verify(service).list(any(), org.mockito.ArgumentMatchers.eq("READY"),
                 org.mockito.ArgumentMatchers.eq("worker"));
