@@ -213,8 +213,10 @@ public final class TeamDeploymentService {
                 member.baseManifest(), revision.overlayJson(), member.taskOverlay() == null ? "{}" : member.taskOverlay()));
         ConfigSnapshot snapshot = snapshots.create(subject, effective.canonicalManifest(), actor,
                 deployment.id().toString(), effective.provenance());
+        // The config idempotency key is global, so each member must claim its own key; sharing the
+        // deployment id made every member after the first fail with an idempotency conflict.
         ConfigDeploymentService.ConfigDeployment deploymentResult = deployments.deploy(member.agentId(), subject, snapshot,
-                deployment.id().toString());
+                deployment.id() + ":" + member.agentId());
         repository.markMember(deployment.id(), member.agentId(), deploymentResult.binding().id(), "PENDING", null);
     }
 
@@ -223,7 +225,7 @@ public final class TeamDeploymentService {
         ConfigSnapshot snapshot = snapshots.create(subject, member.baseManifest(), actor,
                 deployment.id().toString(), null);
         ConfigDeploymentService.ConfigDeployment result = deployments.deploy(member.agentId(), subject, snapshot,
-                deployment.id().toString());
+                deployment.id() + ":" + member.agentId());
         repository.markMember(deployment.id(), member.agentId(), result.binding().id(), "PENDING", null);
     }
 
