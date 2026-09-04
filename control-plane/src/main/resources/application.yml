@@ -99,6 +99,14 @@ agentteams:
     lease-duration: 30s
     stale-after: 2m
     batch-size: 100
+  # Fails team deployment members whose config apply record was never acknowledged; a late
+  # acknowledgement can still flip the member back to SUCCEEDED.
+  team-deployment-pending-timeout:
+    enabled: true
+    reconcile-interval-ms: 60000
+    lease-duration: 30s
+    pending-timeout: 10m
+    batch-size: 100
   sandbox:
     enabled: false
     provider: fake

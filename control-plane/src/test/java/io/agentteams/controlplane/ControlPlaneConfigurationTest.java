@@ -67,6 +67,43 @@ class ControlPlaneConfigurationTest {
         }
     }
 
+    /**
+     * The pending timeout shares the same registration risk: a mistyped key would silently keep
+     * unacknowledged deployment members PENDING forever, which is the original L5 symptom.
+     */
+    @Test
+    void teamDeploymentPendingTimeoutIsRegisteredUnderItsOwnPropertyRoot() throws Exception {
+        String root = "agentteams.team-deployment-pending-timeout";
+        Method repository = ControlPlaneConfiguration.class.getDeclaredMethod(
+                "teamDeploymentPendingTimeoutRepository", DataSource.class);
+        Method service = ControlPlaneConfiguration.class.getDeclaredMethod(
+                "teamDeploymentPendingTimeoutService",
+                io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutRepository.class);
+        Method job = ControlPlaneConfiguration.class.getDeclaredMethod("teamDeploymentPendingTimeoutJob",
+                io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutService.class,
+                SchedulerLeaseService.class, Clock.class,
+                String.class, Duration.class, Duration.class, int.class);
+
+        String intervalKey = placeholderKey(io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutJob.class
+                .getMethod("scheduledRun").getAnnotation(Scheduled.class).fixedDelayString());
+        assertThat(intervalKey).startsWith(root + ".");
+
+        for (Method bean : List.of(repository, service, job)) {
+            ConditionalOnProperty gate = bean.getAnnotation(ConditionalOnProperty.class);
+            assertThat(gate).isNotNull();
+            assertThat(gate.name()).containsExactly(root + ".enabled");
+            assertThat(gate.havingValue()).isEqualTo("true");
+            assertThat(gate.matchIfMissing()).isTrue();
+        }
+
+        for (Parameter parameter : job.getParameters()) {
+            Value value = parameter.getAnnotation(Value.class);
+            if (value != null && value.value().contains("agentteams.")) {
+                assertThat(placeholderKey(value.value())).startsWith(root + ".");
+            }
+        }
+    }
+
     private static String placeholderKey(String expression) {
         assertThat(expression).startsWith("${");
         String body = expression.substring(2, expression.length() - 1);

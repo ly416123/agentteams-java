@@ -199,8 +199,8 @@ public class TeamDeploymentRepository {
                    AND EXISTS (SELECT 1 FROM config_apply_records apply
                                 WHERE apply.id = ? AND apply.binding_id = member.binding_id
                                   AND apply.snapshot_id = ? AND apply.observed_version = ?)
-                   AND member.status = 'PENDING'
-                   AND deployment.status IN ('PENDING', 'PARTIAL_FAILURE')
+                   AND member.status IN ('PENDING', 'FAILED')
+                   AND deployment.status IN ('PENDING', 'PARTIAL_FAILURE', 'FAILED')
                 RETURNING member.deployment_id
                 """, UUID.class, status, command.applied() ? null : command.errorMessage(),
                 command.bindingId(), command.agentId(),

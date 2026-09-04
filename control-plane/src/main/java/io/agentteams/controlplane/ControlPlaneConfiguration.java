@@ -663,6 +663,38 @@ public class ControlPlaneConfiguration {
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, staleAfter, batchSize);
     }
 
+    /**
+     * A team deployment member that will never be acknowledged (agent gone, ACK lost) must still
+     * converge to a terminal state, otherwise the aggregate stays PENDING and cannot be retried.
+     */
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.team-deployment-pending-timeout.enabled", havingValue = "true", matchIfMissing = true)
+    io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutRepository teamDeploymentPendingTimeoutRepository(
+            DataSource dataSource) {
+        return new io.agentteams.controlplane.team.JdbcTeamDeploymentPendingTimeoutRepository(
+                new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.team-deployment-pending-timeout.enabled", havingValue = "true", matchIfMissing = true)
+    io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutService teamDeploymentPendingTimeoutService(
+            io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutRepository repository) {
+        return new io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutService(repository);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.team-deployment-pending-timeout.enabled", havingValue = "true", matchIfMissing = true)
+    io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutJob teamDeploymentPendingTimeoutJob(
+            io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutService service,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.team-deployment-pending-timeout.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.team-deployment-pending-timeout.pending-timeout:10m}") java.time.Duration pendingTimeout,
+            @Value("${agentteams.team-deployment-pending-timeout.batch-size:100}") int batchSize) {
+        return new io.agentteams.controlplane.team.TeamDeploymentPendingTimeoutJob(service, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, pendingTimeout, batchSize);
+    }
+
     @Bean
     TaskTransitionService taskTransitionService() {
         return new TaskTransitionService();
