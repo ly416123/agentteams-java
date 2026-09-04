@@ -14,4 +14,14 @@ public interface TeamDeploymentPendingTimeoutRepository {
      * @return the number of members failed
      */
     int failStalePendingMembers(Instant now, Instant applyUpdatedBefore, int limit);
+
+    /**
+     * Re-aggregates deployments that are stuck at PENDING even though none of their members is
+     * pending any more (data written by older releases that skipped the aggregate refresh on
+     * ACK). Idempotent: re-running on already-converged data repairs nothing.
+     *
+     * @param limit maximum number of deployments to repair in one batch
+     * @return the number of deployments whose aggregate status was refreshed
+     */
+    int refreshPendingAggregates(int limit);
 }

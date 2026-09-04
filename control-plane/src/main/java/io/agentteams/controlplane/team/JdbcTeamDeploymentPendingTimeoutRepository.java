@@ -52,4 +52,23 @@ public final class JdbcTeamDeploymentPendingTimeoutRepository implements TeamDep
         deploymentIds.forEach(deployments::refreshStatus);
         return deploymentIds.size();
     }
+
+    @Override
+    public int refreshPendingAggregates(int limit) {
+        if (limit < 1) throw new IllegalArgumentException("limit must be positive");
+        // Only aggregates that drifted: PENDING deployment with no pending member left. Healthy
+        // in-flight deployments still have a pending member and are left to the normal ACK path.
+        List<UUID> deploymentIds = jdbc.query("""
+                SELECT deployment.id
+                  FROM team_deployments deployment
+                 WHERE deployment.status = 'PENDING'
+                   AND NOT EXISTS (SELECT 1 FROM team_deployment_members member
+                                    WHERE member.deployment_id = deployment.id
+                                      AND member.status = 'PENDING')
+                 ORDER BY deployment.id
+                 LIMIT ?
+                """, (rs, row) -> rs.getObject("id", UUID.class), limit);
+        deploymentIds.forEach(deployments::refreshStatus);
+        return deploymentIds.size();
+    }
 }

@@ -28,18 +28,19 @@ public final class TeamDeploymentPendingTimeoutService {
         }
         try {
             int failed = repository.failStalePendingMembers(now, now.minus(pendingTimeout), batchSize);
-            return new TimeoutResult(failed);
+            int repaired = repository.refreshPendingAggregates(batchSize);
+            return new TimeoutResult(failed, repaired);
         } catch (RuntimeException failure) {
             // A failed batch is retried by the next scheduled run; the scan itself is one statement.
             log.warn("Team deployment pending timeout failed errorType={}", failure.getClass().getSimpleName());
-            return new TimeoutResult(0);
+            return new TimeoutResult(0, 0);
         }
     }
 
-    public record TimeoutResult(int failed) {
+    public record TimeoutResult(int failed, int repaired) {
         public TimeoutResult {
-            if (failed < 0) {
-                throw new IllegalArgumentException("failed must not be negative");
+            if (failed < 0 || repaired < 0) {
+                throw new IllegalArgumentException("failed and repaired must not be negative");
             }
         }
     }

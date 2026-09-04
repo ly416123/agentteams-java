@@ -17,13 +17,15 @@ class TeamDeploymentPendingTimeoutServiceTest {
     void failsStaleMembersUsingTheAgreedCutoffAndBatchSize() {
         RecordingRepository repository = new RecordingRepository();
         repository.nextResult = 3;
+        repository.nextRepaired = 2;
 
         assertThat(new TeamDeploymentPendingTimeoutService(repository)
                 .reconcile(NOW, PENDING_TIMEOUT, 100))
-                .isEqualTo(new TeamDeploymentPendingTimeoutService.TimeoutResult(3));
+                .isEqualTo(new TeamDeploymentPendingTimeoutService.TimeoutResult(3, 2));
         assertThat(repository.cutoff).isEqualTo(NOW.minus(PENDING_TIMEOUT));
         assertThat(repository.now).isEqualTo(NOW);
         assertThat(repository.limit).isEqualTo(100);
+        assertThat(repository.repairedLimit).isEqualTo(100);
     }
 
     @Test
@@ -33,7 +35,7 @@ class TeamDeploymentPendingTimeoutServiceTest {
 
         assertThat(new TeamDeploymentPendingTimeoutService(repository)
                 .reconcile(NOW, PENDING_TIMEOUT, 100))
-                .isEqualTo(new TeamDeploymentPendingTimeoutService.TimeoutResult(0));
+                .isEqualTo(new TeamDeploymentPendingTimeoutService.TimeoutResult(0, 0));
     }
 
     @Test
@@ -58,10 +60,12 @@ class TeamDeploymentPendingTimeoutServiceTest {
 
     private static final class RecordingRepository implements TeamDeploymentPendingTimeoutRepository {
         private int nextResult;
+        private int nextRepaired;
         private boolean fail;
         private Instant now;
         private Instant cutoff;
         private int limit;
+        private int repairedLimit;
         private final List<Instant> calls = new ArrayList<>();
 
         @Override
@@ -72,6 +76,13 @@ class TeamDeploymentPendingTimeoutServiceTest {
             this.cutoff = applyUpdatedBefore;
             this.limit = limit;
             return nextResult;
+        }
+
+        @Override
+        public int refreshPendingAggregates(int limit) {
+            if (fail) throw new IllegalStateException("database unavailable");
+            this.repairedLimit = limit;
+            return nextRepaired;
         }
     }
 }

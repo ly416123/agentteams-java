@@ -52,6 +52,7 @@ class TeamDeploymentConfigAppliedRoundTripIT {
     private static final UUID WORKER = UUID.fromString("60000000-0000-0000-0000-000000000002");
     private static final UUID TEAM_A = UUID.fromString("60000000-0000-0000-0000-000000000003");
     private static final UUID TEAM_B = UUID.fromString("60000000-0000-0000-0000-000000000004");
+    private static final UUID TEAM_C = UUID.fromString("60000000-0000-0000-0000-000000000006");
     private static final UUID PROJECT = UUID.fromString("60000000-0000-0000-0000-000000000005");
     private static final Principal PRINCIPAL = new Principal("alice",
             new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of("team:write"));
@@ -75,6 +76,7 @@ class TeamDeploymentConfigAppliedRoundTripIT {
         seedAgentsProjectAndOnePublishedRevisionPerTeam();
         resourceScopes.bind("TEAM", TEAM_A, PRINCIPAL, NOW);
         resourceScopes.bind("TEAM", TEAM_B, PRINCIPAL, NOW);
+        resourceScopes.bind("TEAM", TEAM_C, PRINCIPAL, NOW);
     }
 
     @BeforeEach
@@ -139,6 +141,35 @@ class TeamDeploymentConfigAppliedRoundTripIT {
         assertEquals("SUCCEEDED", deployments.find(deployment.id(), TEAM_B).status());
     }
 
+    @Test
+    void reconciliationRepairsAnAggregateStuckAtPendingAfterEveryMemberSucceeded() {
+        TeamDeploymentService deployments = controlPlane.getBean(TeamDeploymentService.class);
+        TeamRevisionRepository revisions = controlPlane.getBean(TeamRevisionRepository.class);
+        ConfigEventPort configEvents = controlPlane.getBean(ConfigEventPort.class);
+        TeamDeploymentPendingTimeoutService timeouts =
+                controlPlane.getBean(TeamDeploymentPendingTimeoutService.class);
+        TeamRevision revision = revisions.find(TEAM_C, 1L).orElseThrow();
+
+        TeamDeployment deployment = deployments.deploy(revision, members(), "it-repair", "deploy-repair-1");
+        for (UUID agent : List.of(LEADER, WORKER)) {
+            PendingApply apply = pendingApply(deployment.id(), agent);
+            configEvents.applied(new ConfigAppliedCommand(apply.eventId(), apply.bindingId(),
+                    apply.snapshotId(), agent, apply.observedVersion(), true, null, Instant.now(),
+                    "it-repair", "ack-repair-" + agent));
+        }
+        assertEquals("SUCCEEDED", deployments.find(deployment.id(), TEAM_C).status());
+        // Reproduces the L5 data written by the pre-fix release: the ACKs landed on every member
+        // but the aggregate refresh was skipped, leaving the deployment stuck at PENDING.
+        jdbc.update("UPDATE team_deployments SET status = 'PENDING' WHERE id = ?", deployment.id());
+        assertEquals("PENDING", deployments.find(deployment.id(), TEAM_C).status());
+
+        TeamDeploymentPendingTimeoutService.TimeoutResult result =
+                timeouts.reconcile(Instant.now(), Duration.ofMinutes(10), 100);
+
+        assertEquals(1, result.repaired());
+        assertEquals("SUCCEEDED", deployments.find(deployment.id(), TEAM_C).status());
+    }
+
     private static List<TeamDeployment.Member> members() {
         return List.of(new TeamDeployment.Member(LEADER, "{}", "{}"),
                 new TeamDeployment.Member(WORKER, "{}", "{}"));
@@ -176,7 +207,7 @@ class TeamDeploymentConfigAppliedRoundTripIT {
                 """, PROJECT, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW));
         // A team allows at most one PUBLISHED revision at a time, so each scenario gets its own
         // team with one published revision; the tests then stay independent of execution order.
-        for (UUID team : List.of(TEAM_A, TEAM_B)) {
+        for (UUID team : List.of(TEAM_A, TEAM_B, TEAM_C)) {
             jdbc.update("""
                     INSERT INTO teams(id, name, display_name, status, created_at, updated_at, version)
                     VALUES (?, ?, 'Team', 'ACTIVE', ?, ?, 0)

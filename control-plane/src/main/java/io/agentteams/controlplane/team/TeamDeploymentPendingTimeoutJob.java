@@ -38,14 +38,14 @@ public final class TeamDeploymentPendingTimeoutJob {
         SchedulerLeaseService.Result<TeamDeploymentPendingTimeoutService.TimeoutResult> result = lease.run(
                 "team-deployment-pending-timeout", owner, now, leaseDuration,
                 () -> service.reconcile(now, pendingTimeout, batchSize));
-        if (!result.leader()) return new RunResult(false, 0);
-        return new RunResult(true, result.value().failed());
+        if (!result.leader()) return new RunResult(false, 0, 0);
+        return new RunResult(true, result.value().failed(), result.value().repaired());
     }
 
-    public record RunResult(boolean leader, int failed) {
+    public record RunResult(boolean leader, int failed, int repaired) {
         public RunResult {
-            if (failed < 0) {
-                throw new IllegalArgumentException("failed must not be negative");
+            if (failed < 0 || repaired < 0) {
+                throw new IllegalArgumentException("failed and repaired must not be negative");
             }
         }
     }

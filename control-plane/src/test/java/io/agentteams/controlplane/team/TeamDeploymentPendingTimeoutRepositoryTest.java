@@ -119,6 +119,33 @@ class TeamDeploymentPendingTimeoutRepositoryTest {
         assertThat(memberStatus(deploymentId)).isEqualTo("PENDING");
     }
 
+    @Test
+    void repairsAnAggregateStuckAtPendingWhenAllMembersAreAlreadyTerminal() {
+        UUID deploymentId = deploy("deployment-stuck-aggregate", NOW.minusSeconds(3600));
+        repository.recordConfigAppliedAck(configApplied(deploymentId));
+        // Data written by the pre-fix release: the ACK landed but the aggregate refresh was
+        // skipped, so the deployment stays PENDING even though every member already succeeded.
+        repository.updateStatus(deploymentId, "PENDING");
+
+        int repaired = timeout.refreshPendingAggregates(100);
+
+        assertThat(repaired).isEqualTo(1);
+        assertThat(repository.find(deploymentId).orElseThrow().status()).isEqualTo("SUCCEEDED");
+        // Idempotent: converged data is not reported as repaired again.
+        assertThat(timeout.refreshPendingAggregates(100)).isZero();
+    }
+
+    @Test
+    void doesNotRepairAggregatesThatStillHavePendingMembers() {
+        UUID deploymentId = deploy("deployment-still-pending", NOW.minusSeconds(60));
+        refreshApplyRecord(NOW.minusSeconds(60));
+
+        int repaired = timeout.refreshPendingAggregates(100);
+
+        assertThat(repaired).isZero();
+        assertThat(repository.find(deploymentId).orElseThrow().status()).isEqualTo("PENDING");
+    }
+
     private String memberStatus(UUID deploymentId) {
         return jdbc.queryForObject(
                 "SELECT status FROM team_deployment_members WHERE deployment_id = ?", String.class, deploymentId);

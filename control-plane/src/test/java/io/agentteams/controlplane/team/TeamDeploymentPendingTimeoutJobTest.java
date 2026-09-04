@@ -29,13 +29,13 @@ class TeamDeploymentPendingTimeoutJobTest {
         when(leases.tryAcquire("team-deployment-pending-timeout", "pod-a", NOW, LEASE_DURATION))
                 .thenReturn(true);
         when(service.reconcile(NOW, PENDING_TIMEOUT, 100))
-                .thenReturn(new TeamDeploymentPendingTimeoutService.TimeoutResult(4));
+                .thenReturn(new TeamDeploymentPendingTimeoutService.TimeoutResult(4, 2));
 
         TeamDeploymentPendingTimeoutJob job = new TeamDeploymentPendingTimeoutJob(service,
                 new SchedulerLeaseService(leases), Clock.fixed(NOW, ZoneOffset.UTC),
                 "pod-a", LEASE_DURATION, PENDING_TIMEOUT, 100);
 
-        assertThat(job.runOnce()).isEqualTo(new RunResult(true, 4));
+        assertThat(job.runOnce()).isEqualTo(new RunResult(true, 4, 2));
         verify(leases).release("team-deployment-pending-timeout", "pod-a", NOW);
         verify(service).reconcile(NOW, PENDING_TIMEOUT, 100);
     }
@@ -50,7 +50,7 @@ class TeamDeploymentPendingTimeoutJobTest {
         TeamDeploymentPendingTimeoutJob job = new TeamDeploymentPendingTimeoutJob(service, leases,
                 Clock.fixed(NOW, ZoneOffset.UTC), "pod-a", LEASE_DURATION, PENDING_TIMEOUT, 100);
 
-        assertThat(job.runOnce()).isEqualTo(new RunResult(false, 0));
+        assertThat(job.runOnce()).isEqualTo(new RunResult(false, 0, 0));
         verify(service, org.mockito.Mockito.never()).reconcile(any(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 }
