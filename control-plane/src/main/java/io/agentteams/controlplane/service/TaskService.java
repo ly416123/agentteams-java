@@ -11,7 +11,7 @@ import io.agentteams.controlplane.persistence.DomainEventRecord;
 import io.agentteams.controlplane.api.CursorPage;
 import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.persistence.TaskListRecord;
-import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.observability.TaskMetricsPort;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceAction;
 import io.agentteams.controlplane.security.ResourceAuthorizationService;

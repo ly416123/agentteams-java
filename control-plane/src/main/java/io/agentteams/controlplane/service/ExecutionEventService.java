@@ -5,7 +5,7 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.controlplane.persistence.TaskRecord;
-import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.observability.TaskMetricsPort;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.domain.task.AppliedTransition;

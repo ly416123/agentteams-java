@@ -47,7 +47,7 @@ class TaskServiceScopeTest {
     @BeforeEach
     void setUp() {
         service = new TaskService(persistence, new IdempotencyService(), new TaskTransitionService(),
-                Clock.fixed(NOW, ZoneOffset.UTC), io.agentteams.controlplane.observability.TaskMetricsPort.noop(),
+                Clock.fixed(NOW, ZoneOffset.UTC), io.agentteams.observability.TaskMetricsPort.noop(),
                 resourceScopes);
         PrincipalContext.set(PRINCIPAL);
     }

@@ -7,7 +7,7 @@ import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ConfigAppliedEnvelope;
 import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.TraceContext;
-import io.agentteams.controlplane.observability.AsyncConsumerTracing;
+import io.agentteams.observability.AsyncConsumerTracing;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;

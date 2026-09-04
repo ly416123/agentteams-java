@@ -11,7 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.agentteams.controlplane.observability.ControlPlaneMetrics;
+import io.agentteams.observability.ControlPlaneMetrics;
 import java.sql.ResultSet;
 import java.time.Clock;
 import java.time.Instant;

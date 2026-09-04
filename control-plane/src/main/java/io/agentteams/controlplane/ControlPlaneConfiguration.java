@@ -64,10 +64,10 @@ import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.storage.MinioObjectStorage;
 import io.agentteams.controlplane.storage.MinioObjectStorageConfig;
 import io.agentteams.controlplane.storage.ObjectStorage;
-import io.agentteams.controlplane.observability.ControlPlaneMetrics;
-import io.agentteams.controlplane.observability.TaskMetricsPort;
-import io.agentteams.controlplane.observability.AsyncConsumerTracing;
-import io.agentteams.controlplane.observability.AsyncProducerTracing;
+import io.agentteams.observability.ControlPlaneMetrics;
+import io.agentteams.observability.TaskMetricsPort;
+import io.agentteams.observability.AsyncConsumerTracing;
+import io.agentteams.observability.AsyncProducerTracing;
 import io.agentteams.controlplane.security.ApiAuthenticationFilter;
 import io.agentteams.controlplane.security.IdentityTokenValidator;
 import io.agentteams.controlplane.security.OidcIdentityTokenValidator;
@@ -125,12 +125,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.otel.bridge.OtelPropagator;
 import io.micrometer.tracing.propagation.Propagator;
@@ -158,11 +155,6 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
-    ControlPlaneMetrics controlPlaneMetrics(ObjectProvider<MeterRegistry> registries) {
-        return new ControlPlaneMetrics(registries.getIfAvailable(SimpleMeterRegistry::new));
-    }
-
-    @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(SecretResolver.class)
     SecretResolver secretResolver() {
         return new ValidationOnlySecretResolver();
@@ -178,13 +170,6 @@ public class ControlPlaneConfiguration {
     @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(ModelProviderConnectionProbe.class)
     ModelProviderConnectionProbe modelProviderConnectionProbe(SecretResolver secretResolver) {
         return new ValidationOnlyModelProviderConnectionProbe(secretResolver);
-    }
-
-    @Bean
-    @Primary
-    TaskMetricsPort taskMetricsPort(ObjectProvider<ControlPlaneMetrics> metrics) {
-        ControlPlaneMetrics available = metrics.getIfAvailable();
-        return available == null ? TaskMetricsPort.noop() : available;
     }
 
     @Bean

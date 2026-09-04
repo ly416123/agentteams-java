@@ -1,4 +1,4 @@
-package io.agentteams.controlplane.observability;
+package io.agentteams.observability;
 
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;

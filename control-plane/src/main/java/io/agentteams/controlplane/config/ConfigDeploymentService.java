@@ -9,7 +9,7 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.FoundationTransaction;
 import io.agentteams.controlplane.persistence.IdempotencyConflictException;
 import io.agentteams.controlplane.persistence.IdempotencyKeyRecord;
-import io.agentteams.controlplane.observability.ControlPlaneMetrics;
+import io.agentteams.observability.ControlPlaneMetrics;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;

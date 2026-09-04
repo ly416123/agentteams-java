@@ -1,4 +1,4 @@
-package io.agentteams.controlplane.observability;
+package io.agentteams.observability;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -8,11 +8,9 @@ import java.io.IOException;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.slf4j.MDC;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /** Propagates a bounded correlation id through HTTP logs and response headers. */
-@Component
 public final class CorrelationIdFilter extends OncePerRequestFilter {
     public static final String HEADER = "X-Correlation-Id";
     private static final Pattern SAFE = Pattern.compile("[A-Za-z0-9._:-]{1,128}");

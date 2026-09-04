@@ -182,7 +182,7 @@ class NatsExecutionEventConsumerTest {
 
         NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(connection,
                 mock(ExecutionEventPort.class), command -> { }, new com.fasterxml.jackson.databind.ObjectMapper(),
-                "control-plane-execution-events", io.agentteams.controlplane.observability.AsyncConsumerTracing.noop());
+                "control-plane-execution-events", io.agentteams.observability.AsyncConsumerTracing.noop());
         consumer.start();
 
         var listener = org.mockito.ArgumentCaptor.forClass(ConnectionListener.class);

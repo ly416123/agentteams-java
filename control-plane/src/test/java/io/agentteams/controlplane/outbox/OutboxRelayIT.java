@@ -11,7 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
-import io.agentteams.controlplane.observability.AsyncProducerTracing;
+import io.agentteams.observability.AsyncProducerTracing;
 import io.agentteams.application.api.TraceContext;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;

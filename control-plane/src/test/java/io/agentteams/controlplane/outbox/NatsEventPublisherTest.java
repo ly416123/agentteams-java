@@ -9,7 +9,7 @@ import io.nats.client.JetStream;
 import io.nats.client.PublishOptions;
 import io.nats.client.api.PublishAck;
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
-import io.agentteams.controlplane.observability.AsyncProducerTracing;
+import io.agentteams.observability.AsyncProducerTracing;
 import io.agentteams.application.api.TraceContext;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;

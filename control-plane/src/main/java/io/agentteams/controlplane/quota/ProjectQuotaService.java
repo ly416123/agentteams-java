@@ -1,6 +1,6 @@
 package io.agentteams.controlplane.quota;
 
-import io.agentteams.controlplane.observability.ControlPlaneMetrics;
+import io.agentteams.observability.ControlPlaneMetrics;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;

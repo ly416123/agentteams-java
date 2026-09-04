@@ -2,7 +2,7 @@ package io.agentteams.controlplane.skill;
 
 import io.agentteams.controlplane.service.IdempotencyService;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
-import io.agentteams.controlplane.observability.ControlPlaneMetrics;
+import io.agentteams.observability.ControlPlaneMetrics;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
 import java.time.Clock;

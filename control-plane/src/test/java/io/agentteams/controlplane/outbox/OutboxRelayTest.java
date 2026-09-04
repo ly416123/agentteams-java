@@ -2,8 +2,8 @@ package io.agentteams.controlplane.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.agentteams.controlplane.observability.ControlPlaneMetrics;
-import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.observability.ControlPlaneMetrics;
+import io.agentteams.observability.TaskMetricsPort;
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -172,7 +172,7 @@ class OutboxRelayTest {
     }
 
     private static OutboxRelay relay(FakeStore store, EventPublisher publisher,
-            io.agentteams.controlplane.observability.TaskMetricsPort metrics) {
+            io.agentteams.observability.TaskMetricsPort metrics) {
         OutboxRelayProperties properties = new OutboxRelayProperties();
         properties.setConcurrency(2);
         properties.setBatchSize(2);

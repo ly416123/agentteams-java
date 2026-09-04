@@ -44,7 +44,7 @@ class TaskServiceAuthorizationTest {
                 .when(authorization).require(ResourceAction.TASK_CREATE, scope);
 
         TaskService service = new TaskService(persistence, new IdempotencyService(), new TaskTransitionService(),
-                Clock.systemUTC(), io.agentteams.controlplane.observability.TaskMetricsPort.noop(), null,
+                Clock.systemUTC(), io.agentteams.observability.TaskMetricsPort.noop(), null,
                 authorization);
 
         assertThatThrownBy(() -> service.create("create-key",
@@ -59,7 +59,7 @@ class TaskServiceAuthorizationTest {
         AuthorizationService.Scope scope = new AuthorizationService.Scope("tenant-a", "project-a", "team-a");
         PrincipalContext.set(new Principal("alice", scope, Set.of()));
         TaskService service = new TaskService(persistence, new IdempotencyService(), new TaskTransitionService(),
-                Clock.systemUTC(), io.agentteams.controlplane.observability.TaskMetricsPort.noop(), null,
+                Clock.systemUTC(), io.agentteams.observability.TaskMetricsPort.noop(), null,
                 authorization);
 
         assertThatThrownBy(() -> service.create("create-key",
@@ -111,7 +111,7 @@ class TaskServiceAuthorizationTest {
 
     private TaskService service() {
         return new TaskService(persistence, new IdempotencyService(), new TaskTransitionService(),
-                Clock.systemUTC(), io.agentteams.controlplane.observability.TaskMetricsPort.noop(), null,
+                Clock.systemUTC(), io.agentteams.observability.TaskMetricsPort.noop(), null,
                 authorization);
     }
 

@@ -1,4 +1,4 @@
-package io.agentteams.controlplane.observability;
+package io.agentteams.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

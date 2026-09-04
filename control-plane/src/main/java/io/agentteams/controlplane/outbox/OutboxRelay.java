@@ -1,7 +1,7 @@
 package io.agentteams.controlplane.outbox;
 
 import io.agentteams.controlplane.persistence.OutboxEventRecord;
-import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.observability.TaskMetricsPort;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;

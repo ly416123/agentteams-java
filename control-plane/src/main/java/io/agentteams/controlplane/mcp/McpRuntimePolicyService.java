@@ -1,7 +1,7 @@
 package io.agentteams.controlplane.mcp;
 
 import io.agentteams.controlplane.security.OutboundPolicyValidator;
-import io.agentteams.controlplane.observability.ControlPlaneMetrics;
+import io.agentteams.observability.ControlPlaneMetrics;
 import java.time.Duration;
 import java.util.Objects;
 import org.springframework.beans.factory.ObjectProvider;

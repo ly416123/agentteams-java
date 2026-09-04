@@ -21,7 +21,7 @@ import io.agentteams.controlplane.memory.TaskMemoryContextAssembler;
 import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.controlplane.team.TeamSchedulingPolicy;
-import io.agentteams.controlplane.observability.TaskMetricsPort;
+import io.agentteams.observability.TaskMetricsPort;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Duration;
 import java.time.Instant;
