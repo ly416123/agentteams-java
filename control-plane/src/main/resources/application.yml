@@ -90,6 +90,15 @@ agentteams:
     lease-duration: 30s
     lookback: 24h
     batch-size: 100
+  # Repairs agents.phase from the gateway presence projection. Workers report presence every
+  # five seconds, so stale-after tolerates a full restart of a gateway replica without ever
+  # downgrading a live agent.
+  agent-presence-consistency:
+    enabled: true
+    reconcile-interval-ms: 60000
+    lease-duration: 30s
+    stale-after: 2m
+    batch-size: 100
   sandbox:
     enabled: false
     provider: fake

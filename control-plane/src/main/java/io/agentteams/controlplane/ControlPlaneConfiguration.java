@@ -26,6 +26,10 @@ import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigUploadCleanupJob;
 import io.agentteams.controlplane.config.ConfigUploadService;
 import io.agentteams.controlplane.agentspec.AgentSpecDeploymentService;
+import io.agentteams.controlplane.agent.AgentPresenceConsistencyJob;
+import io.agentteams.controlplane.agent.AgentPresenceConsistencyRepository;
+import io.agentteams.controlplane.agent.AgentPresenceConsistencyService;
+import io.agentteams.controlplane.agent.JdbcAgentPresenceConsistencyRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotCleanupJob;
 import io.agentteams.controlplane.config.ConfigSnapshotCleanupService;
 import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
@@ -629,6 +633,34 @@ public class ControlPlaneConfiguration {
             @Value("${agentteams.task-state-consistency.batch-size:100}") int batchSize) {
         return new TaskStateConsistencyJob(service, schedulerLease, clock,
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, lookback, batchSize);
+    }
+
+    /**
+     * The gateway publishes presence from its in-memory connection registry, so a gateway replica that
+     * restarts leaves agents marked READY forever, and task admission trusts exactly that column.
+     */
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.agent-presence-consistency.enabled", havingValue = "true", matchIfMissing = true)
+    AgentPresenceConsistencyRepository agentPresenceConsistencyRepository(DataSource dataSource) {
+        return new JdbcAgentPresenceConsistencyRepository(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.agent-presence-consistency.enabled", havingValue = "true", matchIfMissing = true)
+    AgentPresenceConsistencyService agentPresenceConsistencyService(AgentPresenceConsistencyRepository repository) {
+        return new AgentPresenceConsistencyService(repository);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.agent-presence-consistency.enabled", havingValue = "true", matchIfMissing = true)
+    AgentPresenceConsistencyJob agentPresenceConsistencyJob(AgentPresenceConsistencyService service,
+            SchedulerLeaseService schedulerLease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.agent-presence-consistency.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.agent-presence-consistency.stale-after:2m}") java.time.Duration staleAfter,
+            @Value("${agentteams.agent-presence-consistency.batch-size:100}") int batchSize) {
+        return new AgentPresenceConsistencyJob(service, schedulerLease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, staleAfter, batchSize);
     }
 
     @Bean

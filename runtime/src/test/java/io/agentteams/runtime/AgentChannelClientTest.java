@@ -128,6 +128,46 @@ class AgentChannelClientTest {
     }
 
     @Test
+    void restoresReconnectingStateWhenTheReconnectHelloCannotBeSent() {
+        MutableClock clock = new MutableClock(START);
+        FlakyPort port = new FlakyPort();
+        AgentChannelClient client = new AgentChannelClient("agent-1", port, clock, Duration.ofSeconds(5));
+        client.connect(hello());
+        client.onReady(ready(true));
+
+        client.onDisconnected();
+        clock.advance(Duration.ofSeconds(5));
+        port.failNextSend();
+        assertThatThrownBy(() -> client.reconnectIfDue(hello()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Agent channel is not connected");
+        // A stream that already failed must leave the retry loop alive instead of freezing CONNECTING.
+        assertThat(client.state()).isEqualTo(AgentChannelState.RECONNECTING);
+        assertThat(client.reconnectIfDue(hello())).isTrue();
+    }
+
+    @Test
+    void acceptsTheNextReconnectAttemptAfterAnEarlierHelloSendFailed() {
+        MutableClock clock = new MutableClock(START);
+        FlakyPort port = new FlakyPort();
+        AgentChannelClient client = new AgentChannelClient("agent-1", port, clock, Duration.ofSeconds(5));
+        client.connect(hello());
+        client.onReady(ready(true));
+
+        client.onDisconnected();
+        clock.advance(Duration.ofSeconds(5));
+        port.failNextSend();
+        assertThatThrownBy(() -> client.reconnectIfDue(hello())).isInstanceOf(IllegalStateException.class);
+        // The failed send is not recorded by the port, so the next successful hello is the second one.
+        clock.advance(Duration.ofSeconds(5));
+        assertThat(client.reconnectIfDue(hello())).isTrue();
+        client.onReady(ready(true));
+        assertThat(client.state()).isEqualTo(AgentChannelState.READY);
+        assertThat(port.messages()).extracting(AgentMessage::getPayloadCase)
+                .containsExactly(AgentMessage.PayloadCase.HELLO, AgentMessage.PayloadCase.HELLO);
+    }
+
+    @Test
     void acceptsAssignmentThroughRuntimeAndRegistersLeaseForHeartbeats() {
         RecordingPort port = new RecordingPort();
         AgentChannelClient client = client(port);
@@ -223,6 +263,29 @@ class AgentChannelClientTest {
                 .setLeaseExpiresAt(Timestamp.newBuilder()
                         .setSeconds(START.plusSeconds(30).getEpochSecond()).build())
                 .build();
+    }
+
+    /** A port whose stream already failed, mirroring GrpcAgentChannelPort's not-connected send. */
+    private static final class FlakyPort implements AgentChannelPort {
+        private final List<AgentMessage> messages = new ArrayList<>();
+        private boolean failNextSend;
+
+        void failNextSend() {
+            failNextSend = true;
+        }
+
+        @Override
+        public void send(AgentMessage message) {
+            if (failNextSend) {
+                failNextSend = false;
+                throw new IllegalStateException("Agent channel is not connected");
+            }
+            messages.add(message);
+        }
+
+        List<AgentMessage> messages() {
+            return messages;
+        }
     }
 
     private static final class RecordingPort implements AgentChannelPort {

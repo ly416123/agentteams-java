@@ -183,7 +183,10 @@ public class TeamDeploymentRepository {
             throw new TeamRevisionConflictException("ConfigApplied generation is stale");
         }
         String status = command.applied() ? "SUCCEEDED" : "FAILED";
-        int updated = jdbc.update("""
+        // A ConfigApplied ACK can advance the still-pending member of every deployment that shares its
+        // frozen binding, because a Team revision binding is keyed by team, revision and agent rather than
+        // by deployment, so repeated deployments of one revision acknowledge the same binding.
+        List<UUID> advanced = jdbc.queryForList("""
                 UPDATE team_deployment_members member
                    SET status = ?, failure_code = ?
                   FROM team_deployments deployment
@@ -198,11 +201,12 @@ public class TeamDeploymentRepository {
                                   AND apply.snapshot_id = ? AND apply.observed_version = ?)
                    AND member.status = 'PENDING'
                    AND deployment.status IN ('PENDING', 'PARTIAL_FAILURE')
-                """, status, command.applied() ? null : command.errorMessage(), command.bindingId(), command.agentId(),
-                command.snapshotId(), command.configVersion(), command.eventId(), command.snapshotId(), applyGeneration);
-        if (updated == 1) {
-            refreshStatusByBinding(command.bindingId());
-        }
+                RETURNING member.deployment_id
+                """, UUID.class, status, command.applied() ? null : command.errorMessage(),
+                command.bindingId(), command.agentId(),
+                command.snapshotId(), command.configVersion(), command.eventId(), command.snapshotId(),
+                applyGeneration);
+        advanced.forEach(this::refreshStatus);
     }
 
     public void updateStatus(UUID deploymentId, String status) {
@@ -246,9 +250,4 @@ public class TeamDeploymentRepository {
         return value == null ? 0 : value;
     }
 
-    private void refreshStatusByBinding(UUID bindingId) {
-        jdbc.query("SELECT deployment_id FROM team_deployment_members WHERE binding_id = ?",
-                (rs, row) -> rs.getObject("deployment_id", UUID.class), bindingId)
-                .stream().findFirst().ifPresent(this::refreshStatus);
-    }
 }

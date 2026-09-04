@@ -93,9 +93,11 @@ public final class AgentChannelClient {
                 || clock.instant().isBefore(reconnectAt)) {
             return false;
         }
+        // The hello must leave before the attempt is committed: a port whose stream already failed
+        // throws here, and staying RECONNECTING keeps the scheduled retry due.
+        channel.send(AgentMessage.newBuilder().setHello(hello).build());
         state = AgentChannelState.CONNECTING;
         reconnectAt = null;
-        channel.send(AgentMessage.newBuilder().setHello(hello).build());
         return true;
     }
 
