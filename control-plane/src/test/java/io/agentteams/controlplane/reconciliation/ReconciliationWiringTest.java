@@ -138,6 +138,11 @@ class ReconciliationWiringTest {
                         java.time.Instant applyUpdatedBefore, int limit) {
                     return 0;
                 }
+
+                @Override
+                public int refreshPendingAggregates(int limit) {
+                    return 0;
+                }
             };
         }
 
