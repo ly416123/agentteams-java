@@ -1,5 +1,8 @@
 package io.agentteams.manager;
 
+import io.agentteams.application.api.QuotaLease;
+import io.agentteams.application.api.QuotaPort;
+import io.agentteams.application.api.QuotaRejectedException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

@@ -113,7 +113,7 @@ public final class ModelPriceCatalogService implements ModelPriceCatalogPort {
      * project propagation explicit while preserving Manager's existing
      * provider/model/currency lookup shape.</p>
      */
-    public io.agentteams.manager.ModelPriceCatalog managerCatalog(AuthorizationService.Scope scope) {
+    public io.agentteams.application.api.ModelPriceCatalog managerCatalog(AuthorizationService.Scope scope) {
         return new ManagerModelPriceCatalogAdapter(this, scope, clock);
     }
 

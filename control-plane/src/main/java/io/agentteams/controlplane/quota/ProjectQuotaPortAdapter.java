@@ -1,8 +1,8 @@
 package io.agentteams.controlplane.quota;
 
-import io.agentteams.manager.QuotaLease;
-import io.agentteams.manager.QuotaPort;
-import io.agentteams.manager.QuotaRejectedException;
+import io.agentteams.application.api.QuotaLease;
+import io.agentteams.application.api.QuotaPort;
+import io.agentteams.application.api.QuotaRejectedException;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 

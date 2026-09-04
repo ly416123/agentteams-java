@@ -1,5 +1,7 @@
 package io.agentteams.manager.agentscope;
 
+import io.agentteams.application.api.ModelPrice;
+import io.agentteams.application.api.ModelPriceCatalog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -19,7 +21,6 @@ import io.agentteams.manager.ModelCallAdmissionRequest;
 import io.agentteams.manager.ModelCallAudit;
 import io.agentteams.manager.ModelCallLease;
 import io.agentteams.manager.ModelCostCalculator;
-import io.agentteams.manager.ModelPrice;
 import io.agentteams.manager.ModelProvider;
 import io.agentteams.manager.ModelProviderException;
 import io.agentteams.manager.ModelProviderRegistry;

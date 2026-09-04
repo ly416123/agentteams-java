@@ -1,5 +1,7 @@
 package io.agentteams.manager;
 
+import io.agentteams.application.api.ModelPrice;
+import io.agentteams.application.api.ModelPriceCatalog;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Duration;

@@ -1,4 +1,4 @@
-package io.agentteams.manager;
+package io.agentteams.application.api;
 
 /**
  * Contract exception for a quota implementation that cannot reserve a call.

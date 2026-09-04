@@ -1,4 +1,4 @@
-package io.agentteams.manager;
+package io.agentteams.application.api;
 
 import java.math.BigDecimal;
 import java.util.Currency;
@@ -31,7 +31,7 @@ public record ModelPrice(String provider, String model, String currency,
         return value;
     }
 
-    static String normalizeCurrency(String value) {
+    public static String normalizeCurrency(String value) {
         String normalized = requireText(value, "currency").toUpperCase(Locale.ROOT);
         try {
             Currency.getInstance(normalized);

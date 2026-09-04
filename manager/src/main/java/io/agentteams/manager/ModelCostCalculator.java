@@ -1,5 +1,7 @@
 package io.agentteams.manager;
 
+import io.agentteams.application.api.ModelPrice;
+import io.agentteams.application.api.ModelPriceCatalog;
 import java.math.BigDecimal;
 import java.util.Objects;
 

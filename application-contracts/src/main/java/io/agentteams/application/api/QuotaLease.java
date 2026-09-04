@@ -1,4 +1,4 @@
-package io.agentteams.manager;
+package io.agentteams.application.api;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;

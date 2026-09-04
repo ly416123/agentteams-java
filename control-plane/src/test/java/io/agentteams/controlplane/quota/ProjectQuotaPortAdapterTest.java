@@ -5,8 +5,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.agentteams.manager.QuotaLease;
-import io.agentteams.manager.QuotaRejectedException;
+import io.agentteams.application.api.QuotaLease;
+import io.agentteams.application.api.QuotaRejectedException;
 import org.junit.jupiter.api.Test;
 
 class ProjectQuotaPortAdapterTest {

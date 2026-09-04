@@ -8,7 +8,7 @@ import io.agentteams.manager.ManagerToolTemporaryFailureException;
 import io.agentteams.manager.ModelCallAdmissionRejectedException;
 import io.agentteams.manager.ModelCallAdmissionTemporaryFailureException;
 import io.agentteams.manager.ModelProviderException;
-import io.agentteams.manager.QuotaRejectedException;
+import io.agentteams.application.api.QuotaRejectedException;
 import io.agentteams.manager.session.ManagerSessionNotFoundException;
 import io.agentteams.manager.session.SessionCancelledException;
 import io.agentteams.manager.session.SessionVersionConflictException;

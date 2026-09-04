@@ -128,14 +128,14 @@ class ModelPriceCatalogServiceTest {
         when(persistence.findEffectiveModelPrice("tenant-a", "project-a", "openai", "gpt-4o",
                 "USD", NOW)).thenReturn(Optional.of(price(UUID.randomUUID(), "ACTIVE", 3)));
 
-        io.agentteams.manager.ModelPriceCatalog managerCatalog = service.managerCatalog(
+        io.agentteams.application.api.ModelPriceCatalog managerCatalog = service.managerCatalog(
                 new AuthorizationService.Scope("tenant-a", "project-a", "another-team"));
 
         assertThat(managerCatalog.find("openai", "gpt-4o", "usd")).hasValueSatisfying(price -> {
             assertThat(price.inputPricePerToken()).isEqualByComparingTo("0.0000025");
             assertThat(price.outputPricePerToken()).isEqualByComparingTo("0.00001");
         });
-        assertThatThrownBy(() -> managerCatalog.register(new io.agentteams.manager.ModelPrice(
+        assertThatThrownBy(() -> managerCatalog.register(new io.agentteams.application.api.ModelPrice(
                 "openai", "gpt-4o", "USD", BigDecimal.ONE, BigDecimal.ONE)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
@@ -145,7 +145,7 @@ class ModelPriceCatalogServiceTest {
         when(persistence.findEffectiveModelPrice("tenant-a", "project-a", "unknown", "model",
                 "USD", NOW)).thenReturn(Optional.empty());
 
-        io.agentteams.manager.ModelPriceCatalog managerCatalog = service.managerCatalog(
+        io.agentteams.application.api.ModelPriceCatalog managerCatalog = service.managerCatalog(
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"));
 
         assertThat(managerCatalog.find("unknown", "model", "USD")).isEmpty();

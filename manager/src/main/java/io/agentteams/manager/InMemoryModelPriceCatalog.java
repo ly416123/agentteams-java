@@ -1,5 +1,7 @@
 package io.agentteams.manager;
 
+import io.agentteams.application.api.ModelPrice;
+import io.agentteams.application.api.ModelPriceCatalog;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
