@@ -469,10 +469,10 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <caption>可观测性组件与边界</caption>
             <thead><tr><th scope="col" style="width:220px">组件</th><th scope="col">职责</th></tr></thead>
             <tbody>
-            <tr><td><code>ControlPlaneMetrics</code></td><td>统一任务、Outbox、租约、配置、配额、技能与一致性指标，暴露计数器、计时器和 Gauge；Gateway 专属指标由 <code>GatewayMetrics</code> / <code>GatewayMetricsPort</code> 独立提供。</td></tr>
+            <tr><td><code>ControlPlaneMetrics</code></td><td>统一任务、Outbox、租约、配置、配额、技能与一致性指标，暴露计数器、计时器和 Gauge；Gateway 专属运行时指标主要由 <code>GatewayMetrics</code> / <code>GatewayMetricsPort</code> 管理，同时保留 <code>agentteams.gateway.reconnects</code> 兼容/观测指标。</td></tr>
             <tr><td><code>CorrelationIdFilter</code></td><td>在 Servlet 请求边界读取或生成 <code>X-Correlation-Id</code>，绑定日志上下文并回写响应头。</td></tr>
             <tr><td><code>AsyncProducerTracing</code> / <code>AsyncConsumerTracing</code></td><td>围绕异步生产与消费创建有界 Span，传播持久化的 W3C trace context；坏载荷不阻断消息处理。</td></tr>
-            <tr><td><code>ObservabilityAutoConfiguration</code> / <code>ServletObservabilityAutoConfiguration</code></td><td><code>ObservabilityAutoConfiguration</code> 在缺少同类型 Bean 时注册 <code>ControlPlaneMetrics</code>，并以 <code>@Primary</code> 提供 <code>TaskMetricsPort</code> 默认适配器；<code>TaskMetricsPort</code> 只覆盖任务生命周期、租约、一致性与 Outbox 指标。Gateway 专属指标由 <code>GatewayMetrics</code> / <code>GatewayMetricsPort</code> 独立提供，不归入 <code>ControlPlaneMetrics</code>；Manager 当前未实际接入 <code>ControlPlaneMetrics</code>，相关指标能力属于未接入/预留。<code>ServletObservabilityAutoConfiguration</code> 在 Servlet Web 应用中注册 Correlation ID 过滤器；<code>TaskMetricsPort</code> 默认适配器本身没有 <code>@ConditionalOnMissingBean</code>，普通同类型 Bean 不会自动取代它。</td></tr>
+            <tr><td><code>ObservabilityAutoConfiguration</code> / <code>ServletObservabilityAutoConfiguration</code></td><td><code>ObservabilityAutoConfiguration</code> 在缺少同类型 Bean 时注册 <code>ControlPlaneMetrics</code>，并以 <code>@Primary</code> 提供 <code>TaskMetricsPort</code> 默认适配器；<code>TaskMetricsPort</code> 只覆盖任务生命周期、租约、一致性与 Outbox 指标。Gateway 专属运行时指标主要由 <code>GatewayMetrics</code> / <code>GatewayMetricsPort</code> 管理；<code>ControlPlaneMetrics</code> 仍保留 <code>agentteams.gateway.reconnects</code> 兼容/观测指标，因此 Gateway 指标并非完全不归入 <code>ControlPlaneMetrics</code>；Manager 当前未实际接入 <code>ControlPlaneMetrics</code>，相关指标能力属于未接入/预留。<code>ServletObservabilityAutoConfiguration</code> 在 Servlet Web 应用中注册 Correlation ID 过滤器；<code>TaskMetricsPort</code> 默认适配器本身没有 <code>@ConditionalOnMissingBean</code>，普通同类型 Bean 不会自动取代它。</td></tr>
             </tbody>
           </table>
         </div>
@@ -647,7 +647,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><td><code>JdbcModelCallAuditor</code></td><td>审计日志：凭据先脱敏再 SHA-256 哈希，绝不落明文</td></tr>
             </tbody>
           </table>
-          <p><b>错误分类：</b>ModelProviderException 8 类 Category，可重试性（网络类）与不可重试性（认证 / 协议类）贯穿全链路。</p>
+          <p><b>错误分类：</b>ModelProviderException 9 类 Category，可重试性（网络类）与不可重试性（认证 / 协议类）贯穿全链路。</p>
         </div>
       </div>
     </div>
