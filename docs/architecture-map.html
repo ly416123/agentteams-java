@@ -380,7 +380,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><th style="width:200px">组件</th><th>说明</th></tr>
             <tr><td><code>AgentMessage</code></td><td>Agent → Gateway 信封，10 种变体：hello / task_accepted / task_progress / task_heartbeat / task_completed / task_failed / config_applied / ack / error / agent_heartbeat</td></tr>
             <tr><td><code>ServerMessage</code></td><td>Gateway → Agent 信封，5 种变体：ready / task_assigned / config_changed / ack / error</td></tr>
-            <tr><td><code>EventMetadata</code></td><td>统一事件头：event_id / agent_id / task_id / attempt_id / sequence / expected_version / lease_id / occurred_at</td></tr>
+            <tr><td><code>EventMetadata</code></td><td>统一事件头：event_id / agent_id / task_id / attempt_id / sequence / expected_version / lease_id / occurred_at / correlation_id / traceparent / tracestate</td></tr>
             <tr><td><code>ProtocolCompatibility</code></td><td>版本协商：同 major 且 peer minor ≤ local minor 才兼容；新端可接受旧端，旧端拒绝新端</td></tr>
             <tr><td><code>Connect</code> RPC</td><td><code>rpc Connect(stream AgentMessage) returns (stream ServerMessage)</code> — 单双向流承载全部通信</td></tr>
           </table>
@@ -827,7 +827,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>NATS JetStream</b></td><td>StatefulSet（外部）</td>
-          <td>agent.events.* / task.events.* / dead-letter；durable 消费者提供至少一次投递语义，超过重试预算后转入死信</td>
+          <td>control.events / agent.events.&lt;UUID&gt; / task.events.&lt;UUID&gt; / deadletter.events；其它聚合类型回退到 control.events；durable 消费者提供至少一次投递语义，超过重试预算后转入死信</td>
         </tr>
         <tr>
           <td><b>MinIO</b></td><td>StatefulSet（外部）</td>
