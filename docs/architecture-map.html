@@ -1,9 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="no-js">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script>document.documentElement.classList.add('js');</script>
 <title>AgentTeams Java — 项目架构代码地图</title>
 <style>
 :root {
@@ -154,6 +153,7 @@ kbd {
 .mod-arrow { color: var(--muted); transition: transform 0.2s; font-size: 13px; }
 .mod-card.open .mod-arrow { transform: rotate(90deg); }
 .mod-body { display: block; padding: 0 20px 18px; border-top: 1px solid var(--border); }
+html.no-js .mod-body { display: block; }
 html.js .mod-body { display: none; }
 html.js .mod-card.open .mod-body { display: block; }
 .mod-body .pos { padding-top: 16px; }
@@ -399,7 +399,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- domain -->
     <div class="mod-card" id="m-domain">
-      <button type="button" class="mod-head" id="head-domain" aria-expanded="false" aria-controls="body-domain">
+      <button type="button" class="mod-head" id="head-domain" aria-expanded="true" aria-controls="body-domain">
         <span class="mod-dot" style="background:#3fb950"></span>
         <span class="mod-title">domain — 领域模型层</span>
         <span class="tagline">纯 DDD，零依赖，通过构造校验和领域服务约束不变量</span>
@@ -428,7 +428,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- application-contracts -->
     <div class="mod-card" id="m-app">
-      <button type="button" class="mod-head" id="head-app" aria-expanded="false" aria-controls="body-app">
+      <button type="button" class="mod-head" id="head-app" aria-expanded="true" aria-controls="body-app">
         <span class="mod-dot" style="background:#d29922"></span>
         <span class="mod-title">application-contracts — 应用端口契约</span>
         <span class="tagline">六边形架构的出端口定义</span>
@@ -454,7 +454,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- observability -->
     <div class="mod-card" id="m-observability">
-      <button type="button" class="mod-head" id="head-observability" aria-expanded="false" aria-controls="body-observability">
+      <button type="button" class="mod-head" id="head-observability" aria-expanded="true" aria-controls="body-observability">
         <span class="mod-dot" style="background:#bc8cff"></span>
         <span class="mod-title">observability — 可观测性基础组件</span>
         <span class="tagline">指标、关联 ID 与异步链路追踪</span>
@@ -480,7 +480,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- storage -->
     <div class="mod-card" id="m-storage">
-      <button type="button" class="mod-head" id="head-storage" aria-expanded="false" aria-controls="body-storage">
+      <button type="button" class="mod-head" id="head-storage" aria-expanded="true" aria-controls="body-storage">
         <span class="mod-dot" style="background:#79c0ff"></span>
         <span class="mod-title">storage — 对象存储组件</span>
         <span class="tagline">MinIO 对象存储抽象与自动配置</span>
@@ -505,7 +505,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- control-plane -->
     <div class="mod-card" id="m-cp">
-      <button type="button" class="mod-head" id="head-cp" aria-expanded="false" aria-controls="body-cp">
+      <button type="button" class="mod-head" id="head-cp" aria-expanded="true" aria-controls="body-cp">
         <span class="mod-dot" style="background:#f78166"></span>
         <span class="mod-title">control-plane — 控制平面（核心）</span>
         <span class="tagline">540 主源码 / 227 测试，业务 API + 持久化 + 调度 + 发件箱</span>
@@ -537,7 +537,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- agent-gateway -->
     <div class="mod-card" id="m-gw">
-      <button type="button" class="mod-head" id="head-gw" aria-expanded="false" aria-controls="body-gw">
+      <button type="button" class="mod-head" id="head-gw" aria-expanded="true" aria-controls="body-gw">
         <span class="mod-dot" style="background:#bc8cff"></span>
         <span class="mod-title">agent-gateway — Agent 网关</span>
         <span class="tagline">gRPC 双向流 + NATS 消费 + 可靠命令交付</span>
@@ -568,7 +568,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- runtime -->
     <div class="mod-card" id="m-rt">
-      <button type="button" class="mod-head" id="head-rt" aria-expanded="false" aria-controls="body-rt">
+      <button type="button" class="mod-head" id="head-rt" aria-expanded="true" aria-controls="body-rt">
         <span class="mod-dot" style="background:#79c0ff"></span>
         <span class="mod-title">runtime — 运行时 SPI</span>
         <span class="tagline">Agent 侧运行时抽象，纯 Java 库，无 Spring</span>
@@ -597,7 +597,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- agent-worker -->
     <div class="mod-card" id="m-wk">
-      <button type="button" class="mod-head" id="head-wk" aria-expanded="false" aria-controls="body-wk">
+      <button type="button" class="mod-head" id="head-wk" aria-expanded="true" aria-controls="body-wk">
         <span class="mod-dot" style="background:#7ee787"></span>
         <span class="mod-title">agent-worker — QwenPaw Agent Worker</span>
         <span class="tagline">轻量进程：gRPC ↔ QwenPaw HTTP/SSE 桥接</span>
@@ -625,7 +625,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- manager -->
     <div class="mod-card" id="m-mgr">
-      <button type="button" class="mod-head" id="head-mgr" aria-expanded="false" aria-controls="body-mgr">
+      <button type="button" class="mod-head" id="head-mgr" aria-expanded="true" aria-controls="body-mgr">
         <span class="mod-dot" style="background:#ffa657"></span>
         <span class="mod-title">manager — DeepSeek Manager 编排</span>
         <span class="tagline">自然语言 → 结构化任务意图 → 幂等建单</span>
@@ -653,7 +653,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- operator -->
     <div class="mod-card" id="m-op">
-      <button type="button" class="mod-head" id="head-op" aria-expanded="false" aria-controls="body-op">
+      <button type="button" class="mod-head" id="head-op" aria-expanded="true" aria-controls="body-op">
         <span class="mod-dot" style="background:#ff7b72"></span>
         <span class="mod-title">operator — Kubernetes Operator</span>
         <span class="tagline">Worker / Team / TaskSandbox CRD 声明式管理</span>
@@ -679,7 +679,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- integration-tests -->
     <div class="mod-card" id="m-it">
-      <button type="button" class="mod-head" id="head-it" aria-expanded="false" aria-controls="body-it">
+      <button type="button" class="mod-head" id="head-it" aria-expanded="true" aria-controls="body-it">
         <span class="mod-dot" style="background:#a5d6ff"></span>
         <span class="mod-title">integration-tests — 端到端集成验证</span>
         <span class="tagline">真实基础设施验收测试</span>
@@ -706,7 +706,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 
     <!-- sdk/java -->
     <div class="mod-card" id="m-sdk-java">
-      <button type="button" class="mod-head" id="head-sdk-java" aria-expanded="false" aria-controls="body-sdk-java">
+      <button type="button" class="mod-head" id="head-sdk-java" aria-expanded="true" aria-controls="body-sdk-java">
         <span class="mod-dot" style="background:#3fb950"></span>
         <span class="mod-title">sdk/java — Java 公共客户端 SDK</span>
         <span class="tagline">公共 API 访问、签名与安全重试</span>
@@ -845,10 +845,24 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 <section id="deploy">
   <div class="wrap">
     <h2>部署架构</h2>
-    <p class="sub">Kubernetes 集群内的默认核心组件拓扑与依赖关系（Helm Chart 编排）；Manager 作为可选服务单独列出，默认关闭。</p>
+    <p class="sub">Kubernetes 集群内的应用组件拓扑与外部基础设施依赖；Kind 开发清单、Helm Chart 和生产环境采用不同口径。Manager 作为可选服务单独列出，Chart 默认关闭。</p>
+    <div class="grid g3">
+      <div class="card">
+        <h3>Kind 开发基础设施</h3>
+        <p style="color:var(--muted);font-size:13.5px"><code>deploy/kind-dev-infra.yaml</code> 提供开发用 PostgreSQL、NATS JetStream 和 MinIO。PostgreSQL 是 StatefulSet，数据目录由 <code>volumeClaimTemplates</code> 声明 PVC（5 Gi）。</p>
+      </div>
+      <div class="card">
+        <h3>Helm Chart</h3>
+        <p style="color:var(--muted);font-size:13.5px"><code>deploy/helm/agentteams-java</code> 只渲染应用及其配置、策略和可观测性资源，不自带 PostgreSQL、NATS 或 MinIO StatefulSet。默认值中的 NATS / Outbox 开关是裸应用与 Chart 配置，依赖由部署环境提供。</p>
+      </div>
+      <div class="card">
+        <h3>生产依赖</h3>
+        <p style="color:var(--muted);font-size:13.5px">生产使用外部 PostgreSQL、NATS JetStream 和对象存储，并通过 values 与 Secret 注入连接信息。Chart 默认 <code>manager.enabled=false</code>；未显式开启时不渲染 Manager Deployment、Service 及其关联资源，开启时还需提供 <code>manager.existingSecret</code>。</p>
+      </div>
+    </div>
     <div class="card" style="overflow-x:auto">
       <table>
-        <caption>Kubernetes 部署组件</caption>
+        <caption>应用组件与基础设施依赖（不表示 Helm Chart 会安装外部依赖）</caption>
         <thead><tr><th scope="col" style="width:150px">组件</th><th scope="col" style="width:90px">形态</th><th scope="col">关键配置与职责</th></tr></thead>
         <tbody>
         <tr>
@@ -872,16 +886,16 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
           <td>QwenPaw Agent 进程；连接 Gateway gRPC；调用 QwenPaw HTTP/SSE；TCP 就绪探针</td>
         </tr>
         <tr>
-          <td><b>PostgreSQL</b></td><td>StatefulSet（外部）</td>
-          <td>控制面业务状态与任务状态的权威数据源；Kubernetes CRD 与 MinIO 对象内容分别由 Kubernetes 与对象存储管理；Flyway V1–V89 共 89 个迁移；开发环境 emptyDir，生产需持久化</td>
+          <td><b>PostgreSQL</b></td><td>Kind：StatefulSet + PVC；生产：外部</td>
+          <td>控制面业务状态与任务状态的权威数据源；Kind 开发清单通过 <code>volumeClaimTemplates</code> 使用 PVC；Helm Chart 不创建 PostgreSQL StatefulSet；Kubernetes CRD 与对象内容分别由 Kubernetes 与对象存储管理；Flyway V1–V89 共 89 个迁移；生产使用外部持久化数据库</td>
         </tr>
         <tr>
-          <td><b>NATS JetStream</b></td><td>StatefulSet（外部）</td>
-          <td>control.events / agent.events.&lt;UUID&gt; / task.events.&lt;UUID&gt; / deadletter.events；其它聚合类型回退到 control.events；durable 消费者提供至少一次投递语义，达到重试预算后尝试转入 <code>deadletter.events</code>，死信发布失败则继续重试</td>
+          <td><b>NATS JetStream</b></td><td>Kind：StatefulSet；生产：外部</td>
+          <td>Kind 开发清单提供单副本 NATS；Helm Chart 不创建 NATS StatefulSet，<code>AGENTTEAMS_NATS_ENABLED</code> 与 <code>AGENTTEAMS_OUTBOX_RELAY_ENABLED</code> 只是裸应用 / Chart 配置；control.events / agent.events.&lt;UUID&gt; / task.events.&lt;UUID&gt; / deadletter.events；其它聚合类型回退到 control.events；durable 消费者提供至少一次投递语义，达到重试预算后尝试转入 <code>deadletter.events</code>，死信发布失败则继续重试</td>
         </tr>
         <tr>
-          <td><b>MinIO</b></td><td>StatefulSet（外部）</td>
-          <td>任务产物 + 配置文件对象存储；预签名 URL 直传</td>
+          <td><b>MinIO</b></td><td>Kind：StatefulSet；生产：外部对象存储</td>
+          <td>Kind 开发清单提供 MinIO；Helm Chart 不创建 MinIO StatefulSet；任务产物 + 配置文件对象存储；预签名 URL 直传</td>
         </tr>
         <tr>
           <td><b>Observability</b></td><td>Prometheus</td>
@@ -908,8 +922,8 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <ul style="padding-left:20px;color:var(--muted);font-size:13.5px">
           <li>单元测试：<code>mvn -q test</code></li>
           <li>集成测试：<code>mvn -q -Pintegration-tests verify</code></li>
-          <li>真实模型冒烟：smoke-deepseek-manager.sh + smoke-kind-qwenpaw-deepseek.sh</li>
-          <li>租约恢复验证：run-kind-lease-recovery.py</li>
+          <li>真实模型冒烟（在当前仓库根目录执行）：<code>./scripts/smoke-deepseek-manager.sh</code> + <code>./scripts/smoke-kind-qwenpaw-deepseek.sh</code></li>
+          <li>租约恢复验证（在当前仓库根目录执行）：<code>python3 scripts/run-kind-lease-recovery.py</code></li>
         </ul>
       </div>
     </div>
@@ -958,21 +972,29 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 </footer>
 
 <script>
-// 模块卡片折叠交互；无脚本时 .mod-body 默认可见。
-document.querySelectorAll('.mod-card .mod-head').forEach(function (head) {
-  function syncCardState() {
-    var open = head.parentElement.classList.contains('open');
-    head.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
+// 模块卡片折叠交互；原生 button 保留 Enter/Space 键盘行为。
+(function () {
+  var root = document.documentElement;
 
-  function toggleCard() {
-    head.parentElement.classList.toggle('open');
+  document.querySelectorAll('.mod-card .mod-head').forEach(function (head) {
+    function syncCardState() {
+      var open = head.parentElement.classList.contains('open');
+      head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    function toggleCard() {
+      head.parentElement.classList.toggle('open');
+      syncCardState();
+    }
+
     syncCardState();
-  }
+    head.addEventListener('click', toggleCard);
+  });
 
-  syncCardState();
-  head.addEventListener('click', toggleCard);
-});
+  // 只有完成初始同步后才启用折叠 CSS，失败或禁用脚本时仍保持 no-js 可见。
+  root.classList.remove('no-js');
+  root.classList.add('js');
+})();
 </script>
 </body>
 </html>
