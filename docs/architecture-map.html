@@ -259,7 +259,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <h3>事务发件箱模式</h3>
         <p style="color:var(--muted);font-size:13.5px">
           领域事件与业务状态在同一本地事务内写入 <code>domain_events</code> + <code>outbox_events</code>，
-          保证至少一次投递（At-Least-Once）。
+          提供至少一次投递语义；超过重试预算后转入死信。
         </p>
       </div>
       <div class="card">
@@ -535,7 +535,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><td><code>NatsGatewayEventConsumer</code></td><td>消费 task.events.* + agent.events.*，分派到 TaskAssignedCommandHandler / ConfigChangedCommandHandler</td></tr>
             <tr><td>4 个 Jdbc Store</td><td>AgentState / Session / CommandEvent（序列 + 交付 + 确认光标）/ InboundEvent（幂等）</td></tr>
           </table>
-          <p><b>关键设计：</b>所有 Port 接口提供 <code>@ConditionalOnMissingBean</code> 的 Noop 实现，无外部依赖时可独立测试运行。</p>
+          <p><b>关键设计：</b>核心端口提供条件默认实现，部分端口按外部组件启用或使用 fallback；无外部依赖时可独立测试运行。</p>
         </div>
       </div>
     </div>
@@ -577,13 +577,16 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>纯 Java + gRPC + JDK HttpClient 的轻量进程（无 Spring），核心类 <code>QwenPawWorker</code>（877 行）完成全部编排。</p>
-          <ul>
-            <li><b>任务分发：</b>resultGates（每任务锁）+ runningTasks / pendingResults 处理「任务先到 vs 结果先到」竞态；异常仍 Ack 防毒消息</li>
-            <li><b>配置闭环：</b>ConfigChanged → 拉取 / 校验 manifest（SHA-256 + 大小）→ 文件暂存（路径穿越防护 + 原子写入）→ 两阶段激活 → ConfigApplied 回执</li>
-            <li><b>可运维性：</b>WorkerHealthServer（TCP 就绪探针）、断线重连退避、优雅关闭钩子</li>
-            <li><b>配置：</b>21 个环境变量，唯一必填 <code>AGENTTEAMS_AGENT_ID</code>；协议版本固定 v2.3</li>
-          </ul>
+          <p>纯 Java + gRPC + JDK HttpClient 的轻量进程（无 Spring），负责 Gateway 连接、运行时编排、配置协调与执行结果回传。</p>
+          <table>
+            <tr><th style="width:220px">组件</th><th>职责</th></tr>
+            <tr><td><code>QwenPawWorker</code></td><td>主编排：Gateway gRPC 双向流、任务分发与结果竞态处理、执行事件回传、配置变更协调与回执</td></tr>
+            <tr><td><code>WorkerRuntimeFactory</code> / <code>WorkerRuntimeRouter</code></td><td>创建并路由 QwenPaw / AgentScope 运行时；提供本地并发控制，远程配额启用时接入配额端口</td></tr>
+            <tr><td><code>ConfigManifestFetcher</code> / <code>ConfigFileFetcher</code></td><td>拉取并校验 manifest / 配置文件（SHA-256、大小与路径安全），配合两阶段配置激活</td></tr>
+            <tr><td><code>SkillArtifactFetcher</code> / <code>SkillArtifactMaterializer</code></td><td>下载并校验 Skill artifact，解包到受控的只读运行时目录</td></tr>
+            <tr><td><code>WorkerHealthServer</code> / <code>WorkerTracing</code></td><td>TCP 就绪探针、可选链路追踪、断线重连退避与优雅关闭</td></tr>
+            <tr><td>配置与协议</td><td><code>WorkerConfiguration</code> 实际读取 39 个环境变量；基础必填为 <code>AGENTTEAMS_AGENT_ID</code>，启用 TLS、远程配额等场景存在条件必填项；协议版本固定 v2.3</td></tr>
+          </table>
         </div>
       </div>
     </div>
@@ -704,7 +707,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <span class="node hl">gRPC 双向流<br><small>TaskAssigned</small></span><span class="arrow">→</span>
         <span class="node hl">Agent Worker<br><small>QwenPaw 执行</small></span>
       </div>
-      <p class="note">关键保证：DB 事务与事件写入原子；Outbox 重试 / 死信兜底；Gateway 命令重放保证至少一次交付；Agent 事件经 EventMetadata.expected_version 乐观并发回写。</p>
+      <p class="note">关键保证：DB 事务与事件写入原子；Outbox 提供至少一次投递语义，超过重试预算后转入死信；Gateway 命令持久化并重放未确认命令；Agent 事件经 EventMetadata.expected_version 乐观并发回写。</p>
     </div>
 
     <div class="card">
@@ -752,7 +755,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="pattern">
         <div class="p-name">事务发件箱（Transactional Outbox）</div>
-        <div class="p-desc">同事务写业务 + domain_events + outbox_events，轮询领取发布，保证至少一次投递。</div>
+        <div class="p-desc">同事务写业务 + domain_events + outbox_events，轮询领取发布，提供至少一次投递语义；超过重试预算后转入死信。</div>
         <div class="p-where">control-plane.outbox</div>
       </div>
       <div class="pattern">
@@ -777,12 +780,12 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="pattern">
         <div class="p-name">安全内建脱敏</div>
-        <div class="p-desc">密钥在领域层 / 端口层 / 持久化层 / 审计层四道防线统一脱敏，错误消息只暴露类名。</div>
+        <div class="p-desc">密钥在领域层 / 端口层 / 持久化层 / 审计层按已覆盖规则脱敏，错误消息也按已覆盖规则脱敏。</div>
         <div class="p-where">FailureInfo / Sanitizer / OutboxErrorSanitizer</div>
       </div>
       <div class="pattern">
         <div class="p-name">条件装配（可选能力）</div>
-        <div class="p-desc">NATS / MinIO / 安全 / 中继全部条件启用，纯数据库模式可独立运行；Port 均有 Noop 默认。</div>
+        <div class="p-desc">NATS / MinIO / 安全 / 中继全部条件启用，纯数据库模式可独立运行；核心端口提供条件默认实现，部分端口按外部组件启用或使用 fallback。</div>
         <div class="p-where">ControlPlaneConfiguration / AgentGatewayGrpcConfiguration</div>
       </div>
       <div class="pattern">
@@ -824,7 +827,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>NATS JetStream</b></td><td>StatefulSet（外部）</td>
-          <td>agent.events.* / task.events.* / dead-letter；durable 消费者保证至少一次</td>
+          <td>agent.events.* / task.events.* / dead-letter；durable 消费者提供至少一次投递语义，超过重试预算后转入死信</td>
         </tr>
         <tr>
           <td><b>MinIO</b></td><td>StatefulSet（外部）</td>
@@ -872,7 +875,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       <div class="stat"><div class="num">861</div><div class="lbl">主源码文件</div></div>
       <div class="stat"><div class="num">366</div><div class="lbl">测试文件</div></div>
       <div class="stat"><div class="num">89</div><div class="lbl">Flyway 迁移</div></div>
-      <div class="stat"><div class="num">15</div><div class="lbl">Proto 消息</div></div>
+      <div class="stat"><div class="num">15</div><div class="lbl">Agent/Server oneof 变体</div></div>
     </div>
     <div class="card" style="overflow-x:auto">
       <table>
