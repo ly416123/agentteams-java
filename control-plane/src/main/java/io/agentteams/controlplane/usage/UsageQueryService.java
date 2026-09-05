@@ -160,6 +160,21 @@ public final class UsageQueryService {
                 "WHERE occurred_at >= ? AND occurred_at < ?" + scope.whereClause())
                 + (limit == null ? "" : " LIMIT ?" + (paginated ? " OFFSET ?" : ""));
         int queryLimit = paginated ? validatedLimit + 1 : validatedLimit;
+        // Bind scope values first, then LIMIT/OFFSET: the scope placeholders precede
+        // LIMIT/OFFSET in the SQL, so passing them through the prefix would bind the
+        // limit integer onto tenant_id (text) and Postgres rejects "text = integer".
+        Object[] scopeArguments = scope.arguments(start, end);
+        Object[] groupsArguments;
+        if (limit == null) {
+            groupsArguments = scopeArguments;
+        } else if (paginated) {
+            groupsArguments = java.util.Arrays.copyOf(scopeArguments, scopeArguments.length + 2);
+            groupsArguments[scopeArguments.length] = queryLimit;
+            groupsArguments[scopeArguments.length + 1] = offset;
+        } else {
+            groupsArguments = java.util.Arrays.copyOf(scopeArguments, scopeArguments.length + 1);
+            groupsArguments[scopeArguments.length] = queryLimit;
+        }
         List<UsageGroup> groups = jdbc.query(groupsSql, (resultSet, rowNum) -> new UsageGroup(
                 grouping == GroupBy.PROVIDER_MODEL || grouping == GroupBy.PROVIDER
                         ? resultSet.getString("provider") : null,
@@ -174,9 +189,7 @@ public final class UsageQueryService {
                 grouping == GroupBy.STATUS ? resultSet.getString("status") : null,
                 grouping.dimensionName(),
                 grouping.isDimension() ? resultSet.getString("dimension_value") : null),
-                limit == null ? scope.arguments(start, end)
-                        : paginated ? scope.arguments(start, end, queryLimit, offset)
-                                : scope.arguments(start, end, queryLimit));
+                groupsArguments);
         boolean hasMore = paginated && groups.size() > validatedLimit;
         List<UsageGroup> page = hasMore ? groups.subList(0, validatedLimit) : groups;
         return new UsageSummary(range.from(), range.to(), totals, page,
