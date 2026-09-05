@@ -1,5 +1,6 @@
 package io.agentteams.observability;
 
+import jakarta.servlet.Filter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -27,6 +28,24 @@ class ObservabilityAutoConfigurationTest {
             assertThat(ctx.getBean("taskMetricsPort", TaskMetricsPort.class))
                     .isSameAs(ctx.getBean("controlPlaneMetrics", ControlPlaneMetrics.class));
         });
+    }
+
+    @Test
+    void registersExactlyOneCorrelationIdFilterThatIsServletFilterCompatible() {
+        context.run(ctx -> {
+            assertThat(ctx.getBeansOfType(CorrelationIdFilter.class))
+                    .containsOnlyKeys("correlationIdFilter");
+            assertThat(ctx.getBean(CorrelationIdFilter.class)).isInstanceOf(Filter.class);
+        });
+    }
+
+    @Test
+    void backsOffWhenApplicationProvidesCorrelationIdFilter() {
+        CorrelationIdFilter custom = new CorrelationIdFilter();
+        context.withBean("customCorrelationIdFilter", CorrelationIdFilter.class, () -> custom)
+                .run(ctx -> assertThat(ctx.getBeansOfType(CorrelationIdFilter.class))
+                        .containsOnlyKeys("customCorrelationIdFilter")
+                        .containsEntry("customCorrelationIdFilter", custom));
     }
 
     @Test

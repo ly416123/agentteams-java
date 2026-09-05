@@ -30,7 +30,7 @@ public class ObservabilityAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(CorrelationIdFilter.class)
     CorrelationIdFilter correlationIdFilter() {
         return new CorrelationIdFilter();
     }
