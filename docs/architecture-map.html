@@ -351,8 +351,8 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
     <div style="margin-top:16px">
       <div class="layer" style="border-style:dashed">
         <span class="tag" style="background:#ff7b72">平台基础设施</span>
-        <span class="desc">operator — Java Operator SDK 管理 Worker / Team 自定义资源，产出 Deployment / Service / ConfigMap</span>
-        <span class="chips"><span class="chip">WorkerReconciler</span><span class="chip">TeamReconciler</span><span class="chip">Leader Election</span></span>
+        <span class="desc">operator — Java Operator SDK 管理 Worker / Team / TaskSandbox 自定义资源，产出 Deployment / Service / ConfigMap / Job</span>
+        <span class="chips"><span class="chip">WorkerReconciler</span><span class="chip">TeamReconciler</span><span class="chip">TaskSandboxReconciler</span><span class="chip">Leader Election</span></span>
       </div>
     </div>
   </div>
@@ -449,13 +449,13 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>共享可观测性库（8 主源码 + 3 测试），为 Control Plane、Gateway 及异步消息适配器提供统一指标和追踪能力。</p>
+          <p>共享可观测性库（8 主源码 + 3 测试），为 Control Plane 及异步消息适配器提供统一指标和追踪基础，并可被 Servlet Web 应用自动装配。</p>
           <table>
             <tr><th style="width:220px">组件</th><th>职责</th></tr>
             <tr><td><code>ControlPlaneMetrics</code></td><td>统一任务、Gateway、Outbox、租约、配置、配额、技能与一致性指标，暴露计数器、计时器和 Gauge。</td></tr>
             <tr><td><code>CorrelationIdFilter</code></td><td>在 Servlet 请求边界读取或生成 <code>X-Correlation-Id</code>，绑定日志上下文并回写响应头。</td></tr>
             <tr><td><code>AsyncProducerTracing</code> / <code>AsyncConsumerTracing</code></td><td>围绕异步生产与消费创建有界 Span，传播持久化的 W3C trace context；坏载荷不阻断消息处理。</td></tr>
-            <tr><td><code>ObservabilityAutoConfiguration</code></td><td>通过 Spring Boot 自动配置注册指标与 Servlet 过滤器，并允许用户 Bean 覆盖默认实现。</td></tr>
+            <tr><td><code>ObservabilityAutoConfiguration</code> / <code>ServletObservabilityAutoConfiguration</code></td><td>分别通过 Spring Boot 自动配置注册指标、TaskMetricsPort 与 Servlet Correlation ID 过滤器，并允许用户 Bean 覆盖默认实现。</td></tr>
           </table>
         </div>
       </div>
@@ -472,7 +472,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>对象存储组件（5 主源码 + 2 测试），从控制平面抽离 MinIO 集成，统一任务产物和配置文件的对象操作边界。</p>
+          <p>对象存储组件（5 主源码 + 2 测试），提供 provider-neutral 的对象存储端口与 MinIO 实现；控制平面通过该端口统一处理任务产物和配置文件。</p>
           <table>
             <tr><th style="width:220px">组件</th><th>职责</th></tr>
             <tr><td><code>ObjectStorage</code></td><td>上传、下载、删除以及 GET / PUT 预签名 URL 的最小对象存储端口。</td></tr>
@@ -504,8 +504,8 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><td><code>config</code></td><td>ConfigSnapshotService / ConfigDeploymentService / ConfigUploadService / CleanupJob</td><td>配置生命周期：manifest 规范化 + 指纹 → 版本化快照 → 绑定部署（ConfigChanged 事件）→ 预签名直传 + SHA-256 校验 → 保留策略清理</td></tr>
             <tr><td><code>matrix</code></td><td>MatrixAppServiceHttpAdapter / MatrixCommandParser / MatrixDeliveryService</td><td>Matrix 聊天适配：<code>/_matrix/app/v1/transactions</code>，命令 <code>!agentteams &lt;cmd&gt;</code>，事务/事件双重幂等</td></tr>
             <tr><td><code>security</code></td><td>ApiAuthenticationFilter / AuthorizationService / PrincipalContext</td><td>可选 Bearer 认证（OIDC 适配缝）+ 权限 / 租户 scope 授权</td></tr>
-            <tr><td><code>artifact</code> + <code>storage</code></td><td>ArtifactService / MinioObjectStorage / ObjectStoragePaths</td><td>预签名上传下载 + 流式 SHA-256 校验 + 防路径穿越</td></tr>
-            <tr><td><code>observability</code> / <code>health</code> / <code>audit</code> / <code>team</code></td><td>ControlPlaneMetrics / NatsHealthIndicator / RedactingAuditRecorder / TeamSchedulingPolicy</td><td>Micrometer 指标、NATS 健康探针、审计脱敏、团队调度策略与三层 JSON 配置叠加</td></tr>
+            <tr><td><code>artifact</code></td><td>ArtifactService / ObjectStoragePaths</td><td>预签名上传下载 + 流式 SHA-256 校验 + 防路径穿越；对象存储实现由 storage 模块提供</td></tr>
+            <tr><td><code>health</code> / <code>audit</code> / <code>team</code></td><td>NatsHealthIndicator / RedactingAuditRecorder / TeamSchedulingPolicy</td><td>NATS 健康探针、审计脱敏、团队调度策略与三层 JSON 配置叠加；共享指标由 observability 模块提供</td></tr>
           </table>
           <p><b>装配策略：</b>ControlPlaneConfiguration 用条件注解把 NATS / MinIO / 安全 / 中继全部做成可选能力（默认关闭），纯数据库模式可独立运行。</p>
         </div>
@@ -577,7 +577,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>纯 Java + gRPC + JDK HttpClient 的轻量进程（无 Spring），核心类 <code>QwenPawWorker</code>（585 行）完成全部编排。</p>
+          <p>纯 Java + gRPC + JDK HttpClient 的轻量进程（无 Spring），核心类 <code>QwenPawWorker</code>（877 行）完成全部编排。</p>
           <ul>
             <li><b>任务分发：</b>resultGates（每任务锁）+ runningTasks / pendingResults 处理「任务先到 vs 结果先到」竞态；异常仍 Ack 防毒消息</li>
             <li><b>配置闭环：</b>ConfigChanged → 拉取 / 校验 manifest（SHA-256 + 大小）→ 文件暂存（路径穿越防护 + 原子写入）→ 两阶段激活 → ConfigApplied 回执</li>
@@ -618,7 +618,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       <div class="mod-head">
         <span class="mod-dot" style="background:#ff7b72"></span>
         <span class="mod-title">operator — Kubernetes Operator</span>
-        <span class="tagline">Worker / Team CRD 声明式管理</span>
+        <span class="tagline">Worker / Team / TaskSandbox CRD 声明式管理</span>
         <span class="mod-path">operator/src/main/java/io/agentteams/operator</span>
         <span class="mod-arrow">▶</span>
       </div>
@@ -629,6 +629,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><th style="width:220px">CRD</th><th>Reconciler</th><th>产出资源</th></tr>
             <tr><td><code>Worker</code>（agentteams.io/v1alpha1）</td><td>WorkerReconciler</td><td>Deployment（gRPC 9090 + 双探针 + 强制注入 AGENTTEAMS_AGENT_ID）+ Service（ClusterIP）</td></tr>
             <tr><td><code>Team</code>（agentteams.io/v1alpha1）</td><td>TeamReconciler</td><td>ConfigMap（team.json）</td></tr>
+            <tr><td><code>TaskSandbox</code>（agentteams.io/v1alpha1）</td><td>TaskSandboxReconciler</td><td>Job + Service（沙箱任务执行与网络边界）</td></tr>
           </table>
           <p><b>安全设计：</b>禁用 automountServiceAccountToken、OwnerReference（blockOwnerDeletion）、镜像 IfNotPresent；Leader Election 可选（环境变量控制）。</p>
         </div>
@@ -670,12 +671,12 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>面向公共 API 的 Java 17 客户端（3 主源码 + 2 测试），对应 <code>openapi/agentteams-public.yaml</code> 的 v1.0 基线。</p>
+          <p>面向公共 API 与 Provisioning API 的 Java 17 客户端（3 主源码 + 2 测试），对应 <code>openapi/agentteams-public.yaml</code> 与 <code>openapi/agentteams-provisioning.yaml</code> 的 v1.0 基线。</p>
           <table>
             <tr><th style="width:220px">组件</th><th>职责</th></tr>
             <tr><td><code>AgentTeamsClient</code></td><td>封装 Project 创建、Task 查询 / 取消 / 进度 / 结果事件和用户 Provisioning，统一解析结构化 API 错误。</td></tr>
             <tr><td><code>Canonicalizer</code> / <code>HmacSha256Signer</code></td><td>生成跨语言稳定的规范化请求串，计算 Body SHA-256 并生成 HMAC-SHA256 签名 Header。</td></tr>
-            <tr><td>重试与幂等</td><td>GET 默认安全重试；写请求仅在显式提供稳定 <code>Idempotency-Key</code> 且标记 <code>retrySafe</code> 时重试。</td></tr>
+            <tr><td>重试与幂等</td><td>GET 默认安全重试，写请求默认不重试；显式传入稳定 <code>Idempotency-Key</code> 且标记 <code>retrySafe=true</code> 的写请求才具备安全重试边界。<code>cancelTask(..., retrySafe)</code> 未接收 key，会由客户端生成随机 key，不能视为稳定幂等重试。</td></tr>
           </table>
         </div>
       </div>
@@ -811,7 +812,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>Operator</b></td><td>Deployment</td>
-          <td>Worker / Team Reconciler；Leader Election 可选；为 Worker 生成 Deployment + Service</td>
+          <td>Worker / Team / TaskSandbox Reconciler；Leader Election 可选；分别为 Worker 生成 Deployment + Service、为 Team 生成 ConfigMap、为 TaskSandbox 生成 Job + Service</td>
         </tr>
         <tr>
           <td><b>Worker</b></td><td>Operator 管理</td>
@@ -886,7 +887,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <tr><td>runtime</td><td>48</td><td>14</td><td>通道状态机 + QwenPaw 双边界 + 配置协调</td></tr>
         <tr><td>agent-worker</td><td>29</td><td>18</td><td>Worker 编排 + 配置拉取 / 文件下载 + AgentScope</td></tr>
         <tr><td>manager</td><td>83</td><td>32</td><td>模型提供 + 工具注册 + 会话与审计</td></tr>
-        <tr><td>operator</td><td>27</td><td>15</td><td>2 个 CRD + 2 个 Reconciler + 资源工厂</td></tr>
+        <tr><td>operator</td><td>27</td><td>15</td><td>3 个 CRD + 3 个 Reconciler + 资源工厂</td></tr>
         <tr><td>integration-tests</td><td>0</td><td>7</td><td>E2E + 基础设施验收</td></tr>
         <tr><td>sdk/java</td><td>3</td><td>2</td><td>公共 API 客户端 + HMAC 签名 + 安全重试</td></tr>
         <tr><td style="font-weight:700">合计</td><td style="font-weight:700">861</td><td style="font-weight:700">366</td><td>1,227 个 Java 文件（主源码 + 测试）</td></tr>
