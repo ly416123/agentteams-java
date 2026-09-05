@@ -246,7 +246,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 <section id="overview">
   <div class="wrap">
     <h2>项目概览</h2>
-    <p class="sub">设计理念：数据库是唯一事实来源，消息总线负责事件搬运，gRPC 负责任务交付。</p>
+    <p class="sub">设计理念：控制面数据库是控制面业务状态与任务状态的权威来源；Kubernetes CRD 与 MinIO 对象内容分别由 Kubernetes 与对象存储作为事实源，消息总线负责事件搬运，gRPC 负责任务交付。</p>
     <div class="grid g3">
       <div class="card">
         <h3>Push 式任务交付</h3>
@@ -259,7 +259,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <h3>事务发件箱模式</h3>
         <p style="color:var(--muted);font-size:13.5px">
           领域事件与业务状态在同一本地事务内写入 <code>domain_events</code> + <code>outbox_events</code>，
-          提供至少一次投递语义；超过重试预算后转入死信。
+          提供至少一次投递语义；达到重试预算后尝试转入 <code>deadletter.events</code>，死信发布失败则继续重试。
         </p>
       </div>
       <div class="card">
@@ -286,21 +286,21 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <span class="desc">integration-tests — Testcontainers 编排真实 PostgreSQL / NATS / MinIO，验证跨进程链路</span>
         <span class="chips"><span class="chip">TaskPushE2ETest</span><span class="chip">TaskPushInfrastructureIT</span><span class="chip">FakeAgent</span></span>
       </div>
-      <div class="layer-arrow">▼ 依赖全部模块</div>
+      <div class="layer-arrow">▼ 架构分层关系（非 Maven 直接依赖）</div>
 
       <div class="layer">
         <span class="tag" style="background:#7ee787">运行时工作进程</span>
         <span class="desc">agent-worker — QwenPaw Agent 工作进程：gRPC AgentChannel ↔ QwenPaw HTTP/SSE 桥接</span>
         <span class="chips"><span class="chip">QwenPawWorker</span><span class="chip">ConfigFileFetcher</span><span class="chip">ConfigManifestFetcher</span></span>
       </div>
-      <div class="layer-arrow">▼ 依赖 runtime</div>
+      <div class="layer-arrow">▼ 架构分层关系</div>
 
       <div class="layer">
         <span class="tag" style="background:#79c0ff;color:#0d1117">运行时 SPI</span>
         <span class="desc">runtime — Agent 侧运行时抽象：通道协议状态机 + QwenPaw 双边界（HTTP/SSE 与进程）</span>
         <span class="chips"><span class="chip">AgentChannelClient</span><span class="chip">GatewayRuntimeAdapter</span><span class="chip">QwenPawHttpRuntimePort</span><span class="chip">RuntimeConfigCoordinator</span></span>
       </div>
-      <div class="layer-arrow">▼ 依赖 contracts</div>
+      <div class="layer-arrow">▼ 架构分层关系</div>
 
       <div class="layer">
         <span class="tag" style="background:#f78166">业务应用层</span>
@@ -313,7 +313,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
           <span class="chip">模型调用与工具授权</span>
         </span>
       </div>
-      <div class="layer-arrow">▼ 复用平台基础组件</div>
+      <div class="layer-arrow">▼ 架构分层关系</div>
 
       <div class="layer">
         <span class="tag" style="background:#bc8cff">平台基础组件</span>
@@ -325,21 +325,21 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
           <span class="chip">ObjectStorage</span><span class="chip">MinioObjectStorage</span>
         </span>
       </div>
-      <div class="layer-arrow">▼ 实现 / 依赖端口</div>
+      <div class="layer-arrow">▼ 架构分层关系</div>
 
       <div class="layer">
         <span class="tag" style="background:#d29922;color:#0d1117">应用端口契约</span>
         <span class="desc">application-contracts — 跨服务边界端口定义（零外部依赖）：TaskCommandPort / ExecutionEventPort / ConfigEventPort</span>
         <span class="chips"><span class="chip">六边形出端口</span><span class="chip">Envelope 序列化</span><span class="chip">FailureMessageSanitizer</span></span>
       </div>
-      <div class="layer-arrow">▼ 依赖</div>
+      <div class="layer-arrow">▼ 架构分层关系</div>
 
       <div class="layer">
         <span class="tag" style="background:#3fb950;color:#0d1117">领域核心</span>
         <span class="desc">domain — 纯 JDK 框架无关 DDD 领域层：Task 聚合根 + 状态机引擎（零运行时依赖）</span>
         <span class="chips"><span class="chip">TaskTransitionService</span><span class="chip">TaskAttempt</span><span class="chip">FailureInfo 脱敏</span><span class="chip">CQS 命令-结果</span></span>
       </div>
-      <div class="layer-arrow">▼ 依赖</div>
+      <div class="layer-arrow">▼ 架构分层关系</div>
 
       <div class="layer">
         <span class="tag" style="background:#58a6ff;color:#0d1117">协议契约</span>
@@ -369,20 +369,20 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       <div class="mod-head">
         <span class="mod-dot" style="background:#58a6ff"></span>
         <span class="mod-title">contracts — 协议契约层</span>
-        <span class="tagline">gRPC 双向流协议的唯一持有者</span>
+        <span class="tagline">agent_channel.proto 的 gRPC 双向流协议持有者</span>
         <span class="mod-path">contracts/src/main/proto/agent_channel.proto</span>
         <span class="mod-arrow">▶</span>
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>定义 Agent 与 Gateway 之间全部通信协议，是唯一持有 <code>agent_channel.proto</code> 的模块。protobuf 生成代码为构建产物，不入库。</p>
+          <p>定义 Agent 与 Gateway 之间 AgentChannel 的消息协议，是唯一持有 <code>agent_channel.proto</code> 的模块；另有 <code>quota.proto</code> 定义独立的 <code>QuotaService</code>，配额调用不复用该双向流。protobuf 生成代码为构建产物，不入库。</p>
           <table>
             <tr><th style="width:200px">组件</th><th>说明</th></tr>
             <tr><td><code>AgentMessage</code></td><td>Agent → Gateway 信封，10 种变体：hello / task_accepted / task_progress / task_heartbeat / task_completed / task_failed / config_applied / ack / error / agent_heartbeat</td></tr>
             <tr><td><code>ServerMessage</code></td><td>Gateway → Agent 信封，5 种变体：ready / task_assigned / config_changed / ack / error</td></tr>
             <tr><td><code>EventMetadata</code></td><td>统一事件头：event_id / agent_id / task_id / attempt_id / sequence / expected_version / lease_id / occurred_at / correlation_id / traceparent / tracestate</td></tr>
             <tr><td><code>ProtocolCompatibility</code></td><td>版本协商：同 major 且 peer minor ≤ local minor 才兼容；新端可接受旧端，旧端拒绝新端</td></tr>
-            <tr><td><code>Connect</code> RPC</td><td><code>rpc Connect(stream AgentMessage) returns (stream ServerMessage)</code> — 单双向流承载全部通信</td></tr>
+            <tr><td><code>Connect</code> RPC</td><td><code>rpc Connect(stream AgentMessage) returns (stream ServerMessage)</code> — 双向流承载 AgentChannel 消息</td></tr>
           </table>
           <p><b>演进策略：</b>严格追加式变更（新 tag / 新字段），删除必须 reserved；oneof 扩展不破坏旧端，由 <code>AgentChannelContractTest</code> 用未知字段模拟未来协议锁定该保证。</p>
         </div>
@@ -394,7 +394,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       <div class="mod-head">
         <span class="mod-dot" style="background:#3fb950"></span>
         <span class="mod-title">domain — 领域模型层</span>
-        <span class="tagline">纯 DDD，零依赖，非法状态不可表示</span>
+        <span class="tagline">纯 DDD，零依赖，通过构造校验和领域服务约束不变量</span>
         <span class="mod-path">domain/src/main/java/io/agentteams/domain</span>
         <span class="mod-arrow">▶</span>
       </div>
@@ -405,10 +405,10 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><th style="width:220px">组件</th><th>说明</th></tr>
             <tr><td><code>Task</code>（聚合根）</td><td>不可变聚合：phase / version / attempt / processedEventIds 幂等集合；状态变更仅能经领域服务驱动（next() 包私有）</td></tr>
             <tr><td><code>TaskTransitionService</code></td><td>状态机引擎：幂等检查 → 乐观锁 → 合法性 → 租约校验 → 失败详情规则；独立 <code>renewLease()</code> 续租路径</td></tr>
-            <tr><td><code>TaskPhase</code></td><td>DRAFT → QUEUED → ASSIGNED → ACCEPTED → RUNNING → SUCCEEDED / FAILED / CANCELLED</td></tr>
+            <tr><td><code>TaskPhase</code></td><td>完整状态集合：DRAFT / QUEUED / PAUSED / ASSIGNED / ACCEPTED / RUNNING / SUCCEEDED / FAILED / CANCELLED / REJECTED；主流程为 DRAFT → QUEUED → ASSIGNED → ACCEPTED → RUNNING → 终态</td></tr>
             <tr><td><code>TaskTransitionResult</code></td><td>sealed interface：AppliedTransition / DuplicateTransition（幂等命中不抛异常）</td></tr>
             <tr><td><code>FailureInfo</code></td><td>失败码 + 脱敏消息；内建正则脱敏器覆盖 plain / JSON / URL 三种密钥形态</td></tr>
-            <tr><td><code>AgentPhase</code></td><td>PROVISIONING / READY / BUSY / DRAINING / OFFLINE / FAILED（Agent 域观察视图）</td></tr>
+            <tr><td><code>AgentPhase</code></td><td>完整状态集合：PROVISIONING / READY / BUSY / DRAINING / TERMINATED / OFFLINE / FAILED（Agent 域观察视图）</td></tr>
           </table>
           <p><b>异常体系：</b>DomainException → IllegalTaskTransitionException / StaleTaskVersionException / LeaseNotActiveException，均携带结构化诊断字段，便于上层映射 HTTP / gRPC 错误码。</p>
         </div>
@@ -500,7 +500,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><td><code>application</code></td><td>ControlPlaneConfigEventAdapter / ControlPlaneExecutionEventAdapter / ControlPlaneTaskCommandAdapter / ControlPlaneTaskExecutionObservationAdapter</td><td>4 个适配器实现 application-contracts 端口，组成六边形出端口适配层</td></tr>
             <tr><td><code>service</code></td><td>TaskService / ExecutionEventService / TaskAssignmentService / TaskAssignmentScheduler / IdempotencyService</td><td>任务编排、执行事件落地（单事务重建聚合 → 转移 → 乐观锁 → 写事件）、队列分配（SKIP LOCKED）、1s 轮询调度（数据库租约单活）</td></tr>
             <tr><td><code>persistence</code></td><td>FoundationPersistenceService / FoundationTransaction / 15 个 Repository</td><td>JDBC 手写 SQL；appendEvent 同事务写 domain_events + outbox_events；仅在带 <code>version</code> 列或显式行锁 / 租约条件的任务、Agent、Lease、Outbox 等路径按需进行乐观锁与并发控制；JSON 自动脱敏</td></tr>
-            <tr><td><code>outbox</code></td><td>OutboxRelay / JdbcOutboxStore / NatsEventPublisher / NatsExecutionEventConsumer</td><td>事务发件箱：1s 轮询 claimDue（<code>FOR UPDATE SKIP LOCKED</code> + 30s 租约）→ 并发发布 JetStream → 指数退避重试 / 死信</td></tr>
+            <tr><td><code>outbox</code></td><td>OutboxRelay / JdbcOutboxStore / NatsEventPublisher / NatsExecutionEventConsumer</td><td>事务发件箱：1s 轮询 claimDue（<code>FOR UPDATE SKIP LOCKED</code> + 30s 租约）→ 并发发布 JetStream → 指数退避重试；达到重试预算后尝试转入 <code>deadletter.events</code>，死信发布失败则继续重试</td></tr>
             <tr><td><code>config</code></td><td>ConfigSnapshotService / ConfigDeploymentService / ConfigUploadService / ConfigSnapshotCleanupJob / ConfigUploadCleanupJob</td><td>配置生命周期：manifest 规范化 + 指纹 → 版本化快照 → 绑定部署（ConfigChanged 事件）→ 预签名直传 + SHA-256 校验；ConfigSnapshotCleanupJob 执行快照保留策略，ConfigUploadCleanupJob 清理已过期的待处理上传</td></tr>
             <tr><td><code>matrix</code></td><td>MatrixAppServiceHttpAdapter / MatrixCommandParser / MatrixDeliveryService</td><td>Matrix 聊天适配：<code>/_matrix/app/v1/transactions</code>，命令 <code>!agentteams &lt;cmd&gt;</code>，事务/事件双重幂等</td></tr>
             <tr><td><code>security</code></td><td>ApiAuthenticationFilter / AuthorizationService / PrincipalContext</td><td>可选 Bearer 认证（OIDC 适配缝）+ 权限 / 租户 scope 授权</td></tr>
@@ -634,7 +634,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><td><code>Team</code>（agentteams.io/v1alpha1）</td><td>TeamReconciler</td><td>ConfigMap（team.json）</td></tr>
             <tr><td><code>TaskSandbox</code>（agentteams.io/v1alpha1）</td><td>TaskSandboxReconciler</td><td>Job + Service（沙箱任务执行与网络边界）</td></tr>
           </table>
-          <p><b>安全设计：</b>禁用 automountServiceAccountToken、OwnerReference（blockOwnerDeletion）、镜像 IfNotPresent；Leader Election 可选（环境变量控制）。</p>
+          <p><b>安全设计：</b>禁用 automountServiceAccountToken；子资源启用 OwnerReference 且 <code>blockOwnerDeletion=true</code>；镜像 IfNotPresent；Leader Election 可选（环境变量控制）。</p>
         </div>
       </div>
     </div>
@@ -701,13 +701,13 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <span class="node">TaskService<br><small>领域校验 + 幂等</small></span><span class="arrow">→</span>
         <span class="node">JDBC 事务<br><small>业务表 + domain_events<br>+ outbox_events</small></span><span class="arrow">→</span>
         <span class="node">OutboxRelay<br><small>1s 轮询领取</small></span><span class="arrow">→</span>
-        <span class="node">NATS JetStream<br><small>task.events.*</small></span><span class="arrow">→</span>
+        <span class="node">NATS JetStream<br><small>发布 <code>task.events.&lt;UUID&gt;</code>；stream 匹配 <code>task.events.*</code></small></span><span class="arrow">→</span>
         <span class="node">Gateway 消费者</span><span class="arrow">→</span>
         <span class="node">CommandDelivery<br><small>持久化 + 推送</small></span><span class="arrow">→</span>
         <span class="node hl">gRPC 双向流<br><small>TaskAssigned</small></span><span class="arrow">→</span>
         <span class="node hl">Agent Worker<br><small>QwenPaw 执行</small></span>
       </div>
-      <p class="note">关键保证：DB 事务与事件写入原子；Outbox 提供至少一次投递语义，超过重试预算后转入死信；Gateway 命令持久化并重放未确认命令；Agent 事件经 EventMetadata.expected_version 乐观并发回写。</p>
+      <p class="note">关键保证：DB 事务与事件写入原子；Outbox 提供至少一次投递语义，达到重试预算后尝试转入 <code>deadletter.events</code>，死信发布失败则继续重试；Gateway 命令持久化并重放未确认命令；Agent 事件经 EventMetadata.expected_version 乐观并发回写。</p>
     </div>
 
     <div class="card">
@@ -715,7 +715,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       <div class="flow">
         <span class="node hl">Agent<br><small>accepted / progress /<br>heartbeat / completed / failed</small></span><span class="arrow">→</span>
         <span class="node">Gateway<br><small>InboundEventHandler<br>（event_id 幂等）</small></span><span class="arrow">→</span>
-        <span class="node">NATS<br><small>agent.events.*</small></span><span class="arrow">→</span>
+        <span class="node">NATS<br><small>发布 <code>agent.events.&lt;UUID&gt;</code>；订阅匹配 <code>agent.events.*</code></small></span><span class="arrow">→</span>
         <span class="node">Control Plane<br><small>ExecutionEventService<br>（单事务重建聚合 + 转移）</small></span><span class="arrow">→</span>
         <span class="node hl">任务状态推进<br><small>ACCEPTED → RUNNING →<br>SUCCEEDED / FAILED</small></span>
       </div>
@@ -755,7 +755,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="pattern">
         <div class="p-name">事务发件箱（Transactional Outbox）</div>
-        <div class="p-desc">同事务写业务 + domain_events + outbox_events，轮询领取发布，提供至少一次投递语义；超过重试预算后转入死信。</div>
+        <div class="p-desc">同事务写业务 + domain_events + outbox_events，轮询领取发布，提供至少一次投递语义；达到重试预算后尝试转入 <code>deadletter.events</code>，死信发布失败则继续重试。</div>
         <div class="p-where">control-plane.outbox</div>
       </div>
       <div class="pattern">
@@ -811,7 +811,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>Gateway</b></td><td>Deployment ×2</td>
-          <td>gRPC 双向流服务（9090）；消费 task.events.* / agent.events.*；命令去重 + 共享 ACK cursor；无状态可水平扩展</td>
+          <td>gRPC 双向流服务（9090）；订阅匹配 task.events.* / agent.events.*；命令去重 + 共享 ACK cursor；持久化状态支持水平扩展，活动连接状态保留在实例内</td>
         </tr>
         <tr>
           <td><b>Operator</b></td><td>Deployment</td>
@@ -823,11 +823,11 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>PostgreSQL</b></td><td>StatefulSet（外部）</td>
-          <td>控制平面权威数据源；Flyway V1–V89 共 89 个迁移；开发环境 emptyDir，生产需持久化</td>
+          <td>控制面业务状态与任务状态的权威数据源；Kubernetes CRD 与 MinIO 对象内容分别由 Kubernetes 与对象存储管理；Flyway V1–V89 共 89 个迁移；开发环境 emptyDir，生产需持久化</td>
         </tr>
         <tr>
           <td><b>NATS JetStream</b></td><td>StatefulSet（外部）</td>
-          <td>control.events / agent.events.&lt;UUID&gt; / task.events.&lt;UUID&gt; / deadletter.events；其它聚合类型回退到 control.events；durable 消费者提供至少一次投递语义，超过重试预算后转入死信</td>
+          <td>control.events / agent.events.&lt;UUID&gt; / task.events.&lt;UUID&gt; / deadletter.events；其它聚合类型回退到 control.events；durable 消费者提供至少一次投递语义，达到重试预算后尝试转入 <code>deadletter.events</code>，死信发布失败则继续重试</td>
         </tr>
         <tr>
           <td><b>MinIO</b></td><td>StatefulSet（外部）</td>
@@ -839,7 +839,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>Public entry / recovery</b></td><td>Optional Helm + scripts</td>
-          <td>Ingress/Gateway API 仅路由 <code>/api/v1</code>；Gateway gRPC 保持内部 Service；生产恢复使用签名清单、参数预检和引用一致性校验</td>
+          <td>Ingress/Gateway API 使用 <code>/api</code> 前缀；可选使用 <code>/</code> 路由到 console；Gateway gRPC 保持内部 Service；生产恢复使用签名清单、参数预检和引用一致性校验</td>
         </tr>
       </table>
     </div>
@@ -906,8 +906,23 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 <script>
 // 模块卡片折叠交互
 document.querySelectorAll('.mod-card .mod-head').forEach(function (head) {
-  head.addEventListener('click', function () {
+  head.setAttribute('role', 'button');
+  head.setAttribute('tabindex', '0');
+  head.setAttribute('aria-expanded', head.parentElement.classList.contains('open') ? 'true' : 'false');
+
+  function toggleCard() {
     head.parentElement.classList.toggle('open');
+    head.setAttribute('aria-expanded', head.parentElement.classList.contains('open') ? 'true' : 'false');
+  }
+
+  head.addEventListener('click', function () {
+    toggleCard();
+  });
+  head.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleCard();
+    }
   });
 });
 </script>
