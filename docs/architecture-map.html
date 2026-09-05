@@ -875,7 +875,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>Manager</b></td><td>可选 Deployment（默认关闭）</td>
-          <td>Spring Boot Web（8080）；自然语言会话与结构化任务意图编排；经 <code>TaskCommandPort</code> 调用 Control Plane 幂等建单；启用后提供 <code>/api/v1/conversations</code> 与 <code>/api/v1/manager/sessions</code> 接口</td>
+          <td>Spring Boot Web（8080）；自然语言会话与结构化任务意图编排；经 <code>TaskCommandPort</code> 调用 Control Plane 幂等建单；直连 Manager Service 的接口为 <code>/api/v1/conversations</code> 与 <code>/api/v1/manager/sessions</code>；Helm Gateway API 当前仅路由 <code>/api/v1/conversations</code> 到 Manager，<code>/api/v1/manager/sessions</code> 不在该模式路由范围内</td>
         </tr>
         <tr>
           <td><b>Operator</b></td><td>Deployment</td>
@@ -903,7 +903,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>Public entry / recovery</b></td><td>Optional Helm + scripts</td>
-          <td>Ingress/Gateway API 使用 <code>/api</code> 前缀；可选使用 <code>/</code> 路由到 console；Gateway gRPC 保持内部 Service；生产恢复使用签名清单、参数预检和引用一致性校验</td>
+          <td>Ingress 使用 <code>/api</code> 前缀，并在 Manager 启用时路由其会话接口；Gateway API 当前仅将 <code>/api/v1/conversations</code> 路由到 Manager，<code>/api/v1/manager/sessions</code> 需直连 Manager Service 或使用其他独立入口；可选使用 <code>/</code> 路由到 console；Gateway gRPC 保持内部 Service；生产恢复使用签名清单、参数预检和引用一致性校验</td>
         </tr>
         </tbody>
       </table>
@@ -914,7 +914,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <ul style="padding-left:20px;color:var(--muted);font-size:13.5px">
           <li>纯 Java 测试：<code>source deploy/dev-env.sh &amp;&amp; mvn clean test</code></li>
           <li>Kind 集群：<code>kind create cluster --config deploy/kind-config.yaml</code> + Helm 安装</li>
-          <li>基础设施脚本：install-kind-dev.sh / build-images.sh / bootstrap-kind-qwenpaw-worker.sh</li>
+          <li>基础设施脚本（从当前仓库根目录执行）：<code>./deploy/install-kind-dev.sh</code> / <code>./deploy/build-images.sh</code> / <code>./deploy/bootstrap-kind-qwenpaw-worker.sh</code></li>
         </ul>
       </div>
       <div class="card">
