@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
@@ -30,7 +31,10 @@ public class ObservabilityAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(CorrelationIdFilter.class)
+    // A FilterRegistrationBean<CorrelationIdFilter> is the supported custom registration path.
+    // Unrelated registration beans, such as authentication filters, must not suppress this default.
+    @ConditionalOnMissingBean(value = CorrelationIdFilter.class,
+            parameterizedContainer = FilterRegistrationBean.class)
     CorrelationIdFilter correlationIdFilter() {
         return new CorrelationIdFilter();
     }
