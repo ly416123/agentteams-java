@@ -871,7 +871,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
           <td>Spring Boot Web（8080）；REST API + JDBC + OutboxRelay + 任务调度器；NATS / MinIO / 安全按需启用；副本间数据库租约单活调度</td>
         </tr>
         <tr>
-          <td><b>Gateway</b></td><td>Deployment ×2</td>
+          <td><b>Gateway</b></td><td>默认 2 副本（生产示例 3 副本）</td>
           <td>gRPC 双向流服务（9090）；订阅匹配 task.events.* / agent.events.*；命令去重 + 共享 ACK cursor；持久化状态支持水平扩展，活动连接状态保留在实例内</td>
         </tr>
         <tr>
@@ -900,7 +900,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>Observability</b></td><td>Prometheus</td>
-          <td>Servicemonitor 采集 Control Plane / Gateway 指标；PrometheusRule 告警</td>
+          <td>ServiceMonitor 采集 Control Plane / Gateway 指标；PrometheusRule 告警</td>
         </tr>
         <tr>
           <td><b>Public entry / recovery</b></td><td>Optional Helm + scripts</td>
