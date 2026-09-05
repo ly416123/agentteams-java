@@ -455,7 +455,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><td><code>ControlPlaneMetrics</code></td><td>统一任务、Gateway、Outbox、租约、配置、配额、技能与一致性指标，暴露计数器、计时器和 Gauge。</td></tr>
             <tr><td><code>CorrelationIdFilter</code></td><td>在 Servlet 请求边界读取或生成 <code>X-Correlation-Id</code>，绑定日志上下文并回写响应头。</td></tr>
             <tr><td><code>AsyncProducerTracing</code> / <code>AsyncConsumerTracing</code></td><td>围绕异步生产与消费创建有界 Span，传播持久化的 W3C trace context；坏载荷不阻断消息处理。</td></tr>
-            <tr><td><code>ObservabilityAutoConfiguration</code> / <code>ServletObservabilityAutoConfiguration</code></td><td><code>ObservabilityAutoConfiguration</code> 在缺少同类型 Bean 时注册 <code>ControlPlaneMetrics</code>，并以 <code>@Primary</code> 提供 <code>TaskMetricsPort</code> 默认适配器；<code>ServletObservabilityAutoConfiguration</code> 在 Servlet Web 应用中注册 Correlation ID 过滤器。<code>TaskMetricsPort</code> 默认适配器本身没有 <code>@ConditionalOnMissingBean</code>，普通同类型 Bean 不会自动取代它。</td></tr>
+            <tr><td><code>ObservabilityAutoConfiguration</code> / <code>ServletObservabilityAutoConfiguration</code></td><td><code>ObservabilityAutoConfiguration</code> 在缺少同类型 Bean 时注册 <code>ControlPlaneMetrics</code>，并以 <code>@Primary</code> 提供 <code>TaskMetricsPort</code> 默认适配器；<code>TaskMetricsPort</code> 只覆盖任务生命周期、租约、一致性和 Outbox 指标，Gateway、配置、配额、Skill、Manager 等扩展指标由具体 <code>ControlPlaneMetrics</code> 提供。<code>ServletObservabilityAutoConfiguration</code> 在 Servlet Web 应用中注册 Correlation ID 过滤器；<code>TaskMetricsPort</code> 默认适配器本身没有 <code>@ConditionalOnMissingBean</code>，普通同类型 Bean 不会自动取代它。</td></tr>
           </table>
         </div>
       </div>
@@ -496,7 +496,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <div class="pos">
           <table>
             <tr><th style="width:140px">包</th><th>核心类</th><th>职责</th></tr>
-            <tr><td><code>api</code></td><td>TaskController / ArtifactController / AgentController / ConfigController / ConfigFileController / ApiErrorHandler</td><td>REST 入口：任务生命周期命令、任务产物上传/列表/详情、短期下载 URL、<code>/api/v1/agents</code>、<code>/api/v1/config</code>；任务、团队、Agent、配置快照/绑定等状态变更接口要求 Idempotency-Key，Artifact / ConfigFile 的上传与完成接口不强制该 Header；全局异常映射（400 / 404 / 409 / 503）</td></tr>
+            <tr><td><code>api</code></td><td>TaskController / ArtifactController / AgentController / ConfigController / ConfigFileController / ApiErrorHandler</td><td>REST 入口：任务生命周期命令、任务产物上传/列表/详情、短期下载 URL、<code>/api/v1/agents</code>、<code>/api/v1/config</code>；Idempotency-Key 按接口契约选择性要求/支持：任务、项目、团队、Agent、模型目录/价格、定时任务、Worker Template、Webhook、Skill 等接口中的创建、状态变更或操作接口按各自契约启用幂等保护；Artifact / ConfigFile 的上传与完成等部分写接口不强制该 Header；全局异常映射（400 / 404 / 409 / 503）</td></tr>
             <tr><td><code>application</code></td><td>ControlPlaneConfigEventAdapter / ControlPlaneExecutionEventAdapter / ControlPlaneTaskCommandAdapter / ControlPlaneTaskExecutionObservationAdapter</td><td>4 个适配器实现 application-contracts 端口，组成六边形出端口适配层</td></tr>
             <tr><td><code>service</code></td><td>TaskService / ExecutionEventService / TaskAssignmentService / TaskAssignmentScheduler / IdempotencyService</td><td>任务编排、执行事件落地（单事务重建聚合 → 转移 → 乐观锁 → 写事件）、队列分配（SKIP LOCKED）、1s 轮询调度（数据库租约单活）</td></tr>
             <tr><td><code>persistence</code></td><td>FoundationPersistenceService / FoundationTransaction / 15 个 Repository</td><td>JDBC 手写 SQL；appendEvent 同事务写 domain_events + outbox_events；仅在带 <code>version</code> 列或显式行锁 / 租约条件的任务、Agent、Lease、Outbox 等路径按需进行乐观锁与并发控制；JSON 自动脱敏</td></tr>
@@ -676,7 +676,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><th style="width:220px">组件</th><th>职责</th></tr>
             <tr><td><code>AgentTeamsClient</code></td><td>封装 Project 创建、Task 查询 / 取消 / 进度 / 结果事件和用户 Provisioning，统一解析结构化 API 错误。</td></tr>
             <tr><td><code>Canonicalizer</code> / <code>HmacSha256Signer</code></td><td>生成跨语言稳定的规范化请求串，计算 Body SHA-256 并生成 HMAC-SHA256 签名 Header。</td></tr>
-            <tr><td>重试与幂等</td><td>GET 默认安全重试，写请求默认不重试；显式传入稳定 <code>Idempotency-Key</code> 且标记 <code>retrySafe=true</code> 的写请求才具备安全重试边界。<code>cancelTask(..., retrySafe)</code> 未接收 key，会由客户端生成随机 key，不能视为稳定幂等重试。</td></tr>
+            <tr><td>重试与幂等</td><td>GET 默认安全重试，写请求默认不重试；显式传入稳定 <code>Idempotency-Key</code> 且标记 <code>retrySafe=true</code> 的写请求才能保证跨调用幂等。<code>cancelTask(..., retrySafe)</code> 未接收 key，单次调用内会复用本次生成的随机 key 进行重试，但跨调用不会自动复用，因此不能保证跨调用幂等。</td></tr>
           </table>
         </div>
       </div>
@@ -767,7 +767,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="pattern">
         <div class="p-name">乐观并发 + SKIP LOCKED</div>
-        <div class="p-desc">全链路 version 字段乐观锁；任务分配 / 租约恢复 / Outbox 领取用 FOR UPDATE SKIP LOCKED。</div>
+        <div class="p-desc">按具体写入路径使用 CAS、版本条件更新、行锁或 FOR UPDATE SKIP LOCKED 等并发控制；部分 Repository 仅读写 version 字段，不等同于全表或全链路乐观锁。</div>
         <div class="p-where">persistence 各 Repository</div>
       </div>
       <div class="pattern">
