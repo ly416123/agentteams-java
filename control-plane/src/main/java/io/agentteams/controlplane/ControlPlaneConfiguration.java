@@ -61,6 +61,8 @@ import io.agentteams.controlplane.sandbox.SandboxPolicyService;
 import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.controlplane.audit.JdbcModelCallAuditRecorder;
 import io.agentteams.controlplane.service.TaskService;
+import io.agentteams.storage.MinioObjectStorage;
+import io.agentteams.storage.MinioObjectStorageConfig;
 import io.agentteams.storage.ObjectStorage;
 import io.agentteams.observability.ControlPlaneMetrics;
 import io.agentteams.observability.TaskMetricsPort;
@@ -511,6 +513,19 @@ public class ControlPlaneConfiguration {
             @Qualifier("workerProvisionerKubernetesClient") KubernetesClient client,
             @Value("${agentteams.worker-provisioner.namespace:}") String namespace) {
         return new KubernetesWorkerCrdProvisioner(client, namespace);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.storage.enabled", havingValue = "true")
+    ObjectStorage objectStorage(
+            @Value("${agentteams.storage.endpoint}") String endpoint,
+            @Value("${agentteams.storage.bucket}") String bucket,
+            @Value("${agentteams.storage.access-key}") String accessKey,
+            @Value("${agentteams.storage.secret-key}") String secretKey,
+            @Value("${agentteams.storage.presign-endpoint:}") String presignEndpoint,
+            @Value("${agentteams.storage.region:}") String region) {
+        return new MinioObjectStorage(new MinioObjectStorageConfig(
+                endpoint, bucket, accessKey, secretKey, presignEndpoint, region));
     }
 
     @Bean
