@@ -580,7 +580,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
           <p>纯 Java + gRPC + JDK HttpClient 的轻量进程（无 Spring），负责 Gateway 连接、运行时编排、配置协调与执行结果回传。</p>
           <table>
             <tr><th style="width:220px">组件</th><th>职责</th></tr>
-            <tr><td><code>QwenPawWorker</code></td><td>主编排：Gateway gRPC 双向流、任务分发与结果竞态处理、执行事件回传、配置变更协调与回执</td></tr>
+            <tr><td><code>QwenPawWorker</code></td><td>主编排（当前源码 877 行）：Gateway gRPC 双向流、任务分发与结果竞态处理、执行事件回传、配置变更协调与回执</td></tr>
             <tr><td><code>WorkerRuntimeFactory</code> / <code>WorkerRuntimeRouter</code></td><td>创建并路由 QwenPaw / AgentScope 运行时；提供本地并发控制，远程配额启用时接入配额端口</td></tr>
             <tr><td><code>ConfigManifestFetcher</code> / <code>ConfigFileFetcher</code></td><td>拉取并校验 manifest / 配置文件（SHA-256、大小与路径安全），配合两阶段配置激活</td></tr>
             <tr><td><code>SkillArtifactFetcher</code> / <code>SkillArtifactMaterializer</code></td><td>下载并校验 Skill artifact，解包到受控的只读运行时目录</td></tr>
