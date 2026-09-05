@@ -602,7 +602,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>纯客户端库（无 Spring Boot 启动类）：将 prompt 交给 OpenAI 兼容模型，校验结构化输出后经 <code>TaskCommandPort</code> 幂等创建任务。</p>
+          <p>Manager 由 <code>ManagerApplication</code> 的 Spring Boot 启动类启动：将 prompt 交给 OpenAI 兼容模型，校验结构化输出后经 <code>TaskCommandPort</code> 幂等创建任务。</p>
           <table>
             <tr><th style="width:220px">组件</th><th>说明</th></tr>
             <tr><td><code>ModelProvider</code> 族</td><td>OpenAICompatibleProvider + DeepSeekProvider + FallbackModelProvider（主备切换）+ RetryPolicy（指数退避 ≤5 次）</td></tr>
