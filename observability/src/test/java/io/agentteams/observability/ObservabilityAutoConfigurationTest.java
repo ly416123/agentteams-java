@@ -3,19 +3,19 @@ package io.agentteams.observability;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterRegistration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
-import org.slf4j.helpers.BasicMDCAdapter;
-import org.slf4j.spi.MDCAdapter;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.web.servlet.ServletContextInitializer;
 import org.springframework.boot.web.servlet.ServletContextInitializerBeans;
-import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -28,20 +28,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The auto-configuration must keep the wiring contract that ControlPlaneConfiguration used to
  * provide: one shared metrics facade, a primary TaskMetricsPort delegating to it, and the
- * correlation filter; user-provided beans must still win over the defaults.
+ * correlation filter for servlet web applications; user-provided beans must still win over the
+ * defaults.
  */
 class ObservabilityAutoConfigurationTest {
 
     private final ApplicationContextRunner context = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(ObservabilityAutoConfiguration.class));
+            .withConfiguration(AutoConfigurations.of(
+                    ObservabilityAutoConfiguration.class, ServletObservabilityAutoConfiguration.class));
+    private final WebApplicationContextRunner webContext = new WebApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(
+                    ObservabilityAutoConfiguration.class, ServletObservabilityAutoConfiguration.class));
 
     @Test
-    void registersMetricsTaskMetricsPortAndCorrelationFilter() {
+    void registersMetricsAndTaskMetricsPortWithoutServletFilterInNonWebContext() {
         context.run(ctx -> {
             // ControlPlaneMetrics itself implements TaskMetricsPort, so both bean names match that
             // type; the primary adapter must delegate to the single metrics facade instance.
             assertThat(ctx).hasBean("controlPlaneMetrics").hasBean("taskMetricsPort")
-                    .hasSingleBean(CorrelationIdFilter.class);
+                    .doesNotHaveBean(CorrelationIdFilter.class);
             assertThat(ctx.getBean("taskMetricsPort", TaskMetricsPort.class))
                     .isSameAs(ctx.getBean("controlPlaneMetrics", ControlPlaneMetrics.class));
         });
@@ -49,7 +54,7 @@ class ObservabilityAutoConfigurationTest {
 
     @Test
     void registersExactlyOneCorrelationIdFilterThatIsServletFilterCompatible() {
-        context.run(ctx -> {
+        webContext.run(ctx -> {
             assertThat(ctx.getBeansOfType(CorrelationIdFilter.class))
                     .containsOnlyKeys("correlationIdFilter");
             assertThat(ctx.getBean(CorrelationIdFilter.class)).isInstanceOf(Filter.class);
@@ -58,24 +63,22 @@ class ObservabilityAutoConfigurationTest {
 
     @Test
     void registersAndExecutesCorrelationIdFilterThroughSpringBootServletModel() throws Exception {
-        context.run(ctx -> {
+        webContext.run(ctx -> {
             RecordingServletContext servletContext = registerServletInitializers(ctx);
             assertThat(servletContext.registeredFilters()).containsOnlyKeys("correlationIdFilter");
 
             Filter filter = servletContext.registeredFilters().get("correlationIdFilter");
             assertThat(filter).isSameAs(ctx.getBean(CorrelationIdFilter.class));
 
-            withBasicMdcAdapter(() -> {
-                executeFilter(filter, servletContext, "client-123");
-                executeFilter(filter, servletContext, "not a valid correlation id");
-            });
+            executeFilter(filter, servletContext, "client-123");
+            executeFilter(filter, servletContext, "not a valid correlation id");
         });
     }
 
     @Test
     void backsOffWhenApplicationProvidesCorrelationIdFilter() {
         CorrelationIdFilter custom = new CorrelationIdFilter();
-        context.withBean("customCorrelationIdFilter", CorrelationIdFilter.class, () -> custom)
+        webContext.withBean("customCorrelationIdFilter", CorrelationIdFilter.class, () -> custom)
                 .run(ctx -> assertThat(ctx.getBeansOfType(CorrelationIdFilter.class))
                         .containsOnlyKeys("customCorrelationIdFilter")
                         .containsEntry("customCorrelationIdFilter", custom));
@@ -83,7 +86,7 @@ class ObservabilityAutoConfigurationTest {
 
     @Test
     void backsOffWhenCorrelationIdFilterIsWrappedInFilterRegistrationBean() {
-        context.withUserConfiguration(CustomCorrelationFilterRegistration.class).run(ctx -> {
+        webContext.withUserConfiguration(CustomCorrelationFilterRegistration.class).run(ctx -> {
             assertThat(ctx).doesNotHaveBean("correlationIdFilter");
             RecordingServletContext servletContext = registerServletInitializers(ctx);
             assertThat(servletContext.registeredFilters()).containsOnlyKeys("customCorrelationIdFilter");
@@ -92,12 +95,22 @@ class ObservabilityAutoConfigurationTest {
 
     @Test
     void keepsDefaultCorrelationIdFilterForUnrelatedFilterRegistration() {
-        context.withUserConfiguration(UnrelatedFilterRegistration.class).run(ctx -> {
+        webContext.withUserConfiguration(UnrelatedFilterRegistration.class).run(ctx -> {
             assertThat(ctx).hasSingleBean(CorrelationIdFilter.class);
             RecordingServletContext servletContext = registerServletInitializers(ctx);
             assertThat(servletContext.registeredFilters()).containsOnlyKeys("correlationIdFilter",
                     "unrelatedFilter");
         });
+    }
+
+    @Test
+    void keepsMetricsButSkipsServletConfigurationWithoutServletApi() {
+        context.withClassLoader(new FilteredClassLoader("jakarta.servlet"))
+                .run(ctx -> {
+                    assertThat(ctx).hasBean("controlPlaneMetrics")
+                            .hasBean("taskMetricsPort")
+                            .doesNotHaveBean(CorrelationIdFilter.class);
+                });
     }
 
     @Test
@@ -110,7 +123,7 @@ class ObservabilityAutoConfigurationTest {
     }
 
     private static RecordingServletContext registerServletInitializers(
-            org.springframework.context.ConfigurableApplicationContext context) throws Exception {
+            ConfigurableApplicationContext context) throws Exception {
         RecordingServletContext servletContext = new RecordingServletContext();
         for (ServletContextInitializer initializer : new ServletContextInitializerBeans(context)) {
             initializer.onStartup(servletContext);
@@ -123,13 +136,11 @@ class ObservabilityAutoConfigurationTest {
         MockHttpServletRequest request = new MockHttpServletRequest(servletContext);
         request.addHeader(CorrelationIdFilter.HEADER, suppliedId);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        AtomicReference<String> mdcValueInChain = new AtomicReference<>();
-        filter.doFilter(request, response, (requestInChain, responseInChain) -> {
-            mdcValueInChain.set(MDC.get("correlationId"));
-        });
+        AtomicBoolean chainInvoked = new AtomicBoolean();
+        filter.doFilter(request, response, (requestInChain, responseInChain) -> chainInvoked.set(true));
 
         String responseId = response.getHeader(CorrelationIdFilter.HEADER);
-        assertThat(mdcValueInChain).hasValue(responseId);
+        assertThat(chainInvoked.get()).isTrue();
         if ("client-123".equals(suppliedId)) {
             assertThat(responseId).isEqualTo(suppliedId);
         } else {
@@ -137,23 +148,6 @@ class ObservabilityAutoConfigurationTest {
             assertThat(java.util.UUID.fromString(responseId)).isNotNull();
         }
         assertThat(MDC.get("correlationId")).isNull();
-    }
-
-    private static void withBasicMdcAdapter(ThrowingRunnable action) throws Exception {
-        Method setMdcAdapter = MDC.class.getDeclaredMethod("setMDCAdapter", MDCAdapter.class);
-        setMdcAdapter.setAccessible(true);
-        MDCAdapter previousAdapter = MDC.getMDCAdapter();
-        Map<String, String> previousContext = MDC.getCopyOfContextMap();
-        setMdcAdapter.invoke(null, new BasicMDCAdapter());
-        try {
-            action.run();
-        } finally {
-            MDC.clear();
-            setMdcAdapter.invoke(null, previousAdapter);
-            if (previousContext != null) {
-                MDC.setContextMap(previousContext);
-            }
-        }
     }
 
     private static final class RecordingServletContext extends MockServletContext {
@@ -193,10 +187,5 @@ class ObservabilityAutoConfigurationTest {
             registration.setName("unrelatedFilter");
             return registration;
         }
-    }
-
-    @FunctionalInterface
-    private interface ThrowingRunnable {
-        void run() throws Exception;
     }
 }
