@@ -455,7 +455,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
             <tr><td><code>ControlPlaneMetrics</code></td><td>统一任务、Gateway、Outbox、租约、配置、配额、技能与一致性指标，暴露计数器、计时器和 Gauge。</td></tr>
             <tr><td><code>CorrelationIdFilter</code></td><td>在 Servlet 请求边界读取或生成 <code>X-Correlation-Id</code>，绑定日志上下文并回写响应头。</td></tr>
             <tr><td><code>AsyncProducerTracing</code> / <code>AsyncConsumerTracing</code></td><td>围绕异步生产与消费创建有界 Span，传播持久化的 W3C trace context；坏载荷不阻断消息处理。</td></tr>
-            <tr><td><code>ObservabilityAutoConfiguration</code> / <code>ServletObservabilityAutoConfiguration</code></td><td>分别通过 Spring Boot 自动配置注册指标、TaskMetricsPort 与 Servlet Correlation ID 过滤器，并允许用户 Bean 覆盖默认实现。</td></tr>
+            <tr><td><code>ObservabilityAutoConfiguration</code> / <code>ServletObservabilityAutoConfiguration</code></td><td><code>ObservabilityAutoConfiguration</code> 在缺少同类型 Bean 时注册 <code>ControlPlaneMetrics</code>，并以 <code>@Primary</code> 提供 <code>TaskMetricsPort</code> 默认适配器；<code>ServletObservabilityAutoConfiguration</code> 在 Servlet Web 应用中注册 Correlation ID 过滤器。<code>TaskMetricsPort</code> 默认适配器本身没有 <code>@ConditionalOnMissingBean</code>，普通同类型 Bean 不会自动取代它。</td></tr>
           </table>
         </div>
       </div>
@@ -496,12 +496,12 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <div class="pos">
           <table>
             <tr><th style="width:140px">包</th><th>核心类</th><th>职责</th></tr>
-            <tr><td><code>api</code></td><td>TaskController / ArtifactController / AgentController / ConfigController / ConfigFileController / ApiErrorHandler</td><td>REST 入口：任务生命周期命令、任务产物上传/列表/详情、短期下载 URL、<code>/api/v1/agents</code>、<code>/api/v1/config</code>；强制 Idempotency-Key；全局异常映射（400 / 404 / 409 / 503）</td></tr>
-            <tr><td><code>application</code></td><td>ControlPlaneTaskCommandAdapter 等 3 个适配器</td><td>实现 application-contracts 端口，六边形出端口适配层</td></tr>
+            <tr><td><code>api</code></td><td>TaskController / ArtifactController / AgentController / ConfigController / ConfigFileController / ApiErrorHandler</td><td>REST 入口：任务生命周期命令、任务产物上传/列表/详情、短期下载 URL、<code>/api/v1/agents</code>、<code>/api/v1/config</code>；任务、团队、Agent、配置快照/绑定等状态变更接口要求 Idempotency-Key，Artifact / ConfigFile 的上传与完成接口不强制该 Header；全局异常映射（400 / 404 / 409 / 503）</td></tr>
+            <tr><td><code>application</code></td><td>ControlPlaneConfigEventAdapter / ControlPlaneExecutionEventAdapter / ControlPlaneTaskCommandAdapter / ControlPlaneTaskExecutionObservationAdapter</td><td>4 个适配器实现 application-contracts 端口，组成六边形出端口适配层</td></tr>
             <tr><td><code>service</code></td><td>TaskService / ExecutionEventService / TaskAssignmentService / TaskAssignmentScheduler / IdempotencyService</td><td>任务编排、执行事件落地（单事务重建聚合 → 转移 → 乐观锁 → 写事件）、队列分配（SKIP LOCKED）、1s 轮询调度（数据库租约单活）</td></tr>
-            <tr><td><code>persistence</code></td><td>FoundationPersistenceService / FoundationTransaction / 9 个 Repository</td><td>JDBC 手写 SQL；appendEvent 同事务写 domain_events + outbox_events；全表 version 乐观锁；JSON 自动脱敏</td></tr>
+            <tr><td><code>persistence</code></td><td>FoundationPersistenceService / FoundationTransaction / 15 个 Repository</td><td>JDBC 手写 SQL；appendEvent 同事务写 domain_events + outbox_events；仅在带 <code>version</code> 列或显式行锁 / 租约条件的任务、Agent、Lease、Outbox 等路径按需进行乐观锁与并发控制；JSON 自动脱敏</td></tr>
             <tr><td><code>outbox</code></td><td>OutboxRelay / JdbcOutboxStore / NatsEventPublisher / NatsExecutionEventConsumer</td><td>事务发件箱：1s 轮询 claimDue（<code>FOR UPDATE SKIP LOCKED</code> + 30s 租约）→ 并发发布 JetStream → 指数退避重试 / 死信</td></tr>
-            <tr><td><code>config</code></td><td>ConfigSnapshotService / ConfigDeploymentService / ConfigUploadService / CleanupJob</td><td>配置生命周期：manifest 规范化 + 指纹 → 版本化快照 → 绑定部署（ConfigChanged 事件）→ 预签名直传 + SHA-256 校验 → 保留策略清理</td></tr>
+            <tr><td><code>config</code></td><td>ConfigSnapshotService / ConfigDeploymentService / ConfigUploadService / ConfigSnapshotCleanupJob / ConfigUploadCleanupJob</td><td>配置生命周期：manifest 规范化 + 指纹 → 版本化快照 → 绑定部署（ConfigChanged 事件）→ 预签名直传 + SHA-256 校验；ConfigSnapshotCleanupJob 执行快照保留策略，ConfigUploadCleanupJob 清理已过期的待处理上传</td></tr>
             <tr><td><code>matrix</code></td><td>MatrixAppServiceHttpAdapter / MatrixCommandParser / MatrixDeliveryService</td><td>Matrix 聊天适配：<code>/_matrix/app/v1/transactions</code>，命令 <code>!agentteams &lt;cmd&gt;</code>，事务/事件双重幂等</td></tr>
             <tr><td><code>security</code></td><td>ApiAuthenticationFilter / AuthorizationService / PrincipalContext</td><td>可选 Bearer 认证（OIDC 适配缝）+ 权限 / 租户 scope 授权</td></tr>
             <tr><td><code>artifact</code></td><td>ArtifactService / ObjectStoragePaths</td><td>预签名上传下载 + 流式 SHA-256 校验 + 防路径穿越；对象存储实现由 storage 模块提供</td></tr>
