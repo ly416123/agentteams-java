@@ -1,4 +1,4 @@
-package io.agentteams.controlplane.storage;
+package io.agentteams.storage;
 
 import java.io.InputStream;
 import java.net.URL;

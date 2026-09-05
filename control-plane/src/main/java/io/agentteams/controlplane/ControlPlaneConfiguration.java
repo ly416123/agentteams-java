@@ -61,9 +61,7 @@ import io.agentteams.controlplane.sandbox.SandboxPolicyService;
 import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.controlplane.audit.JdbcModelCallAuditRecorder;
 import io.agentteams.controlplane.service.TaskService;
-import io.agentteams.controlplane.storage.MinioObjectStorage;
-import io.agentteams.controlplane.storage.MinioObjectStorageConfig;
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import io.agentteams.observability.ControlPlaneMetrics;
 import io.agentteams.observability.TaskMetricsPort;
 import io.agentteams.observability.AsyncConsumerTracing;
@@ -513,20 +511,6 @@ public class ControlPlaneConfiguration {
             @Qualifier("workerProvisionerKubernetesClient") KubernetesClient client,
             @Value("${agentteams.worker-provisioner.namespace:}") String namespace) {
         return new KubernetesWorkerCrdProvisioner(client, namespace);
-    }
-
-    @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "agentteams.storage.enabled",
-            havingValue = "true")
-    ObjectStorage objectStorage(
-            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.endpoint}") String endpoint,
-            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.bucket}") String bucket,
-            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.access-key}") String accessKey,
-            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.secret-key}") String secretKey,
-            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.presign-endpoint:}") String presignEndpoint,
-            @org.springframework.beans.factory.annotation.Value("${agentteams.storage.region:}") String region) {
-        return new MinioObjectStorage(new MinioObjectStorageConfig(
-                endpoint, bucket, accessKey, secretKey, presignEndpoint, region));
     }
 
     @Bean

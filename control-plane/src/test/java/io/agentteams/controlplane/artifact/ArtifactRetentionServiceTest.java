@@ -8,7 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;

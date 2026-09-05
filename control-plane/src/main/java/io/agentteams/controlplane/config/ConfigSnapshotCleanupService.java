@@ -1,7 +1,7 @@
 package io.agentteams.controlplane.config;
 
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.util.Objects;
 import java.util.UUID;
 

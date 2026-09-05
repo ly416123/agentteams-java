@@ -1,6 +1,6 @@
 package io.agentteams.controlplane.artifact;
 
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.time.Duration;
 import java.io.InputStream;
 import java.io.IOException;

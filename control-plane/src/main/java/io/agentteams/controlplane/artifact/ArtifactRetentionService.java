@@ -1,6 +1,6 @@
 package io.agentteams.controlplane.artifact;
 
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

@@ -17,6 +17,7 @@
         <module>domain</module>
         <module>application-contracts</module>
         <module>observability</module>
+        <module>storage</module>
         <module>control-plane</module>
         <module>agent-gateway</module>
         <module>runtime</module>

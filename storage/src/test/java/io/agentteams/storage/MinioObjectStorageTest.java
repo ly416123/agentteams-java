@@ -1,4 +1,4 @@
-package io.agentteams.controlplane.storage;
+package io.agentteams.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

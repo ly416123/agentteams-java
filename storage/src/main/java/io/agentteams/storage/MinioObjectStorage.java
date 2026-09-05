@@ -1,4 +1,4 @@
-package io.agentteams.controlplane.storage;
+package io.agentteams.storage;
 
 import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;

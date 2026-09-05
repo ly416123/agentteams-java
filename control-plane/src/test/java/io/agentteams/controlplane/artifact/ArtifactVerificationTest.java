@@ -3,7 +3,7 @@ package io.agentteams.controlplane.artifact;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URL;

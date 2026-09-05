@@ -1,7 +1,7 @@
 package io.agentteams.controlplane.skill;
 
 import io.agentteams.controlplane.service.ResourceNotFoundException;
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;

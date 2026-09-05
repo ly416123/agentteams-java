@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.FoundationTransaction;
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;

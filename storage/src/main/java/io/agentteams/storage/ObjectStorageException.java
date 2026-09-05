@@ -1,4 +1,4 @@
-package io.agentteams.controlplane.storage;
+package io.agentteams.storage;
 
 public class ObjectStorageException extends RuntimeException {
 

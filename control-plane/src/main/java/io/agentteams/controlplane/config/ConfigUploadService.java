@@ -3,7 +3,7 @@ package io.agentteams.controlplane.config;
 import io.agentteams.controlplane.artifact.ArtifactService;
 import io.agentteams.controlplane.artifact.ObjectStoragePaths;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.net.URL;
 import java.io.InputStream;
 import java.time.Clock;

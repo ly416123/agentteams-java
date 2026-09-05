@@ -18,7 +18,7 @@ import io.agentteams.controlplane.skill.SkillService;
 import io.agentteams.controlplane.skill.SkillVersionRecord;
 import io.agentteams.application.api.SandboxPolicy;
 import io.agentteams.application.api.SandboxProfile;
-import io.agentteams.controlplane.storage.ObjectStorage;
+import io.agentteams.storage.ObjectStorage;
 import java.net.URL;
 import java.time.Clock;
 import java.time.Duration;
