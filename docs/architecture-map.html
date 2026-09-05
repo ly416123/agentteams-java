@@ -235,8 +235,8 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
     </div>
     <div class="meta">
       <div class="meta-card"><div class="k">架构风格</div><div class="v">Push 式事件驱动 + 六边形架构 + DDD</div></div>
-      <div class="meta-card"><div class="k">Maven 模块</div><div class="v">10 个子模块</div></div>
-      <div class="meta-card"><div class="k">源码规模</div><div class="v">约 330 个 Java 文件（含测试）</div></div>
+      <div class="meta-card"><div class="k">Maven 模块</div><div class="v">13 个子模块</div></div>
+      <div class="meta-card"><div class="k">源码规模</div><div class="v">1,227 个 Java 文件（含测试）</div></div>
       <div class="meta-card"><div class="k">部署形态</div><div class="v">Kubernetes（Helm Chart + Kind 开发集群）</div></div>
     </div>
   </div>
@@ -311,6 +311,18 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
           <span class="chip">Task/Agent/Config REST API</span><span class="chip">Outbox Relay</span>
           <span class="chip">任务调度与租约</span><span class="chip">gRPC 双向流</span><span class="chip">命令交付/重放</span>
           <span class="chip">模型调用与工具授权</span>
+        </span>
+      </div>
+      <div class="layer-arrow">▼ 复用平台基础组件</div>
+
+      <div class="layer">
+        <span class="tag" style="background:#bc8cff">平台基础组件</span>
+        <span class="desc" style="flex-basis:100%;margin-bottom:6px">
+          observability（指标、Correlation ID 与链路追踪）· storage（MinIO 对象存储抽象与自动配置）
+        </span>
+        <span class="chips">
+          <span class="chip">ControlPlaneMetrics</span><span class="chip">Async Producer / Consumer Tracing</span>
+          <span class="chip">ObjectStorage</span><span class="chip">MinioObjectStorage</span>
         </span>
       </div>
       <div class="layer-arrow">▼ 实现 / 依赖端口</div>
@@ -388,7 +400,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>纯 JDK 实现的框架无关领域层（16 主源码 + 4 测试），全部使用 Java 17 语言特性（record / sealed interface / switch 表达式）。</p>
+          <p>纯 JDK 实现的框架无关领域层（18 主源码 + 4 测试），全部使用 Java 17 语言特性（record / sealed interface / switch 表达式）。</p>
           <table>
             <tr><th style="width:220px">组件</th><th>说明</th></tr>
             <tr><td><code>Task</code>（聚合根）</td><td>不可变聚合：phase / version / attempt / processedEventIds 幂等集合；状态变更仅能经领域服务驱动（next() 包私有）</td></tr>
@@ -414,7 +426,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>零运行时依赖的纯接口 + Record 层（7 个文件），被 control-plane / agent-gateway / manager 三方共同引用。</p>
+          <p>零运行时依赖的纯接口 + Record 层（45 主源码 + 12 测试），被 observability / control-plane / agent-gateway / runtime / manager / operator 等模块共同引用。</p>
           <table>
             <tr><th style="width:220px">端口</th><th>方法</th><th>消费方</th></tr>
             <tr><td><code>TaskCommandPort</code></td><td><code>create(idempotencyKey, command)</code></td><td>manager → control-plane（任务创建）</td></tr>
@@ -426,12 +438,57 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
     </div>
 
+    <!-- observability -->
+    <div class="mod-card" id="m-observability">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#bc8cff"></span>
+        <span class="mod-title">observability — 可观测性基础组件</span>
+        <span class="tagline">指标、关联 ID 与异步链路追踪</span>
+        <span class="mod-path">observability/src/main/java/io/agentteams/observability</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>共享可观测性库（8 主源码 + 3 测试），为 Control Plane、Gateway 及异步消息适配器提供统一指标和追踪能力。</p>
+          <table>
+            <tr><th style="width:220px">组件</th><th>职责</th></tr>
+            <tr><td><code>ControlPlaneMetrics</code></td><td>统一任务、Gateway、Outbox、租约、配置、配额、技能与一致性指标，暴露计数器、计时器和 Gauge。</td></tr>
+            <tr><td><code>CorrelationIdFilter</code></td><td>在 Servlet 请求边界读取或生成 <code>X-Correlation-Id</code>，绑定日志上下文并回写响应头。</td></tr>
+            <tr><td><code>AsyncProducerTracing</code> / <code>AsyncConsumerTracing</code></td><td>围绕异步生产与消费创建有界 Span，传播持久化的 W3C trace context；坏载荷不阻断消息处理。</td></tr>
+            <tr><td><code>ObservabilityAutoConfiguration</code></td><td>通过 Spring Boot 自动配置注册指标与 Servlet 过滤器，并允许用户 Bean 覆盖默认实现。</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- storage -->
+    <div class="mod-card" id="m-storage">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#79c0ff"></span>
+        <span class="mod-title">storage — 对象存储组件</span>
+        <span class="tagline">MinIO 对象存储抽象与自动配置</span>
+        <span class="mod-path">storage/src/main/java/io/agentteams/storage</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>对象存储组件（5 主源码 + 2 测试），从控制平面抽离 MinIO 集成，统一任务产物和配置文件的对象操作边界。</p>
+          <table>
+            <tr><th style="width:220px">组件</th><th>职责</th></tr>
+            <tr><td><code>ObjectStorage</code></td><td>上传、下载、删除以及 GET / PUT 预签名 URL 的最小对象存储端口。</td></tr>
+            <tr><td><code>MinioObjectStorage</code></td><td>基于 MinIO SDK 实现流式对象操作与浏览器直传，统一包装后端异常并校验对象键和 URL 有效期。</td></tr>
+            <tr><td><code>StorageAutoConfiguration</code></td><td>由 <code>agentteams.storage.enabled</code> 控制装配；缺少用户自定义 Bean 时创建 MinIO 实现。</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- control-plane -->
     <div class="mod-card" id="m-cp">
       <div class="mod-head">
         <span class="mod-dot" style="background:#f78166"></span>
         <span class="mod-title">control-plane — 控制平面（核心）</span>
-        <span class="tagline">118 主源码 / 16 个包，业务 API + 持久化 + 调度 + 发件箱</span>
+        <span class="tagline">540 主源码 / 227 测试，业务 API + 持久化 + 调度 + 发件箱</span>
         <span class="mod-path">control-plane/src/main/java/io/agentteams/controlplane</span>
         <span class="mod-arrow">▶</span>
       </div>
@@ -466,7 +523,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>Spring Boot 应用（44 主源码 + 20 测试），全部逻辑集中在单一包 <code>io.agentteams.gateway</code>。</p>
+          <p>Spring Boot 应用（54 主源码 + 26 测试），全部逻辑集中在 <code>io.agentteams.gateway</code> 及其子包。</p>
           <table>
             <tr><th style="width:200px">组件</th><th>说明</th></tr>
             <tr><td><code>AgentChannelService</code></td><td>双向流核心：Hello → 认证 → 协议协商（v2.3）→ 连接注册（current-session 唯一）→ 命令重放 → 事件路由</td></tr>
@@ -567,7 +624,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>Java Operator SDK + Fabric8，13 主源码 + 2 测试。</p>
+          <p>Java Operator SDK + Fabric8（27 主源码 + 15 测试）。</p>
           <table>
             <tr><th style="width:220px">CRD</th><th>Reconciler</th><th>产出资源</th></tr>
             <tr><td><code>Worker</code>（agentteams.io/v1alpha1）</td><td>WorkerReconciler</td><td>Deployment（gRPC 9090 + 双探针 + 强制注入 AGENTTEAMS_AGENT_ID）+ Service（ClusterIP）</td></tr>
@@ -589,14 +646,37 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </div>
       <div class="mod-body">
         <div class="pos">
-          <p>纯测试模块（3 文件 / 1021 行），Testcontainers 编排 PostgreSQL 16 + NATS 2.10 + MinIO，启动真实 Control Plane + 双 Gateway 副本。</p>
+          <p>纯测试模块（7 个测试文件），Testcontainers 编排 PostgreSQL 16 + NATS 2.10 + MinIO，启动真实 Control Plane + 双 Gateway 副本。</p>
           <table>
             <tr><th style="width:220px">测试</th><th>覆盖场景</th></tr>
-            <tr><td><code>TaskPushE2ETest</code></td><td>进程内组件集成：命令重放只重放未确认命令（内存替身，快速回归）</td></tr>
-            <tr><td><code>TaskPushInfrastructureIT</code></td><td>全链路：API 建单 → 落库断言 → 断线重连重放 → MinIO 产物上传 → accept/progress/heartbeat/complete → 重复 completion 幂等</td></tr>
-            <tr><td><code>TaskPushInfrastructureIT</code>（配置）</td><td>配置下发：快照 → 文件直传 → 部署 → 双消费者去重 → 共享 ACK cursor → ConfigApplied 持久化</td></tr>
+            <tr><td><code>TaskPushE2ETest</code> / <code>StorageWiringIT</code></td><td>进程内命令交付回归与对象存储装配验证。</td></tr>
+            <tr><td><code>TaskPushInfrastructureIT</code></td><td>全链路：API 建单 → 落库断言 → 断线重连重放 → MinIO 产物上传 → accept/progress/heartbeat/complete → 重复 completion 幂等。</td></tr>
+            <tr><td><code>TeamDeploymentConfigAppliedRoundTripIT</code> / <code>TeamSchedulingInfrastructureIT</code></td><td>团队配置回环、调度策略与基础设施级配置应用验证。</td></tr>
+            <tr><td><code>AgentScopeWorkerEndToEndIT</code> / <code>FakeAgent</code></td><td>AgentScope Worker 端到端链路与共享 gRPC 测试客户端。</td></tr>
           </table>
           <p><b>测试分层：</b>进程内（内存替身）→ 真实基础设施（验收级）；FakeAgent 为共享的真实 gRPC 客户端。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- sdk/java -->
+    <div class="mod-card" id="m-sdk-java">
+      <div class="mod-head">
+        <span class="mod-dot" style="background:#3fb950"></span>
+        <span class="mod-title">sdk/java — Java 公共客户端 SDK</span>
+        <span class="tagline">公共 API 访问、签名与安全重试</span>
+        <span class="mod-path">sdk/java/src/main/java/io/agentteams/sdk</span>
+        <span class="mod-arrow">▶</span>
+      </div>
+      <div class="mod-body">
+        <div class="pos">
+          <p>面向公共 API 的 Java 17 客户端（3 主源码 + 2 测试），对应 <code>openapi/agentteams-public.yaml</code> 的 v1.0 基线。</p>
+          <table>
+            <tr><th style="width:220px">组件</th><th>职责</th></tr>
+            <tr><td><code>AgentTeamsClient</code></td><td>封装 Project 创建、Task 查询 / 取消 / 进度 / 结果事件和用户 Provisioning，统一解析结构化 API 错误。</td></tr>
+            <tr><td><code>Canonicalizer</code> / <code>HmacSha256Signer</code></td><td>生成跨语言稳定的规范化请求串，计算 Body SHA-256 并生成 HMAC-SHA256 签名 Header。</td></tr>
+            <tr><td>重试与幂等</td><td>GET 默认安全重试；写请求仅在显式提供稳定 <code>Idempotency-Key</code> 且标记 <code>retrySafe</code> 时重试。</td></tr>
+          </table>
         </div>
       </div>
     </div>
@@ -739,7 +819,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         </tr>
         <tr>
           <td><b>PostgreSQL</b></td><td>StatefulSet（外部）</td>
-          <td>控制平面权威数据源；Flyway 14 个迁移；开发环境 emptyDir，生产需持久化</td>
+          <td>控制平面权威数据源；Flyway V1–V89 共 89 个迁移；开发环境 emptyDir，生产需持久化</td>
         </tr>
         <tr>
           <td><b>NATS JetStream</b></td><td>StatefulSet（外部）</td>
@@ -785,35 +865,38 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 <section id="stats">
   <div class="wrap">
     <h2>规模统计</h2>
-    <p class="sub">各模块源码规模概览（不含 target/ 构建产物与 protobuf 生成代码）。</p>
+    <p class="sub">按各模块 <code>src/main/java</code>、<code>src/test/java</code> 下的 Java 文件统计（不含 target/ 构建产物与 protobuf 生成代码）；Flyway 按 control-plane 的 V1–V89 迁移目录统计。</p>
     <div class="stat-row">
-      <div class="stat"><div class="num">10</div><div class="lbl">Maven 模块</div></div>
-      <div class="stat"><div class="num">258</div><div class="lbl">主源码文件</div></div>
-      <div class="stat"><div class="num">73</div><div class="lbl">测试文件</div></div>
-      <div class="stat"><div class="num">14</div><div class="lbl">Flyway 迁移</div></div>
+      <div class="stat"><div class="num">13</div><div class="lbl">Maven 模块</div></div>
+      <div class="stat"><div class="num">861</div><div class="lbl">主源码文件</div></div>
+      <div class="stat"><div class="num">366</div><div class="lbl">测试文件</div></div>
+      <div class="stat"><div class="num">89</div><div class="lbl">Flyway 迁移</div></div>
       <div class="stat"><div class="num">15</div><div class="lbl">Proto 消息</div></div>
     </div>
     <div class="card" style="overflow-x:auto">
       <table>
         <tr><th>模块</th><th style="width:80px">主源码</th><th style="width:80px">测试</th><th>核心内容</th></tr>
-        <tr><td>contracts</td><td>1</td><td>2</td><td>agent_channel.proto + 版本协商</td></tr>
-        <tr><td>domain</td><td>16</td><td>4</td><td>Task 聚合 + 状态机 + 值对象</td></tr>
-        <tr><td>application-contracts</td><td>7</td><td>0</td><td>3 个端口 + Envelope + 脱敏器</td></tr>
-        <tr><td>control-plane</td><td>118</td><td>25</td><td>16 个包：API / 服务 / 持久化 / Outbox / Config / Matrix / 安全</td></tr>
-        <tr><td>agent-gateway</td><td>44</td><td>20</td><td>gRPC 服务 + 命令交付 + NATS + JDBC</td></tr>
-        <tr><td>runtime</td><td>33</td><td>10</td><td>通道状态机 + QwenPaw 双边界 + 配置协调</td></tr>
-        <tr><td>agent-worker</td><td>4</td><td>4</td><td>Worker 编排 + 配置拉取 / 文件下载</td></tr>
-        <tr><td>manager</td><td>22</td><td>3</td><td>模型提供 + 工具注册 + 审计</td></tr>
-        <tr><td>operator</td><td>13</td><td>2</td><td>2 个 CRD + 2 个 Reconciler + 资源工厂</td></tr>
-        <tr><td>integration-tests</td><td>0</td><td>3</td><td>E2E + 基础设施验收</td></tr>
-        <tr><td style="font-weight:700">合计</td><td style="font-weight:700">258</td><td style="font-weight:700">73</td><td>约 330 个 Java 文件</td></tr>
+        <tr><td>contracts</td><td>1</td><td>4</td><td>agent_channel.proto + 版本协商</td></tr>
+        <tr><td>domain</td><td>18</td><td>4</td><td>Task 聚合 + 状态机 + 值对象</td></tr>
+        <tr><td>application-contracts</td><td>45</td><td>12</td><td>应用端口 + Envelope + 脱敏器 + 追踪上下文</td></tr>
+        <tr><td>observability</td><td>8</td><td>3</td><td>指标 + Correlation ID + W3C / 异步链路追踪</td></tr>
+        <tr><td>storage</td><td>5</td><td>2</td><td>ObjectStorage + MinIO 实现 + 预签名</td></tr>
+        <tr><td>control-plane</td><td>540</td><td>227</td><td>业务 API / 服务 / 持久化 / Outbox / Config / Matrix / 安全</td></tr>
+        <tr><td>agent-gateway</td><td>54</td><td>26</td><td>gRPC 服务 + 命令交付 + NATS + JDBC</td></tr>
+        <tr><td>runtime</td><td>48</td><td>14</td><td>通道状态机 + QwenPaw 双边界 + 配置协调</td></tr>
+        <tr><td>agent-worker</td><td>29</td><td>18</td><td>Worker 编排 + 配置拉取 / 文件下载 + AgentScope</td></tr>
+        <tr><td>manager</td><td>83</td><td>32</td><td>模型提供 + 工具注册 + 会话与审计</td></tr>
+        <tr><td>operator</td><td>27</td><td>15</td><td>2 个 CRD + 2 个 Reconciler + 资源工厂</td></tr>
+        <tr><td>integration-tests</td><td>0</td><td>7</td><td>E2E + 基础设施验收</td></tr>
+        <tr><td>sdk/java</td><td>3</td><td>2</td><td>公共 API 客户端 + HMAC 签名 + 安全重试</td></tr>
+        <tr><td style="font-weight:700">合计</td><td style="font-weight:700">861</td><td style="font-weight:700">366</td><td>1,227 个 Java 文件（主源码 + 测试）</td></tr>
       </table>
     </div>
   </div>
 </section>
 
 <footer>
-  AgentTeams Java 架构地图 · 基于 2026-08-30 代码库分析生成；已包含 Console/Conversation 管理与真实 QwenPaw 验收边界 · 源码详见 <a href="https://github.com/ly416123/agentteams-java" target="_blank" rel="noopener">github.com/ly416123/agentteams-java</a>
+  AgentTeams Java 架构地图 · 基于 2026-09-06 代码库分析生成；已覆盖根 POM 的 13 个 Maven 模块与 control-plane Flyway V1–V89 · 源码详见 <a href="https://github.com/ly416123/agentteams-java" target="_blank" rel="noopener">github.com/ly416123/agentteams-java</a>
 </footer>
 
 <script>
