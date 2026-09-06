@@ -75,6 +75,17 @@ class JdbcScopedResourceListRepositoryTest {
     }
 
     @Test
+    void agentListUsesAnExactRuntimePredicateWhenRuntimeIsProvided() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        new AgentRepository(jdbc).findPage(PRINCIPAL, null, 21, CursorPageRequest.Direction.DESC,
+                "READY", "worker", "QWENPAW");
+
+        verify(jdbc).query(contains("LOWER(a.runtime) = LOWER(?)"), any(RowMapper.class), any(Object[].class));
+    }
+
+    @Test
     void agentListResolvesProjectNameScopesAgainstProjectUuid() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());

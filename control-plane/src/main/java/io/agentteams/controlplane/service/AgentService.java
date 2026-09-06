@@ -77,13 +77,17 @@ public final class AgentService {
     }
 
     public CursorPage<AgentRecord> list(CursorPageRequest request, String status, String query) {
+        return list(request, status, query, null);
+    }
+
+    public CursorPage<AgentRecord> list(CursorPageRequest request, String status, String query, String runtime) {
         Objects.requireNonNull(request, "request");
         io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
                 .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
                         "authentication required"));
         java.util.List<AgentRecord> rows = persistence.inTransaction(tx ->
                 tx.agents().findPage(principal, request.position(), request.pageSize() + 1, request.direction(),
-                        status, query));
+                        status, query, runtime));
         return CursorPage.fromRows(rows, request.pageSize(),
                 agent -> new CursorPageRequest.Position(agent.updatedAt(), agent.id()), clock.instant());
     }

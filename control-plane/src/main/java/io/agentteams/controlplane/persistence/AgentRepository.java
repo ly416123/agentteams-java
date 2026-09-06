@@ -58,6 +58,11 @@ public final class AgentRepository {
 
     public java.util.List<AgentRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
             CursorPageRequest.Direction direction, String status, String query) {
+        return findPage(principal, after, limit, direction, status, query, null);
+    }
+
+    public java.util.List<AgentRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction, String status, String query, String runtime) {
         String order = direction == CursorPageRequest.Direction.ASC
                 ? " ORDER BY a.updated_at ASC, a.id ASC LIMIT ?"
                 : " ORDER BY a.updated_at DESC, a.id DESC LIMIT ?";
@@ -93,6 +98,10 @@ public final class AgentRepository {
         if (query != null && !query.isBlank()) {
             sql.append(" AND (a.name ILIKE ? OR a.runtime ILIKE ?)");
             values.add("%" + query.trim() + "%"); values.add("%" + query.trim() + "%");
+        }
+        if (runtime != null && !runtime.isBlank()) {
+            sql.append(" AND LOWER(a.runtime) = LOWER(?)");
+            values.add(runtime.trim());
         }
         sql.append(cursor).append(order);
         if (after != null) { values.add(JdbcSupport.timestamp(after.updatedAt())); values.add(after.id()); }

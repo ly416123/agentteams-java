@@ -21,6 +21,7 @@ export function listWorkers(
         projectId,
         q: filters.search,
         status: filters.phase,
+        runtime: filters.runtime,
         cursor: filters.cursor,
       },
     })
