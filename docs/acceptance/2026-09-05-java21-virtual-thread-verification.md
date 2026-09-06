@@ -14,20 +14,41 @@ Java 21 基线和 SSE 虚拟线程试点代码已完成并通过自动化测试�
 
 ## 对照实验命令
 
-先分别部署相同镜像和资源限制，仅切换 `AGENTTEAMS_VIRTUAL_THREADS_ENABLED`，再执行：
+上游 QwenPaw 协议短测使用：
 
 ```bash
 python3 scripts/benchmark-io-concurrency.py \
   --base-url http://<qwenpaw-or-manager> \
   --path /api/console/chat \
-  --mode both \
+  --target qwenpaw \
+  --mode platform \
+  --warmup-seconds 60 \
+  --duration-seconds 300 \
+  --runs 3 \
+  --output artifacts/qwenpaw-sse-benchmark.json
+```
+
+正式 Java Manager 对照必须通过 Conversation API。先分别部署相同镜像和资源限制，仅切换
+`AGENTTEAMS_VIRTUAL_THREADS_ENABLED`，再使用具备有效 Project membership 的 Bearer token 执行：
+
+```bash
+python3 scripts/benchmark-io-concurrency.py \
+  --base-url http://<manager> \
+  --target manager \
+  --bearer-token "$MANAGER_BEARER_TOKEN" \
+  --project <project-id> \
+  --team <team-id> \
+  --mode platform \
   --warmup-seconds 60 \
   --duration-seconds 300 \
   --runs 3 \
   --output artifacts/java21-virtual-thread-benchmark.json
 ```
 
-脚本默认固定并发档位为 16、64、128、256；未暴露的 RSS、GC、数据库连接池、NATS、Outbox 和上游错误率指标会记录为 `null`，不会填充估算值。`--dry-run` 可在不访问服务的情况下检查实验参数。
+分别对平台线程和虚拟线程部署重复执行上述命令，并将输出保存为不同文件。脚本默认固定并发档位为
+16、64、128、256；未暴露的 RSS、GC、数据库连接池、NATS、Outbox 和上游错误率指标会记录为
+`null`，不会填充估算值。Manager 模式会按“创建会话 → 发送消息 → 读取 SSE 终态”执行，取消时调用
+Manager `/cancel` 接口。`--dry-run` 可在不访问服务的情况下检查实验参数。
 
 ## 灰度门禁
 

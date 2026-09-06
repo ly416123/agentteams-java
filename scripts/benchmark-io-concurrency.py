@@ -29,6 +29,8 @@ import uuid
 
 DEFAULT_CONCURRENCIES = (16, 64, 128, 256)
 DEFAULT_PATH = "/api/console/chat"
+DEFAULT_TARGET = "qwenpaw"
+MANAGER_CONVERSATIONS_PATH = "/api/v1/conversations"
 METRIC_KEYS = (
     "rss_bytes",
     "gc_pause_count",
@@ -59,6 +61,10 @@ class BenchmarkOptions:
     cancel_after_seconds: float | None
     timeout_seconds: float
     output: str | None
+    target: str = DEFAULT_TARGET
+    bearer_token: str | None = None
+    project: str | None = None
+    team: str | None = None
 
 
 def validate_options(base_url: str, path: str, duration_seconds: float,
@@ -66,7 +72,11 @@ def validate_options(base_url: str, path: str, duration_seconds: float,
                      concurrencies: list[int] | tuple[int, ...] | None,
                      cancel_after_seconds: float | None = None,
                      timeout_seconds: float = 30.0,
-                     output: str | None = None) -> BenchmarkOptions:
+                     output: str | None = None,
+                     target: str = DEFAULT_TARGET,
+                     bearer_token: str | None = None,
+                     project: str | None = None,
+                     team: str | None = None) -> BenchmarkOptions:
     if not isinstance(base_url, str) or not base_url.strip():
         raise ValueError("base_url must not be blank")
     if not base_url.startswith(("http://", "https://")):
@@ -83,6 +93,10 @@ def validate_options(base_url: str, path: str, duration_seconds: float,
         raise ValueError("runs must be positive")
     if mode not in {"platform", "virtual", "both"}:
         raise ValueError("mode must be platform, virtual, or both")
+    if target not in {"qwenpaw", "manager"}:
+        raise ValueError("target must be qwenpaw or manager")
+    if target == "manager" and (not isinstance(bearer_token, str) or not bearer_token.strip()):
+        raise ValueError("manager target requires bearer_token")
     selected = tuple(DEFAULT_CONCURRENCIES if concurrencies is None else concurrencies)
     if not selected or any(not isinstance(value, int) or value <= 0 for value in selected):
         raise ValueError("concurrencies must contain positive integers")
@@ -95,7 +109,10 @@ def validate_options(base_url: str, path: str, duration_seconds: float,
         duration_seconds=float(duration_seconds), warmup_seconds=float(warmup_seconds),
         runs=runs, mode=mode, concurrencies=selected,
         cancel_after_seconds=None if cancel_after_seconds is None else float(cancel_after_seconds),
-        timeout_seconds=float(timeout_seconds), output=output)
+        timeout_seconds=float(timeout_seconds), output=output,
+        target=target, bearer_token=bearer_token.strip() if bearer_token else None,
+        project=project.strip() if project and project.strip() else None,
+        team=team.strip() if team and team.strip() else None)
 
 
 def percentile(values: list[float], quantile: float) -> float | None:
@@ -153,10 +170,14 @@ def _parse_prometheus(body: str) -> dict[str, float]:
     return values
 
 
-def scrape_metrics(base_url: str, timeout_seconds: float) -> dict[str, float | None]:
+def scrape_metrics(base_url: str, timeout_seconds: float,
+                   bearer_token: str | None = None) -> dict[str, float | None]:
     metrics: dict[str, float | None] = {key: None for key in METRIC_KEYS}
+    headers = {"Accept": "text/plain"}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
     request = urllib.request.Request(base_url.rstrip("/") + "/actuator/prometheus",
-                                     headers={"Accept": "text/plain"})
+                                     headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             if response.status != 200:
@@ -201,7 +222,32 @@ def build_request_payload(session_id: str) -> dict:
     }
 
 
-def _request_once(options: BenchmarkOptions) -> dict:
+def build_manager_create_payload(session_id: str, project: str | None = None,
+                                 team: str | None = None) -> dict:
+    """Build the Manager Conversation API create request."""
+    payload = {"sessionId": session_id}
+    if project:
+        payload["project"] = project
+    if team:
+        payload["team"] = team
+    return payload
+
+
+def build_manager_message_payload(content: str) -> dict:
+    """Build the Manager Conversation API message request."""
+    return {"content": content}
+
+
+def manager_event_outcome(event_type: str | None) -> str | None:
+    """Map stable Manager SSE event types to benchmark outcomes."""
+    return {
+        "message.completed": "success",
+        "conversation.failed": "error",
+        "conversation.cancelled": "cancel",
+    }.get(event_type)
+
+
+def _request_qwenpaw_once(options: BenchmarkOptions) -> dict:
     started = time.monotonic()
     session_id = str(uuid.uuid4())
     request = urllib.request.Request(
@@ -256,6 +302,107 @@ def _request_once(options: BenchmarkOptions) -> dict:
             response.close()
 
 
+def _manager_json_request(options: BenchmarkOptions, method: str, path: str,
+                          payload: dict | None = None) -> bytes:
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {options.bearer_token}",
+        "Content-Type": "application/json",
+        "Idempotency-Key": str(uuid.uuid4()),
+    }
+    request = urllib.request.Request(
+        options.base_url + path,
+        data=None if payload is None else json.dumps(payload).encode("utf-8"),
+        headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=options.timeout_seconds) as response:
+        if response.status < 200 or response.status >= 300:
+            raise urllib.error.HTTPError(request.full_url, response.status,
+                                         "unexpected Manager status", response.headers, None)
+        return response.read()
+
+
+def _request_manager_once(options: BenchmarkOptions) -> dict:
+    started = time.monotonic()
+    session_id = str(uuid.uuid4())
+    session_path = f"{MANAGER_CONVERSATIONS_PATH}/{session_id}"
+    response = None
+    cancel_timer: threading.Timer | None = None
+    cancelled = threading.Event()
+    try:
+        _manager_json_request(
+            options, "POST", MANAGER_CONVERSATIONS_PATH,
+            build_manager_create_payload(session_id, options.project, options.team))
+        _manager_json_request(
+            options, "POST", f"{session_path}/messages",
+            build_manager_message_payload("benchmark"))
+        request = urllib.request.Request(
+            options.base_url + f"{session_path}/events?after=0",
+            headers={"Accept": "text/event-stream",
+                     "Authorization": f"Bearer {options.bearer_token}"},
+            method="GET")
+        response = urllib.request.urlopen(request, timeout=options.timeout_seconds)
+
+        if options.cancel_after_seconds is not None:
+            def cancel_manager_session() -> None:
+                cancelled.set()
+                try:
+                    _manager_json_request(options, "POST", f"{session_path}/cancel", {})
+                except (urllib.error.HTTPError, urllib.error.URLError, OSError, socket.timeout):
+                    pass
+                if response is not None:
+                    response.close()
+
+            cancel_timer = threading.Timer(options.cancel_after_seconds, cancel_manager_session)
+            cancel_timer.daemon = True
+            cancel_timer.start()
+
+        event_type: str | None = None
+        while True:
+            line = response.readline()
+            if not line:
+                break
+            decoded = line.decode("utf-8", errors="replace").rstrip("\r\n")
+            if decoded.startswith("event:"):
+                event_type = decoded[6:].strip()
+            elif not decoded:
+                outcome = manager_event_outcome(event_type)
+                event_type = None
+                if outcome is not None:
+                    elapsed = time.monotonic() - started
+                    result = {"outcome": outcome, "latency_seconds": elapsed,
+                              "elapsed_seconds": elapsed}
+                    if outcome == "cancel":
+                        result["cancel_latency_seconds"] = max(
+                            0.0, elapsed - float(options.cancel_after_seconds or 0.0))
+                    return result
+        elapsed = time.monotonic() - started
+        if cancelled.is_set():
+            return {"outcome": "cancel", "latency_seconds": elapsed,
+                    "cancel_latency_seconds": max(
+                        0.0, elapsed - float(options.cancel_after_seconds or 0.0)),
+                    "elapsed_seconds": elapsed}
+        return {"outcome": "error", "latency_seconds": elapsed, "elapsed_seconds": elapsed}
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, socket.timeout):
+        elapsed = time.monotonic() - started
+        if cancelled.is_set():
+            return {"outcome": "cancel", "latency_seconds": elapsed,
+                    "cancel_latency_seconds": max(
+                        0.0, elapsed - float(options.cancel_after_seconds or 0.0)),
+                    "elapsed_seconds": elapsed}
+        return {"outcome": "error", "latency_seconds": elapsed, "elapsed_seconds": elapsed}
+    finally:
+        if cancel_timer is not None:
+            cancel_timer.cancel()
+        if response is not None:
+            response.close()
+
+
+def _request_once(options: BenchmarkOptions) -> dict:
+    if options.target == "manager":
+        return _request_manager_once(options)
+    return _request_qwenpaw_once(options)
+
+
 def _run_window(options: BenchmarkOptions, concurrency: int, duration: float) -> list[dict]:
     deadline = time.monotonic() + duration
     outcomes: list[dict] = []
@@ -288,7 +435,8 @@ def run_benchmark(options: BenchmarkOptions) -> list[dict]:
                 for outcome in outcomes:
                     outcome["elapsed_seconds"] = elapsed
                 sample = summarize(mode, concurrency, run, outcomes,
-                                   scrape_metrics(options.base_url, options.timeout_seconds))
+                                   scrape_metrics(options.base_url, options.timeout_seconds,
+                                                  options.bearer_token))
                 # Keep per-request observations so the JSON is an auditable raw
                 # artifact, rather than only a lossy percentile summary.
                 sample["raw_outcomes"] = outcomes
@@ -300,6 +448,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--path", default=DEFAULT_PATH)
+    parser.add_argument("--target", choices=("qwenpaw", "manager"), default=DEFAULT_TARGET,
+                        help="request protocol; manager uses /api/v1/conversations")
+    parser.add_argument("--bearer-token", help="Manager Bearer token; required with --target manager")
+    parser.add_argument("--project", help="optional Manager project id or project key")
+    parser.add_argument("--team", help="optional Manager team id or team key")
     parser.add_argument("--duration-seconds", type=float, default=300.0)
     parser.add_argument("--warmup-seconds", type=float, default=60.0)
     parser.add_argument("--runs", type=int, default=3)
@@ -320,7 +473,8 @@ def main(argv: list[str] | None = None) -> int:
         options = validate_options(
             args.base_url, args.path, args.duration_seconds, args.warmup_seconds,
             args.runs, args.mode, args.concurrencies, args.cancel_after_seconds,
-            args.timeout_seconds, args.output)
+            args.timeout_seconds, args.output, args.target, args.bearer_token,
+            args.project, args.team)
     except ValueError as error:
         print(f"invalid benchmark options: {error}", file=sys.stderr)
         return 2

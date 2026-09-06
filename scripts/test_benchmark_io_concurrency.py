@@ -75,6 +75,43 @@ class BenchmarkIoConcurrencyTest(unittest.TestCase):
             "text": "benchmark",
         })
 
+    def test_manager_target_requires_bearer_token(self):
+        with self.assertRaises(ValueError):
+            self.module.validate_options(
+                base_url="http://127.0.0.1:8080", path="/api/console/chat",
+                duration_seconds=1, warmup_seconds=0, runs=1,
+                mode="platform", concurrencies=[1], output=None,
+                target="manager")
+
+        options = self.module.validate_options(
+            base_url="http://127.0.0.1:8080", path="/api/console/chat",
+            duration_seconds=1, warmup_seconds=0, runs=1,
+            mode="platform", concurrencies=[1], output=None,
+            target="manager", bearer_token="token", project="project-a")
+        self.assertEqual(options.target, "manager")
+        self.assertEqual(options.project, "project-a")
+
+    def test_manager_payloads_keep_protocol_values_machine_readable(self):
+        create = self.module.build_manager_create_payload(
+            "session-1", project="project-a", team="team-a")
+        self.assertEqual(create, {
+            "sessionId": "session-1",
+            "project": "project-a",
+            "team": "team-a",
+        })
+        self.assertEqual(
+            self.module.build_manager_message_payload("benchmark"),
+            {"content": "benchmark"})
+
+    def test_manager_terminal_event_classification(self):
+        self.assertEqual(
+            self.module.manager_event_outcome("message.completed"), "success")
+        self.assertEqual(
+            self.module.manager_event_outcome("conversation.failed"), "error")
+        self.assertEqual(
+            self.module.manager_event_outcome("conversation.cancelled"), "cancel")
+        self.assertIsNone(self.module.manager_event_outcome("message.delta"))
+
 
 if __name__ == "__main__":
     unittest.main()
