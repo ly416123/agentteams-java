@@ -54,6 +54,33 @@ class QwenPawHttpRuntimePortTest {
     }
 
     @Test
+    void defaultsToPlatformReaderThreadsAndStopsTheExecutor() throws Exception {
+        QwenPawHttpRuntimePort port = port();
+        port.start(context(), value -> { });
+
+        assertThat(port.configuration().virtualThreadsEnabled()).isFalse();
+        assertThat(port.readerExecutor().submit(() -> Thread.currentThread().isVirtual()).get())
+                .isFalse();
+        port.stop();
+        assertThat(port.readerExecutor()).isNull();
+    }
+
+    @Test
+    void usesVirtualReaderThreadsWhenEnabled() throws Exception {
+        QwenPawHttpRuntimePort port = new QwenPawHttpRuntimePort(
+                new QwenPawHttpRuntimeConfiguration(
+                        URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                        "default", null, Duration.ofSeconds(2), "agentteams", "console",
+                        "/api/models/active", true),
+                HttpClient.newHttpClient(), MAPPER);
+        port.start(context(), value -> { });
+
+        assertThat(port.readerExecutor().submit(() -> Thread.currentThread().isVirtual()).get())
+                .isTrue();
+        port.stop();
+    }
+
+    @Test
     void sendsOfficialRequestAndAggregatesCompletedSseEvent() throws Exception {
         server.createContext("/api/console/chat", exchange -> {
             captureRequest(exchange);

@@ -15,7 +15,8 @@ public record ConversationRuntimeConfiguration(
         String channel,
         int maxConcurrentRequests,
         int maxEventsPerSession,
-        int maxSessions) {
+        int maxSessions,
+        boolean virtualThreadsEnabled) {
 
     public ConversationRuntimeConfiguration {
         if (endpoint == null || (!"http".equalsIgnoreCase(endpoint.getScheme())
@@ -56,7 +57,14 @@ public record ConversationRuntimeConfiguration(
             Duration connectTimeout, Duration requestTimeout, long maxResponseBytes, String userId,
             String channel) {
         this(endpoint, agentId, authorizationToken, connectTimeout, requestTimeout, maxResponseBytes,
-                userId, channel, 128, 10_000, 10_000);
+                userId, channel, 128, 10_000, 10_000, false);
+    }
+
+    public ConversationRuntimeConfiguration(URI endpoint, String agentId, String authorizationToken,
+            Duration connectTimeout, Duration requestTimeout, long maxResponseBytes, String userId,
+            String channel, int maxConcurrentRequests, int maxEventsPerSession, int maxSessions) {
+        this(endpoint, agentId, authorizationToken, connectTimeout, requestTimeout, maxResponseBytes,
+                userId, channel, maxConcurrentRequests, maxEventsPerSession, maxSessions, false);
     }
 
     public ConversationRuntimeConfiguration(URI endpoint, String agentId, String authorizationToken,

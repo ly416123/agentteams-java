@@ -57,6 +57,14 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     }
 
+    QwenPawHttpRuntimeConfiguration configuration() {
+        return configuration;
+    }
+
+    ExecutorService readerExecutor() {
+        return readerExecutor;
+    }
+
     @Override
     public void start(AgentRuntimeContext context, RuntimeResultSink resultSink) {
         Objects.requireNonNull(context, "context");
@@ -67,7 +75,9 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             }
             this.clock = context.clock();
             this.resultSink = resultSink;
-            this.readerExecutor = Executors.newCachedThreadPool(runnable -> {
+            this.readerExecutor = configuration.virtualThreadsEnabled()
+                    ? Executors.newVirtualThreadPerTaskExecutor()
+                    : Executors.newCachedThreadPool(runnable -> {
                 Thread thread = new Thread(runnable, "qwenpaw-http-sse-reader");
                 thread.setDaemon(true);
                 return thread;

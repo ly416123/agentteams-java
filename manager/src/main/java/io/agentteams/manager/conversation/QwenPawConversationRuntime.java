@@ -65,7 +65,9 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.requestSlots = new Semaphore(configuration.maxConcurrentRequests());
         this.sessionSlots = new Semaphore(configuration.maxSessions());
-        this.readerExecutor = Executors.newFixedThreadPool(configuration.maxConcurrentRequests(), runnable -> {
+        this.readerExecutor = configuration.virtualThreadsEnabled()
+                ? Executors.newVirtualThreadPerTaskExecutor()
+                : Executors.newFixedThreadPool(configuration.maxConcurrentRequests(), runnable -> {
             Thread thread = new Thread(runnable, "qwenpaw-conversation-sse-reader");
             thread.setDaemon(true);
             return thread;
@@ -75,6 +77,18 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             thread.setDaemon(true);
             return thread;
         });
+    }
+
+    ConversationRuntimeConfiguration configuration() {
+        return configuration;
+    }
+
+    ExecutorService readerExecutor() {
+        return readerExecutor;
+    }
+
+    ScheduledExecutorService timeoutExecutor() {
+        return timeoutExecutor;
     }
 
     @Override

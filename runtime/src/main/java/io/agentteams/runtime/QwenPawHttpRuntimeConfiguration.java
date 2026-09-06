@@ -12,7 +12,8 @@ public record QwenPawHttpRuntimeConfiguration(
         Duration connectTimeout,
         String userId,
         String channel,
-        String configurationPath) {
+        String configurationPath,
+        boolean virtualThreadsEnabled) {
 
     public QwenPawHttpRuntimeConfiguration {
         Objects.requireNonNull(endpoint, "endpoint");
@@ -42,12 +43,18 @@ public record QwenPawHttpRuntimeConfiguration(
 
     public QwenPawHttpRuntimeConfiguration(URI endpoint) {
         this(endpoint, "default", null, Duration.ofSeconds(10), "agentteams", "console",
-                "/api/models/active");
+                "/api/models/active", false);
     }
 
     public QwenPawHttpRuntimeConfiguration(URI endpoint, String agentId, String authorizationToken,
             Duration connectTimeout, String userId, String channel) {
         this(endpoint, agentId, authorizationToken, connectTimeout, userId, channel,
-                "/api/models/active");
+                "/api/models/active", false);
+    }
+
+    public QwenPawHttpRuntimeConfiguration(URI endpoint, String agentId, String authorizationToken,
+            Duration connectTimeout, String userId, String channel, String configurationPath) {
+        this(endpoint, agentId, authorizationToken, connectTimeout, userId, channel,
+                configurationPath, false);
     }
 }
