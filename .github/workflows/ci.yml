@@ -61,6 +61,8 @@ jobs:
           test -s /tmp/agentteams-console-enabled.yaml
       - name: Test Console deployment contract
         run: python3 -m unittest scripts/test_console_manifests_contract.py -v
+      - name: Test L5 Console OIDC contract
+        run: python3 -m unittest scripts/test_l5_console_oidc_contract.py -v
       - name: Test Console deployment script contract
         run: python3 deploy/test_console_deployment_contract.py -v
       - name: Console npm checks

@@ -1,0 +1,30 @@
+# L5 LAN overlay. Apply this file after kind-values.yaml when the browser
+# reaches the cluster through the L5 host NodePorts.
+#
+# Keep the issuer browser-reachable while keeping JWKS retrieval on the
+# in-cluster Keycloak Service. Do not reuse the Kind-only 127.0.0.1:18082
+# issuer on L5: that address belongs to the browser host's local port-forward.
+console:
+  config:
+    oidcIssuer: http://192.168.1.16:30082/realms/agentteams
+    oidcClientId: agentteams-api
+
+controlPlane:
+  security:
+    apiEnabled: true
+    oidc:
+      enabled: true
+      issuerUri: http://192.168.1.16:30082/realms/agentteams
+      jwkSetUri: http://keycloak:8080/realms/agentteams/protocol/openid-connect/certs
+      audience: agentteams-api
+      tenantClaim: tenant
+      projectClaim: project
+      teamClaim: team
+      permissionsClaim: permissions
+
+manager:
+  security:
+    enabled: true
+    issuerUri: http://192.168.1.16:30082/realms/agentteams
+    jwkSetUri: http://keycloak:8080/realms/agentteams/protocol/openid-connect/certs
+    audience: agentteams-api
