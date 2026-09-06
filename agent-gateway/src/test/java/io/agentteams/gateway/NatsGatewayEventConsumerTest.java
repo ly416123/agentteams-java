@@ -259,6 +259,69 @@ class NatsGatewayEventConsumerTest {
     }
 
     @Test
+    void countsDispatcherRejectionExactlyOnce() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            started.countDown();
+            release.await(1, TimeUnit.SECONDS);
+            return null;
+        }).when(delivery).deliver(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(
+                new TaskAssignedCommandHandler(delivery), new ObjectMapper(),
+                new GatewayMetrics(registry), AsyncConsumerTracing.noop(), 1, 1);
+
+        assertThat(consumer.dispatch(message(eventJson(UUID.randomUUID())))).isTrue();
+        assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(consumer.dispatch(message(eventJson(UUID.randomUUID())))).isFalse();
+
+        assertThat(registry.counter("agentteams.gateway.nats.events.rejected").count()).isEqualTo(1);
+        release.countDown();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        consumer.close();
+    }
+
+    @Test
+    void keepsTheExistingSubscriptionWhenReconnectCreationFailsThenRecovers() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        Connection connection = mock(Connection.class);
+        JetStream jetStream = mock(JetStream.class);
+        JetStreamSubscription firstTask = mock(JetStreamSubscription.class);
+        JetStreamSubscription firstConfig = mock(JetStreamSubscription.class);
+        JetStreamSubscription recoveredTask = mock(JetStreamSubscription.class);
+        JetStreamSubscription recoveredConfig = mock(JetStreamSubscription.class);
+        CountDownLatch consumerStopped = new CountDownLatch(1);
+        when(connection.jetStream()).thenReturn(jetStream);
+        when(jetStream.subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class)))
+                .thenReturn(firstTask, firstConfig)
+                .thenThrow(new java.io.IOException("reconnect unavailable"))
+                .thenReturn(recoveredTask, recoveredConfig);
+        when(firstTask.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(connection,
+                new TaskAssignedCommandHandler(delivery), new ConfigChangedCommandHandler(delivery, new ObjectMapper()),
+                new ObjectMapper(), "task.events.*", "gateway-tasks", "agent.events.*", "gateway-config",
+                GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
+        consumer.start();
+        var listener = org.mockito.ArgumentCaptor.forClass(ConnectionListener.class);
+        verify(connection).addConnectionListener(listener.capture());
+
+        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
+        verify(firstTask, org.mockito.Mockito.never()).unsubscribe();
+        verify(firstConfig, org.mockito.Mockito.never()).unsubscribe();
+
+        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
+        verify(firstTask).unsubscribe();
+        verify(firstConfig).unsubscribe();
+        consumer.close();
+        consumerStopped.countDown();
+    }
+
+    @Test
     void stopsAcceptingMessagesBeforeWaitingForInFlightWork() throws Exception {
         CommandDeliveryService delivery = mock(CommandDeliveryService.class);
         CountDownLatch started = new CountDownLatch(1);

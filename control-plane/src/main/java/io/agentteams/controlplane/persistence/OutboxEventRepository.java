@@ -98,8 +98,16 @@ public final class OutboxEventRepository {
                        aggregate_version, occurred_at, status, attempts, next_attempt_at, last_error,
                        claim_token, created_at, updated_at, version, correlation_id, traceparent, tracestate
                   FROM outbox_events
-                 WHERE (status = 'PENDING' AND next_attempt_at <= ?)
-                    OR (status = 'IN_FLIGHT' AND next_attempt_at <= ?)
+                 WHERE ((status = 'PENDING' AND next_attempt_at <= ?)
+                    OR (status = 'IN_FLIGHT' AND next_attempt_at <= ?))
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM outbox_events predecessor
+                        WHERE predecessor.aggregate_type = outbox_events.aggregate_type
+                          AND predecessor.aggregate_id = outbox_events.aggregate_id
+                          AND predecessor.aggregate_version < outbox_events.aggregate_version
+                          AND predecessor.status IN ('PENDING', 'IN_FLIGHT')
+                   )
                  ORDER BY next_attempt_at, created_at
                  LIMIT ?
                  FOR UPDATE SKIP LOCKED

@@ -269,13 +269,21 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             if (!running.get()) {
                 return;
             }
-            unsubscribe(subscription);
-            unsubscribe(configSubscription);
+            JetStreamSubscription replacement = null;
+            JetStreamSubscription configReplacement = null;
             try {
-                subscription = jetStream.subscribe(subject, durable, subscribeOptions(durable));
-                configSubscription = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
+                replacement = jetStream.subscribe(subject, durable, subscribeOptions(durable));
+                configReplacement = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
+                JetStreamSubscription previous = subscription;
+                JetStreamSubscription previousConfig = configSubscription;
+                subscription = replacement;
+                configSubscription = configReplacement;
+                unsubscribe(previous);
+                unsubscribe(previousConfig);
                 LOGGER.info("Agent Gateway NATS subscriptions restored after reconnect");
             } catch (IOException | JetStreamApiException error) {
+                unsubscribe(replacement);
+                unsubscribe(configReplacement);
                 LOGGER.log(Level.WARNING, "Unable to restore Agent Gateway NATS subscriptions after reconnect", error);
             }
         }
@@ -343,7 +351,6 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                     }
                 }, error -> redeliverAfterDispatchFailure(message, error));
         if (!accepted) {
-            metrics.natsEventRejected();
             redeliverAfterDispatchFailure(message, new RejectedExecutionException("NATS dispatcher is full or closed"));
         }
         return accepted;

@@ -48,6 +48,8 @@ agentteams:
   nats:
     enabled: false
     url: nats://localhost:4222
+    concurrency: 8
+    max-ack-pending: 32
   outbox:
     relay:
       enabled: false

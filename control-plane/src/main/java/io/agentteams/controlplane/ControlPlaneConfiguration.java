@@ -13,6 +13,7 @@ import io.agentteams.controlplane.outbox.NatsExecutionEventConsumer;
 import io.agentteams.controlplane.outbox.OutboxRelay;
 import io.agentteams.controlplane.outbox.OutboxRelayProperties;
 import io.agentteams.controlplane.outbox.OutboxStore;
+import io.agentteams.controlplane.outbox.NatsConsumerProperties;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.artifact.ArtifactCompletionService;
 import io.agentteams.controlplane.artifact.ArtifactService;
@@ -140,7 +141,7 @@ import io.opentelemetry.context.propagation.TextMapPropagator;
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties({OidcSecurityProperties.class, SandboxRuntimeProperties.class,
-        ModelPriceSyncProperties.class})
+        ModelPriceSyncProperties.class, NatsConsumerProperties.class})
 public class ControlPlaneConfiguration {
 
     @Bean
@@ -716,9 +717,10 @@ public class ControlPlaneConfiguration {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(name = "agentteams.nats.enabled", havingValue = "true")
-    Connection natsConnection(@Value("${agentteams.nats.url:nats://localhost:4222}") String url)
+    Connection natsConnection(NatsConsumerProperties properties)
             throws IOException, InterruptedException {
-        return Nats.connect(url);
+        properties.validate();
+        return Nats.connect(properties.getUrl());
     }
 
     @Bean
@@ -731,11 +733,14 @@ public class ControlPlaneConfiguration {
     @ConditionalOnProperty(name = "agentteams.nats.enabled", havingValue = "true")
     NatsExecutionEventConsumer natsExecutionEventConsumer(Connection connection,
             ExecutionEventPort executionEvents, ConfigEventPort configEvents, ObjectMapper objectMapper,
-            ObjectProvider<Tracer> tracers, ObjectProvider<Propagator> propagators)
+            ObjectProvider<Tracer> tracers, ObjectProvider<Propagator> propagators,
+            NatsConsumerProperties properties)
             throws IOException {
+        properties.validate();
         return new NatsExecutionEventConsumer(connection, executionEvents, configEvents, objectMapper,
                 "control-plane-execution-events", new AsyncConsumerTracing(
-                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
+                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)),
+                properties.getConcurrency(), properties.getMaxAckPending());
     }
 
 

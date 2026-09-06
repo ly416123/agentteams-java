@@ -1,15 +1,15 @@
-package io.agentteams.gateway;
+package io.agentteams.controlplane.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
-class NatsGatewayPropertiesTest {
+class NatsConsumerPropertiesTest {
 
     @Test
     void usesBoundedNatsConsumerDefaults() {
-        NatsGatewayProperties properties = new NatsGatewayProperties();
+        NatsConsumerProperties properties = new NatsConsumerProperties();
 
         assertThat(properties.getConcurrency()).isEqualTo(8);
         assertThat(properties.getMaxAckPending()).isEqualTo(32);
@@ -18,21 +18,12 @@ class NatsGatewayPropertiesTest {
 
     @Test
     void rejectsAnAckWindowSmallerThanConcurrency() {
-        NatsGatewayProperties properties = new NatsGatewayProperties();
+        NatsConsumerProperties properties = new NatsConsumerProperties();
         properties.setConcurrency(16);
         properties.setMaxAckPending(8);
 
         assertThatThrownBy(properties::validate)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("maxAckPending");
-    }
-
-    @Test
-    void scopesDurablesPerGatewayReplicaForEventFanout() {
-        NatsGatewayProperties properties = new NatsGatewayProperties();
-        properties.setInstanceId("gateway/pod-a");
-
-        assertThat(properties.taskConsumerDurable()).isEqualTo("agent-gateway-gateway_pod-a");
-        assertThat(properties.configConsumerDurable()).isEqualTo("agent-gateway-config-gateway_pod-a");
     }
 }

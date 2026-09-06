@@ -12,6 +12,8 @@ public class NatsGatewayProperties {
     private String configSubject = "agent.events.*";
     private String configDurable = "agent-gateway-config";
     private String instanceId = "local";
+    private int concurrency = 8;
+    private int maxAckPending = 32;
 
     public boolean isEnabled() {
         return enabled;
@@ -70,6 +72,31 @@ public class NatsGatewayProperties {
             throw new IllegalArgumentException("instanceId must not be blank");
         }
         this.instanceId = instanceId;
+    }
+
+    public int getConcurrency() {
+        return concurrency;
+    }
+
+    public void setConcurrency(int concurrency) {
+        this.concurrency = concurrency;
+    }
+
+    public int getMaxAckPending() {
+        return maxAckPending;
+    }
+
+    public void setMaxAckPending(int maxAckPending) {
+        this.maxAckPending = maxAckPending;
+    }
+
+    public void validate() {
+        if (concurrency < 1) {
+            throw new IllegalArgumentException("concurrency must be positive");
+        }
+        if (maxAckPending < concurrency) {
+            throw new IllegalArgumentException("maxAckPending must be at least concurrency");
+        }
     }
 
     /** Each Gateway replica consumes the event stream independently for fan-out. */

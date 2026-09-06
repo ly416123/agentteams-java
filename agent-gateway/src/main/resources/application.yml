@@ -14,6 +14,8 @@ agentteams:
       config-subject: agent.events.*
       config-durable: agent-gateway-config
       instance-id: ${AGENTTEAMS_GATEWAY_NATS_INSTANCE_ID:local}
+      concurrency: 8
+      max-ack-pending: 32
 
 management:
   tracing:

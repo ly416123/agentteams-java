@@ -335,12 +335,16 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             if (!running.get()) {
                 return;
             }
-            unsubscribe(subscription);
+            JetStreamSubscription replacement = null;
             try {
-                subscription = jetStream.subscribe(PlatformEventSubjects.AGENT_EXECUTION_EVENTS, durable,
+                replacement = jetStream.subscribe(PlatformEventSubjects.AGENT_EXECUTION_EVENTS, durable,
                         subscribeOptions());
+                JetStreamSubscription previous = subscription;
+                subscription = replacement;
+                unsubscribe(previous);
                 LOGGER.info("Control Plane NATS execution subscription restored after reconnect");
             } catch (IOException | JetStreamApiException error) {
+                unsubscribe(replacement);
                 LOGGER.log(Level.WARNING,
                         "Unable to restore Control Plane NATS execution subscription after reconnect", error);
             }

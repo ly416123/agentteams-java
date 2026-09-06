@@ -203,6 +203,38 @@ class NatsExecutionEventConsumerTest {
     }
 
     @Test
+    void keepsTheExistingSubscriptionWhenReconnectCreationFailsThenRecovers() throws Exception {
+        Connection connection = mock(Connection.class);
+        JetStream jetStream = mock(JetStream.class);
+        JetStreamSubscription first = mock(JetStreamSubscription.class);
+        JetStreamSubscription recovered = mock(JetStreamSubscription.class);
+        CountDownLatch consumerStopped = new CountDownLatch(1);
+        when(connection.jetStream()).thenReturn(jetStream);
+        when(jetStream.subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class)))
+                .thenReturn(first)
+                .thenThrow(new java.io.IOException("reconnect unavailable"))
+                .thenReturn(recovered);
+        when(first.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(connection,
+                mock(ExecutionEventPort.class), command -> { }, new com.fasterxml.jackson.databind.ObjectMapper(),
+                "control-plane-execution-events", AsyncConsumerTracing.noop());
+        consumer.start();
+        var listener = org.mockito.ArgumentCaptor.forClass(ConnectionListener.class);
+        verify(connection).addConnectionListener(listener.capture());
+
+        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
+        verify(first, never()).unsubscribe();
+
+        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
+        verify(first).unsubscribe();
+        consumer.close();
+        consumerStopped.countDown();
+    }
+
+    @Test
     void dispatchesDifferentTasksInParallel() throws Exception {
         ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
         CountDownLatch started = new CountDownLatch(2);
