@@ -491,7 +491,7 @@ class QwenPawConversationRuntimeTest {
     @Test
     void rejectsAnOverlongSseLineEvenWhenTotalResponseLimitAllowsIt() throws Exception {
         String longLine = "data: {\"status\":\"in_progress\",\"text\":\""
-                + "a".repeat(70_000) + "\"}\n\n";
+                + "a".repeat(300_000) + "\"}\n\n";
         server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
                 "text/event-stream", longLine));
         server.start();
@@ -502,6 +502,34 @@ class QwenPawConversationRuntimeTest {
         awaitEvents(runtime, 2);
         assertThat(runtime.events(SESSION_ID, 1).get(0).data()).contains("PROTOCOL_ERROR");
         runtime.close();
+    }
+
+    @Test
+    void acceptsLargeQwenPawToolPayloadFramesWithinResponseLimit() throws Exception {
+        String toolOutput = "a".repeat(140_000);
+        String toolFrame = "data: {\"type\":\"data\",\"delta\":false,"
+                + "\"status\":\"completed\",\"object\":\"content\","
+                + "\"name\":\"read_file\",\"data\":{\"output\":\""
+                + toolOutput + "\"}}\n\n";
+        String responseFrame = "data: {\"status\":\"completed\",\"object\":\"response\"}\n\n";
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream", toolFrame + responseFrame));
+        server.start();
+
+        QwenPawConversationRuntime runtime = runtime(null, 512_000);
+        try {
+            runtime.start(CONTEXT);
+            runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+            awaitEvents(runtime, 3);
+            List<ConversationEvent> events = runtime.events(SESSION_ID, 0);
+            assertThat(events).extracting(ConversationEvent::type)
+                    .containsExactly("conversation.started", "message.delta", "message.completed");
+            assertThat(events.get(1).data())
+                    .isEqualTo(toolFrame.substring("data: ".length(), toolFrame.length() - 2));
+        } finally {
+            runtime.close();
+        }
     }
 
     @Test

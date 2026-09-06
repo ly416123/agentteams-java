@@ -37,7 +37,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Conversation runtime adapter for QwenPaw's HTTP/SSE console API. */
 public final class QwenPawConversationRuntime implements ConversationRuntimePort, AutoCloseable {
-    private static final int MAX_SSE_LINE_BYTES = 64 * 1024;
+    // QwenPaw tool/plugin payloads can contain large serialized arguments or
+    // outputs on a single SSE data line. Keep a per-line guard, but allow the
+    // payloads observed in the real runtime while retaining the total response
+    // limit configured by the conversation runtime.
+    private static final int MAX_SSE_LINE_BYTES = 256 * 1024;
     private final ConversationRuntimeConfiguration configuration;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
