@@ -53,4 +53,11 @@ python3 scripts/benchmark-io-concurrency.py \
 - 未执行真实任务压测；验证完成后已恢复原始 Java 17 镜像和默认关闭配置，其他 Worker/Manager 未切换。
 - 试点期间出现的 `FAILED_PRECONDITION: connection is no longer current` 来自 Worker 重启时旧 Gateway 连接被新连接替代，随后 Worker 持续报告 READY，未观察到启动失败。
 
-待 Java 21 候选镜像部署并确认 QwenPaw 上游有终态事件后，再补录原始 JSON、JFR 文件、环境信息和灰度决定。当前代码验证使用 Java 21 Maven 容器完成。
+### Demo Manager 灰度启动验证（2026-09-06）
+
+- 已构建并导入 `agentteams-manager:java21-candidate`，镜像架构为 Linux/amd64，容器内 Temurin 版本为 21.0.12。
+- 通过 L5 Helm release `agentteams` 做单副本 Manager 灰度，开启 `AGENTTEAMS_VIRTUAL_THREADS_ENABLED=true` 后新 Pod 成功 Ready；日志确认 Java 21.0.12、Flyway 校验 9 个迁移且数据库版本为 9、无需执行迁移，Tomcat 正常监听 8080。
+- 灰度未执行正式 SSE 压测：QwenPaw 仍未在短测中产生终态事件，因此不能把本次启动验证当作性能收益证据。
+- 首次 Helm upgrade 因 Control Plane 镜像存在历史 `kubectl-set` 字段管理冲突而失败，随后使用 `--force-conflicts` 回滚到 revision 40；最终 release revision 42 为 `deployed`，Manager 恢复 `ghcr.io/ly416123/agentteams-manager:l5-scope-final`、Temurin 17.0.20，虚拟线程环境变量未启用，Control Plane/Gateway/Operator/Manager 均为 Ready。
+
+待确认 QwenPaw 上游能够稳定产生终态事件后，再补录正式压测原始 JSON、JFR 文件、环境信息和灰度决定。当前代码验证和启动灰度均已使用 Java 21 候选镜像完成，但生产组件已恢复原始 Java 17/默认关闭状态。
