@@ -7,6 +7,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class KubernetesSecretResolverTest {
@@ -67,6 +70,40 @@ class KubernetesSecretResolverTest {
                 new SecretResolverProperties(), Executors.newSingleThreadExecutor()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("allowlist");
+    }
+
+    @Test
+    void returnsUnavailableWhenTheConcurrencyLimitIsFull() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        SecretResolverProperties properties = properties();
+        properties.setMaxConcurrency(1);
+        ExecutorService resolverExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        KubernetesSecretResolver resolver = new KubernetesSecretResolver((namespace, name, key) -> {
+            entered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("resolver test interrupted", interrupted);
+            }
+            return KubernetesSecretReader.ValueState.PRESENT;
+        }, properties, resolverExecutor);
+        try {
+            Future<SecretResolver.Resolution> first = caller.submit(
+                    () -> resolver.resolve("k8s://agentteams/qwen#api-key"));
+            assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(resolver.resolve("k8s://agentteams/qwen#api-key").status())
+                    .isEqualTo(SecretResolver.Status.UNAVAILABLE);
+            release.countDown();
+            assertThat(first.get(1, TimeUnit.SECONDS).status()).isEqualTo(SecretResolver.Status.RESOLVED);
+        } finally {
+            release.countDown();
+            resolver.close();
+            caller.shutdownNow();
+        }
     }
 
     private static SecretResolverProperties properties() {

@@ -15,7 +15,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
     return (
       <div className="page">
         <div className="page-heading">
-          <p className="eyebrow">PROJECT OVERVIEW</p>
+          <p className="eyebrow">项目概览</p>
           <h1>运行概览</h1>
         </div>
         <div className="metric-grid">
@@ -34,7 +34,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
   if (!overview.data)
     return (
       <div className="page">
-        <EmptyState title="暂无概览数据" description="当前 Project 还没有可展示的运行数据。" />
+        <EmptyState title="暂无概览数据" description="当前项目还没有可展示的运行数据。" />
       </div>
     );
   const { tasks, workers, teams, alerts, errors, usage, metricsUnavailable } = overview.data;
@@ -42,9 +42,9 @@ export function OverviewPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">PROJECT OVERVIEW</p>
+          <p className="eyebrow">项目概览</p>
           <h1>运行概览</h1>
-          <p>掌握当前 Project 的资源健康与任务进展。</p>
+          <p>掌握当前项目的资源健康与任务进展。</p>
         </div>
         <button className="button button--ghost" onClick={() => void overview.refetch()}>
           刷新数据
@@ -70,7 +70,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           onRetry={() => void overview.refetch()}
         />
         <Metric
-          label="可用 Worker"
+          label="可用工作节点"
           value={workers.ready}
           detail={`${formatCount(workers.connecting)} 个连接中`}
           tone="success"
@@ -79,9 +79,9 @@ export function OverviewPage({ projectId }: { projectId: string }) {
           onRetry={() => void overview.refetch()}
         />
         <Metric
-          label="活跃 Team"
+          label="活跃团队"
           value={teams.active}
-          detail={`共 ${formatCount(teams.total)} 个 Team`}
+          detail={`共 ${formatCount(teams.total)} 个团队`}
           tone="neutral"
           error={errors?.resources}
           unavailable={metricsUnavailable}
@@ -92,7 +92,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">HEALTH SIGNALS</p>
+              <p className="eyebrow">健康信号</p>
               <h2>当前告警</h2>
             </div>
             <span className="muted">{alerts.length} 条</span>
@@ -118,7 +118,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">MODEL USAGE</p>
+              <p className="eyebrow">模型用量</p>
               <h2>模型调用</h2>
             </div>
           </div>
@@ -146,7 +146,7 @@ export function OverviewPage({ projectId }: { projectId: string }) {
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">TASK FLOW</p>
+              <p className="eyebrow">任务流程</p>
               <h2>任务分布</h2>
             </div>
           </div>

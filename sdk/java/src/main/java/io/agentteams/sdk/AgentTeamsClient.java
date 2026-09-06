@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-/** Small Java 17 client for the AgentTeams public API. */
+/** Small Java 21 client for the AgentTeams public API. */
 public final class AgentTeamsClient {
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
     private final HttpClient httpClient; private final String baseUrl; private final Supplier<String> accessToken;

@@ -24,9 +24,9 @@ export function TaskPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">RESOURCE / TASKS</p>
-          <h1>Tasks</h1>
-          <p>从看板或列表跟踪任务状态、执行 Worker 和运行结果。</p>
+          <p className="eyebrow">资源 / 任务</p>
+          <h1>任务</h1>
+          <p>从看板或列表跟踪任务状态、执行工作节点和运行结果。</p>
         </div>
         <Link className="button button--primary" to={`/${projectId}/tasks/new`}>
           创建任务

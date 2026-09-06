@@ -9,6 +9,18 @@ import org.junit.jupiter.api.Test;
 
 class WorkerRuntimeFactoryTest {
     @Test
+    void readsVirtualThreadSwitchFromEnvironmentAndDefaultsToDisabled() {
+        QwenPawWorker.WorkerConfiguration disabled = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a"));
+        QwenPawWorker.WorkerConfiguration enabled = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a",
+                "AGENTTEAMS_VIRTUAL_THREADS_ENABLED", "true"));
+
+        org.assertj.core.api.Assertions.assertThat(disabled.virtualThreadsEnabled()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(enabled.virtualThreadsEnabled()).isTrue();
+    }
+
+    @Test
     void explicitlyConfiguredAgentScopeFailsFastWhenHarnessOrModelIsMissing() {
         QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
                 "AGENTTEAMS_AGENT_ID", "agent-a",

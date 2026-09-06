@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { listAuditEvents, type AuditFilters } from '../../api/audit';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { labelAction, labelType } from '../../i18n/labels';
 
 export function ManagementAuditPage({ projectId }: { projectId: string }) {
   const [draftFilters, setDraftFilters] = useState({
@@ -53,11 +54,9 @@ export function ManagementAuditPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">GOVERNANCE / AUDIT</p>
+          <p className="eyebrow">治理 / 审计</p>
           <h1>审计事件</h1>
-          <p className="page-subtitle">
-            查看当前 Project 的操作审计元数据；敏感属性由后端统一脱敏。
-          </p>
+          <p className="page-subtitle">查看当前项目的操作审计元数据；敏感属性由后端统一脱敏。</p>
         </div>
         <button className="button button--ghost" onClick={() => void query.refetch()}>
           刷新
@@ -66,10 +65,10 @@ export function ManagementAuditPage({ projectId }: { projectId: string }) {
       <section className="panel" aria-label="审计筛选">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">FILTERS</p>
+            <p className="eyebrow">筛选条件</p>
             <h2>筛选与分页</h2>
           </div>
-          <span className="muted">结果仍按当前 Project 作用域过滤</span>
+          <span className="muted">结果仍按当前项目作用域过滤</span>
         </div>
         <div className="form-grid">
           <label>
@@ -137,9 +136,9 @@ export function ManagementAuditPage({ projectId }: { projectId: string }) {
                   <tr key={event.id}>
                     <td>{new Date(event.occurredAt).toLocaleString('zh-CN')}</td>
                     <td>{event.actor}</td>
-                    <td>{event.action}</td>
+                    <td>{labelAction(event.action)}</td>
                     <td>
-                      {event.resourceType} / {event.resourceId}
+                      {labelType(event.resourceType)} / {event.resourceId}
                     </td>
                     <td>
                       {Object.entries(event.attributes)

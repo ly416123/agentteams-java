@@ -51,7 +51,7 @@ describe('Management artifact page', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Artifacts' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '制品' })).toBeInTheDocument();
     expect(await screen.findByText('report.pdf')).toBeInTheDocument();
     expect(screen.getByText('abc123')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '下载' })).not.toBeInTheDocument();
@@ -70,7 +70,7 @@ describe('Management artifact page', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Artifact 保留策略' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '制品保留策略' })).toBeInTheDocument();
     fireEvent.change(await screen.findByLabelText('成功任务保留（秒）'), {
       target: { value: '172800' },
     });

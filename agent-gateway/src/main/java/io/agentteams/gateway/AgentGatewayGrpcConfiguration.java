@@ -190,10 +190,12 @@ public class AgentGatewayGrpcConfiguration {
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             NatsGatewayProperties properties, GatewayMetricsPort metrics, ObjectProvider<Tracer> tracers,
             ObjectProvider<Propagator> propagators) throws IOException {
+        properties.validate();
         return new NatsGatewayEventConsumer(gatewayNatsConnection, commandHandler, configHandler, objectMapper,
                 properties.getSubject(), properties.taskConsumerDurable(), properties.getConfigSubject(),
                 properties.configConsumerDurable(), metrics, new AsyncConsumerTracing(
-                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)));
+                        tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)),
+                properties.getConcurrency(), properties.getMaxAckPending());
     }
 
     @Bean

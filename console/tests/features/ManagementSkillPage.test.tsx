@@ -90,10 +90,10 @@ function renderPage() {
 describe('Management skill page', () => {
   it('creates a skill and version, then records review without pretending package publish succeeded', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { name: 'Skills' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '技能' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('内部名称'), 'analytics');
     await userEvent.type(screen.getByLabelText('显示名称'), 'Analytics');
-    await userEvent.click(screen.getByRole('button', { name: '创建 Skill' }));
+    await userEvent.click(screen.getByRole('button', { name: '创建技能' }));
     expect(mocks.createSkill).toHaveBeenCalledWith({
       name: 'analytics',
       displayName: 'Analytics',
@@ -101,10 +101,10 @@ describe('Management skill page', () => {
       visibility: 'PRIVATE',
     });
 
-    await userEvent.selectOptions(screen.getByLabelText('Skill'), 'skill-1');
+    await userEvent.selectOptions(screen.getByLabelText('技能'), 'skill-1');
     await userEvent.type(screen.getByLabelText('版本'), '1.0.0');
-    await userEvent.type(screen.getByLabelText('Digest'), 'sha256:abc');
-    fireEvent.change(screen.getByLabelText('Manifest JSON'), {
+    await userEvent.type(screen.getByLabelText('摘要（Digest）'), 'sha256:abc');
+    fireEvent.change(screen.getByLabelText('清单 JSON'), {
       target: { value: '{"name":"reporting"}' },
     });
     await userEvent.click(screen.getByRole('button', { name: '创建版本' }));
@@ -132,9 +132,9 @@ describe('Management skill page', () => {
     });
     renderPage();
     await screen.findByRole('option', { name: /Reporting/ });
-    await userEvent.selectOptions(screen.getByLabelText('Skill'), 'skill-1');
+    await userEvent.selectOptions(screen.getByLabelText('技能'), 'skill-1');
     await userEvent.type(screen.getByLabelText('版本'), '1.0.0');
-    await userEvent.type(screen.getByLabelText('Digest'), 'sha256:abc');
+    await userEvent.type(screen.getByLabelText('摘要（Digest）'), 'sha256:abc');
     await userEvent.click(screen.getByRole('button', { name: '创建版本' }));
     await userEvent.click(await screen.findByRole('button', { name: '发布版本' }));
     expect(mocks.publishSkillVersion).toHaveBeenCalledWith('skill-1', 'version-1');
@@ -159,12 +159,12 @@ describe('Management skill page', () => {
     });
     renderPage();
     await screen.findByRole('option', { name: /Reporting/ });
-    await userEvent.selectOptions(screen.getByLabelText('Skill'), 'skill-1');
+    await userEvent.selectOptions(screen.getByLabelText('技能'), 'skill-1');
     await userEvent.type(screen.getByLabelText('版本'), '1.0.0');
-    await userEvent.type(screen.getByLabelText('Digest'), 'sha256:abc');
+    await userEvent.type(screen.getByLabelText('摘要（Digest）'), 'sha256:abc');
     await userEvent.click(screen.getByRole('button', { name: '创建版本' }));
     const file = new File(['test'], 'skill.tar.gz', { type: 'application/gzip' });
-    await userEvent.upload(screen.getByLabelText('Skill package'), file);
+    await userEvent.upload(screen.getByLabelText('技能包'), file);
     const uploadButton = await screen.findByRole('button', { name: '上传制品' });
     expect(uploadButton).toBeEnabled();
     await userEvent.click(uploadButton);

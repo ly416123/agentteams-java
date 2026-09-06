@@ -135,6 +135,7 @@ controlPlane:
     internalToken: ""
   env:
     SPRING_PROFILES_ACTIVE: k8s
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
     AGENTTEAMS_NATS_ENABLED: "true"
     AGENTTEAMS_OUTBOX_RELAY_ENABLED: "true"
     AGENTTEAMS_CONFIG_SNAPSHOT_RETENTION_COUNT: "5"
@@ -171,6 +172,7 @@ gateway:
   sessionAffinity: ClientIP
   env:
     AGENTTEAMS_GATEWAY_GRPC_PORT: "9090"
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
     AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"
     AGENTTEAMS_GATEWAY_NATS_URL: nats://nats:4222
   quota:
@@ -198,7 +200,8 @@ manager:
     qwenpawAgentId: default
     # The NetworkPolicy egress port for the selected QwenPaw endpoint.
     qwenpawEgressPort: 8088
-  env: {}
+  env:
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
   autoscaling:
     enabled: false
     minReplicas: 1

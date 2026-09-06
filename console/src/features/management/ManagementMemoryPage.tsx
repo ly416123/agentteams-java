@@ -3,6 +3,7 @@ import { governMemory, listMemoryMetadata, type MemoryMetadata } from '../../api
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelSource } from '../../i18n/labels';
 
 type Operation = 'CONFIRM' | 'REVOKE' | 'FREEZE' | 'DELETE' | 'EXPORT';
 
@@ -33,7 +34,7 @@ export function ManagementMemoryPage({ projectId }: { projectId: string }) {
         document.getElementById('memory-governance-reason') as HTMLInputElement | null
       )?.value.trim() || '';
     if (!reason) return;
-    if (operation === 'DELETE' && !window.confirm('确认删除该 Memory 的治理记录？')) return;
+    if (operation === 'DELETE' && !window.confirm('确认删除该记忆的治理记录？')) return;
     mutation.mutate({ memoryId: memory.id, operation, reason });
   }
 
@@ -41,8 +42,8 @@ export function ManagementMemoryPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">GOVERNANCE / MEMORY</p>
-          <h1>Memory 治理</h1>
+          <p className="eyebrow">治理 / 记忆</p>
+          <h1>记忆治理</h1>
           <p className="page-subtitle">
             只展示策略、治理状态和来源元数据；不展示记忆内容、原始历史或 Secret。
           </p>
@@ -63,7 +64,7 @@ export function ManagementMemoryPage({ projectId }: { projectId: string }) {
       ) : memories.isError ? (
         <ErrorState error={memories.error} onRetry={() => void memories.refetch()} />
       ) : !memories.data?.length ? (
-        <EmptyState title="暂无 Memory" description="当前作用域没有可展示的 Memory 元数据。" />
+        <EmptyState title="暂无记忆" description="当前作用域没有可展示的记忆元数据。" />
       ) : (
         <div className="content-grid">
           {memories.data.map((memory) => (
@@ -101,16 +102,16 @@ function MemoryCard({
       </div>
       <div className="detail-list">
         <span>
-          Subject<strong>{policy.subjectId || '共享策略'}</strong>
+          主体<strong>{policy.subjectId || '共享策略'}</strong>
         </span>
         <span>
-          Project<strong>{policy.projectId || '—'}</strong>
+          项目<strong>{policy.projectId || '—'}</strong>
         </span>
         <span>
-          Team<strong>{policy.teamId || '—'}</strong>
+          团队<strong>{policy.teamId || '—'}</strong>
         </span>
         <span>
-          Task<strong>{policy.taskId || '—'}</strong>
+          任务<strong>{policy.taskId || '—'}</strong>
         </span>
         <span>
           Sensitivity<strong>{policy.sensitivity}</strong>
@@ -119,7 +120,7 @@ function MemoryCard({
           Consent<strong>{policy.consent}</strong>
         </span>
         <span>
-          Source<strong>{memory.source}</strong>
+          来源<strong>{labelSource(memory.source)}</strong>
         </span>
         <span>
           Version<strong>{memory.version}</strong>

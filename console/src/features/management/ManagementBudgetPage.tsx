@@ -9,6 +9,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 export function ManagementBudgetPage({ projectId }: { projectId: string }) {
   const budgets = useQuery({
@@ -27,7 +28,7 @@ export function ManagementBudgetPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">OPERATIONS / BUDGETS</p>
+          <p className="eyebrow">运营 / 预算</p>
           <h1>预算与预测</h1>
           <p className="page-subtitle">查看预算阈值和最近一次评估结果；估算值不等同于最终账单。</p>
         </div>
@@ -40,7 +41,7 @@ export function ManagementBudgetPage({ projectId }: { projectId: string }) {
       ) : budgets.isError ? (
         <ErrorState error={budgets.error} onRetry={() => void budgets.refetch()} />
       ) : !budgets.data?.length ? (
-        <EmptyState title="暂无预算策略" description="当前 Project 尚未配置预算阈值。" />
+        <EmptyState title="暂无预算策略" description="当前项目尚未配置预算阈值。" />
       ) : (
         <div className="content-grid">
           {budgets.data.map((budget, index) => {
@@ -99,7 +100,7 @@ function BudgetCard({
         <StatusBadge phase={evaluation?.status || budget.status} />
       </div>
       <p>
-        策略状态：{budget.status} · version {budget.version}
+        策略状态：{labelStatus(budget.status)} · version {budget.version}
       </p>
       <div className="form-grid">
         <label>

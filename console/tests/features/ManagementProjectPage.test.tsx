@@ -31,13 +31,15 @@ describe('Management project page', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Project 管理' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '项目管理' })).toBeInTheDocument();
     expect(await screen.findByText('研发项目')).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText('Project 名称'), '新项目');
-    await userEvent.click(screen.getByRole('button', { name: '创建 Project' }));
+    expect(await screen.findByText('活跃')).toBeInTheDocument();
+    expect(screen.queryByText('ACTIVE')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('项目名称'), '新项目');
+    await userEvent.click(screen.getByRole('button', { name: '创建项目' }));
 
     expect(createProject).toHaveBeenCalledWith({ name: '新项目' });
-    expect(await screen.findByText('Project 已创建')).toBeInTheDocument();
+    expect(await screen.findByText('项目已创建')).toBeInTheDocument();
     expect(listProjects).toHaveBeenCalled();
   });
 });

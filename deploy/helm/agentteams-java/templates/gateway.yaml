@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.gateway.tls.privateKeyPath | quote }}
             - name: AGENTTEAMS_GATEWAY_GRPC_TLS_TRUST_CERTIFICATE_COLLECTION
               value: {{ .Values.gateway.tls.trustCertificateCollectionPath | quote }}
+            - name: AGENTTEAMS_VIRTUAL_THREADS_ENABLED
+              value: {{ default "false" .Values.gateway.env.AGENTTEAMS_VIRTUAL_THREADS_ENABLED | quote }}
             - name: AGENTTEAMS_GATEWAY_NATS_ENABLED
               value: {{ .Values.gateway.env.AGENTTEAMS_GATEWAY_NATS_ENABLED | quote }}
             - name: AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED

@@ -20,6 +20,9 @@ spec:
     # Keep the legacy QwenPaw execution path explicit until AgentScope is enabled
     # for a compatible Worker image and rollout policy.
     AGENTTEAMS_RUNTIME: "QWENPAW"
+    # Keep virtual-thread SSE readers disabled until the Java 21 baseline and
+    # production canary measurements approve enabling them for this Worker.
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
     # Remote quota is opt-in. If enabled, set both scope values to the same
     # tenant/project used by the caller; blank scopes keep this example safe.
     AGENTTEAMS_QUOTA_REMOTE_ENABLED: "false"

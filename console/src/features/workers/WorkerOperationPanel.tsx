@@ -10,19 +10,20 @@ import type { WorkerRolloutRequest } from '../../api/workers';
 import { ErrorState } from '../../components/ErrorState';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+import { labelPhase } from '../../i18n/labels';
 
 type ConfirmedAction = 'drain' | 'terminate' | 'rollout' | 'rollback';
 const actionLabels: Record<ConfirmedAction, string> = {
-  drain: 'Drain',
-  terminate: 'Terminate',
-  rollout: 'Rollout',
-  rollback: 'Rollback',
+  drain: '排空',
+  terminate: '终止',
+  rollout: '发布',
+  rollback: '回滚',
 };
 const actionImpacts: Record<ConfirmedAction, string> = {
   drain: 'Worker 将停止接收新任务，并等待当前任务完成或被接管。',
   terminate: 'Worker 将被终止，当前任务会中断且不会再接收新任务。',
   rollout: 'Worker 将切换到新镜像与配置，期间可能短暂不可用。',
-  rollback: 'Worker 将回滚到失败 Rollout 的稳定规格，当前版本可能被替换。',
+  rollback: '工作节点将回滚到失败发布的稳定规格，当前版本可能被替换。',
 };
 
 export function WorkerOperationPanel({
@@ -123,7 +124,7 @@ export function WorkerOperationPanel({
               (operation) => operation.type === 'ROLLOUT' && operation.status === 'FAILED',
             );
             if (latestOperation) submitRollback(latestOperation);
-            else setFormError('无法读取失败 Rollout 的最新版本，请刷新后重试。');
+            else setFormError('无法读取失败发布的最新版本，请刷新后重试。');
           }),
       },
     );
@@ -156,7 +157,7 @@ export function WorkerOperationPanel({
       <section className="panel operation-panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">LIFECYCLE CONTROL</p>
+            <p className="eyebrow">生命周期控制</p>
             <h2>操作面板</h2>
           </div>
           <span className="version-pill">版本 {worker.version}</span>
@@ -164,7 +165,7 @@ export function WorkerOperationPanel({
         {!drainAllowed && !terminateAllowed && !rolloutAllowed && (
           <div className="info-box">
             {worker.unavailableReason ||
-              `Worker 当前为「${worker.phase}」，后端权限矩阵不允许生命周期操作。`}
+              `工作节点当前为「${labelPhase(worker.phase)}」，后端权限矩阵不允许生命周期操作。`}
           </div>
         )}
         <div className="operation-actions">
@@ -173,39 +174,39 @@ export function WorkerOperationPanel({
             disabled={!drainAllowed || pending}
             onClick={() => setConfirmation('drain')}
           >
-            Drain
+            {actionLabels.drain}
           </button>
           <button
             className="button button--danger"
             disabled={!terminateAllowed || pending}
             onClick={() => setConfirmation('terminate')}
           >
-            Terminate
+            {actionLabels.terminate}
           </button>
           <button
             className="button button--ghost"
             disabled={!rolloutAllowed || pending || !rolloutReady}
             onClick={() => setConfirmation('rollout')}
           >
-            Rollout
+            {actionLabels.rollout}
           </button>
           <button
             className="button button--ghost"
             disabled={pending || !failedRollout}
             onClick={() => setConfirmation('rollback')}
           >
-            Rollback
+            {actionLabels.rollback}
           </button>
         </div>
         {mutationError && !conflict && (
           <ErrorState error={mutationError} onRetry={() => void retryLatest()} />
         )}
-        <div className="rollout-form" aria-label="Rollout 参数">
+        <div className="rollout-form" aria-label="发布参数">
           <label>
-            镜像 Digest
+            镜像摘要（Digest）
             <input
               required
-              aria-label="镜像 Digest"
+              aria-label="镜像摘要 Digest"
               value={rolloutForm.imageDigest}
               onChange={(event) =>
                 setRolloutForm({ ...rolloutForm, imageDigest: event.target.value })
@@ -213,10 +214,10 @@ export function WorkerOperationPanel({
             />
           </label>
           <label>
-            配置 Revision
+            配置版本（Revision）
             <input
               required
-              aria-label="配置 Revision"
+              aria-label="配置版本 Revision"
               value={rolloutForm.configRevision}
               onChange={(event) =>
                 setRolloutForm({ ...rolloutForm, configRevision: event.target.value })
@@ -224,10 +225,10 @@ export function WorkerOperationPanel({
             />
           </label>
           <label>
-            Secret Generation
+            密钥版本（Secret Generation）
             <input
               required
-              aria-label="Secret Generation"
+              aria-label="密钥版本 Generation"
               value={rolloutForm.secretGeneration}
               onChange={(event) =>
                 setRolloutForm({ ...rolloutForm, secretGeneration: event.target.value })
@@ -248,8 +249,7 @@ export function WorkerOperationPanel({
         </div>
         {!rolloutReady && (
           <p className="error-text">
-            Rollout 提交已禁用：镜像 Digest、配置 Revision、Secret
-            Generation、稳定规格快照均需提供真实值。
+            发布提交已禁用：镜像摘要、配置版本、密钥版本、稳定规格快照均需提供真实值。
           </p>
         )}
         {formError && <p className="error-text">{formError}</p>}

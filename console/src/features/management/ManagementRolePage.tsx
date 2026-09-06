@@ -10,6 +10,7 @@ import {
 } from '../../api/projects';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { labelRole, labelStatus } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -51,7 +52,7 @@ export function ManagementRolePage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / AUTHORIZATION</p>
+          <p className="eyebrow">管理 / 授权</p>
           <h1>角色与权限</h1>
           <p className="page-subtitle">
             查看 Project 成员的有效角色和权限。角色变更使用成员版本保护，OWNER 转移必须走独立流程。
@@ -67,7 +68,7 @@ export function ManagementRolePage() {
         </div>
       )}
       <section className="panel">
-        <label htmlFor="role-project">Project</label>
+        <label htmlFor="role-project">项目</label>
         <select
           id="role-project"
           value={selectedProjectId}
@@ -76,7 +77,7 @@ export function ManagementRolePage() {
             setDraftRoles({});
           }}
         >
-          <option value="">选择 Project</option>
+          <option value="">选择项目</option>
           {(projects.data?.items || []).map((project) => (
             <option key={project.id} value={project.id}>
               {project.name}
@@ -91,11 +92,11 @@ export function ManagementRolePage() {
       ) : members.isError ? (
         <ErrorState error={members.error} onRetry={() => void members.refetch()} />
       ) : !members.data?.length ? (
-        <EmptyState title="暂无 Project 成员" description="当前作用域没有可管理的成员。" />
+        <EmptyState title="暂无项目成员" description="当前作用域没有可管理的成员。" />
       ) : (
         <section className="panel">
           <h2>成员授权</h2>
-          <div className="stack-list" aria-label="Project 成员授权列表">
+          <div className="stack-list" aria-label="项目成员授权列表">
             {members.data.map((member) => {
               const role = roleFor(member);
               const editable = member.role !== 'OWNER';
@@ -104,7 +105,7 @@ export function ManagementRolePage() {
                   <div>
                     <strong>{member.subject}</strong>
                     <div className="muted-text">
-                      {member.status} · version {member.version}
+                      {labelStatus(member.status)} · version {member.version}
                     </div>
                   </div>
                   <select
@@ -115,10 +116,10 @@ export function ManagementRolePage() {
                       setDraftRoles({ ...draftRoles, [member.subject]: event.target.value })
                     }
                   >
-                    {member.role === 'OWNER' && <option value="OWNER">OWNER</option>}
+                    {member.role === 'OWNER' && <option value="OWNER">{labelRole('OWNER')}</option>}
                     {EDITABLE_ROLES.map((item) => (
                       <option key={item} value={item}>
-                        {item}
+                        {labelRole(item)}
                       </option>
                     ))}
                   </select>
@@ -145,7 +146,7 @@ export function ManagementRolePage() {
           <div className="content-grid">
             {(permissions.data as ProjectRolePermissions[] | undefined)?.map((item) => (
               <article className="panel" key={item.role}>
-                <h3>{item.role}</h3>
+                <h3>{labelRole(item.role)}</h3>
                 <div className="stack-list">
                   {item.permissions.map((permission) => (
                     <span className="muted-text" key={permission}>

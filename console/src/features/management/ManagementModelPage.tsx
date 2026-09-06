@@ -17,6 +17,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+import { labelStatus, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -57,7 +58,7 @@ export function ManagementModelPage() {
       }),
     onSuccess: () => {
       setProvider({ name: '', providerType: 'OPENAI_COMPATIBLE', endpoint: '', credentialRef: '' });
-      setNotice({ kind: 'success', text: 'Model Provider 已创建' });
+      setNotice({ kind: 'success', text: '模型服务商已创建' });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -72,7 +73,7 @@ export function ManagementModelPage() {
     onSuccess: () => {
       const providerId = model.providerId;
       setModel({ providerId: '', name: '', modelId: '' });
-      setNotice({ kind: 'success', text: 'Model 已创建' });
+      setNotice({ kind: 'success', text: '模型已创建' });
       void queryClient.invalidateQueries({ queryKey: ['models', providerId] });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -80,13 +81,16 @@ export function ManagementModelPage() {
   const connectionTest = useMutation({
     mutationFn: (id: string) => testModelProviderConnection(id),
     onSuccess: (result) =>
-      setNotice({ kind: 'success', text: `连接测试：${result.status} / ${result.classification}` }),
+      setNotice({
+        kind: 'success',
+        text: `连接测试：${labelStatus(result.status)} / ${labelType(result.classification)}`,
+      }),
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
   const toggleProvider = useMutation({
     mutationFn: (item: ModelProvider) => setModelProviderEnabled(item.id, !item.enabled),
     onSuccess: (value) => {
-      setNotice({ kind: 'success', text: `Provider 已${value.enabled ? '启用' : '停用'}` });
+      setNotice({ kind: 'success', text: `服务商已${value.enabled ? '启用' : '停用'}` });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -95,7 +99,7 @@ export function ManagementModelPage() {
     mutationFn: (id: string) => deleteModelProvider(id),
     onSuccess: () => {
       setDeleteTarget(undefined);
-      setNotice({ kind: 'success', text: 'Provider 已删除' });
+      setNotice({ kind: 'success', text: '服务商已删除' });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -104,7 +108,7 @@ export function ManagementModelPage() {
     mutationFn: ({ item }: { item: Model; providerId: string }) =>
       setModelEnabled(item.id, !item.enabled),
     onSuccess: (_value, variables) => {
-      setNotice({ kind: 'success', text: 'Model 状态已更新' });
+      setNotice({ kind: 'success', text: '模型状态已更新' });
       void queryClient.invalidateQueries({ queryKey: ['models', variables.providerId] });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -113,7 +117,7 @@ export function ManagementModelPage() {
     mutationFn: ({ id }: { id: string; providerId: string }) => deleteModel(id),
     onSuccess: (_value, variables) => {
       setDeleteTarget(undefined);
-      setNotice({ kind: 'success', text: 'Model 已删除' });
+      setNotice({ kind: 'success', text: '模型已删除' });
       void queryClient.invalidateQueries({ queryKey: ['models', variables.providerId] });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -136,7 +140,7 @@ export function ManagementModelPage() {
           <p className="eyebrow">MANAGEMENT / MODELS</p>
           <h1>模型与价格</h1>
           <p className="page-subtitle">
-            管理 Model Provider 和模型目录。连接测试结果仅代表当前依赖状态，不等同于生产凭据可用。
+            管理模型服务商和模型目录。连接测试结果仅代表当前依赖状态，不等同于生产凭据可用。
           </p>
         </div>
         <button className="button button--ghost" onClick={() => void providers.refetch()}>
@@ -150,7 +154,7 @@ export function ManagementModelPage() {
       )}
       <div className="content-grid">
         <form className="form-panel" onSubmit={submitProvider}>
-          <h2>登记 Model Provider</h2>
+          <h2>登记模型服务商</h2>
           <label>
             名称
             <input
@@ -160,7 +164,7 @@ export function ManagementModelPage() {
             />
           </label>
           <label>
-            Provider Type
+            服务商类型
             <input
               value={provider.providerType}
               onChange={(event) => setProvider({ ...provider, providerType: event.target.value })}
@@ -177,7 +181,7 @@ export function ManagementModelPage() {
             />
           </label>
           <label>
-            Credential Ref（可选）
+            凭据引用（可选）
             <input
               value={provider.credentialRef}
               onChange={(event) => setProvider({ ...provider, credentialRef: event.target.value })}
@@ -189,19 +193,19 @@ export function ManagementModelPage() {
             type="submit"
             disabled={createProvider.isPending}
           >
-            登记 Provider
+            登记服务商
           </button>
         </form>
         <form className="form-panel" onSubmit={submitModel}>
-          <h2>登记 Model</h2>
+          <h2>登记模型</h2>
           <label>
-            Provider
+            服务商
             <select
               value={model.providerId}
               onChange={(event) => setModel({ ...model, providerId: event.target.value })}
               required
             >
-              <option value="">选择 Provider</option>
+              <option value="">选择服务商</option>
               {(providers.data || []).map((item) => (
                 <option value={item.id} key={item.id}>
                   {item.name}
@@ -218,7 +222,7 @@ export function ManagementModelPage() {
             />
           </label>
           <label>
-            Model ID
+            模型 ID
             <input
               value={model.modelId}
               onChange={(event) => setModel({ ...model, modelId: event.target.value })}
@@ -230,7 +234,7 @@ export function ManagementModelPage() {
             type="submit"
             disabled={createModelMutation.isPending}
           >
-            登记 Model
+            登记模型
           </button>
         </form>
       </div>
@@ -239,7 +243,7 @@ export function ManagementModelPage() {
       ) : providers.isError ? (
         <ErrorState error={providers.error} onRetry={() => void providers.refetch()} />
       ) : !providers.data?.length ? (
-        <EmptyState title="暂无 Model Provider" description="登记 Provider 后可继续登记 Model。" />
+        <EmptyState title="暂无模型服务商" description="登记服务商后可继续登记模型。" />
       ) : (
         <div className="content-grid">
           {providers.data.map((item, index) => (
@@ -248,13 +252,13 @@ export function ManagementModelPage() {
                 <div>
                   <h2>{item.name}</h2>
                   <p className="muted-text">
-                    {item.providerType} · {item.endpoint}
+                    {labelType(item.providerType)} · {item.endpoint}
                   </p>
                 </div>
-                <span className="status-badge">{item.enabled ? 'ENABLED' : 'DISABLED'}</span>
+                <span className="status-badge">{item.enabled ? '已启用' : '已禁用'}</span>
               </div>
               <p className="muted-text">
-                credential: {item.credentialConfigured ? '已配置（仅引用）' : '未配置'} · version{' '}
+                凭据：{item.credentialConfigured ? '已配置（仅引用）' : '未配置'} · 版本{' '}
                 {item.version}
               </p>
               <button
@@ -278,16 +282,16 @@ export function ManagementModelPage() {
               >
                 删除
               </button>
-              <div className="stack-list" aria-label={`${item.name} 的 Model`}>
+              <div className="stack-list" aria-label={`${item.name} 的模型`}>
                 {models[index]?.isLoading ? (
-                  <span className="muted-text">Model 加载中…</span>
+                  <span className="muted-text">模型加载中…</span>
                 ) : models[index]?.data?.length ? (
                   models[index].data.map((managedModel) => (
                     <div className="stack-list__item" key={managedModel.id}>
                       <span>
                         {managedModel.name} · {managedModel.modelId}{' '}
                         <span className="muted-text">
-                          {managedModel.enabled ? 'ENABLED' : 'DISABLED'} · v{managedModel.version}
+                          {managedModel.enabled ? '已启用' : '已禁用'} · v{managedModel.version}
                         </span>
                       </span>
                       <span>
@@ -298,20 +302,20 @@ export function ManagementModelPage() {
                             toggleModel.mutate({ item: managedModel, providerId: item.id })
                           }
                         >
-                          {managedModel.enabled ? '停用 Model' : '启用 Model'}
+                          {managedModel.enabled ? '停用模型' : '启用模型'}
                         </button>
                         <button
                           className="button button--danger"
                           disabled={removeModel.isPending}
                           onClick={() => setDeleteTarget({ kind: 'model', item: managedModel })}
                         >
-                          删除 Model
+                          删除模型
                         </button>
                       </span>
                     </div>
                   ))
                 ) : (
-                  <span className="muted-text">暂无 Model</span>
+                  <span className="muted-text">暂无模型</span>
                 )}
               </div>
             </article>
@@ -320,11 +324,11 @@ export function ManagementModelPage() {
       )}
       <ActionConfirmModal
         open={Boolean(deleteTarget)}
-        actionLabel={deleteTarget?.kind === 'model' ? '删除 Model' : '删除 Model Provider'}
+        actionLabel={deleteTarget?.kind === 'model' ? '删除模型' : '删除模型服务商'}
         impact={
           deleteTarget?.kind === 'model'
-            ? '删除后该 Model 将不能继续用于新任务，且无法从管理端恢复。'
-            : '删除后该 Provider 及其关联模型将不能继续用于新任务，且无法从管理端恢复。'
+            ? '删除后该模型将不能继续用于新任务，且无法从管理端恢复。'
+            : '删除后该服务商及其关联模型将不能继续用于新任务，且无法从管理端恢复。'
         }
         onCancel={() => setDeleteTarget(undefined)}
         onConfirm={() => {
@@ -379,7 +383,7 @@ export function ManagementModelPage() {
                     </td>
                     <td>{new Date(price.effectiveFrom).toLocaleString('zh-CN')}</td>
                     <td>
-                      {price.lifecycleStatus} · v{price.version}
+                      {labelStatus(price.lifecycleStatus)} · v{price.version}
                     </td>
                   </tr>
                 ))}

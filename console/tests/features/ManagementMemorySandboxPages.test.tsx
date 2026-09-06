@@ -63,7 +63,7 @@ function renderPage(page: React.ReactNode) {
 describe('management memory and sandbox pages', () => {
   it('renders memory policy metadata and sends a reasoned governance action', async () => {
     renderPage(<ManagementMemoryPage projectId="project-1" />);
-    expect(await screen.findByRole('heading', { name: 'Memory 治理' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '记忆治理' })).toBeInTheDocument();
     expect(await screen.findByText('USER_PRIVATE')).toBeInTheDocument();
     expect(screen.getByText('user-1')).toBeInTheDocument();
     expect(screen.queryByText(/private summary/)).not.toBeInTheDocument();
@@ -74,7 +74,7 @@ describe('management memory and sandbox pages', () => {
 
   it('renders attempt-scoped sandbox metadata without workspace contents', async () => {
     renderPage(<ManagementSandboxPage projectId="project-1" />);
-    expect(await screen.findByRole('heading', { name: 'Sandbox 运维' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '沙箱运维' })).toBeInTheDocument();
     expect(await screen.findByText('HARDENED')).toBeInTheDocument();
     expect(screen.getByText('attempt-1')).toBeInTheDocument();
     expect(screen.getByText('sandbox://attempt-1')).toBeInTheDocument();

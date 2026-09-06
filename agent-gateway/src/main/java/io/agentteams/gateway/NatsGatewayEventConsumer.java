@@ -17,9 +17,18 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import io.agentteams.application.api.TraceContext;
@@ -30,7 +39,11 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private static final Logger LOGGER = Logger.getLogger(NatsGatewayEventConsumer.class.getName());
     private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(1);
     private static final Duration IDLE_BACKOFF = Duration.ofMillis(10);
-    private static final long CONFIG_MAX_ACK_PENDING = 10_000;
+    private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration RECOVERY_RETRY_DELAY = Duration.ofMillis(100);
+    private static final Duration RECOVERY_MAX_DELAY = Duration.ofSeconds(5);
+    private static final int DEFAULT_CONCURRENCY = 8;
+    private static final int DEFAULT_MAX_ACK_PENDING = 32;
 
     private final JetStream jetStream;
     private final Connection connection;
@@ -43,9 +56,13 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private final String configDurable;
     private final GatewayMetricsPort metrics;
     private final AsyncConsumerTracing tracing;
+    private final int maxAckPending;
+    private final OrderedDispatcher dispatcher;
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object lifecycleMonitor = new Object();
     private final ConnectionListener connectionListener = this::onConnectionEvent;
+    private final ScheduledExecutorService recoveryExecutor;
+    private final AtomicBoolean recoveryScheduled = new AtomicBoolean();
     private JetStreamSubscription subscription;
     private JetStreamSubscription configSubscription;
     private ExecutorService executor;
@@ -54,34 +71,37 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             ObjectMapper objectMapper, String subject, String durable) {
         this((Connection) null, jetStream, commandHandler, new ConfigChangedCommandHandler(
                 commandHandler.delivery(), objectMapper), objectMapper, subject, durable,
-                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop(),
+                DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsGatewayEventConsumer(Connection connection, TaskAssignedCommandHandler commandHandler,
             ObjectMapper objectMapper, String subject, String durable) throws IOException {
         this(connection, connection.jetStream(), commandHandler, new ConfigChangedCommandHandler(
                 commandHandler.delivery(), objectMapper), objectMapper, subject, durable,
-                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop(),
+                DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable) {
         this((Connection) null, jetStream, commandHandler, configHandler, objectMapper, subject, durable,
-                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
+                "agent.events.*", "agent-gateway-config", GatewayMetricsPort.noop(), AsyncConsumerTracing.noop(),
+                DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable) {
         this((Connection) null, jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
-                GatewayMetricsPort.noop(), AsyncConsumerTracing.noop());
+                GatewayMetricsPort.noop(), AsyncConsumerTracing.noop(), DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsGatewayEventConsumer(JetStream jetStream, TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
             String configSubject, String configDurable, GatewayMetricsPort metrics) {
         this((Connection) null, jetStream, commandHandler, configHandler, objectMapper, subject, durable, configSubject, configDurable,
-                metrics, AsyncConsumerTracing.noop());
+                metrics, AsyncConsumerTracing.noop(), DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsGatewayEventConsumer(Connection connection, TaskAssignedCommandHandler commandHandler,
@@ -89,13 +109,22 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             String configSubject, String configDurable, GatewayMetricsPort metrics,
             AsyncConsumerTracing tracing) throws IOException {
         this(connection, connection.jetStream(), commandHandler, configHandler, objectMapper, subject, durable,
-                configSubject, configDurable, metrics, tracing);
+                configSubject, configDurable, metrics, tracing, DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
+    }
+
+    public NatsGatewayEventConsumer(Connection connection, TaskAssignedCommandHandler commandHandler,
+            ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
+            String configSubject, String configDurable, GatewayMetricsPort metrics,
+            AsyncConsumerTracing tracing, int concurrency, int maxAckPending) throws IOException {
+        this(connection, connection.jetStream(), commandHandler, configHandler, objectMapper, subject, durable,
+                configSubject, configDurable, metrics, tracing, concurrency, maxAckPending);
     }
 
     private NatsGatewayEventConsumer(Connection connection, JetStream jetStream,
             TaskAssignedCommandHandler commandHandler,
             ConfigChangedCommandHandler configHandler, ObjectMapper objectMapper, String subject, String durable,
-            String configSubject, String configDurable, GatewayMetricsPort metrics, AsyncConsumerTracing tracing) {
+            String configSubject, String configDurable, GatewayMetricsPort metrics, AsyncConsumerTracing tracing,
+            int concurrency, int maxAckPending) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
         this.connection = connection;
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
@@ -107,15 +136,33 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.configDurable = requireText(configDurable, "configDurable");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.tracing = Objects.requireNonNull(tracing, "tracing");
+        this.maxAckPending = requirePositiveAtLeast(maxAckPending, concurrency, "maxAckPending");
+        this.dispatcher = new OrderedDispatcher(concurrency, this.maxAckPending);
+        this.recoveryExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "agent-gateway-nats-recovery");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     /** Testable constructor for envelope processing without starting a NATS subscription. */
     public NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper) {
-        this(commandHandler, objectMapper, AsyncConsumerTracing.noop());
+        this(commandHandler, objectMapper, AsyncConsumerTracing.noop(), DEFAULT_CONCURRENCY,
+                DEFAULT_MAX_ACK_PENDING);
     }
 
     NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper,
             AsyncConsumerTracing tracing) {
+        this(commandHandler, objectMapper, tracing, DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
+    }
+
+    NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper,
+            AsyncConsumerTracing tracing, int concurrency, int maxAckPending) {
+        this(commandHandler, objectMapper, GatewayMetricsPort.noop(), tracing, concurrency, maxAckPending);
+    }
+
+    NatsGatewayEventConsumer(TaskAssignedCommandHandler commandHandler, ObjectMapper objectMapper,
+            GatewayMetricsPort metrics, AsyncConsumerTracing tracing, int concurrency, int maxAckPending) {
         this.connection = null;
         this.jetStream = null;
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
@@ -125,8 +172,15 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.durable = null;
         this.configSubject = null;
         this.configDurable = null;
-        this.metrics = GatewayMetricsPort.noop();
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.tracing = Objects.requireNonNull(tracing, "tracing");
+        this.maxAckPending = requirePositiveAtLeast(maxAckPending, concurrency, "maxAckPending");
+        this.dispatcher = new OrderedDispatcher(concurrency, this.maxAckPending);
+        this.recoveryExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "agent-gateway-nats-recovery");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     public void start() throws IOException, JetStreamApiException {
@@ -137,9 +191,20 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             if (jetStream == null) {
                 throw new IllegalStateException("NATS runtime is not configured");
             }
-            subscription = jetStream.subscribe(subject, durable,
-                    PushSubscribeOptions.builder().durable(durable).build());
-            configSubscription = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
+            JetStreamSubscription replacement = null;
+            JetStreamSubscription configReplacement = null;
+            try {
+                replacement = jetStream.subscribe(subject, durable, subscribeOptions(durable));
+                configReplacement = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
+                subscription = replacement;
+                configSubscription = configReplacement;
+            } catch (IOException | JetStreamApiException | RuntimeException error) {
+                subscription = null;
+                configSubscription = null;
+                unsubscribe(replacement);
+                unsubscribe(configReplacement);
+                throw error;
+            }
             running.set(true);
             if (connection != null) {
                 connection.addConnectionListener(connectionListener);
@@ -189,10 +254,20 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     }
 
     public void stop() {
+        stop(DEFAULT_SHUTDOWN_TIMEOUT);
+    }
+
+    public void close(Duration timeout) {
+        stop(timeout);
+    }
+
+    private void stop(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must not be negative");
+        }
         synchronized (lifecycleMonitor) {
-            if (!running.getAndSet(false)) {
-                return;
-            }
+            running.set(false);
             if (connection != null) {
                 connection.removeConnectionListener(connectionListener);
             }
@@ -208,41 +283,97 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 executor.shutdownNow();
                 executor = null;
             }
+            recoveryScheduled.set(false);
+            recoveryExecutor.shutdownNow();
         }
+        dispatcher.close(timeout);
     }
 
     private void onConnectionEvent(Connection ignored, ConnectionListener.Events event) {
         if (event != ConnectionListener.Events.RESUBSCRIBED || !running.get()) {
             return;
         }
+        if (recoveryScheduled.compareAndSet(false, true)) {
+            scheduleRecoveryAttempt(0);
+        }
+    }
+
+    private void scheduleRecoveryAttempt(int attempt) {
+        Duration delay = recoveryDelay(attempt);
+        try {
+            recoveryExecutor.schedule(() -> restoreSubscriptions(attempt), delay.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException rejected) {
+            recoveryScheduled.set(false);
+        }
+    }
+
+    private void restoreSubscriptions(int attempt) {
+        if (!running.get()) {
+            recoveryScheduled.set(false);
+            return;
+        }
+        boolean restored = false;
+        JetStreamSubscription replacement = null;
+        JetStreamSubscription configReplacement = null;
         synchronized (lifecycleMonitor) {
             if (!running.get()) {
+                recoveryScheduled.set(false);
                 return;
             }
-            unsubscribe(subscription);
-            unsubscribe(configSubscription);
+            JetStreamSubscription previous = subscription;
+            JetStreamSubscription previousConfig = configSubscription;
+            subscription = null;
+            configSubscription = null;
+            unsubscribe(previous);
+            unsubscribe(previousConfig);
             try {
-                subscription = jetStream.subscribe(subject, durable,
-                        PushSubscribeOptions.builder().durable(durable).build());
-                configSubscription = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
-                LOGGER.info("Agent Gateway NATS subscriptions restored after reconnect");
-            } catch (IOException | JetStreamApiException error) {
-                LOGGER.log(Level.WARNING, "Unable to restore Agent Gateway NATS subscriptions after reconnect", error);
+                replacement = jetStream.subscribe(subject, durable, subscribeOptions(durable));
+                configReplacement = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
+                subscription = replacement;
+                configSubscription = configReplacement;
+                restored = true;
+            } catch (IOException | JetStreamApiException | RuntimeException error) {
+                unsubscribe(replacement);
+                unsubscribe(configReplacement);
+                LOGGER.log(Level.WARNING,
+                        "Unable to restore Agent Gateway NATS subscriptions after reconnect; retrying", error);
             }
         }
+        if (restored) {
+            recoveryScheduled.set(false);
+            LOGGER.info("Agent Gateway NATS subscriptions restored after reconnect");
+        } else if (running.get()) {
+            scheduleRecoveryAttempt(attempt + 1);
+        } else {
+            recoveryScheduled.set(false);
+        }
+    }
+
+    private static Duration recoveryDelay(int attempt) {
+        long multiplier = 1L << Math.min(attempt, 5);
+        long delayMillis = Math.min(RECOVERY_MAX_DELAY.toMillis(), RECOVERY_RETRY_DELAY.toMillis() * multiplier);
+        return Duration.ofMillis(delayMillis);
     }
 
     private static void unsubscribe(JetStreamSubscription candidate) {
         if (candidate != null) {
-            candidate.unsubscribe();
+            try {
+                candidate.unsubscribe();
+            } catch (RuntimeException error) {
+                LOGGER.log(Level.FINE, "Unable to unsubscribe stale Agent Gateway NATS subscription", error);
+            }
         }
     }
 
     private PushSubscribeOptions configSubscribeOptions() {
-        return PushSubscribeOptions.builder().durable(configDurable)
+        return subscribeOptions(configDurable);
+    }
+
+    private PushSubscribeOptions subscribeOptions(String consumerDurable) {
+        return PushSubscribeOptions.builder().durable(consumerDurable)
                 .configuration(ConsumerConfiguration.builder()
-                        .durable(configDurable)
-                        .maxAckPending(CONFIG_MAX_ACK_PENDING)
+                        .durable(consumerDurable)
+                        .maxAckPending(maxAckPending)
                         .build())
                 .build();
     }
@@ -251,14 +382,20 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         while (running.get()) {
             try {
                 boolean processed = false;
-                Message message = subscription.nextMessage(RECEIVE_TIMEOUT);
+                JetStreamSubscription currentSubscription = subscription;
+                JetStreamSubscription currentConfigSubscription = configSubscription;
+                if (currentSubscription == null || currentConfigSubscription == null) {
+                    Thread.sleep(IDLE_BACKOFF.toMillis());
+                    continue;
+                }
+                Message message = currentSubscription.nextMessage(RECEIVE_TIMEOUT);
                 if (message != null) {
-                    process(message);
+                    dispatch(message, false);
                     processed = true;
                 }
-                Message configMessage = configSubscription.nextMessage(RECEIVE_TIMEOUT);
+                Message configMessage = currentConfigSubscription.nextMessage(RECEIVE_TIMEOUT);
                 if (configMessage != null) {
-                    processConfig(configMessage);
+                    dispatch(configMessage, true);
                     processed = true;
                 }
                 if (!processed) {
@@ -273,6 +410,58 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 LOGGER.log(Level.WARNING, "Agent Gateway NATS event was rejected and will be redelivered", error);
             }
         }
+    }
+
+    boolean dispatch(Message message) {
+        return dispatch(message, false);
+    }
+
+    private boolean dispatch(Message message, boolean config) {
+        Objects.requireNonNull(message, "message");
+        boolean accepted = dispatcher.submit(orderingKey(message),
+                () -> {
+                    if (config) {
+                        processConfig(message);
+                    } else {
+                        process(message);
+                    }
+                }, error -> redeliverAfterDispatchFailure(message, error));
+        if (!accepted) {
+            redeliverAfterDispatchFailure(message, new RejectedExecutionException("NATS dispatcher is full or closed"));
+        }
+        return accepted;
+    }
+
+    boolean awaitIdle(Duration timeout) throws InterruptedException {
+        return dispatcher.awaitIdle(timeout);
+    }
+
+    private void redeliverAfterDispatchFailure(Message message, Throwable error) {
+        metrics.natsEventRejected();
+        metrics.natsConsumerError();
+        try {
+            message.nakWithDelay(Duration.ofMillis(250));
+        } catch (RuntimeException nakFailure) {
+            LOGGER.log(Level.WARNING, "Unable to NAK rejected Agent Gateway NATS event", nakFailure);
+        }
+        LOGGER.log(Level.WARNING, "Agent Gateway NATS event was rejected and will be redelivered", error);
+    }
+
+    private String orderingKey(Message message) {
+        try {
+            JsonNode root = objectMapper.readTree(message.getData());
+            if (root != null && root.isObject()) {
+                for (String field : new String[] {"aggregate_id", "agentId", "agent_id", "taskId", "task_id"}) {
+                    JsonNode value = root.get(field);
+                    if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                        return value.asText();
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // Invalid envelopes use one bounded poison-message lane and remain unacked.
+        }
+        return "__invalid__";
     }
 
     /** The agent event stream also carries worker-to-control-plane events; consume those without redelivery. */
@@ -365,6 +554,103 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             throw new IllegalArgumentException(field + " must not be blank");
         }
         return value;
+    }
+
+    private static int requirePositiveAtLeast(int value, int minimum, String field) {
+        if (value < 1 || value < minimum) {
+            throw new IllegalArgumentException(field + " must be positive and at least concurrency");
+        }
+        return value;
+    }
+
+    private static final class OrderedDispatcher {
+        private final ExecutorService workers;
+        private final Semaphore capacity;
+        private final java.util.Map<String, CompletableFuture<Void>> tails = new java.util.concurrent.ConcurrentHashMap<>();
+        private final Object monitor = new Object();
+        private final AtomicInteger inFlight = new AtomicInteger();
+        private final AtomicBoolean accepting = new AtomicBoolean(true);
+
+        private OrderedDispatcher(int concurrency, int maxAckPending) {
+            this.capacity = new Semaphore(maxAckPending);
+            this.workers = new ThreadPoolExecutor(concurrency, concurrency, 0L, TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(maxAckPending), runnable -> {
+                        Thread thread = new Thread(runnable, "agent-gateway-nats-dispatcher");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+        }
+
+        private boolean submit(String key, Runnable task, Consumer<Throwable> failureHandler) {
+            if (!accepting.get() || !capacity.tryAcquire()) {
+                return false;
+            }
+            inFlight.incrementAndGet();
+            CompletableFuture<Void> next;
+            try {
+                synchronized (tails) {
+                    CompletableFuture<Void> previous = tails.get(key);
+                    next = (previous == null ? CompletableFuture.completedFuture(null) : previous)
+                            .thenRunAsync(task, workers);
+                    tails.put(key, next);
+                }
+            } catch (RejectedExecutionException rejected) {
+                capacity.release();
+                decrementInFlight();
+                return false;
+            }
+            next.whenComplete((ignored, error) -> {
+                try {
+                    if (error != null) {
+                        failureHandler.accept(error);
+                    }
+                } finally {
+                    synchronized (tails) {
+                        if (tails.get(key) == next) {
+                            tails.remove(key);
+                        }
+                    }
+                    capacity.release();
+                    decrementInFlight();
+                }
+            });
+            return true;
+        }
+
+        private void decrementInFlight() {
+            if (inFlight.decrementAndGet() == 0) {
+                synchronized (monitor) {
+                    monitor.notifyAll();
+                }
+            }
+        }
+
+        private boolean awaitIdle(Duration timeout) throws InterruptedException {
+            long deadline = System.nanoTime() + timeout.toNanos();
+            synchronized (monitor) {
+                while (inFlight.get() != 0) {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0) {
+                        return false;
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(monitor, remaining);
+                }
+                return true;
+            }
+        }
+
+        private void close(Duration timeout) {
+            accepting.set(false);
+            workers.shutdown();
+            try {
+                if (!workers.awaitTermination(timeout.toNanos(), TimeUnit.NANOSECONDS)) {
+                    LOGGER.warning("Agent Gateway NATS dispatcher shutdown timed out");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                LOGGER.log(Level.WARNING, "Agent Gateway NATS dispatcher shutdown interrupted", interrupted);
+            }
+        }
     }
 
     private record GatewayOutboxEvent(UUID eventId, String eventType, String aggregateType, UUID aggregateId,

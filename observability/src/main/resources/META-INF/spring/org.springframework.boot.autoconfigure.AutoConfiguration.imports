@@ -1,1 +1,2 @@
 io.agentteams.observability.ObservabilityAutoConfiguration
+io.agentteams.observability.ServletObservabilityAutoConfiguration

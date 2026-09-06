@@ -5,11 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
-class Java17SmokeTest {
+class Java21SmokeTest {
 
     @Test
-    void domainCompilesAndExecutesWithJava17LanguageFeatures() {
-        assertTrue(Runtime.version().feature() >= 17, "the domain tests require Java 17 or newer");
+    void domainCompilesAndExecutesWithJava21LanguageFeatures() {
+        assertTrue(Runtime.version().feature() >= 21, "the domain tests require Java 21 or newer");
 
         Object marker = new DomainMarker("domain");
 

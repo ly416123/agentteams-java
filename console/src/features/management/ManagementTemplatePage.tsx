@@ -12,6 +12,7 @@ import {
 import type { WorkerType } from '../../api/types';
 import { ErrorState } from '../../components/ErrorState';
 import { EmptyState } from '../../components/EmptyState';
+import { labelStatus, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -39,7 +40,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
   const create = useMutation({
     mutationFn: () => createWorkerTemplate(projectId, template),
     onSuccess: () => {
-      setNotice({ kind: 'success', text: 'Worker Template 已创建' });
+      setNotice({ kind: 'success', text: '工作节点模板已创建' });
       setTemplate({ name: '', displayName: '', workerType: 'EXECUTOR' });
       void refresh();
     },
@@ -53,7 +54,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
       }),
     onSuccess: (value) => {
       setLastRevision(value);
-      setNotice({ kind: 'success', text: `Revision ${value.revision} 已创建` });
+      setNotice({ kind: 'success', text: `版本 ${value.revision} 已创建` });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -63,7 +64,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
       publishWorkerTemplateRevision(projectId, value.templateId, value.revision, value.version),
     onSuccess: (value) => {
       setLastRevision(value);
-      setNotice({ kind: 'success', text: `Revision ${value.revision} 已发布` });
+      setNotice({ kind: 'success', text: `版本 ${value.revision} 已发布` });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -77,7 +78,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
       void queryClient.invalidateQueries({ queryKey: ['workers', projectId] });
       setNotice(
         value.status === 'SUCCEEDED'
-          ? { kind: 'success', text: `已创建实例 ${value.id}，等待 Worker Ready` }
+          ? { kind: 'success', text: `已创建实例 ${value.id}，等待工作节点就绪` }
           : { kind: 'error', text: `实例化失败：实例 ${value.id}` },
       );
     },
@@ -98,10 +99,10 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / TEMPLATES</p>
-          <h1>Worker Templates</h1>
+          <p className="eyebrow">管理 / 模板</p>
+          <h1>工作节点模板</h1>
           <p className="page-subtitle">
-            管理模板和版本；只有显式实例化已发布 Revision 才会进入 Worker 供给链路。
+            管理模板和版本；只有显式实例化已发布版本才会进入工作节点供给链路。
           </p>
         </div>
         <button className="button button--ghost" onClick={() => void templates.refetch()}>
@@ -130,7 +131,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
             onChange={(event) => setTemplate({ ...template, displayName: event.target.value })}
             required
           />
-          <label htmlFor="template-worker-type">Worker 类型</label>
+          <label htmlFor="template-worker-type">工作节点类型</label>
           <select
             id="template-worker-type"
             value={template.workerType}
@@ -138,8 +139,8 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
               setTemplate({ ...template, workerType: event.target.value as WorkerType })
             }
           >
-            <option value="EXECUTOR">Executor Worker</option>
-            <option value="LEADER">Leader Worker</option>
+            <option value="EXECUTOR">执行工作节点</option>
+            <option value="LEADER">负责人工作节点</option>
           </select>
           <button className="button button--primary" type="submit" disabled={create.isPending}>
             {create.isPending ? '创建中…' : '创建模板'}
@@ -147,7 +148,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
         </form>
 
         <form className="form-panel" onSubmit={submitRevision}>
-          <h2>创建 Revision</h2>
+          <h2>创建版本</h2>
           <label htmlFor="revision-template">模板</label>
           <select
             id="revision-template"
@@ -162,7 +163,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
               </option>
             ))}
           </select>
-          <label htmlFor="revision-spec">Worker Spec JSON</label>
+          <label htmlFor="revision-spec">工作节点规格 JSON</label>
           <textarea
             id="revision-spec"
             rows={6}
@@ -181,18 +182,18 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
             type="submit"
             disabled={createRevision.isPending}
           >
-            {createRevision.isPending ? '保存中…' : '创建 Revision'}
+            {createRevision.isPending ? '保存中…' : '创建版本'}
           </button>
           {lastRevision && (
             <div className="info-box">
-              Revision {lastRevision.revision} · {lastRevision.status}
+              版本 {lastRevision.revision} · {labelStatus(lastRevision.status)}
               <button
                 className="button button--small"
                 type="button"
                 disabled={publish.isPending}
                 onClick={() => publish.mutate(lastRevision)}
               >
-                发布此 Revision
+                发布此版本
               </button>
             </div>
           )}
@@ -204,10 +205,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
       ) : templates.isError ? (
         <ErrorState error={templates.error} onRetry={() => void templates.refetch()} />
       ) : !templates.data?.length ? (
-        <EmptyState
-          title="暂无 Worker Template"
-          description="先创建模板，再创建和发布 Revision。"
-        />
+        <EmptyState title="暂无工作节点模板" description="先创建模板，再创建和发布版本。" />
       ) : (
         <div className="content-grid">
           {templates.data.map((item) => (
@@ -216,7 +214,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
                 <div>
                   <h2>{item.displayName}</h2>
                   <p className="muted-text">
-                    {item.name} · {item.workerType || 'EXECUTOR'}
+                    {item.name} · {labelType(item.workerType || 'EXECUTOR')}
                   </p>
                 </div>
                 <span className="status-badge">
@@ -226,7 +224,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
                 </span>
               </div>
               <p className="muted-text">
-                Project {item.projectId} · version {item.version}
+                项目 {item.projectId} · 版本 {item.version}
               </p>
               {item.currentPublishedRevision && (
                 <>
@@ -240,7 +238,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
                       })
                     }
                   >
-                    {instantiate.isPending ? '实例化中…' : '显式实例化 Worker'}
+                    {instantiate.isPending ? '实例化中…' : '显式实例化工作节点'}
                   </button>
                   {lastInstance?.templateId === item.id && (
                     <div
@@ -250,7 +248,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
                       role="status"
                     >
                       {lastInstance.status === 'SUCCEEDED'
-                        ? `实例化成功 · Worker ${lastInstance.workerId || '等待分配'}`
+                        ? `实例化成功 · 工作节点 ${lastInstance.workerId || '等待分配'}`
                         : `实例化失败 · 实例 ${lastInstance.id}`}
                     </div>
                   )}

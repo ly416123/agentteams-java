@@ -54,7 +54,7 @@ else
   response=$(curl -fsS -X POST "http://127.0.0.1:${LOCAL_PORT}/api/v1/agents" \
     -H "Idempotency-Key: ${IDEMPOTENCY_KEY}" \
     -H 'Content-Type: application/json' \
-    -d "{\"name\":\"${AGENT_NAME}\",\"runtime\":\"qwenpaw\",\"capabilities\":{\"qwenpaw\":\"true\",\"java\":\"17\"}}")
+    -d "{\"name\":\"${AGENT_NAME}\",\"runtime\":\"qwenpaw\",\"capabilities\":{\"qwenpaw\":\"true\",\"java\":\"21\"}}")
   agent_id=$(jq -er '.id' <<<"$response")
   [[ "$agent_id" != "00000000-0000-0000-0000-000000000001" ]] || {
     echo "Control Plane 返回了占位 Agent UUID，拒绝部署。" >&2

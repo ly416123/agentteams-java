@@ -12,6 +12,7 @@ public class SkillSandboxHttpClientProperties {
     private Duration connectTimeout = Duration.ofSeconds(2);
     private Duration requestTimeout = Duration.ofSeconds(15);
     private int maxResponseBytes = 64 * 1024;
+    private int maxConcurrency = 4;
 
     public void validate() {
         if (!enabled) return;
@@ -33,6 +34,9 @@ public class SkillSandboxHttpClientProperties {
         if (maxResponseBytes < 1 || maxResponseBytes > 1024 * 1024) {
             throw new IllegalArgumentException("sandbox HTTP max-response-bytes must be between 1 and 1048576");
         }
+        if (maxConcurrency < 1 || maxConcurrency > 256) {
+            throw new IllegalArgumentException("sandbox HTTP max-concurrency must be between 1 and 256");
+        }
     }
 
     private static void requirePositive(Duration value, String field) {
@@ -51,4 +55,6 @@ public class SkillSandboxHttpClientProperties {
     public void setRequestTimeout(Duration requestTimeout) { this.requestTimeout = requestTimeout; }
     public int getMaxResponseBytes() { return maxResponseBytes; }
     public void setMaxResponseBytes(int maxResponseBytes) { this.maxResponseBytes = maxResponseBytes; }
+    public int getMaxConcurrency() { return maxConcurrency; }
+    public void setMaxConcurrency(int maxConcurrency) { this.maxConcurrency = maxConcurrency; }
 }

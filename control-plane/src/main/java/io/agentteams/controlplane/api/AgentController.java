@@ -55,10 +55,10 @@ public final class AgentController {
             @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction, @RequestParam(required = false) String status,
             @RequestParam(required = false) String q, @RequestParam(required = false) String search,
-            @RequestParam(required = false) String projectId) {
+            @RequestParam(required = false) String projectId, @RequestParam(required = false) String runtime) {
         requireProjectScope(projectId);
         return service.list(new CursorPageRequest(cursor, pageSize, sort, direction), status,
-                firstNonBlank(q, search)).map(AgentResponse::from);
+                firstNonBlank(q, search), runtime).map(AgentResponse::from);
     }
 
     @GetMapping("/{id}")

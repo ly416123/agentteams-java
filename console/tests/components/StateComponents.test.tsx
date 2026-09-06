@@ -23,6 +23,13 @@ describe('state components', () => {
     expect(screen.getByRole('status')).toHaveTextContent(label);
   });
 
+  it('does not expose an unknown internal status code', () => {
+    render(<StatusBadge phase="NEW_BACKEND_STATE" />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('未知状态');
+    expect(screen.getByRole('status')).not.toHaveTextContent('NEW_BACKEND_STATE');
+  });
+
   it('maps published lifecycle statuses to localized labels', () => {
     render(
       <div>
@@ -48,6 +55,18 @@ describe('state components', () => {
 
     expect(screen.getByText('依赖暂不可用')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+  });
+
+  it('localizes typed error codes and keeps the correlation id visible', () => {
+    render(
+      <ErrorState
+        error={{ code: 'FORBIDDEN', message: 'raw backend detail', correlationId: 'corr-1' }}
+      />,
+    );
+
+    expect(screen.getByText('无权执行此操作')).toBeInTheDocument();
+    expect(screen.queryByText('raw backend detail')).not.toBeInTheDocument();
+    expect(screen.getByText('关联 ID：corr-1')).toBeInTheDocument();
   });
 
   it('offers explicit login and refresh actions for auth and conflict errors', () => {

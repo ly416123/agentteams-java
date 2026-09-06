@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useCreateTeam } from '../../queries/useTeamQueries';
 import { ErrorState } from '../../components/ErrorState';
 
-const steps = ['基本信息', 'Leader', '成员 Agent', '调度策略'];
+const steps = ['基本信息', '负责人', '智能体成员', '调度策略'];
 export function TeamCreatePage({ projectId }: { projectId: string }) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
@@ -21,8 +21,8 @@ export function TeamCreatePage({ projectId }: { projectId: string }) {
     <div className="page narrow-page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">NEW RESOURCE</p>
-          <h1>创建 Team</h1>
+          <p className="eyebrow">新建资源</p>
+          <h1>创建团队</h1>
           <p>分步完成团队基本信息、成员与运行策略。</p>
         </div>
       </div>
@@ -64,18 +64,18 @@ export function TeamCreatePage({ projectId }: { projectId: string }) {
         )}
         {step === 1 && (
           <>
-            <h2>选择 Leader</h2>
-            <p className="muted">可在创建后从 Worker 列表中绑定 Leader Agent。</p>
-            <select aria-label="Leader Agent">
+            <h2>选择负责人</h2>
+            <p className="muted">可在创建后从工作节点列表中绑定负责人智能体。</p>
+            <select aria-label="负责人智能体">
               <option>稍后设置</option>
             </select>
           </>
         )}
         {step === 2 && (
           <>
-            <h2>选择成员 Agent</h2>
-            <p className="muted">先创建 Team，之后可以在成员页签添加 Agent。</p>
-            <div className="info-box">成员配置可以在 Team 详情中继续完成。</div>
+            <h2>选择智能体成员</h2>
+            <p className="muted">先创建团队，之后可以在成员页签添加智能体。</p>
+            <div className="info-box">成员配置可以在团队详情中继续完成。</div>
           </>
         )}
         {step === 3 && (
@@ -119,7 +119,7 @@ export function TeamCreatePage({ projectId }: { projectId: string }) {
           </button>
         ) : (
           <button className="button button--primary" disabled={create.isPending} onClick={submit}>
-            {create.isPending ? '创建中…' : '创建 Team'}
+            {create.isPending ? '创建中…' : '创建团队'}
           </button>
         )}
       </div>

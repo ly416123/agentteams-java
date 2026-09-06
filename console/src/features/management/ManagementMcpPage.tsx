@@ -13,6 +13,8 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -96,9 +98,9 @@ export function ManagementMcpPage() {
     onSuccess: (result, id) => {
       setConnectionResults((current) => ({
         ...current,
-        [id]: `${result.category} · ${result.latencyMillis} ms`,
+        [id]: `${labelStatus(result.category)} · ${result.latencyMillis} ms`,
       }));
-      setNotice({ kind: 'success', text: `连接测试完成：${result.status}` });
+      setNotice({ kind: 'success', text: `连接测试完成：${labelStatus(result.status)}` });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -233,10 +235,10 @@ export function ManagementMcpPage() {
                 <div>
                   <h2>{server.name}</h2>
                   <p className="muted-text">
-                    {server.transport} · {server.endpoint}
+                    {labelType(server.transport)} · {server.endpoint}
                   </p>
                 </div>
-                <span className="status-badge">{server.healthStatus}</span>
+                <StatusBadge phase={server.healthStatus} />
               </div>
               <p className="muted-text">
                 credential: {server.credentialConfigured ? '已配置（仅引用）' : '未配置'} · version{' '}
@@ -247,8 +249,8 @@ export function ManagementMcpPage() {
               )}
               {discoveryTarget === server.id && discovery.data && (
                 <p className="muted-text">
-                  Discovery：{discovery.data.status} · {discovery.data.healthyInstances}/
-                  {discovery.data.freshInstances} 个实例 ·{' '}
+                  发现状态：{labelStatus(discovery.data.status)} · {discovery.data.healthyInstances}
+                  /{discovery.data.freshInstances} 个实例 ·{' '}
                   {discovery.data.toolsDigest || '无工具摘要'}
                 </p>
               )}

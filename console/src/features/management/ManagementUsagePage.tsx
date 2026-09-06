@@ -13,6 +13,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 export function ManagementUsagePage({ projectId }: { projectId: string }) {
   const pageSize = 20;
@@ -86,11 +87,10 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">OPERATIONS / USAGE</p>
-          <h1>Usage 与费用</h1>
+          <p className="eyebrow">运维 / 用量</p>
+          <h1>用量与费用</h1>
           <p className="page-subtitle">
-            查看当前 Project
-            的模型调用、估算成本和预算状态。成本可能包含未定价调用，不等同于最终账单。
+            查看当前项目 的模型调用、估算成本和预算状态。成本可能包含未定价调用，不等同于最终账单。
           </p>
         </div>
         <div className="button-row">
@@ -109,22 +109,22 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
       {exportError ? (
         <ErrorState
           error={exportError}
-          title="无法导出 Usage"
+          title="无法导出用量"
           message="当前账号没有 usage:export 权限，无法导出。"
         />
       ) : null}
 
-      <section className="panel usage-filters" aria-label="Usage 筛选">
+      <section className="panel usage-filters" aria-label="用量筛选">
         <div className="section-heading">
           <div>
             <p className="eyebrow">FILTERS</p>
             <h2>多维筛选</h2>
           </div>
-          <span className="muted">数据库仍按当前 Project 作用域过滤</span>
+          <span className="muted">数据库仍按当前项目作用域过滤</span>
         </div>
         <div className="form-grid">
           <label>
-            Task ID
+            任务 ID
             <input
               value={draftFilters.taskId}
               onChange={(event) => setDraftFilters({ ...draftFilters, taskId: event.target.value })}
@@ -132,7 +132,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
             />
           </label>
           <label>
-            Provider
+            服务商
             <input
               value={draftFilters.provider}
               onChange={(event) =>
@@ -142,7 +142,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
             />
           </label>
           <label>
-            Model
+            模型
             <input
               value={draftFilters.model}
               onChange={(event) => setDraftFilters({ ...draftFilters, model: event.target.value })}
@@ -158,14 +158,14 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
                 setPageOffset(0);
               }}
             >
-              <option value="provider_model">Provider / Model</option>
-              <option value="organization">Organization</option>
-              <option value="tenant">Tenant</option>
-              <option value="project">Project</option>
-              <option value="team">Team</option>
-              <option value="user">User</option>
-              <option value="task">Task</option>
-              <option value="worker">Worker</option>
+              <option value="provider_model">服务商 / 模型</option>
+              <option value="organization">组织</option>
+              <option value="tenant">租户</option>
+              <option value="project">项目</option>
+              <option value="team">团队</option>
+              <option value="user">用户</option>
+              <option value="task">任务</option>
+              <option value="worker">工作节点</option>
             </select>
           </label>
           <button className="button button--primary" onClick={applyFilters}>
@@ -212,7 +212,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
                   <table className="resource-table">
                     <thead>
                       <tr>
-                        <th>{dimensionGrouping ? '分组' : 'Provider / Model'}</th>
+                        <th>{dimensionGrouping ? '分组' : '服务商 / 模型'}</th>
                         <th>调用</th>
                         <th>失败</th>
                         <th>Tokens</th>
@@ -233,7 +233,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
                   </table>
                 </div>
               )}
-              <div className="button-row usage-pagination" aria-label="Usage 分页">
+              <div className="button-row usage-pagination" aria-label="用量分页">
                 <button
                   className="button button--ghost"
                   onClick={() => setPageOffset(Math.max(0, pageOffset - pageSize))}
@@ -255,7 +255,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
           </div>
         </>
       ) : (
-        <EmptyState title="暂无 Usage 数据" description="当前 Project 还没有可展示的使用量记录。" />
+        <EmptyState title="暂无用量数据" description="当前项目还没有可展示的使用量记录。" />
       )}
     </div>
   );
@@ -304,14 +304,14 @@ function BudgetPanel({ query, onRetry }: { query: BudgetQuery; onRetry: () => vo
       ) : query.isError ? (
         <ErrorState error={query.error} onRetry={onRetry} />
       ) : !query.data?.length ? (
-        <EmptyState title="暂无预算策略" description="当前 Project 尚未配置预算阈值。" />
+        <EmptyState title="暂无预算策略" description="当前项目尚未配置预算阈值。" />
       ) : (
         <div className="resource-list">
           {query.data.map((budget) => (
             <div className="resource-row" key={budget.id}>
               <div>
                 <strong>
-                  {budget.currency} · {budget.status}
+                  {budget.currency} · {labelStatus(budget.status)}
                 </strong>
                 <p className="muted-text">
                   软阈值 {budget.softThreshold} · 硬阈值 {budget.hardThreshold} · version{' '}

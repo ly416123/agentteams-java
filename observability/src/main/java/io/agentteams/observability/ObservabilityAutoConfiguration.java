@@ -28,10 +28,4 @@ public class ObservabilityAutoConfiguration {
         ControlPlaneMetrics available = metrics.getIfAvailable();
         return available == null ? TaskMetricsPort.noop() : available;
     }
-
-    @Bean
-    @ConditionalOnMissingBean
-    CorrelationIdFilter correlationIdFilter() {
-        return new CorrelationIdFilter();
-    }
 }

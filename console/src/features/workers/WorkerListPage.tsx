@@ -6,6 +6,7 @@ import { ResourceTable } from '../../components/ResourceTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useWorkers } from '../../queries/useWorkerQueries';
 import { CursorPagination } from '../../components/CursorPagination';
+import { labelRuntime, labelType } from '../../i18n/labels';
 
 export function WorkerListPage({ projectId }: { projectId: string }) {
   const [search, setSearch] = useState('');
@@ -22,19 +23,19 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">RESOURCE / WORKERS</p>
-          <h1>Workers</h1>
-          <p>查看 Agent 运行时、健康状态和当前执行上下文。</p>
+          <p className="eyebrow">资源 / 工作节点</p>
+          <h1>工作节点</h1>
+          <p>查看智能体运行时、健康状态和当前执行上下文。</p>
         </div>
       </div>
       <div className="toolbar">
         <input
-          placeholder="搜索 Worker"
+          placeholder="搜索工作节点"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
         <select
-          aria-label="Worker 状态"
+          aria-label="工作节点状态"
           value={phase}
           onChange={(event) => setPhase(event.target.value)}
         >
@@ -48,7 +49,7 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
         </button>
       </div>
       {workers.isLoading ? (
-        <div className="panel loading-block">加载 Worker…</div>
+        <div className="panel loading-block">加载工作节点…</div>
       ) : workers.isError ? (
         <ErrorState error={workers.error} onRetry={() => void workers.refetch()} />
       ) : items.length ? (
@@ -70,12 +71,12 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
               header: '模板名称',
               render: (worker) => worker.templateName || '—',
             },
-            { key: 'runtime', header: 'Runtime', render: (worker) => worker.runtime },
+            { key: 'runtime', header: '运行时', render: (worker) => labelRuntime(worker.runtime) },
             {
               key: 'workerType',
               header: '类型',
               render: (worker) => (
-                <span className="status-badge">{worker.workerType || 'EXECUTOR'}</span>
+                <span className="status-badge">{labelType(worker.workerType || 'EXECUTOR')}</span>
               ),
             },
             {
@@ -103,7 +104,7 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
           ]}
         />
       ) : (
-        <EmptyState title="暂无 Worker" description="Worker 注册后会出现在这里。" />
+        <EmptyState title="暂无工作节点" description="工作节点注册后会出现在这里。" />
       )}
       {!workers.isLoading && !workers.isError && items.length > 0 && (
         <CursorPagination

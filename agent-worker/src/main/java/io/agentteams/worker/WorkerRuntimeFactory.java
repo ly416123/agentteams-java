@@ -126,7 +126,7 @@ public final class WorkerRuntimeFactory {
                 URI.create(configuration.qwenPawEndpoint()), configuration.qwenPawAgentId(),
                 configuration.qwenPawAuthorizationToken(), configuration.qwenPawConnectTimeout(),
                 configuration.qwenPawUserId(), configuration.qwenPawChannel(),
-                configuration.qwenPawConfigurationPath());
+                configuration.qwenPawConfigurationPath(), configuration.virtualThreadsEnabled());
         RuntimeModelCallAdmission local = new SemaphoreRuntimeModelCallAdmission(
                 configuration.modelCallMaxConcurrent());
         RuntimeModelCallAdmission admission = effectiveQuota == null

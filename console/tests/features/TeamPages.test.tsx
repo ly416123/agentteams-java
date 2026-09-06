@@ -202,8 +202,8 @@ describe('Team pages', () => {
   it('filters Team resources and exposes create entry', async () => {
     renderWithQuery(<TeamListPage projectId="p-1" />);
     expect(await screen.findByText('平台 Team')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('搜索 Team')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '创建 Team' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('搜索团队')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '创建团队' })).toBeInTheDocument();
   });
 
   it('walks through the Team creation steps', async () => {
@@ -211,7 +211,7 @@ describe('Team pages', () => {
     const next = screen.getByRole('button', { name: '下一步' });
     await userEvent.type(screen.getByLabelText('显示名称'), '新 Team');
     await userEvent.click(next);
-    expect(screen.getByText('选择 Leader')).toBeInTheDocument();
+    expect(screen.getByText('选择负责人')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '下一步' }));
     await userEvent.click(screen.getByRole('button', { name: '下一步' }));
     expect(screen.getByRole('heading', { name: '调度策略' })).toBeInTheDocument();
@@ -222,7 +222,7 @@ describe('Team pages', () => {
     expect(await screen.findByText('平台 Team')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: '版本与部署' }));
     expect(await screen.findByText('Deployment #d-1')).toBeInTheDocument();
-    expect(screen.getByText('Revision 3')).toBeInTheDocument();
+    expect(screen.getByText('版本 3')).toBeInTheDocument();
     expect(screen.getByText('就绪')).toBeInTheDocument();
     for (const tab of ['成员 Agent', '策略', '运行记录']) {
       await userEvent.click(screen.getByRole('tab', { name: tab }));
@@ -248,12 +248,12 @@ describe('Team pages', () => {
     renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
     await userEvent.click(await screen.findByRole('tab', { name: '版本与部署' }));
 
-    expect(await screen.findByText('当前 Team 没有可用的 Leader Worker')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '前往 Worker Templates' })).toHaveAttribute(
+    expect(await screen.findByText('当前团队没有可用的负责人工作节点')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前往工作节点模板' })).toHaveAttribute(
       'href',
       '/p-1/templates',
     );
-    expect(screen.getByRole('button', { name: '创建 Revision 草稿' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '创建版本草稿' })).toBeDisabled();
   });
 
   it('adds and removes Team members through the management controls', async () => {
@@ -265,7 +265,7 @@ describe('Team pages', () => {
     expect(screen.getByRole('option', { name: /Available Leader/ })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /Executor Worker/ })).not.toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText('成员角色'), 'MEMBER');
-    await userEvent.selectOptions(screen.getByLabelText('Worker / Agent'), 'worker-2');
+    await userEvent.selectOptions(screen.getByLabelText('工作节点 / 智能体'), 'worker-2');
     await userEvent.click(screen.getByRole('button', { name: '添加成员' }));
     expect(addMember).toHaveBeenCalledWith('p-1', 'team-1', {
       agentId: 'worker-2',
@@ -308,9 +308,9 @@ describe('Team pages', () => {
     ]);
     renderWithQuery(<TeamDetailPage projectId="p-1" teamId="team-1" />);
     await userEvent.click(await screen.findByRole('tab', { name: '版本与部署' }));
-    await userEvent.selectOptions(screen.getByLabelText('Leader Worker'), 'worker-1');
-    await userEvent.selectOptions(screen.getByLabelText('成员 Worker'), 'worker-1');
-    await userEvent.click(screen.getByRole('button', { name: '创建 Revision 草稿' }));
+    await userEvent.selectOptions(screen.getByLabelText('负责人工作节点'), 'worker-1');
+    await userEvent.selectOptions(screen.getByLabelText('成员工作节点'), 'worker-1');
+    await userEvent.click(screen.getByRole('button', { name: '创建版本草稿' }));
     expect(createRevision).toHaveBeenCalledWith('p-1', 'team-1', {
       leaderAgentId: 'worker-1',
       memberAgentIds: ['worker-1'],
@@ -371,7 +371,7 @@ describe('Team pages', () => {
 
     await userEvent.click(await screen.findByRole('tab', { name: '版本与部署' }));
     expect(await screen.findByText('暂无部署')).toBeInTheDocument();
-    expect(screen.getByText(/发布 Team 版本后/)).toBeInTheDocument();
+    expect(screen.getByText(/发布团队版本后/)).toBeInTheDocument();
   });
 
   it('shows the API error and retry action when deployment loading fails', async () => {

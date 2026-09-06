@@ -11,6 +11,8 @@ import {
 } from '../../api/management';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 type Credential = {
@@ -58,7 +60,7 @@ export function ManagementIntegrationPage() {
     onSuccess: async () => {
       setIntegrationName('');
       await refreshIntegrations();
-      setNotice({ kind: 'success', text: 'Integration 已创建' });
+      setNotice({ kind: 'success', text: '集成已创建' });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
@@ -67,7 +69,7 @@ export function ManagementIntegrationPage() {
     onSuccess: async () => {
       setCredential({ label: '', credentialRef: '' });
       await refreshCredentials();
-      setNotice({ kind: 'success', text: 'Credential Ref 已登记' });
+      setNotice({ kind: 'success', text: '凭据引用已登记' });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
@@ -80,7 +82,7 @@ export function ManagementIntegrationPage() {
     onSuccess: async () => {
       setRotateRef('');
       await refreshCredentials();
-      setNotice({ kind: 'success', text: 'Credential 已轮换' });
+      setNotice({ kind: 'success', text: '凭据已轮换' });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
@@ -89,7 +91,7 @@ export function ManagementIntegrationPage() {
       revokeManagementCredential(item.id, { expectedVersion: item.version }),
     onSuccess: async () => {
       await refreshCredentials();
-      setNotice({ kind: 'success', text: 'Credential 已撤销' });
+      setNotice({ kind: 'success', text: '凭据已撤销' });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
@@ -108,10 +110,10 @@ export function ManagementIntegrationPage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / INTEGRATIONS</p>
-          <h1>Integrations 与 Credentials</h1>
+          <p className="eyebrow">管理 / 集成</p>
+          <h1>集成与凭据</h1>
           <p className="page-subtitle">
-            管理外部 Integration 和凭据引用。页面只处理 Credential Ref，不接收或展示 Secret 明文。
+            管理外部集成和凭据引用。页面只处理凭据引用，不接收或展示 Secret 明文。
           </p>
         </div>
         <button className="button button--ghost" onClick={() => void organizations.refetch()}>
@@ -125,22 +127,22 @@ export function ManagementIntegrationPage() {
       )}
       <div className="content-grid">
         <form className="form-panel" onSubmit={submitIntegration}>
-          <h2>创建 Integration</h2>
-          <label htmlFor="integration-organization">Organization</label>
+          <h2>创建集成</h2>
+          <label htmlFor="integration-organization">组织</label>
           <select
             id="integration-organization"
             value={selectedOrganizationId}
             onChange={(event) => setOrganizationId(event.target.value)}
             required
           >
-            <option value="">选择 Organization</option>
+            <option value="">选择组织</option>
             {(organizations.data || []).map((item) => (
               <option value={item.id} key={item.id}>
                 {item.name}
               </option>
             ))}
           </select>
-          <label htmlFor="integration-name">Integration 名称</label>
+          <label htmlFor="integration-name">集成名称</label>
           <input
             id="integration-name"
             value={integrationName}
@@ -152,33 +154,33 @@ export function ManagementIntegrationPage() {
             type="submit"
             disabled={createIntegration.isPending}
           >
-            创建 Integration
+            创建集成
           </button>
         </form>
         <form className="form-panel" onSubmit={submitCredential}>
-          <h2>登记 Credential Ref</h2>
-          <label htmlFor="credential-integration">Integration</label>
+          <h2>登记凭据引用</h2>
+          <label htmlFor="credential-integration">集成</label>
           <select
             id="credential-integration"
             value={selectedIntegrationId}
             onChange={(event) => setIntegrationId(event.target.value)}
             required
           >
-            <option value="">选择 Integration</option>
+            <option value="">选择集成</option>
             {(integrations.data || []).map((item) => (
               <option value={item.id} key={item.id}>
                 {item.name}
               </option>
             ))}
           </select>
-          <label htmlFor="credential-label">Credential Label</label>
+          <label htmlFor="credential-label">凭据标签</label>
           <input
             id="credential-label"
             value={credential.label}
             onChange={(event) => setCredential({ ...credential, label: event.target.value })}
             required
           />
-          <label htmlFor="credential-ref">Credential Ref</label>
+          <label htmlFor="credential-ref">凭据引用</label>
           <input
             id="credential-ref"
             value={credential.credentialRef}
@@ -193,7 +195,7 @@ export function ManagementIntegrationPage() {
             type="submit"
             disabled={createCredential.isPending}
           >
-            登记 Credential Ref
+            登记凭据引用
           </button>
         </form>
       </div>
@@ -206,10 +208,7 @@ export function ManagementIntegrationPage() {
           onRetry={() => void organizations.refetch()}
         />
       ) : !integrations.data?.length ? (
-        <EmptyState
-          title="暂无 Integration"
-          description="创建 Integration 后可登记 Credential Ref。"
-        />
+        <EmptyState title="暂无集成" description="创建集成后可登记凭据引用。" />
       ) : (
         <div className="content-grid">
           {integrations.data.map((integration) => (
@@ -219,17 +218,17 @@ export function ManagementIntegrationPage() {
                   <h2>{integration.name}</h2>
                   <p className="muted-text">{integration.id}</p>
                 </div>
-                <span className="status-badge">{integration.status}</span>
+                <StatusBadge phase={integration.status} />
               </div>
               {integration.id === selectedIntegrationId && (
-                <div className="stack-list" aria-label={`${integration.name} 的 Credentials`}>
+                <div className="stack-list" aria-label={`${integration.name} 的凭据`}>
                   {credentials.isLoading ? (
-                    <span className="muted-text">Credential 加载中…</span>
+                    <span className="muted-text">凭据加载中…</span>
                   ) : credentials.data?.length ? (
                     credentials.data.map((item) => (
                       <div className="stack-list__item" key={item.id}>
                         <span>
-                          {item.label} · {item.accessKeyId} · {item.status}
+                          {item.label} · {item.accessKeyId} · {labelStatus(item.status)}
                         </span>
                         <div className="form-actions">
                           <button
@@ -244,9 +243,7 @@ export function ManagementIntegrationPage() {
                             disabled={revoke.isPending || item.status === 'REVOKED'}
                             onClick={() => {
                               if (
-                                window.confirm(
-                                  '确认撤销 Credential？撤销后引用它的运行时将无法继续使用。',
-                                )
+                                window.confirm('确认撤销凭据？撤销后引用它的运行时将无法继续使用。')
                               ) {
                                 revoke.mutate(item);
                               }
@@ -258,9 +255,9 @@ export function ManagementIntegrationPage() {
                       </div>
                     ))
                   ) : (
-                    <span className="muted-text">暂无 Credential</span>
+                    <span className="muted-text">暂无凭据</span>
                   )}
-                  <label htmlFor="credential-rotate-ref">轮换 Credential Ref</label>
+                  <label htmlFor="credential-rotate-ref">轮换凭据引用</label>
                   <input
                     id="credential-rotate-ref"
                     value={rotateRef}

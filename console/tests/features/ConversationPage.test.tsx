@@ -127,7 +127,7 @@ describe('ConversationPage', () => {
     mocks.cancelConversation.mockResolvedValue({ status: 'CANCELLED', version: 4 });
 
     renderPage('c-1');
-    await screen.findByText('Team team-1');
+    await screen.findByText('团队 team-1');
     await userEvent.click(screen.getByRole('button', { name: '取消会话' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('取消后将不能继续发送消息');
     await userEvent.click(screen.getByRole('button', { name: '确认取消会话' }));
@@ -194,10 +194,10 @@ describe('ConversationPage', () => {
     const transcript = await screen.findByRole('region', { name: '对话记录' });
     const bubbles = Array.from(transcript.querySelectorAll('.conversation-message'));
     expect(bubbles.map((bubble) => bubble.textContent?.trim())).toEqual([
-      'USER第一轮问题',
-      'ASSISTANT第一轮回答',
-      'USER第二轮问题',
-      'ASSISTANT第二轮回答',
+      '用户第一轮问题',
+      '助手第一轮回答',
+      '用户第二轮问题',
+      '助手第二轮回答',
     ]);
     expect(bubbles.map((bubble) => bubble.className)).toEqual([
       'conversation-message conversation-message--user',
@@ -219,7 +219,7 @@ describe('ConversationPage', () => {
     mocks.sendConversationMessage.mockRejectedValue(new Error('发送失败'));
 
     renderPage('c-1');
-    await screen.findByText('Team team-1');
+    await screen.findByText('团队 team-1');
     await userEvent.type(screen.getByPlaceholderText('输入消息'), '请重试');
     await userEvent.click(screen.getByRole('button', { name: '发送' }));
 
@@ -258,7 +258,7 @@ describe('ConversationPage', () => {
       .mockResolvedValueOnce({ session: { version: 3 } });
 
     renderPage('c-1');
-    await screen.findByText('Team team-1');
+    await screen.findByText('团队 team-1');
     await userEvent.type(screen.getByPlaceholderText('输入消息'), '第一条');
     await userEvent.click(screen.getByRole('button', { name: '发送' }));
     await userEvent.type(screen.getByPlaceholderText('输入消息'), '补充信息');
@@ -282,7 +282,7 @@ describe('ConversationPage', () => {
 
     renderPage(undefined);
 
-    expect(await screen.findByText('没有可用 Team')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '前往 Teams' })).toHaveAttribute('href', '/p-1/teams');
+    expect(await screen.findByText('没有可用团队')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前往团队' })).toHaveAttribute('href', '/p-1/teams');
   });
 });

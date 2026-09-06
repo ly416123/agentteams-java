@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +29,35 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class QwenPawConversationRuntimeTest {
+
+    @Test
+    void defaultsToPlatformReaderThreadsAndKeepsTimeoutSchedulerScheduled() throws Exception {
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+
+        assertThat(runtime.configuration().virtualThreadsEnabled()).isFalse();
+        assertThat(runtime.readerExecutor()).isNotNull();
+        assertThat(runtime.readerExecutor().submit(() -> Thread.currentThread().isVirtual()).get())
+                .isFalse();
+        assertThat(runtime.timeoutExecutor()).isInstanceOf(ScheduledExecutorService.class);
+        runtime.close();
+        assertThat(runtime.readerExecutor().isShutdown()).isTrue();
+        assertThat(runtime.timeoutExecutor().isShutdown()).isTrue();
+    }
+
+    @Test
+    void usesVirtualReaderThreadsWhenEnabledAndShutsThemDown() throws Exception {
+        ConversationRuntimeConfiguration configuration = new ConversationRuntimeConfiguration(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort()), "agent-a", null,
+                Duration.ofSeconds(2), Duration.ofSeconds(2), 8192, "agentteams", "console",
+                2, 10, 10, true);
+        QwenPawConversationRuntime runtime = new QwenPawConversationRuntime(configuration,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(), MAPPER);
+
+        assertThat(runtime.readerExecutor().submit(() -> Thread.currentThread().isVirtual()).get())
+                .isTrue();
+        runtime.close();
+        assertThat(runtime.readerExecutor().isShutdown()).isTrue();
+    }
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
     private static final ConversationRuntimePort.Context CONTEXT = new ConversationRuntimePort.Context(
@@ -147,6 +177,32 @@ class QwenPawConversationRuntimeTest {
         assertThat(events).noneMatch(event -> event.data().contains("thinking"));
         assertThat(events).anyMatch(event -> event.data().contains("hello"));
         assertThat(events).noneMatch(event -> event.type().equals("conversation.failed"));
+        runtime.close();
+    }
+
+    @Test
+    void acceptsPluginCallOutputEnvelopeBeforeResponseCompletion() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream",
+                "data: {\"id\":\"plugin-1\",\"type\":\"plugin_call\","
+                        + "\"role\":\"assistant\",\"content\":[],"
+                        + "\"status\":\"in_progress\",\"object\":\"message\"}\n\n"
+                        + "data: {\"type\":\"turn_usage\",\"usage\":{}}\n\n"
+                        + "data: {\"id\":\"plugin-1\",\"type\":\"plugin_call_output\","
+                        + "\"role\":\"tool\",\"content\":[{\"type\":\"data\","
+                        + "\"delta\":false,\"status\":\"completed\","
+                        + "\"object\":\"content\",\"name\":\"memory_search\"}]}\n\n"
+                        + "data: {\"id\":\"response-1\",\"status\":\"completed\","
+                        + "\"object\":\"response\",\"output\":[]}\n\n"));
+        server.start();
+
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.completed");
         runtime.close();
     }
 

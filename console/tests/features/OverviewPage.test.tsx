@@ -37,7 +37,7 @@ describe('OverviewPage', () => {
     expect(screen.getByText('3 个执行中')).toBeInTheDocument();
     expect(screen.getByText('2 个失败')).toBeInTheDocument();
     expect(screen.getByText('1 个连接中')).toBeInTheDocument();
-    expect(screen.getByText('共 3 个 Team')).toBeInTheDocument();
+    expect(screen.getByText('共 3 个团队')).toBeInTheDocument();
     expect(screen.getByText('Worker 心跳延迟')).toBeInTheDocument();
     expect(screen.getByText('运行概览')).toBeInTheDocument();
   });

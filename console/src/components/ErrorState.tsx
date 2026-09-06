@@ -1,5 +1,6 @@
 import { ApiError } from '../api/httpClient';
 import type { ApiErrorShape } from '../api/types';
+import { labelErrorCode } from '../i18n/labels';
 
 export function ErrorState({
   error,
@@ -20,6 +21,8 @@ export function ErrorState({
 }) {
   const value = error as Partial<ApiErrorShape>;
   const status = error instanceof ApiError ? error.status : value.status;
+  const code = error instanceof ApiError ? error.code : value.code;
+  const correlationId = error instanceof ApiError ? error.correlationId : value.correlationId;
   const title =
     customTitle ||
     (status === 401
@@ -35,19 +38,22 @@ export function ErrorState({
               : '加载失败');
   const message =
     customMessage ||
-    (status === 401
-      ? '登录凭证已过期，请重新登录后继续。'
-      : status === 403
-        ? '当前账号没有访问此资源的权限。'
-        : status === 409
-          ? '资源已被其他操作更新，请刷新后重试。'
-          : value.message || '请稍后重试。');
+    (code && code !== 'REQUEST_FAILED'
+      ? labelErrorCode(code)
+      : status === 401
+        ? '登录凭证已过期，请重新登录后继续。'
+        : status === 403
+          ? '当前账号没有访问此资源的权限。'
+          : status === 409
+            ? '资源已被其他操作更新，请刷新后重试。'
+            : '未知错误');
   return (
     <div className="state-card state-card--error" role="alert">
       <span className="state-icon">!</span>
       <div>
         <h3>{title}</h3>
         <p>{message}</p>
+        {correlationId && <small className="muted-text">关联 ID：{correlationId}</small>}
       </div>
       {onBack ? (
         <button onClick={onBack}>{backLabel}</button>

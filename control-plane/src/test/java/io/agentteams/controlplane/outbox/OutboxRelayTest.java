@@ -11,6 +11,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -167,6 +169,47 @@ class OutboxRelayTest {
         relay.close(Duration.ofSeconds(1));
     }
 
+    @Test
+    void publishesDifferentAggregatesInParallel() throws Exception {
+        FakeStore store = new FakeStore(event(UUID.randomUUID(), 1), event(UUID.randomUUID(), 1));
+        BlockingBatchPublisher publisher = new BlockingBatchPublisher(2);
+        OutboxRelay relay = relay(store, publisher);
+        AtomicInteger result = new AtomicInteger(-1);
+        Thread relayThread = new Thread(() -> result.set(relay.relayOnce()), "relay-parallel-test");
+        relayThread.start();
+
+        assertThat(publisher.started.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        publisher.release.countDown();
+        relayThread.join(1_000);
+        assertThat(result).hasValue(2);
+        assertThat(store.published).hasSize(2);
+        relay.close(Duration.ofSeconds(1));
+    }
+
+    @Test
+    void keepsEventsForOneAggregateInOrder() throws Exception {
+        UUID aggregateId = UUID.randomUUID();
+        OutboxEventRecord first = event(aggregateId, 1).withAttempts(1);
+        OutboxEventRecord second = new OutboxEventRecord(UUID.randomUUID(), UUID.randomUUID(), "task", aggregateId,
+                "TaskUpdated", "{}", 4, NOW.plusSeconds(1), "PENDING", 0, NOW, null, null, NOW, NOW, 0);
+        FakeStore store = new FakeStore(first, second);
+        OrderedPublisher publisher = new OrderedPublisher();
+        OutboxRelay relay = relay(store, publisher);
+        AtomicInteger result = new AtomicInteger(-1);
+        Thread relayThread = new Thread(() -> result.set(relay.relayOnce()), "relay-order-test");
+        relayThread.start();
+
+        assertThat(publisher.firstStarted.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        Thread.sleep(50);
+        assertThat(publisher.calls).hasValue(1);
+        publisher.release.countDown();
+        relayThread.join(1_000);
+
+        assertThat(result).hasValue(2);
+        assertThat(publisher.published).containsExactly(first.eventId(), second.eventId());
+        relay.close(Duration.ofSeconds(1));
+    }
+
     private static OutboxRelay relay(FakeStore store, EventPublisher publisher) {
         return relay(store, publisher, TaskMetricsPort.noop());
     }
@@ -184,23 +227,33 @@ class OutboxRelayTest {
     }
 
     private static OutboxEventRecord event(int attempts) {
-        return OutboxEventRecord.pending(UUID.randomUUID(), "task", UUID.randomUUID(), "TaskCreated",
+        return event(UUID.randomUUID(), attempts);
+    }
+
+    private static OutboxEventRecord event(UUID aggregateId, int attempts) {
+        return OutboxEventRecord.pending(UUID.randomUUID(), "task", aggregateId, "TaskCreated",
                 "{\"description\":\"safe task body\",\"token\":\"secret\"}", 3, NOW, NOW)
                 .withAttempts(attempts);
     }
 
     private static final class FakeStore implements OutboxStore {
         private final OutboxEventRecord event;
-        private final List<UUID> published = new ArrayList<>();
-        private final List<UUID> retries = new ArrayList<>();
-        private final List<UUID> deadLetters = new ArrayList<>();
-        private final List<String> errors = new ArrayList<>();
+        private final List<OutboxEventRecord> events;
+        private final List<UUID> published = Collections.synchronizedList(new ArrayList<>());
+        private final List<UUID> retries = Collections.synchronizedList(new ArrayList<>());
+        private final List<UUID> deadLetters = Collections.synchronizedList(new ArrayList<>());
+        private final List<String> errors = Collections.synchronizedList(new ArrayList<>());
         private Instant nextRetryAt;
         private long pending = -1;
         private Instant oldestPendingAt;
 
         private FakeStore(OutboxEventRecord event) {
-            this.event = event;
+            this(new OutboxEventRecord[] {event});
+        }
+
+        private FakeStore(OutboxEventRecord... events) {
+            this.events = Arrays.asList(events);
+            this.event = events[0];
         }
 
         @Override
@@ -215,7 +268,7 @@ class OutboxRelayTest {
 
         @Override
         public List<OutboxEventRecord> claimDue(Instant now, int limit, Duration lease) {
-            return List.of(event);
+            return events;
         }
 
         @Override
@@ -273,6 +326,45 @@ class OutboxRelayTest {
                 interrupted.set(true);
                 Thread.currentThread().interrupt();
             }
+        }
+    }
+
+    private static final class BlockingBatchPublisher implements EventPublisher {
+        private final CountDownLatch started;
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        private BlockingBatchPublisher(int expected) {
+            this.started = new CountDownLatch(expected);
+        }
+
+        @Override
+        public void publish(OutboxEventRecord event, String subject) {
+            started.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private static final class OrderedPublisher implements EventPublisher {
+        private final CountDownLatch firstStarted = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+        private final AtomicInteger calls = new AtomicInteger();
+        private final List<UUID> published = Collections.synchronizedList(new ArrayList<>());
+
+        @Override
+        public void publish(OutboxEventRecord event, String subject) {
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            published.add(event.eventId());
         }
     }
 }

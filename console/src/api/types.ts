@@ -4,6 +4,7 @@ export type WorkerType = 'LEADER' | 'EXECUTOR';
 export type ApiErrorShape = {
   status?: number;
   code?: string;
+  correlationId?: string;
   message: string;
   details?: Record<string, unknown>;
 };

@@ -115,10 +115,13 @@ public class ManagerApplication {
             @Value("${AGENTTEAMS_CONVERSATION_CHANNEL:console}") String channel,
             @Value("${AGENTTEAMS_CONVERSATION_MAX_CONCURRENT_REQUESTS:128}") int maxConcurrentRequests,
             @Value("${AGENTTEAMS_CONVERSATION_MAX_EVENTS_PER_SESSION:10000}") int maxEventsPerSession,
-            @Value("${AGENTTEAMS_CONVERSATION_MAX_SESSIONS:10000}") int maxSessions) {
+            @Value("${AGENTTEAMS_CONVERSATION_MAX_SESSIONS:10000}") int maxSessions,
+            @Value("${agentteams.concurrency.virtual-threads.enabled:${AGENTTEAMS_VIRTUAL_THREADS_ENABLED:false}}")
+            boolean virtualThreadsEnabled) {
         return new ConversationRuntimeConfiguration(URI.create(endpoint), agentId, authorizationToken,
                 Duration.ofMillis(connectTimeoutMillis), Duration.ofMillis(requestTimeoutMillis),
-                maxResponseBytes, userId, channel, maxConcurrentRequests, maxEventsPerSession, maxSessions);
+                maxResponseBytes, userId, channel, maxConcurrentRequests, maxEventsPerSession, maxSessions,
+                virtualThreadsEnabled);
     }
 
     @Bean(destroyMethod = "close")

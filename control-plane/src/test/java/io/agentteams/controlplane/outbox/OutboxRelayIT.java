@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
@@ -195,6 +196,74 @@ class OutboxRelayIT {
     }
 
     @Test
+    void failedAggregatePredecessorDoesNotPublishItsSuccessor() {
+        UUID aggregateId = UUID.randomUUID();
+        OutboxEventRecord predecessor = insert(event("TaskCreated", 0, aggregateId, 3));
+        OutboxEventRecord successor = insert(event("TaskUpdated", 0, aggregateId, 4));
+        AtomicBoolean failed = new AtomicBoolean();
+        EventPublisher failPredecessor = new EventPublisher() {
+            @Override
+            public void publish(OutboxEventRecord value, String subject) throws Exception {
+                if (value.eventId().equals(predecessor.eventId()) && failed.compareAndSet(false, true)) {
+                    throw new IllegalStateException("temporary failure");
+                }
+                new NatsEventPublisher(jetStream, mapper()).publish(value, subject);
+            }
+
+            @Override
+            public void publishDeadLetter(OutboxEventRecord value, String subject) throws Exception {
+                new NatsEventPublisher(jetStream, mapper()).publishDeadLetter(value, subject);
+            }
+        };
+
+        OutboxRelay relay = relay(failPredecessor, Clock.fixed(NOW, ZoneOffset.UTC));
+        try (relay) {
+            assertThat(relay.relayOnce()).isEqualTo(2);
+        }
+
+        assertThat(find(predecessor).status()).isEqualTo("PENDING");
+        assertThat(find(successor).status()).isEqualTo("PENDING");
+        assertThat(streamMessageCount()).isZero();
+    }
+
+    @Test
+    void doesNotClaimDueSuccessorWhilePredecessorRetryIsInFuture() {
+        UUID aggregateId = UUID.randomUUID();
+        OutboxEventRecord predecessor = insert(event("TaskCreated", 0, aggregateId, 3,
+                NOW.minusSeconds(1), NOW.minusSeconds(1)));
+        OutboxEventRecord successor = insert(event("TaskUpdated", 0, aggregateId, 4, NOW, NOW));
+        AtomicBoolean failed = new AtomicBoolean();
+        EventPublisher failPredecessor = new EventPublisher() {
+            @Override
+            public void publish(OutboxEventRecord value, String subject) throws Exception {
+                if (value.eventId().equals(predecessor.eventId()) && failed.compareAndSet(false, true)) {
+                    throw new IllegalStateException("temporary failure");
+                }
+                new NatsEventPublisher(jetStream, mapper()).publish(value, subject);
+            }
+
+            @Override
+            public void publishDeadLetter(OutboxEventRecord value, String subject) throws Exception {
+                new NatsEventPublisher(jetStream, mapper()).publishDeadLetter(value, subject);
+            }
+        };
+
+        OutboxRelay first = relay(failPredecessor, Clock.fixed(NOW, ZoneOffset.UTC), 1);
+        try (first) {
+            assertThat(first.relayOnce()).isEqualTo(1);
+        }
+
+        OutboxRelay second = relay(failPredecessor, Clock.fixed(NOW.plusMillis(500), ZoneOffset.UTC), 1);
+        try (second) {
+            assertThat(second.relayOnce()).isZero();
+        }
+
+        assertThat(find(predecessor).status()).isEqualTo("PENDING");
+        assertThat(find(successor).status()).isEqualTo("PENDING");
+        assertThat(streamMessageCount()).isZero();
+    }
+
+    @Test
     void tenthFailedAttemptPublishesRedactedDeadLetterAndPersistsDeadLetterState() {
         OutboxEventRecord event = insert(event("TaskCreated", 9));
         EventPublisher alwaysFail = new EventPublisher() {
@@ -219,9 +288,13 @@ class OutboxRelayIT {
     }
 
     private OutboxRelay relay(EventPublisher publisher, Clock clock) {
+        return relay(publisher, clock, 2);
+    }
+
+    private OutboxRelay relay(EventPublisher publisher, Clock clock, int batchSize) {
         OutboxRelayProperties properties = new OutboxRelayProperties();
         properties.setConcurrency(2);
-        properties.setBatchSize(2);
+        properties.setBatchSize(batchSize);
         properties.setBaseRetryDelay(java.time.Duration.ofSeconds(1));
         properties.setMaxRetryDelay(java.time.Duration.ofSeconds(4));
         return new OutboxRelay(new JdbcOutboxStore(persistence), publisher, properties, clock);
@@ -252,8 +325,24 @@ class OutboxRelayIT {
     }
 
     private static OutboxEventRecord event(String eventType, int attempts, TraceContext context) {
-        return OutboxEventRecord.pending(UUID.randomUUID(), "task", UUID.randomUUID(), eventType,
-                "{\"description\":\"task secret\",\"token\":\"credential\"}", 3, NOW, NOW, context)
+        return event(eventType, attempts, UUID.randomUUID(), 3, context);
+    }
+
+    private static OutboxEventRecord event(String eventType, int attempts, UUID aggregateId, long version) {
+        return event(eventType, attempts, aggregateId, version, TraceContext.empty());
+    }
+
+    private static OutboxEventRecord event(String eventType, int attempts, UUID aggregateId, long version,
+            Instant occurredAt, Instant now) {
+        return OutboxEventRecord.pending(UUID.randomUUID(), "task", aggregateId, eventType,
+                "{\"description\":\"task secret\",\"token\":\"credential\"}", version,
+                occurredAt, now, TraceContext.empty()).withAttempts(attempts);
+    }
+
+    private static OutboxEventRecord event(String eventType, int attempts, UUID aggregateId, long version,
+            TraceContext context) {
+        return OutboxEventRecord.pending(UUID.randomUUID(), "task", aggregateId, eventType,
+                "{\"description\":\"task secret\",\"token\":\"credential\"}", version, NOW, NOW, context)
                 .withAttempts(attempts);
     }
 

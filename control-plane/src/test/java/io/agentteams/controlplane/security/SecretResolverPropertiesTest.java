@@ -15,6 +15,7 @@ class SecretResolverPropertiesTest {
         org.assertj.core.api.Assertions.assertThat(properties.getBackend())
                 .isEqualTo(SecretResolverProperties.Backend.VALIDATION_ONLY);
         org.assertj.core.api.Assertions.assertThat(properties.getTimeout()).isEqualTo(Duration.ofSeconds(2));
+        org.assertj.core.api.Assertions.assertThat(properties.getMaxConcurrency()).isEqualTo(8);
     }
 
     @Test
@@ -29,5 +30,18 @@ class SecretResolverPropertiesTest {
         properties.setAllowedKeys(List.of("api-key"));
         properties.setTimeout(Duration.ofSeconds(1));
         properties.validateKubernetes();
+    }
+
+    @Test
+    void rejectsInvalidConcurrencyLimit() {
+        SecretResolverProperties properties = new SecretResolverProperties();
+        properties.setAllowedNamespaces(List.of("agentteams"));
+        properties.setAllowedNames(List.of("qwen"));
+        properties.setAllowedKeys(List.of("api-key"));
+        properties.setMaxConcurrency(0);
+
+        assertThatThrownBy(properties::validateKubernetes)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("max-concurrency");
     }
 }

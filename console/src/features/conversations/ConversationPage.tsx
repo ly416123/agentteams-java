@@ -17,6 +17,8 @@ import {
 } from '../../streams/conversationEvents';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { ErrorState } from '../../components/ErrorState';
+import { labelRole, labelType } from '../../i18n/labels';
+import { labelStatus } from '../../i18n/labels';
 
 type TranscriptItem = {
   key: string;
@@ -198,8 +200,8 @@ export function ConversationPage({
       );
     return (
       <div className="page narrow-page">
-        <p className="eyebrow">CONVERSATION</p>
-        <h1>选择对话 Team</h1>
+        <p className="eyebrow">对话</p>
+        <h1>选择对话团队</h1>
         {teams.length ? (
           teams.map((team) => (
             <button
@@ -219,9 +221,9 @@ export function ConversationPage({
           ))
         ) : (
           <>
-            <p>没有可用 Team</p>
+            <p>没有可用团队</p>
             <Link className="button button--primary" to={`/${projectId}/teams`}>
-              前往 Teams
+              前往团队
             </Link>
           </>
         )}
@@ -313,11 +315,11 @@ export function ConversationPage({
       </Link>
       <div className="detail-heading">
         <div>
-          <p className="eyebrow">CONVERSATION</p>
-          <h1>Worker 对话</h1>
-          <p>Team {teamId || conversation?.teamId || '未绑定'}</p>
+          <p className="eyebrow">对话</p>
+          <h1>工作节点对话</h1>
+          <p>团队 {teamId || conversation?.teamId || '未绑定'}</p>
         </div>
-        <span className="version-pill">{status}</span>
+        <span className="version-pill">{labelStatus(status)}</span>
       </div>
       {streamState === 'reconnecting' && (
         <div className="info-box" role="status">
@@ -339,7 +341,11 @@ export function ConversationPage({
         {transcript.map((item) => (
           <div className={`conversation-message conversation-message--${item.role}`} key={item.key}>
             <span className="eyebrow">
-              {item.role === 'user' ? 'USER' : item.role === 'assistant' ? 'ASSISTANT' : item.type}
+              {item.role === 'user'
+                ? labelRole('USER')
+                : item.role === 'assistant'
+                  ? labelRole('ASSISTANT')
+                  : labelType(item.type)}
             </span>
             <p>{item.text}</p>
           </div>

@@ -161,7 +161,7 @@ describe('Task pages', () => {
   it('shows task timeline and versioned lifecycle actions', async () => {
     renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
     expect(await screen.findByText('生成周报')).toBeInTheDocument();
-    expect(screen.getByText('任务已创建')).toBeInTheDocument();
+    expect(screen.getAllByText('任务已创建').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '取消任务' })).toBeInTheDocument();
     expect(screen.getByText('版本 4')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '取消任务' }));

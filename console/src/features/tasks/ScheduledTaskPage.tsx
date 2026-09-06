@@ -13,6 +13,7 @@ import { listManagementOrganizations } from '../../api/management';
 import { useProjects } from '../../queries/useProjectQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 export function ScheduledTaskPage({ projectId }: { projectId: string }) {
   const projects = useProjects();
@@ -28,7 +29,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
       organizationId && project
         ? { organizationId, tenantId: project.tenantId, projectId: project.name }
         : undefined,
-    [organizationId, project, projectId],
+    [organizationId, project],
   );
 
   useEffect(() => {
@@ -111,7 +112,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="detail-heading">
         <div>
-          <p className="eyebrow">SCHEDULED TASKS</p>
+          <p className="eyebrow">定时任务</p>
           <h1>定时任务</h1>
           <p>查看调度定义、每次执行结果，并区分暂停调度与取消当前运行。</p>
         </div>
@@ -120,7 +121,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
       {Boolean(error) && <ErrorState error={error} />}
       {!schedules.length ? (
         <div className="panel">
-          <p className="muted-text">当前 Project 暂无定时任务。</p>
+          <p className="muted-text">当前项目暂无定时任务。</p>
         </div>
       ) : (
         <div className="content-grid">
@@ -151,7 +152,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
               <>
                 <div className="section-heading">
                   <div>
-                    <p className="eyebrow">SCHEDULE RUNS</p>
+                    <p className="eyebrow">调度执行记录</p>
                     <h2>{selected.title || selected.name}</h2>
                   </div>
                   <button
@@ -169,7 +170,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
                     {runs.map((run) => (
                       <article className="stack-list__item" key={run.id}>
                         <div>
-                          <strong>{run.status}</strong>
+                          <strong>{labelStatus(run.status)}</strong>
                           <div className="muted-text">
                             {new Date(run.occurrenceAt).toLocaleString('zh-CN')}
                           </div>
