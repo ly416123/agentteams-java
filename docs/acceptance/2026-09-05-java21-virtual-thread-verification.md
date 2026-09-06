@@ -46,4 +46,11 @@ python3 scripts/benchmark-io-concurrency.py \
 - Manager/Worker 未注入 `AGENTTEAMS_VIRTUAL_THREADS_ENABLED`，按代码默认值保持关闭。
 - QwenPaw `/api/console/chat` 可建立 HTTP 200 SSE 连接，但短测未收到终态事件；因此尚不能把该环境作为正式吞吐和尾延迟基线。
 
+### Demo Worker 灰度启动验证（2026-09-06）
+
+- 当前分支构建的 `agentteams-agent-worker:java21-candidate` 已导入 L5 K3s 镜像缓存。
+- 仅对 `l5-demo-qwenpaw-worker` 的 Worker CR 做了可回滚试点；Java 21、开关 `false` 和开关 `true` 两种配置均成功滚动并报告 `Worker is READY`。
+- 未执行真实任务压测；验证完成后已恢复原始 Java 17 镜像和默认关闭配置，其他 Worker/Manager 未切换。
+- 试点期间出现的 `FAILED_PRECONDITION: connection is no longer current` 来自 Worker 重启时旧 Gateway 连接被新连接替代，随后 Worker 持续报告 READY，未观察到启动失败。
+
 待 Java 21 候选镜像部署并确认 QwenPaw 上游有终态事件后，再补录原始 JSON、JFR 文件、环境信息和灰度决定。当前代码验证使用 Java 21 Maven 容器完成。
