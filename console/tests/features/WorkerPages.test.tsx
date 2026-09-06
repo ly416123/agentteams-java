@@ -200,7 +200,7 @@ describe('Worker pages', () => {
 
     expect(
       screen.getByText(
-        '发布提交已禁用：镜像 Digest、配置 Revision、Secret Generation、稳定规格快照均需提供真实值。',
+        '发布提交已禁用：镜像摘要、配置版本、密钥版本、稳定规格快照均需提供真实值。',
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();

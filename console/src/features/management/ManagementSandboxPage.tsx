@@ -15,11 +15,9 @@ export function ManagementSandboxPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">OPERATIONS / SANDBOXES</p>
-          <h1>Sandbox 运维</h1>
-          <p className="page-subtitle">
-            查看 Attempt 级 Sandbox 的 profile、生命周期、回收时间和脱敏失败信息。
-          </p>
+          <p className="eyebrow">运维 / 沙箱</p>
+          <h1>沙箱运维</h1>
+          <p className="page-subtitle">查看尝试级沙箱的配置、生命周期、回收时间和脱敏失败信息。</p>
         </div>
         <button className="button button--ghost" onClick={() => void sandboxes.refetch()}>
           刷新
@@ -30,7 +28,7 @@ export function ManagementSandboxPage({ projectId }: { projectId: string }) {
       ) : sandboxes.isError ? (
         <ErrorState error={sandboxes.error} onRetry={() => void sandboxes.refetch()} />
       ) : !sandboxes.data?.length ? (
-        <EmptyState title="暂无 Sandbox" description="当前作用域还没有可展示的 Sandbox。" />
+        <EmptyState title="暂无沙箱" description="当前作用域还没有可展示的沙箱。" />
       ) : (
         <div className="content-grid">
           {sandboxes.data.map((sandbox) => (
@@ -44,25 +42,25 @@ export function ManagementSandboxPage({ projectId }: { projectId: string }) {
               </div>
               <div className="detail-list">
                 <span>
-                  Task<strong>{sandbox.taskId}</strong>
+                  任务<strong>{sandbox.taskId}</strong>
                 </span>
                 <span>
-                  Attempt<strong>{sandbox.attemptId}</strong>
+                  尝试<strong>{sandbox.attemptId}</strong>
                 </span>
                 <span>
-                  Endpoint Ref<strong>{sandbox.endpointRef || '—'}</strong>
+                  端点引用<strong>{sandbox.endpointRef || '—'}</strong>
                 </span>
                 <span>
-                  Version<strong>{sandbox.version}</strong>
+                  版本<strong>{sandbox.version}</strong>
                 </span>
                 <span>
-                  Requested<strong>{formatDate(sandbox.requestedAt)}</strong>
+                  请求时间<strong>{formatDate(sandbox.requestedAt)}</strong>
                 </span>
                 <span>
-                  Expires<strong>{formatDate(sandbox.expiresAt)}</strong>
+                  到期时间<strong>{formatDate(sandbox.expiresAt)}</strong>
                 </span>
                 <span>
-                  Last observed<strong>{formatDate(sandbox.lastObservedAt)}</strong>
+                  最近观测<strong>{formatDate(sandbox.lastObservedAt)}</strong>
                 </span>
               </div>
               {sandbox.failureCode && (

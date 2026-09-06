@@ -157,7 +157,7 @@ export function WorkerOperationPanel({
       <section className="panel operation-panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">LIFECYCLE CONTROL</p>
+            <p className="eyebrow">生命周期控制</p>
             <h2>操作面板</h2>
           </div>
           <span className="version-pill">版本 {worker.version}</span>
@@ -203,10 +203,10 @@ export function WorkerOperationPanel({
         )}
         <div className="rollout-form" aria-label="发布参数">
           <label>
-            镜像 Digest
+            镜像摘要（Digest）
             <input
               required
-              aria-label="镜像 Digest"
+              aria-label="镜像摘要 Digest"
               value={rolloutForm.imageDigest}
               onChange={(event) =>
                 setRolloutForm({ ...rolloutForm, imageDigest: event.target.value })
@@ -214,10 +214,10 @@ export function WorkerOperationPanel({
             />
           </label>
           <label>
-            配置 Revision
+            配置版本（Revision）
             <input
               required
-              aria-label="配置 Revision"
+              aria-label="配置版本 Revision"
               value={rolloutForm.configRevision}
               onChange={(event) =>
                 setRolloutForm({ ...rolloutForm, configRevision: event.target.value })
@@ -225,10 +225,10 @@ export function WorkerOperationPanel({
             />
           </label>
           <label>
-            Secret Generation
+            密钥版本（Secret Generation）
             <input
               required
-              aria-label="Secret Generation"
+              aria-label="密钥版本 Generation"
               value={rolloutForm.secretGeneration}
               onChange={(event) =>
                 setRolloutForm({ ...rolloutForm, secretGeneration: event.target.value })
@@ -249,8 +249,7 @@ export function WorkerOperationPanel({
         </div>
         {!rolloutReady && (
           <p className="error-text">
-            发布提交已禁用：镜像 Digest、配置 Revision、Secret
-            Generation、稳定规格快照均需提供真实值。
+            发布提交已禁用：镜像摘要、配置版本、密钥版本、稳定规格快照均需提供真实值。
           </p>
         )}
         {formError && <p className="error-text">{formError}</p>}

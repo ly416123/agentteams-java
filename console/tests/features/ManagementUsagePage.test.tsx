@@ -57,7 +57,7 @@ describe('Management usage page', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Usage 与费用' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '用量与费用' })).toBeInTheDocument();
     expect((await screen.findAllByText('12')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('$0.4200').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/估算成本/).length).toBeGreaterThan(0);
@@ -81,9 +81,9 @@ describe('Management usage page', () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.change(await screen.findByLabelText('Task ID'), { target: { value: 'task-1' } });
-    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'deepseek' } });
-    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'deepseek-chat' } });
+    fireEvent.change(await screen.findByLabelText('任务 ID'), { target: { value: 'task-1' } });
+    fireEvent.change(screen.getByLabelText('服务商'), { target: { value: 'deepseek' } });
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'deepseek-chat' } });
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }));
 
     const { getUsageSummary, exportUsageCsv } = await import('../../src/api/usage');

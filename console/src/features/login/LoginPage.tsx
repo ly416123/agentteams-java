@@ -24,9 +24,9 @@ export function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <LinkBrand />
-        <p className="eyebrow">SECURE ACCESS</p>
+        <p className="eyebrow">安全登录</p>
         <h1>登录控制台</h1>
-        <p>使用组织的 OIDC 账号登录，访问已授权的 Project。</p>
+        <p>使用组织的 OIDC 账号登录，访问已授权的项目。</p>
         <button
           className="button button--primary button--wide"
           onClick={() => {
@@ -37,7 +37,9 @@ export function LoginPage() {
         >
           使用组织账号登录
         </button>
-        <small>登录后将返回你上次访问的页面。Access Token 仅保存在当前会话内存中。</small>
+        <small>
+          登录后将返回你上次访问的页面。访问令牌（Access Token）仅保存在当前会话内存中。
+        </small>
       </div>
     </div>
   );

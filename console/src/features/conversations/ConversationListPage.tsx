@@ -23,9 +23,9 @@ export function ConversationListPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">CONVERSATION</p>
+          <p className="eyebrow">对话</p>
           <h1>历史对话</h1>
-          <p>查看当前 Project 下已保存的历史会话。</p>
+          <p>查看当前项目下已保存的历史会话。</p>
         </div>
         <Link className="button button--primary" to={`/${projectId}/conversations/new`}>
           新建对话
@@ -57,7 +57,7 @@ export function ConversationListPage({ projectId }: { projectId: string }) {
                 </Link>
               ),
             },
-            { key: 'team', header: 'Team', render: (conversation) => conversation.context.team },
+            { key: 'team', header: '团队', render: (conversation) => conversation.context.team },
             {
               key: 'status',
               header: '状态',

@@ -122,7 +122,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
   if (team.isLoading)
     return (
       <div className="page">
-        <div className="loading-block panel">加载 Team…</div>
+        <div className="loading-block panel">加载团队…</div>
       </div>
     );
   if (team.isError || !team.data)
@@ -149,11 +149,11 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
   return (
     <div className="page">
       <Link className="back-link" to={`/${projectId}/teams`}>
-        ← 返回 Teams
+        ← 返回团队
       </Link>
       <div className="detail-heading">
         <div>
-          <p className="eyebrow">TEAM DETAIL</p>
+          <p className="eyebrow">团队详情</p>
           <h1>{team.data.displayName}</h1>
           <p>
             {team.data.name} · 版本 {team.data.version}
@@ -177,11 +177,11 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
       {tab === '概览' && (
         <section className="detail-grid">
           <div className="panel">
-            <p className="eyebrow">SUMMARY</p>
+            <p className="eyebrow">摘要</p>
             <h2>资源摘要</h2>
             <div className="detail-list">
               <span>
-                Leader<strong>{team.data.leaderAgentId || '未设置'}</strong>
+                负责人<strong>{team.data.leaderAgentId || '未设置'}</strong>
               </span>
               <span>
                 Agent 数量<strong>{team.data.agentCount ?? '—'}</strong>
@@ -200,8 +200,8 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">TEAM MEMBERS</p>
-              <h2>成员 Agent</h2>
+              <p className="eyebrow">团队成员</p>
+              <h2>智能体成员</h2>
             </div>
           </div>
           <form
@@ -214,19 +214,19 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
             }}
           >
             <label>
-              Worker / Agent
+              工作节点 / 智能体
               <select
-                aria-label="Worker / Agent"
+                aria-label="工作节点 / 智能体"
                 value={memberForm.agentId}
                 onChange={(event) => setMemberForm({ ...memberForm, agentId: event.target.value })}
                 required
               >
                 <option value="">
                   {roleAvailableWorkers.length
-                    ? '选择 Worker'
+                    ? '选择工作节点'
                     : memberForm.role === 'LEADER'
-                      ? '暂无可用 Leader Worker'
-                      : '暂无可用 READY Worker'}
+                      ? '暂无可用负责人工作节点'
+                      : '暂无可用就绪工作节点'}
                 </option>
                 {roleAvailableWorkers.map((worker) => (
                   <option value={worker.id} key={worker.id}>
@@ -253,7 +253,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 }}
               >
                 <option value="MEMBER">成员</option>
-                <option value="LEADER">Leader</option>
+                <option value="LEADER">负责人</option>
               </select>
             </label>
             <button className="button button--primary" type="submit" disabled={addMember.isPending}>
@@ -302,7 +302,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
               </div>
             ))
           ) : (
-            <EmptyState title="暂无成员" description="为 Team 添加 Agent 后会显示在这里。" />
+            <EmptyState title="暂无成员" description="为团队添加智能体后会显示在这里。" />
           )}
         </section>
       )}
@@ -310,7 +310,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">SCHEDULING POLICY</p>
+              <p className="eyebrow">调度策略</p>
               <h2>调度策略</h2>
             </div>
             {policy.data && <span className="version-pill">版本 {policy.data.version}</span>}
@@ -351,9 +351,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 需要人工审批
               </label>
               <label>
-                允许 Runtime（逗号分隔）
+                允许运行时（逗号分隔）
                 <input
-                  aria-label="允许 Runtime"
+                  aria-label="允许运行时"
                   value={policyForm.allowedRuntimes}
                   onChange={(event) =>
                     setPolicyForm({ ...policyForm, allowedRuntimes: event.target.value })
@@ -382,7 +382,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
               </button>
             </form>
           ) : (
-            <EmptyState title="暂无策略" description="当前 Team 尚未配置调度策略。" />
+            <EmptyState title="暂无策略" description="当前团队尚未配置调度策略。" />
           )}
         </section>
       )}
@@ -399,17 +399,17 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
           <section className="panel form-panel">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">REVISION CONTROL</p>
-                <h2>创建 Revision 草稿</h2>
+                <p className="eyebrow">版本控制</p>
+                <h2>创建版本草稿</h2>
               </div>
-              <span className="muted-text">发布不会自动部署 Worker</span>
+              <span className="muted-text">发布不会自动部署工作节点</span>
             </div>
             {leaderTeamWorkers.length === 0 && (
               <div className="info-box" role="status">
-                <strong>当前 Team 没有可用的 Leader Worker</strong>
+                <strong>当前团队没有可用的负责人工作节点</strong>
                 <p className="muted-text">
-                  Team Leader 必须是类型为 LEADER 且已加入 Team 的 READY Worker；当前成员不能担任
-                  Leader。
+                  团队负责人必须是类型为 LEADER 且已加入团队的 READY
+                  工作节点；当前成员不能担任负责人。
                 </p>
                 <div className="form-actions">
                   <button
@@ -423,7 +423,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                     className="button button--small button--ghost"
                     to={`/${projectId}/templates`}
                   >
-                    前往 Worker Templates
+                    前往工作节点模板
                   </Link>
                 </div>
               </div>
@@ -431,16 +431,16 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
             <form onSubmit={submitRevision}>
               <div className="form-grid">
                 <label>
-                  Leader Worker
+                  负责人工作节点
                   <select
-                    aria-label="Leader Worker"
+                    aria-label="负责人工作节点"
                     value={revisionForm.leaderAgentId}
                     onChange={(event) =>
                       setRevisionForm({ ...revisionForm, leaderAgentId: event.target.value })
                     }
                     required
                   >
-                    <option value="">选择 Leader Worker</option>
+                    <option value="">选择负责人工作节点</option>
                     {leaderTeamWorkers.map((worker) => (
                       <option value={worker.id} key={worker.id}>
                         {worker.name} · {worker.id}
@@ -449,9 +449,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                   </select>
                 </label>
                 <label>
-                  成员 Worker（可多选）
+                  成员工作节点（可多选）
                   <select
-                    aria-label="成员 Worker"
+                    aria-label="成员工作节点"
                     multiple
                     size={Math.min(Math.max(activeTeamWorkers.length, 2), 6)}
                     value={revisionForm.memberAgentIds}
@@ -499,7 +499,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 type="submit"
                 disabled={createRevision.isPending || leaderTeamWorkers.length === 0}
               >
-                {createRevision.isPending ? '创建中…' : '创建 Revision 草稿'}
+                {createRevision.isPending ? '创建中…' : '创建版本草稿'}
               </button>
             </form>
           </section>
@@ -514,7 +514,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 revisions.data.map((revision) => (
                   <div className="member-row" key={revision.revision}>
                     <div>
-                      <strong>Revision {revision.revision}</strong>
+                      <strong>版本 {revision.revision}</strong>
                       <small>{revision.digest}</small>
                     </div>
                     <StatusBadge phase={revision.status} />
@@ -591,7 +591,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                   </div>
                 ))
               ) : (
-                <EmptyState title="暂无版本" description="Team 发布版本会显示在这里。" />
+                <EmptyState title="暂无版本" description="团队发布版本会显示在这里。" />
               )}
             </section>
             <section className="panel">
@@ -665,10 +665,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                   </div>
                 ))
               ) : (
-                <EmptyState
-                  title="暂无部署"
-                  description="发布 Team 版本后，deployment 状态会显示在这里。"
-                />
+                <EmptyState title="暂无部署" description="发布团队版本后，部署状态会显示在这里。" />
               )}
             </section>
           </div>

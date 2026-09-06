@@ -12,7 +12,7 @@ export function ActionConfirmModal({ open, actionLabel, impact, onCancel, onConf
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="action-confirm-title">
-        <p className="eyebrow">CONFIRM ACTION</p>
+        <p className="eyebrow">确认操作</p>
         <h2 id="action-confirm-title">{confirmLabel}</h2>
         <p>{impact}</p>
         <div className="modal-actions">

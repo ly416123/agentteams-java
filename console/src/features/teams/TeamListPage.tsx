@@ -22,22 +22,22 @@ export function TeamListPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">RESOURCE / TEAMS</p>
-          <h1>Teams</h1>
+          <p className="eyebrow">资源 / 团队</p>
+          <h1>团队</h1>
           <p>组织 Agent 协同工作，并管理调度策略与发布版本。</p>
         </div>
         <Link className="button button--primary" to={`/${projectId}/teams/new`}>
-          创建 Team
+          创建团队
         </Link>
       </div>
       <div className="toolbar">
         <input
-          placeholder="搜索 Team"
+          placeholder="搜索团队"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
         <select
-          aria-label="Team 状态"
+          aria-label="团队状态"
           value={status}
           onChange={(event) => setStatus(event.target.value)}
         >
@@ -50,7 +50,7 @@ export function TeamListPage({ projectId }: { projectId: string }) {
         </button>
       </div>
       {teams.isLoading ? (
-        <div className="panel loading-block">加载 Team…</div>
+        <div className="panel loading-block">加载团队…</div>
       ) : teams.isError ? (
         <ErrorState error={teams.error} onRetry={() => void teams.refetch()} />
       ) : items.length ? (
@@ -67,7 +67,7 @@ export function TeamListPage({ projectId }: { projectId: string }) {
                 </Link>
               ),
             },
-            { key: 'leader', header: 'Leader', render: (team) => team.leaderAgentId || '未设置' },
+            { key: 'leader', header: '负责人', render: (team) => team.leaderAgentId || '未设置' },
             {
               key: 'agents',
               header: 'Agent / 成员',
@@ -92,11 +92,11 @@ export function TeamListPage({ projectId }: { projectId: string }) {
         />
       ) : (
         <EmptyState
-          title="还没有 Team"
-          description="创建第一个 Team，开始编排 Agent。"
+          title="还没有团队"
+          description="创建第一个团队，开始编排智能体。"
           action={
             <Link className="button button--primary" to={`/${projectId}/teams/new`}>
-              创建 Team
+              创建团队
             </Link>
           }
         />

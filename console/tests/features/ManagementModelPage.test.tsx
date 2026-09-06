@@ -76,8 +76,8 @@ describe('Management model page', () => {
     expect(await screen.findByRole('heading', { name: '模型与价格' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('名称'), 'remote');
     await userEvent.type(screen.getByLabelText('Endpoint'), 'https://remote.example.test');
-    await userEvent.type(screen.getByLabelText('Credential Ref（可选）'), 'secret://model/remote');
-    await userEvent.click(screen.getByRole('button', { name: '登记 Provider' }));
+    await userEvent.type(screen.getByLabelText('凭据引用（可选）'), 'secret://model/remote');
+    await userEvent.click(screen.getByRole('button', { name: '登记服务商' }));
     expect(mocks.createModelProvider).toHaveBeenCalledWith({
       name: 'remote',
       providerType: 'OPENAI_COMPATIBLE',
@@ -85,10 +85,10 @@ describe('Management model page', () => {
       credentialRef: 'secret://model/remote',
       enabled: true,
     });
-    await userEvent.selectOptions(screen.getByLabelText('Provider'), 'provider-1');
+    await userEvent.selectOptions(screen.getByLabelText('服务商'), 'provider-1');
     await userEvent.type(screen.getByLabelText('显示名称'), 'Qwen');
-    await userEvent.type(screen.getByLabelText('Model ID'), 'qwen-2.5');
-    await userEvent.click(screen.getByRole('button', { name: '登记 Model' }));
+    await userEvent.type(screen.getByLabelText('模型 ID'), 'qwen-2.5');
+    await userEvent.click(screen.getByRole('button', { name: '登记模型' }));
     expect(mocks.createModel).toHaveBeenCalledWith('provider-1', {
       name: 'Qwen',
       modelId: 'qwen-2.5',
@@ -100,15 +100,15 @@ describe('Management model page', () => {
     expect(screen.getByText('local / qwen-2.5')).toBeInTheDocument();
     expect(screen.getByText(/USD 1.2/)).toBeInTheDocument();
     expect(screen.getByText('Qwen · qwen-2.5')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '停用 Model' }));
+    await userEvent.click(screen.getByRole('button', { name: '停用模型' }));
     expect(mocks.setModelEnabled).toHaveBeenCalledWith('model-1', false);
-    await userEvent.click(screen.getByRole('button', { name: '删除 Model' }));
-    await userEvent.click(screen.getByRole('button', { name: '确认删除 Model' }));
+    await userEvent.click(screen.getByRole('button', { name: '删除模型' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认删除模型' }));
     expect(mocks.deleteModel).toHaveBeenCalledWith('model-1');
     await userEvent.click(screen.getByRole('button', { name: '停用' }));
     expect(mocks.setModelProviderEnabled).toHaveBeenCalledWith('provider-1', false);
     await userEvent.click(screen.getByRole('button', { name: '删除' }));
-    await userEvent.click(screen.getByRole('button', { name: '确认删除 Model Provider' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认删除模型服务商' }));
     expect(mocks.deleteModelProvider).toHaveBeenCalledWith('provider-1');
   });
 });

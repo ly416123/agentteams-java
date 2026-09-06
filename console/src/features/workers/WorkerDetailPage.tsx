@@ -37,7 +37,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
   if (worker.isLoading)
     return (
       <div className="page">
-        <div className="panel loading-block">加载 Worker…</div>
+        <div className="panel loading-block">加载工作节点…</div>
       </div>
     );
   if (worker.isError || !worker.data)
@@ -50,11 +50,11 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
   return (
     <div className="page">
       <Link className="back-link" to={`/${projectId}/workers`}>
-        ← 返回 Workers
+        ← 返回工作节点
       </Link>
       <div className="detail-heading">
         <div>
-          <p className="eyebrow">WORKER DETAIL</p>
+          <p className="eyebrow">工作节点详情</p>
           <h1>{data.name}</h1>
           <p>
             {data.id} · {labelRuntime(data.runtime)} · {labelType(data.workerType || 'EXECUTOR')}
@@ -64,7 +64,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
       </div>
       <div className="content-grid">
         <section className="panel">
-          <p className="eyebrow">RUNTIME</p>
+          <p className="eyebrow">运行时</p>
           <h2>运行状态</h2>
           <div className="detail-list">
             <span>
@@ -107,7 +107,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">AUDIT TRAIL</p>
+            <p className="eyebrow">操作记录</p>
             <h2>操作记录</h2>
           </div>
         </div>

@@ -43,7 +43,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
       return createAgentSpec(projectId, { ...form, teamRef: form.teamRef || undefined, spec });
     },
     onSuccess: () => {
-      setNotice({ kind: 'success', text: 'AgentSpec 已创建' });
+      setNotice({ kind: 'success', text: '智能体规格已创建' });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -51,7 +51,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
   const publish = useMutation({
     mutationFn: (id: string) => publishAgentSpec(projectId, id),
     onSuccess: () => {
-      setNotice({ kind: 'success', text: 'AgentSpec 已发布' });
+      setNotice({ kind: 'success', text: '智能体规格已发布' });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -59,7 +59,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
   const deactivate = useMutation({
     mutationFn: (id: string) => deactivateAgentSpec(projectId, id),
     onSuccess: () => {
-      setNotice({ kind: 'success', text: 'AgentSpec 已停用' });
+      setNotice({ kind: 'success', text: '智能体规格已停用' });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -74,10 +74,10 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / AGENT SPECS</p>
-          <h1>Agent Specs</h1>
+          <p className="eyebrow">管理 / 智能体规格</p>
+          <h1>智能体规格</h1>
           <p className="page-subtitle">
-            管理 AgentSpec 生命周期。发布只改变配置状态，Worker 部署必须通过显式实例化操作完成。
+            管理智能体规格生命周期。发布只改变配置状态，工作节点部署必须通过显式实例化操作完成。
           </p>
         </div>
         <button className="button button--ghost" onClick={() => void specs.refetch()}>
@@ -90,7 +90,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
         </div>
       )}
       <form className="panel form-panel" onSubmit={submit}>
-        <h2>创建 AgentSpec</h2>
+        <h2>创建智能体规格</h2>
         <div className="form-grid">
           <label>
             内部名称
@@ -101,7 +101,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
             />
           </label>
           <label>
-            Runtime
+            运行时
             <input
               value={form.runtime}
               onChange={(event) => setForm({ ...form, runtime: event.target.value })}
@@ -109,20 +109,20 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
             />
           </label>
           <label>
-            Worker 类型
+            工作节点类型
             <select
-              aria-label="Worker 类型"
+              aria-label="工作节点类型"
               value={form.workerType}
               onChange={(event) =>
                 setForm({ ...form, workerType: event.target.value as WorkerType })
               }
             >
-              <option value="EXECUTOR">Executor Worker</option>
-              <option value="LEADER">Leader Worker</option>
+              <option value="EXECUTOR">执行工作节点</option>
+              <option value="LEADER">负责人工作节点</option>
             </select>
           </label>
           <label>
-            Model Provider
+            模型服务商
             <input
               value={form.modelProvider}
               onChange={(event) => setForm({ ...form, modelProvider: event.target.value })}
@@ -130,7 +130,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
             />
           </label>
           <label>
-            Model Name
+            模型名称
             <input
               value={form.modelName}
               onChange={(event) => setForm({ ...form, modelName: event.target.value })}
@@ -138,7 +138,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
             />
           </label>
           <label>
-            Team Ref（可选）
+            团队引用（可选）
             <input
               value={form.teamRef}
               onChange={(event) => setForm({ ...form, teamRef: event.target.value })}
@@ -146,7 +146,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
           </label>
         </div>
         <label>
-          Spec JSON
+          规格 JSON
           <textarea
             rows={5}
             value={form.spec}
@@ -155,7 +155,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
           />
         </label>
         <button className="button button--primary" type="submit" disabled={create.isPending}>
-          {create.isPending ? '创建中…' : '创建 AgentSpec'}
+          {create.isPending ? '创建中…' : '创建智能体规格'}
         </button>
       </form>
 
@@ -164,7 +164,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
       ) : specs.isError ? (
         <ErrorState error={specs.error} onRetry={() => void specs.refetch()} />
       ) : !specs.data?.length ? (
-        <EmptyState title="暂无 AgentSpec" description="创建后可继续审核、发布或停用。" />
+        <EmptyState title="暂无智能体规格" description="创建后可继续审核、发布或停用。" />
       ) : (
         <div className="content-grid">
           {specs.data.map((spec) => (
@@ -180,8 +180,8 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
                 <StatusBadge phase={spec.lifecycleStatus} />
               </div>
               <p className="muted-text">
-                Project {spec.projectId} · version {spec.version}
-                {spec.teamRef ? ` · Team ${spec.teamRef}` : ' · Project scope'}
+                项目 {spec.projectId} · 版本 {spec.version}
+                {spec.teamRef ? ` · 团队 ${spec.teamRef}` : ' · 项目作用域'}
               </p>
               <div className="form-actions">
                 <button

@@ -37,7 +37,7 @@ export function ManagementAlertPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">OPERATIONS / ALERTS</p>
+          <p className="eyebrow">运营 / 告警</p>
           <h1>告警中心</h1>
           <p className="page-subtitle">查看当前作用域的实时评估和告警投递历史。</p>
         </div>
@@ -82,7 +82,7 @@ export function ManagementAlertPage({ projectId }: { projectId: string }) {
       <section className="panel">
         <div className="section-heading">
           <h2>告警规则</h2>
-          <span className="muted">当前 Tenant / Project 作用域</span>
+          <span className="muted">当前租户 / 项目作用域</span>
         </div>
         {rules.isLoading ? (
           <div className="loading-block">加载中…</div>

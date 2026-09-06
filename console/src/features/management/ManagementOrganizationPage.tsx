@@ -39,7 +39,7 @@ export function ManagementOrganizationPage() {
     onSuccess: (value) => {
       setOrganizationId(value.id);
       setOrganizationName('');
-      setNotice({ kind: 'success', text: 'Organization 已创建' });
+      setNotice({ kind: 'success', text: '组织已创建' });
       void refreshOrganizations();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -48,7 +48,7 @@ export function ManagementOrganizationPage() {
     mutationFn: () => createManagementTenant(selectedOrganizationId, { name: tenantName }),
     onSuccess: () => {
       setTenantName('');
-      setNotice({ kind: 'success', text: 'Tenant 已创建' });
+      setNotice({ kind: 'success', text: '租户已创建' });
       void refreshTenants();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -64,7 +64,7 @@ export function ManagementOrganizationPage() {
       status: 'ACTIVE' | 'SUSPENDED';
     }) => updateManagementOrganizationStatus(id, { expectedVersion, status }),
     onSuccess: () => {
-      setNotice({ kind: 'success', text: 'Organization 状态已更新' });
+      setNotice({ kind: 'success', text: '组织状态已更新' });
       void refreshOrganizations();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -80,7 +80,7 @@ export function ManagementOrganizationPage() {
       status: 'ACTIVE' | 'SUSPENDED';
     }) => updateManagementTenantStatus(id, { expectedVersion, status }),
     onSuccess: () => {
-      setNotice({ kind: 'success', text: 'Tenant 状态已更新' });
+      setNotice({ kind: 'success', text: '租户状态已更新' });
       void refreshTenants();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -100,10 +100,10 @@ export function ManagementOrganizationPage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / ORGANIZATIONS</p>
-          <h1>Organization 与 Tenant</h1>
+          <p className="eyebrow">管理 / 组织</p>
+          <h1>组织与租户</h1>
           <p className="page-subtitle">
-            先建立组织和 Tenant，再在 Project/Team 层配置 Worker 资源；创建本身不会部署 Pod。
+            先建立组织和租户，再在项目/团队层配置工作节点资源；创建本身不会部署 Pod。
           </p>
         </div>
         <button className="button button--ghost" onClick={() => void organizations.refetch()}>
@@ -117,7 +117,7 @@ export function ManagementOrganizationPage() {
       )}
       <div className="content-grid">
         <form className="form-panel" onSubmit={submitOrganization}>
-          <h2>创建 Organization</h2>
+          <h2>创建组织</h2>
           <label htmlFor="organization-name">组织名称</label>
           <input
             id="organization-name"
@@ -130,26 +130,26 @@ export function ManagementOrganizationPage() {
             type="submit"
             disabled={createOrganization.isPending}
           >
-            创建 Organization
+            创建组织
           </button>
         </form>
         <form className="form-panel" onSubmit={submitTenant}>
-          <h2>创建 Tenant</h2>
-          <label htmlFor="tenant-organization">Organization</label>
+          <h2>创建租户</h2>
+          <label htmlFor="tenant-organization">组织</label>
           <select
             id="tenant-organization"
             value={selectedOrganizationId}
             onChange={(event) => setOrganizationId(event.target.value)}
             required
           >
-            <option value="">选择 Organization</option>
+            <option value="">选择组织</option>
             {(organizations.data || []).map((organization) => (
               <option value={organization.id} key={organization.id}>
                 {organization.name}
               </option>
             ))}
           </select>
-          <label htmlFor="tenant-name">Tenant 名称</label>
+          <label htmlFor="tenant-name">租户名称</label>
           <input
             id="tenant-name"
             value={tenantName}
@@ -161,7 +161,7 @@ export function ManagementOrganizationPage() {
             type="submit"
             disabled={!selectedOrganizationId || createTenant.isPending}
           >
-            创建 Tenant
+            创建租户
           </button>
         </form>
       </div>
@@ -171,10 +171,7 @@ export function ManagementOrganizationPage() {
       ) : organizations.isError ? (
         <ErrorState error={organizations.error} onRetry={() => void organizations.refetch()} />
       ) : !organizations.data?.length ? (
-        <EmptyState
-          title="暂无 Organization"
-          description="创建 Organization 后可继续建立 Tenant。"
-        />
+        <EmptyState title="暂无组织" description="创建组织后可继续建立租户。" />
       ) : (
         <div className="content-grid">
           {organizations.data.map((organization) => (
@@ -198,14 +195,14 @@ export function ManagementOrganizationPage() {
                       })
                     }
                   >
-                    {organization.status === 'ACTIVE' ? '暂停 Organization' : '恢复 Organization'}
+                    {organization.status === 'ACTIVE' ? '暂停组织' : '恢复组织'}
                   </button>
                 )}
               </div>
               {organization.id === selectedOrganizationId && (
-                <div className="stack-list" aria-label={`${organization.name} 的 Tenant`}>
+                <div className="stack-list" aria-label={`${organization.name} 的租户`}>
                   {tenants.isLoading ? (
-                    <span className="muted-text">Tenant 加载中…</span>
+                    <span className="muted-text">租户加载中…</span>
                   ) : tenants.data?.length ? (
                     tenants.data.map((tenant) => (
                       <div className="stack-list__item" key={tenant.id}>
@@ -224,13 +221,13 @@ export function ManagementOrganizationPage() {
                               })
                             }
                           >
-                            {tenant.status === 'ACTIVE' ? '暂停 Tenant' : '恢复 Tenant'}
+                            {tenant.status === 'ACTIVE' ? '暂停租户' : '恢复租户'}
                           </button>
                         )}
                       </div>
                     ))
                   ) : (
-                    <span className="muted-text">暂无 Tenant</span>
+                    <span className="muted-text">暂无租户</span>
                   )}
                 </div>
               )}

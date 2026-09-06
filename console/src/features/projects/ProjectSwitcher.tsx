@@ -23,11 +23,11 @@ export function ProjectSwitcher() {
 
   return (
     <label className="project-switcher">
-      <span>Project</span>
+      <span>项目</span>
       <select
         value={projectId || ''}
         onChange={(event) => handleChange(event.target.value)}
-        aria-label="当前 Project"
+        aria-label="当前项目"
       >
         {!projects.data && <option value="">加载中…</option>}
         {projects.data?.items.map((project) => (

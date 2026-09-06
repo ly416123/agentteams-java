@@ -43,12 +43,12 @@ function renderPage() {
 describe('Management AgentSpec page', () => {
   it('creates, publishes and deactivates an AgentSpec', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { name: 'Agent Specs' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '智能体规格' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('内部名称'), 'new-agent');
-    await userEvent.type(screen.getByLabelText('Model Provider'), 'local');
-    await userEvent.type(screen.getByLabelText('Model Name'), 'qwen');
-    fireEvent.change(screen.getByLabelText('Spec JSON'), { target: { value: '{"mode":"safe"}' } });
-    await userEvent.click(screen.getByRole('button', { name: '创建 AgentSpec' }));
+    await userEvent.type(screen.getByLabelText('模型服务商'), 'local');
+    await userEvent.type(screen.getByLabelText('模型名称'), 'qwen');
+    fireEvent.change(screen.getByLabelText('规格 JSON'), { target: { value: '{"mode":"safe"}' } });
+    await userEvent.click(screen.getByRole('button', { name: '创建智能体规格' }));
     expect(mocks.createAgentSpec).toHaveBeenCalledWith('project-1', {
       name: 'new-agent',
       runtime: 'qwenpaw',

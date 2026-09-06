@@ -53,18 +53,16 @@ function renderPage() {
 describe('Management organization page', () => {
   it('creates an organization and a tenant in the selected organization', async () => {
     renderPage();
-    expect(
-      await screen.findByRole('heading', { name: 'Organization 与 Tenant' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '组织与租户' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('组织名称'), 'Research');
-    await userEvent.click(screen.getByRole('button', { name: '创建 Organization' }));
+    await userEvent.click(screen.getByRole('button', { name: '创建组织' }));
     expect(mocks.createManagementOrganization).toHaveBeenCalledWith({ name: 'Research' });
 
-    await userEvent.selectOptions(screen.getByLabelText('Organization'), 'org-1');
-    await userEvent.type(screen.getByLabelText('Tenant 名称'), 'Production');
-    await userEvent.click(screen.getByRole('button', { name: '创建 Tenant' }));
+    await userEvent.selectOptions(screen.getByLabelText('组织'), 'org-1');
+    await userEvent.type(screen.getByLabelText('租户名称'), 'Production');
+    await userEvent.click(screen.getByRole('button', { name: '创建租户' }));
     expect(mocks.createManagementTenant).toHaveBeenCalledWith('org-1', { name: 'Production' });
-    expect(await screen.findByText('Tenant 已创建')).toBeInTheDocument();
+    expect(await screen.findByText('租户已创建')).toBeInTheDocument();
   });
 
   it('suspends an organization and its tenant with the current version', async () => {
@@ -73,13 +71,13 @@ describe('Management organization page', () => {
     ]);
     renderPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: '暂停 Organization' }));
+    await userEvent.click(await screen.findByRole('button', { name: '暂停组织' }));
     expect(mocks.updateManagementOrganizationStatus).toHaveBeenCalledWith('org-1', {
       expectedVersion: 0,
       status: 'SUSPENDED',
     });
 
-    await userEvent.click(await screen.findByRole('button', { name: '暂停 Tenant' }));
+    await userEvent.click(await screen.findByRole('button', { name: '暂停租户' }));
     expect(mocks.updateManagementTenantStatus).toHaveBeenCalledWith('tenant-1', {
       expectedVersion: 5,
       status: 'SUSPENDED',

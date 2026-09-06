@@ -23,9 +23,9 @@ function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
     const reader = new FileReader();
     reader.onload = () => {
       if (reader.result instanceof ArrayBuffer) resolve(reader.result);
-      else reject(new Error('无法读取 Skill 制品文件'));
+      else reject(new Error('无法读取技能制品文件'));
     };
-    reader.onerror = () => reject(new Error('无法读取 Skill 制品文件'));
+    reader.onerror = () => reject(new Error('无法读取技能制品文件'));
     reader.readAsArrayBuffer(file);
   });
 }
@@ -54,7 +54,7 @@ export function ManagementSkillPage() {
     mutationFn: () => createSkill(skill),
     onSuccess: () => {
       setSkill({ name: '', displayName: '', description: '', visibility: 'PRIVATE' });
-      setNotice({ kind: 'success', text: 'Skill 已创建' });
+      setNotice({ kind: 'success', text: '技能已创建' });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -76,7 +76,7 @@ export function ManagementSkillPage() {
     },
     onSuccess: (value) => {
       setLastVersion(value);
-      setNotice({ kind: 'success', text: `Skill 版本 ${value.version} 已创建` });
+      setNotice({ kind: 'success', text: `技能版本 ${value.version} 已创建` });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -100,7 +100,7 @@ export function ManagementSkillPage() {
     mutationFn: () => publishSkillVersion(lastVersion?.skillId || '', lastVersion?.id || ''),
     onSuccess: (value) => {
       setLastVersion(value);
-      setNotice({ kind: 'success', text: `Skill 版本 ${value.version} 已发布` });
+      setNotice({ kind: 'success', text: `技能版本 ${value.version} 已发布` });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -109,14 +109,14 @@ export function ManagementSkillPage() {
     mutationFn: () => disableSkillVersion(lastVersion?.skillId || '', lastVersion?.id || ''),
     onSuccess: (value) => {
       setLastVersion(value);
-      setNotice({ kind: 'success', text: `Skill 版本 ${value.version} 已停用` });
+      setNotice({ kind: 'success', text: `技能版本 ${value.version} 已停用` });
       void refresh();
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
   const uploadMutation = useMutation({
     mutationFn: async () => {
-      if (!lastVersion || !packageFile) throw new Error('请选择 Skill 制品文件');
+      if (!lastVersion || !packageFile) throw new Error('请选择技能制品文件');
       if (!globalThis.crypto?.subtle) throw new Error('当前浏览器不支持 SHA-256 校验');
       const digest = await globalThis.crypto.subtle.digest(
         'SHA-256',
@@ -161,10 +161,10 @@ export function ManagementSkillPage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / SKILLS</p>
-          <h1>Skills</h1>
+          <p className="eyebrow">管理 / 技能</p>
+          <h1>技能</h1>
           <p className="page-subtitle">
-            管理 Skill 目录、版本和审核。制品上传完成且安全审核通过后才允许发布。
+            管理技能目录、版本和审核。制品上传完成且安全审核通过后才允许发布。
           </p>
         </div>
         <button className="button button--ghost" onClick={() => void skills.refetch()}>
@@ -178,7 +178,7 @@ export function ManagementSkillPage() {
       )}
       <div className="content-grid">
         <form className="form-panel" onSubmit={submitSkill}>
-          <h2>创建 Skill</h2>
+          <h2>创建技能</h2>
           <label>
             内部名称
             <input
@@ -218,20 +218,20 @@ export function ManagementSkillPage() {
             type="submit"
             disabled={createSkillMutation.isPending}
           >
-            创建 Skill
+            创建技能
           </button>
         </form>
 
         <form className="form-panel" onSubmit={submitVersion}>
-          <h2>创建 Skill 版本</h2>
-          <label htmlFor="skill-version-skill">Skill</label>
+          <h2>创建技能版本</h2>
+          <label htmlFor="skill-version-skill">技能</label>
           <select
             id="skill-version-skill"
             value={version.skillId}
             onChange={(event) => setVersion({ ...version, skillId: event.target.value })}
             required
           >
-            <option value="">选择 Skill</option>
+            <option value="">选择技能</option>
             {(skills.data || []).map((item) => (
               <option value={item.id} key={item.id}>
                 {item.displayName} ({item.name})
@@ -245,14 +245,14 @@ export function ManagementSkillPage() {
             onChange={(event) => setVersion({ ...version, version: event.target.value })}
             required
           />
-          <label htmlFor="skill-version-digest">Digest</label>
+          <label htmlFor="skill-version-digest">摘要（Digest）</label>
           <input
             id="skill-version-digest"
             value={version.digest}
             onChange={(event) => setVersion({ ...version, digest: event.target.value })}
             required
           />
-          <label htmlFor="skill-version-manifest">Manifest JSON</label>
+          <label htmlFor="skill-version-manifest">清单 JSON</label>
           <textarea
             id="skill-version-manifest"
             rows={5}
@@ -313,7 +313,7 @@ export function ManagementSkillPage() {
                 </button>
               </div>
               <label htmlFor="skill-package-file">
-                Skill package
+                技能包
                 <input
                   id="skill-package-file"
                   type="file"
@@ -340,7 +340,7 @@ export function ManagementSkillPage() {
       ) : skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : !skills.data?.length ? (
-        <EmptyState title="暂无 Skill" description="创建 Skill 后可继续登记版本和审核。" />
+        <EmptyState title="暂无技能" description="创建技能后可继续登记版本和审核。" />
       ) : (
         <div className="content-grid">
           {skills.data.map((item) => (

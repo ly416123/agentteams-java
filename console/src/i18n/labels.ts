@@ -105,6 +105,8 @@ const TYPE: Record<string, string> = {
   USER: '用户',
   MESSAGE: '消息',
   WORKER: '工作节点',
+  EXECUTOR: '执行工作节点',
+  LEADER: '负责人工作节点',
   OPENAI_COMPATIBLE: 'OpenAI 兼容',
   STREAMABLE_HTTP: 'Streamable HTTP',
   SAFE: '安全',

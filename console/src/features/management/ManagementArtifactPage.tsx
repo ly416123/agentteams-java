@@ -26,8 +26,8 @@ export function ManagementArtifactPage({ projectId }: { projectId: string }) {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">OPERATIONS / ARTIFACTS</p>
-          <h1>Artifacts</h1>
+          <p className="eyebrow">运营 / 制品</p>
+          <h1>制品</h1>
           <p className="page-subtitle">
             查看当前 Project 作用域内的产物元数据、Attempt 归属、状态和 SHA-256 校验和。
           </p>
@@ -78,7 +78,7 @@ export function ManagementArtifactPage({ projectId }: { projectId: string }) {
                   SHA-256<strong>{artifact.sha256}</strong>
                 </span>
               </div>
-              <p className="muted-text">下载仍需通过 Task/Attempt 资源授权，不在此页绕过权限。</p>
+              <p className="muted-text">下载仍需通过任务/尝试资源授权，不在此页绕过权限。</p>
             </article>
           ))}
         </div>
@@ -131,10 +131,10 @@ function RetentionPolicyCard({
     <section className="panel">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">GOVERNANCE / RETENTION</p>
-          <h2>Artifact 保留策略</h2>
+          <p className="eyebrow">治理 / 保留策略</p>
+          <h2>制品保留策略</h2>
         </div>
-        <span className="muted-text">version {policy?.version ?? '—'}</span>
+        <span className="muted-text">版本 {policy?.version ?? '—'}</span>
       </div>
       {isLoading ? (
         <p className="muted-text">加载保留策略…</p>
@@ -176,7 +176,7 @@ function RetentionPolicyCard({
                 checked={legalHold}
                 onChange={(event) => setLegalHold(event.target.checked)}
               />
-              法律保留（Legal hold）
+              法律保留
             </label>
           </div>
           <p className="muted-text">

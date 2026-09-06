@@ -12,7 +12,7 @@ export function ConsoleEntryPage() {
   });
 
   if (projects.isLoading) {
-    return <div className="loading-screen">正在加载可用 Project…</div>;
+    return <div className="loading-screen">正在加载可用项目…</div>;
   }
 
   if (projects.isError) {
@@ -24,11 +24,11 @@ export function ConsoleEntryPage() {
     return (
       <div className="public-main">
         <EmptyState
-          title="暂无可访问的 Project"
-          description="请联系组织管理员授予 Project 访问权限。"
+          title="暂无可访问的项目"
+          description="请联系组织管理员授予项目访问权限。"
           action={
             <Link className="button button--primary" to="/settings/projects">
-              管理 Project
+              管理项目
             </Link>
           }
         />

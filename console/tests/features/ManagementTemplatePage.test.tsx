@@ -55,7 +55,7 @@ function renderPage() {
 describe('Management template page', () => {
   it('creates a template, creates and publishes a revision, and explicitly instantiates it', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { name: 'Worker Templates' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '工作节点模板' })).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('内部名称'), 'new-worker');
     await userEvent.type(screen.getByLabelText('显示名称'), 'New Worker');
@@ -67,17 +67,17 @@ describe('Management template page', () => {
     });
 
     await userEvent.selectOptions(screen.getByLabelText('模板'), 'template-1');
-    await userEvent.clear(screen.getByLabelText('Worker Spec JSON'));
-    fireEvent.change(screen.getByLabelText('Worker Spec JSON'), {
+    await userEvent.clear(screen.getByLabelText('工作节点规格 JSON'));
+    fireEvent.change(screen.getByLabelText('工作节点规格 JSON'), {
       target: { value: '{"runtime":"qwenpaw"}' },
     });
-    await userEvent.click(screen.getByRole('button', { name: '创建 Revision' }));
+    await userEvent.click(screen.getByRole('button', { name: '创建版本' }));
     expect(mocks.createWorkerTemplateRevision).toHaveBeenCalledWith('project-1', 'template-1', {
       specJson: '{"runtime":"qwenpaw"}',
       actor: '',
     });
 
-    await userEvent.click(await screen.findByRole('button', { name: '发布此 Revision' }));
+    await userEvent.click(await screen.findByRole('button', { name: '发布此版本' }));
     expect(mocks.publishWorkerTemplateRevision).toHaveBeenCalledWith(
       'project-1',
       'template-1',
@@ -85,10 +85,10 @@ describe('Management template page', () => {
       0,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '显式实例化 Worker' }));
+    await userEvent.click(screen.getByRole('button', { name: '显式实例化工作节点' }));
     expect(mocks.instantiateWorkerTemplate).toHaveBeenCalledWith('project-1', 'template-1', 2);
-    expect(await screen.findByText('已创建实例 instance-1，等待 Worker Ready')).toBeInTheDocument();
-    expect(await screen.findByText('实例化成功 · Worker worker-1')).toBeInTheDocument();
+    expect(await screen.findByText('已创建实例 instance-1，等待工作节点就绪')).toBeInTheDocument();
+    expect(await screen.findByText('实例化成功 · 工作节点 worker-1')).toBeInTheDocument();
   });
 
   it('shows a failed instantiation result on the template card', async () => {
@@ -98,7 +98,7 @@ describe('Management template page', () => {
       status: 'FAILED',
     });
     renderPage();
-    await userEvent.click(await screen.findByRole('button', { name: '显式实例化 Worker' }));
+    await userEvent.click(await screen.findByRole('button', { name: '显式实例化工作节点' }));
 
     expect(await screen.findByText('实例化失败 · 实例 failed-instance-1')).toBeInTheDocument();
   });

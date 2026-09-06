@@ -86,11 +86,11 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   return (
     <div className="page">
       <Link className="back-link" to={`/${projectId}/tasks`}>
-        ← 返回 Tasks
+        ← 返回任务
       </Link>
       <div className="detail-heading">
         <div>
-          <p className="eyebrow">TASK DETAIL</p>
+          <p className="eyebrow">任务详情</p>
           <h1>{task.data.title}</h1>
           <p>{task.data.description}</p>
         </div>
@@ -125,7 +125,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">LIFECYCLE</p>
+              <p className="eyebrow">生命周期</p>
               <h2>状态时间线</h2>
             </div>
           </div>
@@ -151,14 +151,14 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           />
         </section>
         <section className="panel">
-          <p className="eyebrow">EXECUTION CONTEXT</p>
+          <p className="eyebrow">执行上下文</p>
           <h2>执行信息</h2>
           <div className="detail-list">
             <span>
-              Team<strong>{task.data.teamId || '未绑定'}</strong>
+              团队<strong>{task.data.teamId || '未绑定'}</strong>
             </span>
             <span>
-              Worker<strong>{task.data.workerId || '待分配'}</strong>
+              工作节点<strong>{task.data.workerId || '待分配'}</strong>
             </span>
             <span>
               优先级<strong>P{task.data.priority}</strong>
@@ -175,7 +175,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">ATTEMPT / ASSIGNMENT / LEASE</p>
+            <p className="eyebrow">尝试 / 分配 / 租约</p>
             <h2>执行尝试</h2>
           </div>
         </div>
@@ -205,7 +205,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
                     Lease<strong>{item.lease?.id || item.attempt.leaseId}</strong>
                   </span>
                   <span>
-                    Worker
+                    工作节点
                     <strong>{item.assignment?.agentId || item.lease?.agentId || '待分配'}</strong>
                   </span>
                   <span>
@@ -220,7 +220,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">RUN RESULTS</p>
+            <p className="eyebrow">运行结果</p>
             <h2>执行结果</h2>
           </div>
         </div>
@@ -256,7 +256,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">RECOVERY POLICY</p>
+            <p className="eyebrow">恢复策略</p>
             <h2>崩溃恢复</h2>
           </div>
         </div>
