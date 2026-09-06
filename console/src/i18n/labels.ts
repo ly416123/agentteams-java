@@ -58,6 +58,11 @@ const STATUS: Record<string, LabelMeta> = {
   SUSPENDED: { label: '已暂停', tone: 'warning', priority: 70 },
   TRIGGERED: { label: '已触发', tone: 'info', priority: 30 },
   RECOVERY_REQUIRED: { label: '需要恢复', tone: 'danger', priority: 90 },
+  NOT_ATTEMPTED: { label: '尚未尝试', tone: 'neutral', priority: 40 },
+  CONNECTED: { label: '已连接', tone: 'success', priority: 10 },
+  RETIRED: { label: '已停用', tone: 'neutral', priority: 70 },
+  CLEAN: { label: '正常', tone: 'success', priority: 10 },
+  REVIEW_REQUIRED: { label: '需要审核', tone: 'warning', priority: 60 },
   RATE_LIMITED: { label: '触发限流', tone: 'warning', priority: 70 },
   REVOKED: { label: '已撤销', tone: 'neutral', priority: 70 },
   APPROVED: { label: '已批准', tone: 'success', priority: 10 },
@@ -112,6 +117,9 @@ const TYPE: Record<string, string> = {
   TASK_RETRY: '重试任务',
   CREDENTIAL_NOT_CONFIGURED: '凭据未配置',
   CONNECTION_FAILED: '连接失败',
+  TASK_STARTED: '任务已启动',
+  TASK_COMPLETED: '任务已完成',
+  TASK_FAILED: '任务失败',
   ORGANIZATION: '组织',
   TENANT: '租户',
   PROJECT: '项目',
@@ -122,6 +130,15 @@ const TYPE: Record<string, string> = {
   SKILL: '技能',
   SANDBOX: '沙箱',
   ARTIFACT: '制品',
+  PRIVATE: '私有',
+  PUBLIC: '公开',
+  SSE: 'SSE',
+  'TASK.CREATED': '任务已创建',
+  'TASK.UPDATED': '任务已更新',
+  'TASK.COMPLETED': '任务已完成',
+  'TASK.FAILED': '任务失败',
+  'TASK.PROCESS': '任务处理中',
+  'TASK.RESULT': '任务结果',
 };
 
 const SOURCE: Record<string, string> = {
@@ -140,6 +157,13 @@ const RUNTIME: Record<string, string> = {
   QWENPAW: 'QwenPaw',
   OPENAI: 'OpenAI',
   ANTHROPIC: 'Anthropic',
+};
+const DECISION: Record<string, string> = {
+  CLEAN: '正常',
+  REVIEW_REQUIRED: '需要审核',
+  ALLOWED: '已允许',
+  BLOCKED: '已拦截',
+  DENIED: '已拒绝',
 };
 const ERROR_CODE: Record<string, string> = {
   REQUEST_FAILED: '请求失败',
@@ -184,7 +208,7 @@ export function labelRuntime(value: unknown): string {
   return RUNTIME[normalized(value)] ?? (value ? String(value) : '未知运行时');
 }
 export function labelDecision(value: unknown): string {
-  return labelStatus(value);
+  return DECISION[normalized(value)] ?? '未知决策';
 }
 export function labelErrorCode(value: unknown): string {
   return ERROR_CODE[normalized(value)] ?? '未知错误';

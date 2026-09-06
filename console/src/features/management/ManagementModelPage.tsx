@@ -252,7 +252,7 @@ export function ManagementModelPage() {
                 <div>
                   <h2>{item.name}</h2>
                   <p className="muted-text">
-                    {item.providerType} · {item.endpoint}
+                    {labelType(item.providerType)} · {item.endpoint}
                   </p>
                 </div>
                 <span className="status-badge">{item.enabled ? '已启用' : '已禁用'}</span>
@@ -383,7 +383,7 @@ export function ManagementModelPage() {
                     </td>
                     <td>{new Date(price.effectiveFrom).toLocaleString('zh-CN')}</td>
                     <td>
-                      {price.lifecycleStatus} · v{price.version}
+                      {labelStatus(price.lifecycleStatus)} · v{price.version}
                     </td>
                   </tr>
                 ))}

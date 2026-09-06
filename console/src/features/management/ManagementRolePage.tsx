@@ -116,10 +116,10 @@ export function ManagementRolePage() {
                       setDraftRoles({ ...draftRoles, [member.subject]: event.target.value })
                     }
                   >
-                    {member.role === 'OWNER' && <option value="OWNER">OWNER</option>}
+                    {member.role === 'OWNER' && <option value="OWNER">{labelRole('OWNER')}</option>}
                     {EDITABLE_ROLES.map((item) => (
                       <option key={item} value={item}>
-                        {item}
+                        {labelRole(item)}
                       </option>
                     ))}
                   </select>

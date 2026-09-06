@@ -8,8 +8,9 @@ import {
 } from '../../api/managementCatalog';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { StatusBadge } from '../../components/StatusBadge';
 import type { WorkerType } from '../../api/types';
-import { labelType } from '../../i18n/labels';
+import { labelRuntime, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -172,11 +173,11 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
                 <div>
                   <h2>{spec.name}</h2>
                   <p className="muted-text">
-                    {spec.runtime} · {labelType(spec.workerType || 'EXECUTOR')} ·{' '}
+                    {labelRuntime(spec.runtime)} · {labelType(spec.workerType || 'EXECUTOR')} ·{' '}
                     {spec.modelProvider}/{spec.modelName}
                   </p>
                 </div>
-                <span className="status-badge">{spec.lifecycleStatus}</span>
+                <StatusBadge phase={spec.lifecycleStatus} />
               </div>
               <p className="muted-text">
                 Project {spec.projectId} · version {spec.version}

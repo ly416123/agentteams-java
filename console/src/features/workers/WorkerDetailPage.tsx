@@ -119,7 +119,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
           <Timeline
             items={operationItems.map((operation) => ({
               id: operation.id,
-              title: operation.type,
+              title: labelType(operation.type),
               description: operationDescription(operation),
               time: operation.updatedAt,
               tone: operation.status === 'FAILED' ? 'danger' : 'success',

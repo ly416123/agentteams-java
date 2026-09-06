@@ -57,6 +57,18 @@ describe('state components', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
   });
 
+  it('localizes typed error codes and keeps the correlation id visible', () => {
+    render(
+      <ErrorState
+        error={{ code: 'FORBIDDEN', message: 'raw backend detail', correlationId: 'corr-1' }}
+      />,
+    );
+
+    expect(screen.getByText('无权执行此操作')).toBeInTheDocument();
+    expect(screen.queryByText('raw backend detail')).not.toBeInTheDocument();
+    expect(screen.getByText('关联 ID：corr-1')).toBeInTheDocument();
+  });
+
   it('offers explicit login and refresh actions for auth and conflict errors', () => {
     const onLogin = vi.fn();
     const onRetry = vi.fn();

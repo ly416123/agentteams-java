@@ -14,16 +14,16 @@ import { labelPhase } from '../../i18n/labels';
 
 type ConfirmedAction = 'drain' | 'terminate' | 'rollout' | 'rollback';
 const actionLabels: Record<ConfirmedAction, string> = {
-  drain: 'Drain',
-  terminate: 'Terminate',
-  rollout: 'Rollout',
-  rollback: 'Rollback',
+  drain: '排空',
+  terminate: '终止',
+  rollout: '发布',
+  rollback: '回滚',
 };
 const actionImpacts: Record<ConfirmedAction, string> = {
   drain: 'Worker 将停止接收新任务，并等待当前任务完成或被接管。',
   terminate: 'Worker 将被终止，当前任务会中断且不会再接收新任务。',
   rollout: 'Worker 将切换到新镜像与配置，期间可能短暂不可用。',
-  rollback: 'Worker 将回滚到失败 Rollout 的稳定规格，当前版本可能被替换。',
+  rollback: '工作节点将回滚到失败发布的稳定规格，当前版本可能被替换。',
 };
 
 export function WorkerOperationPanel({
@@ -124,7 +124,7 @@ export function WorkerOperationPanel({
               (operation) => operation.type === 'ROLLOUT' && operation.status === 'FAILED',
             );
             if (latestOperation) submitRollback(latestOperation);
-            else setFormError('无法读取失败 Rollout 的最新版本，请刷新后重试。');
+            else setFormError('无法读取失败发布的最新版本，请刷新后重试。');
           }),
       },
     );
@@ -174,34 +174,34 @@ export function WorkerOperationPanel({
             disabled={!drainAllowed || pending}
             onClick={() => setConfirmation('drain')}
           >
-            Drain
+            {actionLabels.drain}
           </button>
           <button
             className="button button--danger"
             disabled={!terminateAllowed || pending}
             onClick={() => setConfirmation('terminate')}
           >
-            Terminate
+            {actionLabels.terminate}
           </button>
           <button
             className="button button--ghost"
             disabled={!rolloutAllowed || pending || !rolloutReady}
             onClick={() => setConfirmation('rollout')}
           >
-            Rollout
+            {actionLabels.rollout}
           </button>
           <button
             className="button button--ghost"
             disabled={pending || !failedRollout}
             onClick={() => setConfirmation('rollback')}
           >
-            Rollback
+            {actionLabels.rollback}
           </button>
         </div>
         {mutationError && !conflict && (
           <ErrorState error={mutationError} onRetry={() => void retryLatest()} />
         )}
-        <div className="rollout-form" aria-label="Rollout 参数">
+        <div className="rollout-form" aria-label="发布参数">
           <label>
             镜像 Digest
             <input
@@ -249,7 +249,7 @@ export function WorkerOperationPanel({
         </div>
         {!rolloutReady && (
           <p className="error-text">
-            Rollout 提交已禁用：镜像 Digest、配置 Revision、Secret
+            发布提交已禁用：镜像 Digest、配置 Revision、Secret
             Generation、稳定规格快照均需提供真实值。
           </p>
         )}

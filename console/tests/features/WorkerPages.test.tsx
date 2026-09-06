@@ -158,19 +158,19 @@ describe('Worker pages', () => {
     renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
     expect(await screen.findByText('分析 Worker')).toBeInTheDocument();
     expect(screen.getByText('v1.4.0')).toBeInTheDocument();
-    expect(screen.getByText('Drain')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Drain' }));
+    expect(screen.getByRole('button', { name: '排空' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '排空' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('将停止接收新任务');
-    await userEvent.click(screen.getByRole('button', { name: '确认 Drain' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认排空' }));
     expect(screen.getByText('操作已提交')).toBeInTheDocument();
-    expect(screen.getByText('DRAIN')).toBeInTheDocument();
+    expect(screen.getByText('排空')).toBeInTheDocument();
   });
 
   it('submits rollout with the current worker version', async () => {
     renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
     await screen.findByText('分析 Worker');
-    await userEvent.click(screen.getByRole('button', { name: 'Rollout' }));
-    await userEvent.click(screen.getByRole('button', { name: '确认 Rollout' }));
+    await userEvent.click(screen.getByRole('button', { name: '发布' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认发布' }));
     expect(await screen.findByText('操作已提交')).toBeInTheDocument();
     expect(rolloutWorker).toHaveBeenCalledWith(
       'p-1',
@@ -200,10 +200,10 @@ describe('Worker pages', () => {
 
     expect(
       screen.getByText(
-        'Rollout 提交已禁用：镜像 Digest、配置 Revision、Secret Generation、稳定规格快照均需提供真实值。',
+        '发布提交已禁用：镜像 Digest、配置 Revision、Secret Generation、稳定规格快照均需提供真实值。',
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rollout' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
     expect(rolloutWorker).not.toHaveBeenCalled();
   });
 
@@ -241,8 +241,8 @@ describe('Worker pages', () => {
 
     renderWithQuery(<WorkerDetailPage projectId="p-1" workerId="worker-1" />);
     await screen.findByText('分析 Worker');
-    await userEvent.click(screen.getByRole('button', { name: 'Drain' }));
-    await userEvent.click(screen.getByRole('button', { name: '确认 Drain' }));
+    await userEvent.click(screen.getByRole('button', { name: '排空' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认排空' }));
     await screen.findByText('资源状态已更新');
     await userEvent.click(screen.getByRole('button', { name: '仍然继续操作' }));
 
@@ -266,8 +266,8 @@ describe('Worker pages', () => {
         onRefresh={async () => ({})}
       />,
     );
-    expect(screen.getByRole('button', { name: 'Drain' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Terminate' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Rollout' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '排空' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '终止' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
   });
 });

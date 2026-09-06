@@ -4,6 +4,7 @@ import { getMemoryAccessToken } from '../auth/memoryToken';
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly correlationId?: string;
   readonly details?: Record<string, unknown>;
 
   constructor(status: number, payload: ApiErrorShape) {
@@ -11,6 +12,7 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = status;
     this.code = payload.code || codeForStatus(status);
+    this.correlationId = payload.correlationId;
     this.details = payload.details;
   }
 }

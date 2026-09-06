@@ -11,7 +11,7 @@ import {
   updateProvisionedUser,
   type ManagementUser,
 } from '../../api/management';
-import { labelRole, labelStatus } from '../../i18n/labels';
+import { labelRole, labelStatus, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -245,7 +245,9 @@ export function ManagementIdentityPage() {
             onChange={(event) => setMembership({ ...membership, role: event.target.value })}
           >
             {['OWNER', 'ADMIN', 'MEMBER', 'AUDITOR'].map((role) => (
-              <option key={role}>{role}</option>
+              <option key={role} value={role}>
+                {labelRole(role)}
+              </option>
             ))}
           </select>
           <button className="button button--primary" type="submit">
@@ -363,7 +365,7 @@ export function ManagementIdentityPage() {
                 >
                   <span>{membership.scopeName}</span>
                   <span className="muted-text">
-                    {membership.scopeType} · {labelRole(membership.role)}
+                    {labelType(membership.scopeType)} · {labelRole(membership.role)}
                   </span>
                 </div>
               ))}

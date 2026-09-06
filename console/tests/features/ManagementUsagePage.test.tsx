@@ -140,7 +140,7 @@ describe('Management usage page', () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole('option', { name: 'User' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '用户' })).toBeInTheDocument();
     fireEvent.change(await screen.findByLabelText('分组维度'), { target: { value: 'team' } });
 
     const { getUsageSummary } = await import('../../src/api/usage');

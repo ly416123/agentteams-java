@@ -18,6 +18,7 @@ import {
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { ErrorState } from '../../components/ErrorState';
 import { labelRole, labelType } from '../../i18n/labels';
+import { labelStatus } from '../../i18n/labels';
 
 type TranscriptItem = {
   key: string;
@@ -318,7 +319,7 @@ export function ConversationPage({
           <h1>Worker 对话</h1>
           <p>Team {teamId || conversation?.teamId || '未绑定'}</p>
         </div>
-        <span className="version-pill">{status}</span>
+        <span className="version-pill">{labelStatus(status)}</span>
       </div>
       {streamState === 'reconnecting' && (
         <div className="info-box" role="status">

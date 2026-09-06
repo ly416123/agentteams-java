@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
-import { labelRole, labelType } from '../../i18n/labels';
+import { labelRole, labelRuntime, labelType } from '../../i18n/labels';
 import { Timeline } from '../../components/Timeline';
 import {
   useTeam,
@@ -279,9 +279,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 <div>
                   <strong>{member.agentId}</strong>
                   <small>
-                    {member.runtime || 'runtime 未知'} · {(member.capabilities || []).join('、')}
+                    {labelRuntime(member.runtime)} · {(member.capabilities || []).join('、')}
                     {workerById.get(member.agentId)?.workerType
-                      ? ` · ${workerById.get(member.agentId)?.workerType}`
+                      ? ` · ${labelType(workerById.get(member.agentId)?.workerType)}`
                       : ''}
                   </small>
                 </div>

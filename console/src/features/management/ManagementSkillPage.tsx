@@ -13,6 +13,8 @@ import {
 } from '../../api/managementCatalog';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { StatusBadge } from '../../components/StatusBadge';
+import { labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -347,10 +349,10 @@ export function ManagementSkillPage() {
                 <div>
                   <h2>{item.displayName}</h2>
                   <p className="muted-text">
-                    {item.name} · {item.visibility}
+                    {item.name} · {labelType(item.visibility)}
                   </p>
                 </div>
-                <span className="status-badge">{item.lifecycle}</span>
+                <StatusBadge phase={item.lifecycle} />
               </div>
               <p className="muted-text">
                 {item.description || '暂无描述'} · version {item.version}

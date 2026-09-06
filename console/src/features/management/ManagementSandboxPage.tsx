@@ -3,6 +3,7 @@ import { listSandboxes } from '../../api/sandboxes';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelErrorCode } from '../../i18n/labels';
 
 export function ManagementSandboxPage({ projectId }: { projectId: string }) {
   const sandboxes = useQuery({
@@ -66,7 +67,8 @@ export function ManagementSandboxPage({ projectId }: { projectId: string }) {
               </div>
               {sandbox.failureCode && (
                 <p className="error-text">
-                  {sandbox.failureCode}: {sandbox.redactedFailureMessage || '无更多信息'}
+                  {labelErrorCode(sandbox.failureCode)}:{' '}
+                  {sandbox.redactedFailureMessage || '无更多信息'}
                 </p>
               )}
             </article>

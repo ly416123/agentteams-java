@@ -159,14 +159,14 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
                 setPageOffset(0);
               }}
             >
-              <option value="provider_model">Provider / Model</option>
-              <option value="organization">Organization</option>
-              <option value="tenant">Tenant</option>
-              <option value="project">Project</option>
-              <option value="team">Team</option>
-              <option value="user">User</option>
-              <option value="task">Task</option>
-              <option value="worker">Worker</option>
+              <option value="provider_model">服务商 / 模型</option>
+              <option value="organization">组织</option>
+              <option value="tenant">租户</option>
+              <option value="project">项目</option>
+              <option value="team">团队</option>
+              <option value="user">用户</option>
+              <option value="task">任务</option>
+              <option value="worker">工作节点</option>
             </select>
           </label>
           <button className="button button--primary" onClick={applyFilters}>
