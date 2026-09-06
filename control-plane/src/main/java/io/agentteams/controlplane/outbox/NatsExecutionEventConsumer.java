@@ -28,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,8 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private static final Duration IDLE_BACKOFF = Duration.ofMillis(10);
     private static final Duration OUT_OF_ORDER_REDELIVERY_DELAY = Duration.ofMillis(250);
     private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration RECOVERY_RETRY_DELAY = Duration.ofMillis(100);
+    private static final Duration RECOVERY_MAX_DELAY = Duration.ofSeconds(5);
     private static final int DEFAULT_CONCURRENCY = 8;
     private static final int DEFAULT_MAX_ACK_PENDING = 32;
 
@@ -58,6 +61,8 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private final OrderedDispatcher dispatcher;
     private final AtomicBoolean running = new AtomicBoolean();
     private final ConnectionListener connectionListener = this::onConnectionEvent;
+    private final ScheduledExecutorService recoveryExecutor;
+    private final AtomicBoolean recoveryScheduled = new AtomicBoolean();
     private JetStreamSubscription subscription;
     private ExecutorService executor;
 
@@ -125,6 +130,11 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         this.tracing = Objects.requireNonNull(tracing, "tracing");
         this.maxAckPending = requirePositiveAtLeast(maxAckPending, concurrency, "maxAckPending");
         this.dispatcher = new OrderedDispatcher(concurrency, this.maxAckPending);
+        this.recoveryExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "control-plane-nats-recovery");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     public synchronized void start() throws IOException, JetStreamApiException {
@@ -167,6 +177,8 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             executor.shutdownNow();
             executor = null;
         }
+        recoveryScheduled.set(false);
+        recoveryExecutor.shutdownNow();
         dispatcher.close(timeout);
     }
 
@@ -174,7 +186,12 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         while (running.get()) {
             try {
                 boolean processed = false;
-                Message message = subscription.nextMessage(RECEIVE_TIMEOUT);
+                JetStreamSubscription currentSubscription = subscription;
+                if (currentSubscription == null) {
+                    Thread.sleep(IDLE_BACKOFF.toMillis());
+                    continue;
+                }
+                Message message = currentSubscription.nextMessage(RECEIVE_TIMEOUT);
                 if (message != null) {
                     dispatch(message);
                     processed = true;
@@ -331,29 +348,69 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         if (event != ConnectionListener.Events.RESUBSCRIBED || !running.get()) {
             return;
         }
+        if (recoveryScheduled.compareAndSet(false, true)) {
+            scheduleRecoveryAttempt(0);
+        }
+    }
+
+    private void scheduleRecoveryAttempt(int attempt) {
+        Duration delay = recoveryDelay(attempt);
+        try {
+            recoveryExecutor.schedule(() -> restoreSubscription(attempt), delay.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException rejected) {
+            recoveryScheduled.set(false);
+        }
+    }
+
+    private void restoreSubscription(int attempt) {
+        if (!running.get()) {
+            recoveryScheduled.set(false);
+            return;
+        }
+        boolean restored = false;
+        JetStreamSubscription replacement = null;
         synchronized (this) {
             if (!running.get()) {
+                recoveryScheduled.set(false);
                 return;
             }
-            JetStreamSubscription replacement = null;
+            JetStreamSubscription previous = subscription;
+            subscription = null;
+            unsubscribe(previous);
             try {
                 replacement = jetStream.subscribe(PlatformEventSubjects.AGENT_EXECUTION_EVENTS, durable,
                         subscribeOptions());
-                JetStreamSubscription previous = subscription;
                 subscription = replacement;
-                unsubscribe(previous);
-                LOGGER.info("Control Plane NATS execution subscription restored after reconnect");
+                restored = true;
             } catch (IOException | JetStreamApiException error) {
                 unsubscribe(replacement);
                 LOGGER.log(Level.WARNING,
-                        "Unable to restore Control Plane NATS execution subscription after reconnect", error);
+                        "Unable to restore Control Plane NATS execution subscription after reconnect; retrying", error);
             }
         }
+        if (restored) {
+            recoveryScheduled.set(false);
+            LOGGER.info("Control Plane NATS execution subscription restored after reconnect");
+        } else if (running.get()) {
+            scheduleRecoveryAttempt(attempt + 1);
+        } else {
+            recoveryScheduled.set(false);
+        }
+    }
+
+    private static Duration recoveryDelay(int attempt) {
+        long multiplier = 1L << Math.min(attempt, 5);
+        long delayMillis = Math.min(RECOVERY_MAX_DELAY.toMillis(), RECOVERY_RETRY_DELAY.toMillis() * multiplier);
+        return Duration.ofMillis(delayMillis);
     }
 
     private static void unsubscribe(JetStreamSubscription candidate) {
         if (candidate != null) {
-            candidate.unsubscribe();
+            try {
+                candidate.unsubscribe();
+            } catch (RuntimeException error) {
+                LOGGER.log(Level.FINE, "Unable to unsubscribe stale Control Plane NATS subscription", error);
+            }
         }
     }
 

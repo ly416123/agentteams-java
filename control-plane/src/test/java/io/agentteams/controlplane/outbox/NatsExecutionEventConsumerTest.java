@@ -192,9 +192,9 @@ class NatsExecutionEventConsumerTest {
         verify(connection).addConnectionListener(listener.capture());
         listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
 
-        verify(firstSubscription).unsubscribe();
+        verify(firstSubscription, org.mockito.Mockito.timeout(2_000)).unsubscribe();
         var options = org.mockito.ArgumentCaptor.forClass(PushSubscribeOptions.class);
-        verify(jetStream, org.mockito.Mockito.times(2)).subscribe(
+        verify(jetStream, org.mockito.Mockito.timeout(2_000).times(2)).subscribe(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), options.capture());
         assertThat(options.getAllValues()).allMatch(option ->
                 option.getConsumerConfiguration().getMaxAckPending() >= 8);
@@ -203,12 +203,11 @@ class NatsExecutionEventConsumerTest {
     }
 
     @Test
-    void keepsTheExistingSubscriptionWhenReconnectCreationFailsThenRecovers() throws Exception {
+    void unbindsTheExistingSubscriptionWhenReconnectCreationFailsThenRecovers() throws Exception {
         Connection connection = mock(Connection.class);
         JetStream jetStream = mock(JetStream.class);
         JetStreamSubscription first = mock(JetStreamSubscription.class);
         JetStreamSubscription recovered = mock(JetStreamSubscription.class);
-        CountDownLatch consumerStopped = new CountDownLatch(1);
         when(connection.jetStream()).thenReturn(jetStream);
         when(jetStream.subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class)))
@@ -216,7 +215,9 @@ class NatsExecutionEventConsumerTest {
                 .thenThrow(new java.io.IOException("reconnect unavailable"))
                 .thenReturn(recovered);
         when(first.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
-                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+                .thenReturn(null);
+        when(recovered.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenReturn(null);
 
         NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(connection,
                 mock(ExecutionEventPort.class), command -> { }, new com.fasterxml.jackson.databind.ObjectMapper(),
@@ -226,12 +227,14 @@ class NatsExecutionEventConsumerTest {
         verify(connection).addConnectionListener(listener.capture());
 
         listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
-        verify(first, never()).unsubscribe();
 
-        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
-        verify(first).unsubscribe();
+        verify(first, org.mockito.Mockito.timeout(3_000)).unsubscribe();
+        verify(jetStream, org.mockito.Mockito.timeout(3_000).times(3)).subscribe(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
+        verify(recovered, org.mockito.Mockito.timeout(3_000))
+                .nextMessage(org.mockito.ArgumentMatchers.any(Duration.class));
         consumer.close();
-        consumerStopped.countDown();
     }
 
     @Test

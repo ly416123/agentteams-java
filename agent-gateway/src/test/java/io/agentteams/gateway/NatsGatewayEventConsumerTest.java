@@ -172,10 +172,10 @@ class NatsGatewayEventConsumerTest {
         verify(connection).addConnectionListener(listener.capture());
         listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
 
-        verify(firstTaskSubscription).unsubscribe();
-        verify(firstConfigSubscription).unsubscribe();
+        verify(firstTaskSubscription, org.mockito.Mockito.timeout(2_000)).unsubscribe();
+        verify(firstConfigSubscription, org.mockito.Mockito.timeout(2_000)).unsubscribe();
         var options = org.mockito.ArgumentCaptor.forClass(PushSubscribeOptions.class);
-        verify(jetStream, org.mockito.Mockito.times(4)).subscribe(
+        verify(jetStream, org.mockito.Mockito.timeout(2_000).times(4)).subscribe(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), options.capture());
         assertThat(options.getAllValues()).allMatch(option ->
                 option.getConsumerConfiguration().getMaxAckPending() >= 8);
@@ -284,7 +284,7 @@ class NatsGatewayEventConsumerTest {
     }
 
     @Test
-    void keepsTheExistingSubscriptionWhenReconnectCreationFailsThenRecovers() throws Exception {
+    void unbindsTheExistingSubscriptionsWhenReconnectCreationFailsThenRecovers() throws Exception {
         CommandDeliveryService delivery = mock(CommandDeliveryService.class);
         Connection connection = mock(Connection.class);
         JetStream jetStream = mock(JetStream.class);
@@ -292,7 +292,6 @@ class NatsGatewayEventConsumerTest {
         JetStreamSubscription firstConfig = mock(JetStreamSubscription.class);
         JetStreamSubscription recoveredTask = mock(JetStreamSubscription.class);
         JetStreamSubscription recoveredConfig = mock(JetStreamSubscription.class);
-        CountDownLatch consumerStopped = new CountDownLatch(1);
         when(connection.jetStream()).thenReturn(jetStream);
         when(jetStream.subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class)))
@@ -300,7 +299,9 @@ class NatsGatewayEventConsumerTest {
                 .thenThrow(new java.io.IOException("reconnect unavailable"))
                 .thenReturn(recoveredTask, recoveredConfig);
         when(firstTask.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
-                .thenAnswer(invocation -> { consumerStopped.await(); return null; });
+                .thenReturn(null);
+        when(recoveredTask.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
+                .thenReturn(null);
 
         NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(connection,
                 new TaskAssignedCommandHandler(delivery), new ConfigChangedCommandHandler(delivery, new ObjectMapper()),
@@ -311,14 +312,15 @@ class NatsGatewayEventConsumerTest {
         verify(connection).addConnectionListener(listener.capture());
 
         listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
-        verify(firstTask, org.mockito.Mockito.never()).unsubscribe();
-        verify(firstConfig, org.mockito.Mockito.never()).unsubscribe();
 
-        listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
-        verify(firstTask).unsubscribe();
-        verify(firstConfig).unsubscribe();
+        verify(firstTask, org.mockito.Mockito.timeout(3_000)).unsubscribe();
+        verify(firstConfig, org.mockito.Mockito.timeout(3_000)).unsubscribe();
+        verify(jetStream, org.mockito.Mockito.timeout(3_000).times(5)).subscribe(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
+        verify(recoveredTask, org.mockito.Mockito.timeout(3_000))
+                .nextMessage(org.mockito.ArgumentMatchers.any(Duration.class));
         consumer.close();
-        consumerStopped.countDown();
     }
 
     @Test

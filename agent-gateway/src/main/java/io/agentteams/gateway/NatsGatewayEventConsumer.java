@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -39,6 +40,8 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(1);
     private static final Duration IDLE_BACKOFF = Duration.ofMillis(10);
     private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration RECOVERY_RETRY_DELAY = Duration.ofMillis(100);
+    private static final Duration RECOVERY_MAX_DELAY = Duration.ofSeconds(5);
     private static final int DEFAULT_CONCURRENCY = 8;
     private static final int DEFAULT_MAX_ACK_PENDING = 32;
 
@@ -58,6 +61,8 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object lifecycleMonitor = new Object();
     private final ConnectionListener connectionListener = this::onConnectionEvent;
+    private final ScheduledExecutorService recoveryExecutor;
+    private final AtomicBoolean recoveryScheduled = new AtomicBoolean();
     private JetStreamSubscription subscription;
     private JetStreamSubscription configSubscription;
     private ExecutorService executor;
@@ -133,6 +138,11 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.tracing = Objects.requireNonNull(tracing, "tracing");
         this.maxAckPending = requirePositiveAtLeast(maxAckPending, concurrency, "maxAckPending");
         this.dispatcher = new OrderedDispatcher(concurrency, this.maxAckPending);
+        this.recoveryExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "agent-gateway-nats-recovery");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     /** Testable constructor for envelope processing without starting a NATS subscription. */
@@ -166,6 +176,11 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         this.tracing = Objects.requireNonNull(tracing, "tracing");
         this.maxAckPending = requirePositiveAtLeast(maxAckPending, concurrency, "maxAckPending");
         this.dispatcher = new OrderedDispatcher(concurrency, this.maxAckPending);
+        this.recoveryExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "agent-gateway-nats-recovery");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     public void start() throws IOException, JetStreamApiException {
@@ -257,6 +272,8 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 executor.shutdownNow();
                 executor = null;
             }
+            recoveryScheduled.set(false);
+            recoveryExecutor.shutdownNow();
         }
         dispatcher.close(timeout);
     }
@@ -265,33 +282,75 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         if (event != ConnectionListener.Events.RESUBSCRIBED || !running.get()) {
             return;
         }
+        if (recoveryScheduled.compareAndSet(false, true)) {
+            scheduleRecoveryAttempt(0);
+        }
+    }
+
+    private void scheduleRecoveryAttempt(int attempt) {
+        Duration delay = recoveryDelay(attempt);
+        try {
+            recoveryExecutor.schedule(() -> restoreSubscriptions(attempt), delay.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException rejected) {
+            recoveryScheduled.set(false);
+        }
+    }
+
+    private void restoreSubscriptions(int attempt) {
+        if (!running.get()) {
+            recoveryScheduled.set(false);
+            return;
+        }
+        boolean restored = false;
+        JetStreamSubscription replacement = null;
+        JetStreamSubscription configReplacement = null;
         synchronized (lifecycleMonitor) {
             if (!running.get()) {
+                recoveryScheduled.set(false);
                 return;
             }
-            JetStreamSubscription replacement = null;
-            JetStreamSubscription configReplacement = null;
+            JetStreamSubscription previous = subscription;
+            JetStreamSubscription previousConfig = configSubscription;
+            subscription = null;
+            configSubscription = null;
+            unsubscribe(previous);
+            unsubscribe(previousConfig);
             try {
                 replacement = jetStream.subscribe(subject, durable, subscribeOptions(durable));
                 configReplacement = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
-                JetStreamSubscription previous = subscription;
-                JetStreamSubscription previousConfig = configSubscription;
                 subscription = replacement;
                 configSubscription = configReplacement;
-                unsubscribe(previous);
-                unsubscribe(previousConfig);
-                LOGGER.info("Agent Gateway NATS subscriptions restored after reconnect");
+                restored = true;
             } catch (IOException | JetStreamApiException error) {
                 unsubscribe(replacement);
                 unsubscribe(configReplacement);
-                LOGGER.log(Level.WARNING, "Unable to restore Agent Gateway NATS subscriptions after reconnect", error);
+                LOGGER.log(Level.WARNING,
+                        "Unable to restore Agent Gateway NATS subscriptions after reconnect; retrying", error);
             }
         }
+        if (restored) {
+            recoveryScheduled.set(false);
+            LOGGER.info("Agent Gateway NATS subscriptions restored after reconnect");
+        } else if (running.get()) {
+            scheduleRecoveryAttempt(attempt + 1);
+        } else {
+            recoveryScheduled.set(false);
+        }
+    }
+
+    private static Duration recoveryDelay(int attempt) {
+        long multiplier = 1L << Math.min(attempt, 5);
+        long delayMillis = Math.min(RECOVERY_MAX_DELAY.toMillis(), RECOVERY_RETRY_DELAY.toMillis() * multiplier);
+        return Duration.ofMillis(delayMillis);
     }
 
     private static void unsubscribe(JetStreamSubscription candidate) {
         if (candidate != null) {
-            candidate.unsubscribe();
+            try {
+                candidate.unsubscribe();
+            } catch (RuntimeException error) {
+                LOGGER.log(Level.FINE, "Unable to unsubscribe stale Agent Gateway NATS subscription", error);
+            }
         }
     }
 
@@ -312,12 +371,18 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
         while (running.get()) {
             try {
                 boolean processed = false;
-                Message message = subscription.nextMessage(RECEIVE_TIMEOUT);
+                JetStreamSubscription currentSubscription = subscription;
+                JetStreamSubscription currentConfigSubscription = configSubscription;
+                if (currentSubscription == null || currentConfigSubscription == null) {
+                    Thread.sleep(IDLE_BACKOFF.toMillis());
+                    continue;
+                }
+                Message message = currentSubscription.nextMessage(RECEIVE_TIMEOUT);
                 if (message != null) {
                     dispatch(message, false);
                     processed = true;
                 }
-                Message configMessage = configSubscription.nextMessage(RECEIVE_TIMEOUT);
+                Message configMessage = currentConfigSubscription.nextMessage(RECEIVE_TIMEOUT);
                 if (configMessage != null) {
                     dispatch(configMessage, true);
                     processed = true;
