@@ -163,7 +163,7 @@ describe('Worker pages', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('将停止接收新任务');
     await userEvent.click(screen.getByRole('button', { name: '确认排空' }));
     expect(screen.getByText('操作已提交')).toBeInTheDocument();
-    expect(screen.getByText('排空')).toBeInTheDocument();
+    expect(screen.getAllByText('排空')).toHaveLength(2);
   });
 
   it('submits rollout with the current worker version', async () => {

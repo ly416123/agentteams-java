@@ -46,7 +46,7 @@ export function ErrorState({
           ? '当前账号没有访问此资源的权限。'
           : status === 409
             ? '资源已被其他操作更新，请刷新后重试。'
-            : value.message || '未知错误');
+            : '未知错误');
   return (
     <div className="state-card state-card--error" role="alert">
       <span className="state-icon">!</span>
