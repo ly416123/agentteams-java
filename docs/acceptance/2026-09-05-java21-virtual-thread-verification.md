@@ -39,4 +39,11 @@ python3 scripts/benchmark-io-concurrency.py \
 
 ## 实验结果
 
-待在 L5（`192.168.1.16`）或等价 Linux/KVM 环境执行真实服务实验后补录原始 JSON、JFR 文件、环境信息和灰度决定。当前 L5 可 SSH/K3s 访问，但未安装 JDK/Maven；代码验证使用 Java 21 Maven 容器完成。
+### L5 环境检查（2026-09-06）
+
+- 节点 `192.168.1.16` 为 Linux/amd64，K3s 节点为 `Ready`，默认目标为 `multi-user.target`。
+- Manager 和 Worker Pod 均可用，但运行时版本为 Temurin 17.0.20；当前分支的 Java 21 镜像尚未部署。
+- Manager/Worker 未注入 `AGENTTEAMS_VIRTUAL_THREADS_ENABLED`，按代码默认值保持关闭。
+- QwenPaw `/api/console/chat` 可建立 HTTP 200 SSE 连接，但短测未收到终态事件；因此尚不能把该环境作为正式吞吐和尾延迟基线。
+
+待 Java 21 候选镜像部署并确认 QwenPaw 上游有终态事件后，再补录原始 JSON、JFR 文件、环境信息和灰度决定。当前代码验证使用 Java 21 Maven 容器完成。
