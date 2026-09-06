@@ -1,7 +1,7 @@
 # AgentTeams Java SDK
 
 该 SDK 对应 `openapi/agentteams-public.yaml` 的 v1.0 公共 API 基线，提供
-Project 创建、Task 查询、Task 取消和用户 Provisioning 的 Java 17 客户端。
+Project 创建、Task 查询、Task 取消和用户 Provisioning 的 Java 21 客户端。
 
 ```java
 AgentTeamsClient client = new AgentTeamsClient(

@@ -1,9 +1,9 @@
-FROM maven:3.9.16-eclipse-temurin-17 AS compile
+FROM maven:3.9.16-eclipse-temurin-21 AS compile
 WORKDIR /source
 COPY deploy/docker/TaskSandboxRunner.java /source/TaskSandboxRunner.java
-RUN javac --release 17 -d /out /source/TaskSandboxRunner.java
+RUN javac --release 21 -d /out /source/TaskSandboxRunner.java
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=compile /out /app
 

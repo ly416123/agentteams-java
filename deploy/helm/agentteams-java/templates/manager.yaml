@@ -84,9 +84,13 @@ spec:
               value: {{ default "default" $manager.conversation.qwenpawAgentId | quote }}
             - name: SPRING_FLYWAY_ENABLED
               value: "true"
+            - name: AGENTTEAMS_VIRTUAL_THREADS_ENABLED
+              value: {{ default "false" $manager.env.AGENTTEAMS_VIRTUAL_THREADS_ENABLED | quote }}
 {{- range $name, $value := ($manager.env | default dict) }}
+{{- if ne $name "AGENTTEAMS_VIRTUAL_THREADS_ENABLED" }}
             - name: {{ $name }}
               value: {{ $value | quote }}
+{{- end }}
 {{- end }}
           startupProbe:
             httpGet: { path: /actuator/health/liveness, port: http }

@@ -27,8 +27,8 @@ fi
 # Dockerfile 的基础镜像也走代理回退，保证 Docker Hub 直连不稳定时仍可构建。
 # 基础镜像只需要存在于本机 Docker，不需要加载到 Kind 节点；构建产物会在下方单独加载。
 declare -a base_images=(
-  "maven:3.9.16-eclipse-temurin-17|dockerproxy.net/library/maven:3.9.16-eclipse-temurin-17;docker.m.daocloud.io/library/maven:3.9.16-eclipse-temurin-17"
-  "eclipse-temurin:17-jre|dockerproxy.net/library/eclipse-temurin:17-jre;docker.m.daocloud.io/library/eclipse-temurin:17-jre"
+  "maven:3.9.16-eclipse-temurin-21|dockerproxy.net/library/maven:3.9.16-eclipse-temurin-21;docker.m.daocloud.io/library/maven:3.9.16-eclipse-temurin-21"
+  "eclipse-temurin:21-jre|dockerproxy.net/library/eclipse-temurin:21-jre;docker.m.daocloud.io/library/eclipse-temurin:21-jre"
 )
 
 for entry in "${base_images[@]}"; do

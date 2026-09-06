@@ -57,7 +57,7 @@ def main():
     if not build_script.exists():
         fail("build image script does not exist")
     build_text = build_script.read_text(encoding="utf-8")
-    for base_image in ("maven:3.9.16-eclipse-temurin-17", "eclipse-temurin:17-jre"):
+    for base_image in ("maven:3.9.16-eclipse-temurin-21", "eclipse-temurin:21-jre"):
         if base_image not in build_text:
             fail(f"build image script must prepare base image {base_image}")
     if "docker image inspect" not in build_text or "docker tag" not in build_text:

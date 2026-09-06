@@ -11,8 +11,8 @@ RUNNER = ROOT / "deploy/docker/TaskSandboxRunner.java"
 class TaskSandboxImageContractTest(unittest.TestCase):
     def test_acceptance_image_is_non_root_and_credential_free(self):
         dockerfile = DOCKERFILE.read_text(encoding="utf-8")
-        self.assertIn("FROM eclipse-temurin:17-jre", dockerfile)
-        self.assertIn("javac --release 17", dockerfile)
+        self.assertIn("FROM eclipse-temurin:21-jre", dockerfile)
+        self.assertIn("javac --release 21", dockerfile)
         self.assertIn("USER 10001:10001", dockerfile)
         self.assertIn("EXPOSE 7443", dockerfile)
         self.assertNotIn("docker.sock", dockerfile)

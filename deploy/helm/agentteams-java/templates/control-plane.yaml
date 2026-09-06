@@ -39,6 +39,8 @@ spec:
                 secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: password }
             - name: AGENTTEAMS_NATS_URL
               value: {{ .Values.nats.url | quote }}
+            - name: AGENTTEAMS_VIRTUAL_THREADS_ENABLED
+              value: {{ default "false" .Values.controlPlane.env.AGENTTEAMS_VIRTUAL_THREADS_ENABLED | quote }}
             - name: AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED
               value: {{ .Values.observability.tracing.enabled | quote }}
             - name: AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY

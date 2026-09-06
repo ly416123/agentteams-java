@@ -58,6 +58,7 @@ controlPlane:
       hsTokenKey: hs-token
   env:
     SPRING_PROFILES_ACTIVE: k8s
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
     AGENTTEAMS_NATS_ENABLED: "true"
     AGENTTEAMS_OUTBOX_RELAY_ENABLED: "true"
     AGENTTEAMS_ARTIFACT_RETENTION_SUCCESSFUL_TASK_RETENTION: "30d"
@@ -98,6 +99,7 @@ gateway:
     trustCertificateCollectionPath: /etc/agentteams/gateway-tls/ca.crt
   env:
     AGENTTEAMS_GATEWAY_GRPC_PORT: "9090"
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
     AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"
     AGENTTEAMS_GATEWAY_NATS_URL: nats://nats.example.internal:4222
 
@@ -109,6 +111,8 @@ operator:
 
 manager:
   enabled: false
+  env:
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
   autoscaling:
     enabled: false
     minReplicas: 1
