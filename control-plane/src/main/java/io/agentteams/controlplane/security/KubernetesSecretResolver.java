@@ -11,6 +11,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -60,8 +62,13 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
 
         Future<KubernetesSecretReader.ValueState> lookup = null;
         try {
-            lookup = executor.submit(
-                    () -> reader.read(reference.namespace(), reference.name(), reference.key()));
+            lookup = executor.submit(() -> {
+                try {
+                    return reader.read(reference.namespace(), reference.name(), reference.key());
+                } finally {
+                    slots.release();
+                }
+            });
             Duration timeout = properties.getTimeout();
             KubernetesSecretReader.ValueState state = lookup.get(timeout.toNanos(), java.util.concurrent.TimeUnit.NANOSECONDS);
             return new Resolution(state == KubernetesSecretReader.ValueState.PRESENT
@@ -76,9 +83,8 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
         } catch (CancellationException | ExecutionException error) {
             return new Resolution(classify(error));
         } catch (RejectedExecutionException error) {
-            return new Resolution(Status.UNAVAILABLE);
-        } finally {
             slots.release();
+            return new Resolution(Status.UNAVAILABLE);
         }
     }
 
@@ -131,6 +137,8 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
 
     private static ExecutorService boundedExecutor(SecretResolverProperties properties) {
         properties.validateKubernetes();
-        return Executors.newFixedThreadPool(properties.getMaxConcurrency(), new ResolverThreadFactory());
+        return new ThreadPoolExecutor(properties.getMaxConcurrency(), properties.getMaxConcurrency(),
+                0L, java.util.concurrent.TimeUnit.MILLISECONDS, new SynchronousQueue<>(),
+                new ResolverThreadFactory(), new ThreadPoolExecutor.AbortPolicy());
     }
 }

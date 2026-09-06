@@ -8,9 +8,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,9 +32,12 @@ public final class ConfiguredExternalSkillSandboxScanner implements ExternalSkil
 
     @Autowired
     public ConfiguredExternalSkillSandboxScanner(SkillSandboxScannerClient client,
-            SkillSandboxHttpClientProperties properties) {
-        this(client, properties.getRequestTimeout(), daemonExecutor(properties.getMaxConcurrency()),
-                properties.getMaxConcurrency());
+            ObjectProvider<SkillSandboxHttpClientProperties> propertiesProvider) {
+        this(client, settings(propertiesProvider));
+    }
+
+    private ConfiguredExternalSkillSandboxScanner(SkillSandboxScannerClient client, ScannerSettings settings) {
+        this(client, settings.timeout(), daemonExecutor(settings.maxConcurrency()), settings.maxConcurrency());
     }
 
     public ConfiguredExternalSkillSandboxScanner(SkillSandboxScannerClient client, Duration timeout) {
@@ -61,9 +67,14 @@ public final class ConfiguredExternalSkillSandboxScanner implements ExternalSkil
         }
         Future<SkillSandboxScannerClient.ScanResult> future = null;
         try {
-            future = executor.submit(
-                    () -> client.scan(new SkillSandboxScannerClient.ScanRequest(
-                            request.manifestJson(), request.archiveBytes())));
+            future = executor.submit(() -> {
+                try {
+                    return client.scan(new SkillSandboxScannerClient.ScanRequest(
+                            request.manifestJson(), request.archiveBytes()));
+                } finally {
+                    slots.release();
+                }
+            });
             SkillSandboxScannerClient.ScanResult result = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (result == null || result.decision() == null || result.classification() == null
                     || result.classification().isBlank()) return new SandboxScanResult(Decision.REVIEW_REQUIRED,
@@ -79,6 +90,7 @@ public final class ConfiguredExternalSkillSandboxScanner implements ExternalSkil
             }
             return new SandboxScanResult(Decision.REVIEW_REQUIRED, SANDBOX_TIMEOUT, null);
         } catch (RejectedExecutionException error) {
+            slots.release();
             return new SandboxScanResult(Decision.REVIEW_REQUIRED, SANDBOX_UNAVAILABLE, null);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
@@ -87,8 +99,6 @@ public final class ConfiguredExternalSkillSandboxScanner implements ExternalSkil
             return mapClientFailure(error.getCause());
         } catch (RuntimeException error) {
             return new SandboxScanResult(Decision.REVIEW_REQUIRED, SANDBOX_UNAVAILABLE, null);
-        } finally {
-            slots.release();
         }
     }
 
@@ -116,10 +126,19 @@ public final class ConfiguredExternalSkillSandboxScanner implements ExternalSkil
     }
 
     private static ExecutorService daemonExecutor(int concurrency) {
-        return Executors.newFixedThreadPool(concurrency, runnable -> {
+        return new ThreadPoolExecutor(concurrency, concurrency, 0L, TimeUnit.MILLISECONDS,
+                new SynchronousQueue<>(), runnable -> {
             Thread thread = new Thread(runnable, "agentteams-skill-sandbox");
             thread.setDaemon(true);
             return thread;
-        });
+        }, new ThreadPoolExecutor.AbortPolicy());
     }
+
+    private static ScannerSettings settings(ObjectProvider<SkillSandboxHttpClientProperties> provider) {
+        SkillSandboxHttpClientProperties properties = provider.getIfAvailable(
+                SkillSandboxHttpClientProperties::new);
+        return new ScannerSettings(properties.getRequestTimeout(), properties.getMaxConcurrency());
+    }
+
+    private record ScannerSettings(Duration timeout, int maxConcurrency) { }
 }
