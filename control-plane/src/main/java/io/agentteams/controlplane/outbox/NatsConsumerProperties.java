@@ -7,6 +7,7 @@ public class NatsConsumerProperties {
 
     private boolean enabled;
     private String url = "nats://localhost:4222";
+    private String durable = "control-plane-execution-events";
     private int concurrency = 8;
     private int maxAckPending = 32;
 
@@ -26,6 +27,14 @@ public class NatsConsumerProperties {
         this.url = url;
     }
 
+    public String getDurable() {
+        return durable;
+    }
+
+    public void setDurable(String durable) {
+        this.durable = durable;
+    }
+
     public int getConcurrency() {
         return concurrency;
     }
@@ -43,6 +52,9 @@ public class NatsConsumerProperties {
     }
 
     public void validate() {
+        if (durable == null || durable.isBlank()) {
+            throw new IllegalArgumentException("durable must not be blank");
+        }
         if (concurrency < 1) {
             throw new IllegalArgumentException("concurrency must be positive");
         }

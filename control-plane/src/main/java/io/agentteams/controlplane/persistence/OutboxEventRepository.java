@@ -117,12 +117,16 @@ public final class OutboxEventRepository {
         List<OutboxEventRecord> claimed = new ArrayList<>(due.size());
         for (OutboxEventRecord event : due) {
             UUID claimToken = UUID.randomUUID();
-            jdbc.update("""
+            int updated = jdbc.update("""
                     UPDATE outbox_events
                        SET status = 'IN_FLIGHT', attempts = attempts + 1, next_attempt_at = ?,
                            claim_token = ?, updated_at = ?, version = version + 1
-                     WHERE id = ?
-                    """, JdbcSupport.timestamp(leaseUntil), claimToken, JdbcSupport.timestamp(now), event.id());
+                     WHERE id = ? AND version = ?
+                    """, JdbcSupport.timestamp(leaseUntil), claimToken, JdbcSupport.timestamp(now), event.id(),
+                    event.version());
+            if (updated != 1) {
+                throw new IllegalStateException("outbox event claim lost optimistic concurrency: " + event.id());
+            }
             claimed.add(new OutboxEventRecord(event.id(), event.eventId(), event.aggregateType(), event.aggregateId(),
                     event.eventType(), event.payloadJson(), event.aggregateVersion(), event.occurredAt(),
                     "IN_FLIGHT", event.attempts() + 1, leaseUntil, event.lastError(), claimToken,
@@ -133,31 +137,42 @@ public final class OutboxEventRepository {
     }
 
     public void markPublished(OutboxEventRecord event, Instant at) {
-        jdbc.update("""
+        int updated = jdbc.update("""
                 UPDATE outbox_events
                    SET status = 'PUBLISHED', claim_token = NULL, last_error = NULL,
                        next_attempt_at = ?, updated_at = ?, version = version + 1
-                 WHERE id = ? AND status = 'IN_FLIGHT' AND claim_token = ?
-                """, JdbcSupport.timestamp(at), JdbcSupport.timestamp(at), event.id(), event.claimToken());
+                 WHERE id = ? AND status = 'IN_FLIGHT' AND claim_token = ? AND version = ?
+                """, JdbcSupport.timestamp(at), JdbcSupport.timestamp(at), event.id(), event.claimToken(),
+                event.version());
+        if (updated != 1) {
+            throw new IllegalStateException("outbox event publish state changed concurrently: " + event.id());
+        }
     }
 
     public void markRetry(OutboxEventRecord event, Instant nextAttemptAt, String error, Instant at) {
-        jdbc.update("""
+        int updated = jdbc.update("""
                 UPDATE outbox_events
                    SET status = 'PENDING', claim_token = NULL, last_error = ?,
                        next_attempt_at = ?, updated_at = ?, version = version + 1
-                 WHERE id = ? AND status = 'IN_FLIGHT' AND claim_token = ?
+                 WHERE id = ? AND status = 'IN_FLIGHT' AND claim_token = ? AND version = ?
                 """, error, JdbcSupport.timestamp(nextAttemptAt), JdbcSupport.timestamp(at), event.id(),
-                event.claimToken());
+                event.claimToken(), event.version());
+        if (updated != 1) {
+            throw new IllegalStateException("outbox event retry state changed concurrently: " + event.id());
+        }
     }
 
     public void markDeadLetter(OutboxEventRecord event, String error, Instant at) {
-        jdbc.update("""
+        int updated = jdbc.update("""
                 UPDATE outbox_events
                    SET status = 'DEAD_LETTER', claim_token = NULL, last_error = ?,
                        next_attempt_at = ?, updated_at = ?, version = version + 1
-                 WHERE id = ? AND status = 'IN_FLIGHT' AND claim_token = ?
-                """, error, JdbcSupport.timestamp(at), JdbcSupport.timestamp(at), event.id(), event.claimToken());
+                 WHERE id = ? AND status = 'IN_FLIGHT' AND claim_token = ? AND version = ?
+                """, error, JdbcSupport.timestamp(at), JdbcSupport.timestamp(at), event.id(), event.claimToken(),
+                event.version());
+        if (updated != 1) {
+            throw new IllegalStateException("outbox event dead-letter state changed concurrently: " + event.id());
+        }
     }
 
     private OutboxEventRecord map(java.sql.ResultSet rs, int row) throws java.sql.SQLException {

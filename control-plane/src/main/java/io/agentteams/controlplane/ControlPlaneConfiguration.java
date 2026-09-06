@@ -738,7 +738,7 @@ public class ControlPlaneConfiguration {
             throws IOException {
         properties.validate();
         return new NatsExecutionEventConsumer(connection, executionEvents, configEvents, objectMapper,
-                "control-plane-execution-events", new AsyncConsumerTracing(
+                properties.getDurable(), new AsyncConsumerTracing(
                         tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)),
                 properties.getConcurrency(), properties.getMaxAckPending());
     }

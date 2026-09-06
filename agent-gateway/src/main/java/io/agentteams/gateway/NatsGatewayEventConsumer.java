@@ -198,7 +198,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 configReplacement = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
                 subscription = replacement;
                 configSubscription = configReplacement;
-            } catch (IOException | JetStreamApiException error) {
+            } catch (IOException | JetStreamApiException | RuntimeException error) {
                 subscription = null;
                 configSubscription = null;
                 unsubscribe(replacement);
@@ -332,7 +332,7 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
                 subscription = replacement;
                 configSubscription = configReplacement;
                 restored = true;
-            } catch (IOException | JetStreamApiException error) {
+            } catch (IOException | JetStreamApiException | RuntimeException error) {
                 unsubscribe(replacement);
                 unsubscribe(configReplacement);
                 LOGGER.log(Level.WARNING,

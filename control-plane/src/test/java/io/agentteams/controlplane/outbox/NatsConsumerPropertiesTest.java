@@ -13,6 +13,7 @@ class NatsConsumerPropertiesTest {
 
         assertThat(properties.getConcurrency()).isEqualTo(8);
         assertThat(properties.getMaxAckPending()).isEqualTo(32);
+        assertThat(properties.getDurable()).isEqualTo("control-plane-execution-events");
         properties.validate();
     }
 
@@ -25,5 +26,15 @@ class NatsConsumerPropertiesTest {
         assertThatThrownBy(properties::validate)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("maxAckPending");
+    }
+
+    @Test
+    void rejectsBlankDurable() {
+        NatsConsumerProperties properties = new NatsConsumerProperties();
+        properties.setDurable(" ");
+
+        assertThatThrownBy(properties::validate)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("durable");
     }
 }

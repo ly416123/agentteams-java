@@ -48,6 +48,7 @@ agentteams:
   nats:
     enabled: false
     url: nats://localhost:4222
+    durable: control-plane-execution-events
     concurrency: 8
     max-ack-pending: 32
   outbox:
