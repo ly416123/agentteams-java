@@ -11,6 +11,7 @@ public class SecretResolverProperties {
 
     private Backend backend = Backend.VALIDATION_ONLY;
     private Duration timeout = Duration.ofSeconds(2);
+    private int maxConcurrency = 8;
     private List<String> allowedNamespaces = new ArrayList<>();
     private List<String> allowedNames = new ArrayList<>();
     private List<String> allowedKeys = new ArrayList<>();
@@ -23,6 +24,9 @@ public class SecretResolverProperties {
         requireAllowlist(allowedNamespaces, "namespaces");
         requireAllowlist(allowedNames, "names");
         requireAllowlist(allowedKeys, "keys");
+        if (maxConcurrency < 1 || maxConcurrency > 256) {
+            throw new IllegalArgumentException("secret resolver max-concurrency must be between 1 and 256");
+        }
     }
 
     private static void requireAllowlist(List<String> values, String label) {
@@ -45,6 +49,14 @@ public class SecretResolverProperties {
 
     public void setTimeout(Duration timeout) {
         this.timeout = timeout;
+    }
+
+    public int getMaxConcurrency() {
+        return maxConcurrency;
+    }
+
+    public void setMaxConcurrency(int maxConcurrency) {
+        this.maxConcurrency = maxConcurrency;
     }
 
     public List<String> getAllowedNamespaces() {

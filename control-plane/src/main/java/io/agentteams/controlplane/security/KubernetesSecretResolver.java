@@ -9,9 +9,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Kubernetes-backed resolver that returns only metadata/value presence state.
@@ -22,10 +25,12 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
     private final KubernetesSecretReader reader;
     private final SecretResolverProperties properties;
     private final ExecutorService executor;
+    private final Semaphore slots;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public KubernetesSecretResolver(KubernetesClient client, SecretResolverProperties properties) {
         this(new Fabric8SecretReader(client), properties,
-                Executors.newCachedThreadPool(new ResolverThreadFactory()));
+                boundedExecutor(properties));
     }
 
     KubernetesSecretResolver(KubernetesSecretReader reader, SecretResolverProperties properties,
@@ -34,6 +39,7 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
         this.properties = java.util.Objects.requireNonNull(properties, "properties");
         this.executor = java.util.Objects.requireNonNull(executor, "executor");
         properties.validateKubernetes();
+        this.slots = new Semaphore(properties.getMaxConcurrency());
     }
 
     @Override
@@ -48,10 +54,14 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
                 || !properties.getAllowedKeys().contains(reference.key())) {
             return new Resolution(Status.INVALID_REFERENCE);
         }
+        if (closed.get() || !slots.tryAcquire()) {
+            return new Resolution(Status.UNAVAILABLE);
+        }
 
-        Future<KubernetesSecretReader.ValueState> lookup = executor.submit(
-                () -> reader.read(reference.namespace(), reference.name(), reference.key()));
+        Future<KubernetesSecretReader.ValueState> lookup = null;
         try {
+            lookup = executor.submit(
+                    () -> reader.read(reference.namespace(), reference.name(), reference.key()));
             Duration timeout = properties.getTimeout();
             KubernetesSecretReader.ValueState state = lookup.get(timeout.toNanos(), java.util.concurrent.TimeUnit.NANOSECONDS);
             return new Resolution(state == KubernetesSecretReader.ValueState.PRESENT
@@ -65,12 +75,18 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
             return new Resolution(Status.UNAVAILABLE);
         } catch (CancellationException | ExecutionException error) {
             return new Resolution(classify(error));
+        } catch (RejectedExecutionException error) {
+            return new Resolution(Status.UNAVAILABLE);
+        } finally {
+            slots.release();
         }
     }
 
     @Override
     public void close() {
-        executor.shutdownNow();
+        if (closed.compareAndSet(false, true)) {
+            executor.shutdownNow();
+        }
     }
 
     private static Status classify(Throwable error) {
@@ -111,5 +127,10 @@ public final class KubernetesSecretResolver implements SecretResolver, AutoClose
             thread.setDaemon(true);
             return thread;
         }
+    }
+
+    private static ExecutorService boundedExecutor(SecretResolverProperties properties) {
+        properties.validateKubernetes();
+        return Executors.newFixedThreadPool(properties.getMaxConcurrency(), new ResolverThreadFactory());
     }
 }
