@@ -3,9 +3,11 @@
 
 The harness is intentionally client-side and conservative: it never claims an
 optional server metric that was not exposed by the target, and it does not run
-the long experiment unless invoked explicitly.  The ``virtual`` mode selects
-the server-side ``AGENTTEAMS_VIRTUAL_THREADS_ENABLED`` deployment setting; the
-client itself uses a bounded Python thread pool for reproducible load.
+the long experiment unless invoked explicitly.  ``platform`` and ``virtual``
+are labels for separately deployed server configurations; the harness does not
+change the target deployment.  The default path targets QwenPaw's native
+console API, while the client itself uses a bounded Python thread pool for
+reproducible load.
 """
 
 from __future__ import annotations
@@ -186,15 +188,28 @@ def _sse_status(line: str) -> str | None:
     return str(status).lower() if status is not None else None
 
 
+def build_request_payload(session_id: str) -> dict:
+    """Build the AgentScope AgentRequest expected by QwenPaw console chat."""
+    return {
+        "input": [{
+            "role": "user",
+            "content": [{"type": "text", "text": "benchmark"}],
+        }],
+        "session_id": session_id,
+        "user_id": "benchmark",
+        "channel": "console",
+    }
+
+
 def _request_once(options: BenchmarkOptions) -> dict:
     started = time.monotonic()
     session_id = str(uuid.uuid4())
     request = urllib.request.Request(
         options.base_url + options.path,
-        data=json.dumps({"session_id": session_id, "messages": [
-            {"role": "user", "content": "benchmark"}]}).encode("utf-8"),
+        data=json.dumps(build_request_payload(session_id)).encode("utf-8"),
         headers={"Accept": "text/event-stream", "Content-Type": "application/json",
-                 "Idempotency-Key": str(uuid.uuid4())}, method="POST")
+                 "X-Agent-Id": "default", "Idempotency-Key": str(uuid.uuid4())},
+        method="POST")
     cancel_timer: threading.Timer | None = None
     cancelled = threading.Event()
     response = None
@@ -288,7 +303,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--duration-seconds", type=float, default=300.0)
     parser.add_argument("--warmup-seconds", type=float, default=60.0)
     parser.add_argument("--runs", type=int, default=3)
-    parser.add_argument("--mode", choices=("platform", "virtual", "both"), default="both")
+    parser.add_argument("--mode", choices=("platform", "virtual", "both"), default="both",
+                        help="label for the separately deployed server configuration; does not switch it")
     parser.add_argument("--concurrency", dest="concurrencies", type=int, action="append",
                         help="repeat for one or more levels; default: 16,64,128,256")
     parser.add_argument("--cancel-after-seconds", type=float)

@@ -61,3 +61,10 @@ python3 scripts/benchmark-io-concurrency.py \
 - 首次 Helm upgrade 因 Control Plane 镜像存在历史 `kubectl-set` 字段管理冲突而失败，随后使用 `--force-conflicts` 回滚到 revision 40；最终 release revision 42 为 `deployed`，Manager 恢复 `ghcr.io/ly416123/agentteams-manager:l5-scope-final`、Temurin 17.0.20，虚拟线程环境变量未启用，Control Plane/Gateway/Operator/Manager 均为 Ready。
 
 待确认 QwenPaw 上游能够稳定产生终态事件后，再补录正式压测原始 JSON、JFR 文件、环境信息和灰度决定。当前代码验证和启动灰度均已使用 Java 21 候选镜像完成，但生产组件已恢复原始 Java 17/默认关闭状态。
+
+### QwenPaw 压测入口校正（2026-09-06）
+
+- 根因已确认：原基准脚本向 `/api/console/chat` 发送了 `messages` 字段。L5 QwenPaw 接口实际要求 AgentScope `input[].content[]` 请求体；错误格式会返回 HTTP 200 后立即结束空 SSE，正确格式会产生 `response.status=completed`。
+- 已修正脚本请求体并补充回归测试。L5 低并发短测实际结果为 2/2 成功，P50 约 2.5 秒，证明 QwenPaw 上游 SSE 终态链路可用。
+- 当前脚本直连 QwenPaw，只能作为上游协议/短测工具，不能作为 Java Manager 虚拟线程性能结论。正式 Java 对照必须经 Manager Conversation API；本次尝试因 L5 当前 Token 对应 Project 尚未建立有效 ACTIVE membership，Manager 返回 403 `project access denied`，未继续创建或修改 L5 业务数据。
+- QwenPaw Pod 当前仍由 supervisord 启动 Xvfb、XFCE 和 dbus；这与无图形界面服务器的资源目标不一致，属于独立的运行镜像/启动方式治理项，尚未在本次调试中修改。
