@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createProject, listProjects } from '../../api/projects';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { StatusBadge } from '../../components/StatusBadge';
 import { queryKeys } from '../../queries/queryKeys';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
@@ -75,7 +76,7 @@ export function ManagementProjectPage() {
                   <h2>{project.name}</h2>
                   <p className="muted-text">Tenant {project.tenantId}</p>
                 </div>
-                <span className="status-badge">{project.status}</span>
+                <StatusBadge phase={project.status} />
               </div>
               <p className="muted-text">Project ID {project.id}</p>
               <p className="muted-text">创建者 {project.createdBy}</p>

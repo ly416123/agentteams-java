@@ -10,6 +10,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelSeverity, labelStatus } from '../../i18n/labels';
 
 export function ManagementAlertPage({ projectId }: { projectId: string }) {
   const current = useQuery({
@@ -123,7 +124,7 @@ export function ManagementAlertPage({ projectId }: { projectId: string }) {
                 {events.data.map((event) => (
                   <tr key={event.id}>
                     <td>{event.rule}</td>
-                    <td>{event.status}</td>
+                    <td>{labelStatus(event.status)}</td>
                     <td>{event.attempts}</td>
                     <td>
                       {event.lastError ? <div>{event.lastError}</div> : null}
@@ -185,7 +186,7 @@ function AlertRuleEditor({
       <div>
         <strong>{rule.rule}</strong>
         <p className="muted-text">
-          严重级别 {rule.severity} · version {rule.version}
+          严重级别 {labelSeverity(rule.severity)} · version {rule.version}
         </p>
       </div>
       <label>

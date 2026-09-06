@@ -11,6 +11,8 @@ import {
 } from '../../api/management';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 type Credential = {
@@ -219,7 +221,7 @@ export function ManagementIntegrationPage() {
                   <h2>{integration.name}</h2>
                   <p className="muted-text">{integration.id}</p>
                 </div>
-                <span className="status-badge">{integration.status}</span>
+                <StatusBadge phase={integration.status} />
               </div>
               {integration.id === selectedIntegrationId && (
                 <div className="stack-list" aria-label={`${integration.name} 的 Credentials`}>
@@ -229,7 +231,7 @@ export function ManagementIntegrationPage() {
                     credentials.data.map((item) => (
                       <div className="stack-list__item" key={item.id}>
                         <span>
-                          {item.label} · {item.accessKeyId} · {item.status}
+                          {item.label} · {item.accessKeyId} · {labelStatus(item.status)}
                         </span>
                         <div className="form-actions">
                           <button

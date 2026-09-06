@@ -3,6 +3,7 @@ import { governMemory, listMemoryMetadata, type MemoryMetadata } from '../../api
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelSource } from '../../i18n/labels';
 
 type Operation = 'CONFIRM' | 'REVOKE' | 'FREEZE' | 'DELETE' | 'EXPORT';
 
@@ -119,7 +120,7 @@ function MemoryCard({
           Consent<strong>{policy.consent}</strong>
         </span>
         <span>
-          Source<strong>{memory.source}</strong>
+          来源<strong>{labelSource(memory.source)}</strong>
         </span>
         <span>
           Version<strong>{memory.version}</strong>

@@ -33,6 +33,8 @@ describe('Management project page', () => {
 
     expect(await screen.findByRole('heading', { name: 'Project 管理' })).toBeInTheDocument();
     expect(await screen.findByText('研发项目')).toBeInTheDocument();
+    expect(await screen.findByText('活跃')).toBeInTheDocument();
+    expect(screen.queryByText('ACTIVE')).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Project 名称'), '新项目');
     await userEvent.click(screen.getByRole('button', { name: '创建 Project' }));
 

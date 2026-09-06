@@ -63,7 +63,7 @@ describe('Management usage page', () => {
     expect(screen.getAllByText(/估算成本/).length).toBeGreaterThan(0);
     expect(screen.getByText('local / qwen')).toBeInTheDocument();
     expect(screen.getByText('预算策略')).toBeInTheDocument();
-    expect(screen.getByText('USD · ACTIVE')).toBeInTheDocument();
+    expect(screen.getByText('USD · 活跃')).toBeInTheDocument();
 
     const { getUsageSummary, listUsageBudgets } = await import('../../src/api/usage');
     expect(getUsageSummary).toHaveBeenCalledWith('project-1', {}, { offset: 0, limit: 20 });

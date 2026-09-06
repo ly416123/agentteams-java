@@ -13,6 +13,7 @@ import { listManagementOrganizations } from '../../api/management';
 import { useProjects } from '../../queries/useProjectQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 export function ScheduledTaskPage({ projectId }: { projectId: string }) {
   const projects = useProjects();
@@ -169,7 +170,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
                     {runs.map((run) => (
                       <article className="stack-list__item" key={run.id}>
                         <div>
-                          <strong>{run.status}</strong>
+                          <strong>{labelStatus(run.status)}</strong>
                           <div className="muted-text">
                             {new Date(run.occurrenceAt).toLocaleString('zh-CN')}
                           </div>

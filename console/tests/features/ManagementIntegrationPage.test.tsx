@@ -109,7 +109,7 @@ describe('Management integration page', () => {
     await waitFor(() => expect(mocks.credentialRefreshes).toHaveLength(1));
     mocks.credentialRefreshes.shift()?.();
     expect(await screen.findByText('Credential 已撤销')).toBeInTheDocument();
-    expect(await screen.findByText('primary · AKIA-1 · REVOKED')).toBeInTheDocument();
+    expect(await screen.findByText('primary · AKIA-1 · 已撤销')).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledWith(
       '确认撤销 Credential？撤销后引用它的运行时将无法继续使用。',
     );

@@ -7,9 +7,10 @@ import { useWorker, useWorkerOperations } from '../../queries/useWorkerQueries';
 import { WorkerOperationPanel } from './WorkerOperationPanel';
 import { CursorPagination } from '../../components/CursorPagination';
 import type { WorkerOperation } from '../../api/types';
+import { labelRuntime, labelStatus, labelType } from '../../i18n/labels';
 
 function operationDescription(operation: WorkerOperation) {
-  const details = [`状态：${operation.status}`];
+  const details = [`状态：${labelStatus(operation.status)}`];
   if (operation.failureCategory) details.push(`失败原因：${operation.failureCategory}`);
   if (operation.operatorReady !== undefined) {
     details.push(`Operator：${operation.operatorReady ? '已就绪' : '未就绪'}`);
@@ -56,7 +57,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
           <p className="eyebrow">WORKER DETAIL</p>
           <h1>{data.name}</h1>
           <p>
-            {data.id} · {data.runtime} · {data.workerType || 'EXECUTOR'}
+            {data.id} · {labelRuntime(data.runtime)} · {labelType(data.workerType || 'EXECUTOR')}
           </p>
         </div>
         <StatusBadge phase={data.phase} />

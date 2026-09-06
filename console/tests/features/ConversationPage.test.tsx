@@ -194,10 +194,10 @@ describe('ConversationPage', () => {
     const transcript = await screen.findByRole('region', { name: '对话记录' });
     const bubbles = Array.from(transcript.querySelectorAll('.conversation-message'));
     expect(bubbles.map((bubble) => bubble.textContent?.trim())).toEqual([
-      'USER第一轮问题',
-      'ASSISTANT第一轮回答',
-      'USER第二轮问题',
-      'ASSISTANT第二轮回答',
+      '用户第一轮问题',
+      '助手第一轮回答',
+      '用户第二轮问题',
+      '助手第二轮回答',
     ]);
     expect(bubbles.map((bubble) => bubble.className)).toEqual([
       'conversation-message conversation-message--user',

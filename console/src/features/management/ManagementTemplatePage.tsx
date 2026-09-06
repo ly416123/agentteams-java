@@ -12,6 +12,8 @@ import {
 import type { WorkerType } from '../../api/types';
 import { ErrorState } from '../../components/ErrorState';
 import { EmptyState } from '../../components/EmptyState';
+import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -185,7 +187,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
           </button>
           {lastRevision && (
             <div className="info-box">
-              Revision {lastRevision.revision} · {lastRevision.status}
+              Revision {lastRevision.revision} · {labelStatus(lastRevision.status)}
               <button
                 className="button button--small"
                 type="button"
@@ -216,7 +218,7 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
                 <div>
                   <h2>{item.displayName}</h2>
                   <p className="muted-text">
-                    {item.name} · {item.workerType || 'EXECUTOR'}
+                    {item.name} · {labelType(item.workerType || 'EXECUTOR')}
                   </p>
                 </div>
                 <span className="status-badge">

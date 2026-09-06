@@ -17,6 +17,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+import { labelStatus, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -80,7 +81,10 @@ export function ManagementModelPage() {
   const connectionTest = useMutation({
     mutationFn: (id: string) => testModelProviderConnection(id),
     onSuccess: (result) =>
-      setNotice({ kind: 'success', text: `连接测试：${result.status} / ${result.classification}` }),
+      setNotice({
+        kind: 'success',
+        text: `连接测试：${labelStatus(result.status)} / ${labelType(result.classification)}`,
+      }),
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
   });
   const toggleProvider = useMutation({
@@ -251,7 +255,7 @@ export function ManagementModelPage() {
                     {item.providerType} · {item.endpoint}
                   </p>
                 </div>
-                <span className="status-badge">{item.enabled ? 'ENABLED' : 'DISABLED'}</span>
+                <span className="status-badge">{item.enabled ? '已启用' : '已禁用'}</span>
               </div>
               <p className="muted-text">
                 credential: {item.credentialConfigured ? '已配置（仅引用）' : '未配置'} · version{' '}
@@ -287,7 +291,7 @@ export function ManagementModelPage() {
                       <span>
                         {managedModel.name} · {managedModel.modelId}{' '}
                         <span className="muted-text">
-                          {managedModel.enabled ? 'ENABLED' : 'DISABLED'} · v{managedModel.version}
+                          {managedModel.enabled ? '已启用' : '已禁用'} · v{managedModel.version}
                         </span>
                       </span>
                       <span>

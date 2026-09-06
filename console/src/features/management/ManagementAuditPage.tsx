@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { listAuditEvents, type AuditFilters } from '../../api/audit';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { labelAction, labelType } from '../../i18n/labels';
 
 export function ManagementAuditPage({ projectId }: { projectId: string }) {
   const [draftFilters, setDraftFilters] = useState({
@@ -137,9 +138,9 @@ export function ManagementAuditPage({ projectId }: { projectId: string }) {
                   <tr key={event.id}>
                     <td>{new Date(event.occurredAt).toLocaleString('zh-CN')}</td>
                     <td>{event.actor}</td>
-                    <td>{event.action}</td>
+                    <td>{labelAction(event.action)}</td>
                     <td>
-                      {event.resourceType} / {event.resourceId}
+                      {labelType(event.resourceType)} / {event.resourceId}
                     </td>
                     <td>
                       {Object.entries(event.attributes)

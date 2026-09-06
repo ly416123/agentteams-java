@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelRole, labelType } from '../../i18n/labels';
 import { Timeline } from '../../components/Timeline';
 import {
   useTeam,
@@ -229,7 +230,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                 </option>
                 {roleAvailableWorkers.map((worker) => (
                   <option value={worker.id} key={worker.id}>
-                    {worker.name} · {worker.workerType || 'EXECUTOR'}
+                    {worker.name} · {labelType(worker.workerType || 'EXECUTOR')}
                   </option>
                 ))}
               </select>
@@ -467,7 +468,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                   >
                     {activeTeamWorkers.map((worker) => (
                       <option value={worker.id} key={worker.id}>
-                        {worker.name} · {worker.workerType || 'EXECUTOR'}
+                        {worker.name} · {labelType(worker.workerType || 'EXECUTOR')}
                       </option>
                     ))}
                   </select>

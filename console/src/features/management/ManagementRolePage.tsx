@@ -10,6 +10,7 @@ import {
 } from '../../api/projects';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { labelRole, labelStatus } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -104,7 +105,7 @@ export function ManagementRolePage() {
                   <div>
                     <strong>{member.subject}</strong>
                     <div className="muted-text">
-                      {member.status} · version {member.version}
+                      {labelStatus(member.status)} · version {member.version}
                     </div>
                   </div>
                   <select
@@ -145,7 +146,7 @@ export function ManagementRolePage() {
           <div className="content-grid">
             {(permissions.data as ProjectRolePermissions[] | undefined)?.map((item) => (
               <article className="panel" key={item.role}>
-                <h3>{item.role}</h3>
+                <h3>{labelRole(item.role)}</h3>
                 <div className="stack-list">
                   {item.permissions.map((permission) => (
                     <span className="muted-text" key={permission}>

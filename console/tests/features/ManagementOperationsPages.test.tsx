@@ -164,7 +164,7 @@ describe('management operations pages', () => {
     renderPage(<ManagementAlertPage projectId="project-1" />);
     expect(await screen.findByRole('heading', { name: '告警中心' })).toBeInTheDocument();
     expect(await screen.findByText('estimated cost exceeded')).toBeInTheDocument();
-    expect(screen.getByText('SENT')).toBeInTheDocument();
+    expect(screen.getByText('已发送')).toBeInTheDocument();
     expect(screen.getByText('receiver unavailable')).toBeInTheDocument();
     expect(screen.getByText(/下次重试/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '立即重试' }));
@@ -196,7 +196,7 @@ describe('management operations pages', () => {
   it('renders scoped, redacted audit event metadata', async () => {
     renderPage(<ManagementAuditPage projectId="project-1" />);
     expect(await screen.findByRole('heading', { name: '审计事件' })).toBeInTheDocument();
-    expect(await screen.findByText('TASK_CANCEL')).toBeInTheDocument();
+    expect(await screen.findByText('取消任务')).toBeInTheDocument();
     expect(screen.getByText(/operator-requested/)).toBeInTheDocument();
     const { listAuditEvents } = await import('../../src/api/audit');
     expect(listAuditEvents).toHaveBeenCalledWith('project-1');

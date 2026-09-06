@@ -15,6 +15,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { Timeline } from '../../components/Timeline';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+import { labelSource, labelStatus, labelType } from '../../i18n/labels';
 
 type TaskActionName = 'queue' | 'cancel' | 'retry' | 'pause' | 'approve' | 'reject';
 const actionLabels: Record<TaskActionName, string> = {
@@ -142,7 +143,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           <Timeline
             items={(events.data || []).map((event) => ({
               id: event.id,
-              title: event.type,
+              title: labelType(event.type),
               description: event.message,
               time: event.createdAt,
               tone: event.phase?.toLowerCase(),
@@ -191,7 +192,8 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
                 <div>
                   <strong>{item.attempt.id}</strong>
                   <div className="muted-text">
-                    {item.attempt.actor} · {item.attempt.source} · version {item.attempt.version}
+                    {item.attempt.actor} · {labelSource(item.attempt.source)} · version{' '}
+                    {item.attempt.version}
                   </div>
                 </div>
                 <StatusBadge phase={item.attempt.phase} />
@@ -207,7 +209,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
                     <strong>{item.assignment?.agentId || item.lease?.agentId || '待分配'}</strong>
                   </span>
                   <span>
-                    Lease 状态<strong>{item.lease?.status || 'UNKNOWN'}</strong>
+                    Lease 状态<strong>{labelStatus(item.lease?.status || 'UNKNOWN')}</strong>
                   </span>
                 </div>
               </article>
@@ -233,7 +235,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
             {runs.data.map((run) => (
               <article className="stack-list__item" key={run.id}>
                 <div>
-                  <strong>{run.status}</strong>
+                  <strong>{labelStatus(run.status)}</strong>
                   <div className="muted-text">Run {run.id}</div>
                 </div>
                 <div>

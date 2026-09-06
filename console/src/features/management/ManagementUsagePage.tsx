@@ -13,6 +13,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 export function ManagementUsagePage({ projectId }: { projectId: string }) {
   const pageSize = 20;
@@ -311,7 +312,7 @@ function BudgetPanel({ query, onRetry }: { query: BudgetQuery; onRetry: () => vo
             <div className="resource-row" key={budget.id}>
               <div>
                 <strong>
-                  {budget.currency} · {budget.status}
+                  {budget.currency} · {labelStatus(budget.status)}
                 </strong>
                 <p className="muted-text">
                   软阈值 {budget.softThreshold} · 硬阈值 {budget.hardThreshold} · version{' '}

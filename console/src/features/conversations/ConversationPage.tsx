@@ -17,6 +17,7 @@ import {
 } from '../../streams/conversationEvents';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { ErrorState } from '../../components/ErrorState';
+import { labelRole, labelType } from '../../i18n/labels';
 
 type TranscriptItem = {
   key: string;
@@ -339,7 +340,11 @@ export function ConversationPage({
         {transcript.map((item) => (
           <div className={`conversation-message conversation-message--${item.role}`} key={item.key}>
             <span className="eyebrow">
-              {item.role === 'user' ? 'USER' : item.role === 'assistant' ? 'ASSISTANT' : item.type}
+              {item.role === 'user'
+                ? labelRole('USER')
+                : item.role === 'assistant'
+                  ? labelRole('ASSISTANT')
+                  : labelType(item.type)}
             </span>
             <p>{item.text}</p>
           </div>

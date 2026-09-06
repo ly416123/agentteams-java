@@ -10,6 +10,7 @@ import type { WorkerRolloutRequest } from '../../api/workers';
 import { ErrorState } from '../../components/ErrorState';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+import { labelPhase } from '../../i18n/labels';
 
 type ConfirmedAction = 'drain' | 'terminate' | 'rollout' | 'rollback';
 const actionLabels: Record<ConfirmedAction, string> = {
@@ -164,7 +165,7 @@ export function WorkerOperationPanel({
         {!drainAllowed && !terminateAllowed && !rolloutAllowed && (
           <div className="info-box">
             {worker.unavailableReason ||
-              `Worker 当前为「${worker.phase}」，后端权限矩阵不允许生命周期操作。`}
+              `工作节点当前为「${labelPhase(worker.phase)}」，后端权限矩阵不允许生命周期操作。`}
           </div>
         )}
         <div className="operation-actions">

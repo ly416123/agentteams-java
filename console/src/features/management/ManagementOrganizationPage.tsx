@@ -10,6 +10,7 @@ import {
 } from '../../api/management';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
+import { StatusBadge } from '../../components/StatusBadge';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -183,7 +184,7 @@ export function ManagementOrganizationPage() {
                   <h2>{organization.name}</h2>
                   <p className="muted-text">{organization.id}</p>
                 </div>
-                <span className="status-badge">{organization.status}</span>
+                <StatusBadge phase={organization.status} />
                 {organization.status !== 'DELETED' && (
                   <button
                     className="button button--ghost"
@@ -209,7 +210,7 @@ export function ManagementOrganizationPage() {
                     tenants.data.map((tenant) => (
                       <div className="stack-list__item" key={tenant.id}>
                         <span>{tenant.name}</span>
-                        <span className="muted-text">{tenant.status}</span>
+                        <StatusBadge phase={tenant.status} />
                         {tenant.status !== 'DELETED' && (
                           <button
                             className="button button--ghost"

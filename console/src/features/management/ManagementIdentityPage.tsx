@@ -11,6 +11,7 @@ import {
   updateProvisionedUser,
   type ManagementUser,
 } from '../../api/management';
+import { labelRole, labelStatus } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -204,7 +205,7 @@ export function ManagementIdentityPage() {
                     {item.displayName} · {item.subject}
                   </span>
                   <span className="muted-text">
-                    {item.status}
+                    {labelStatus(item.status)}
                     <button
                       className="button button--ghost"
                       type="button"
@@ -362,7 +363,7 @@ export function ManagementIdentityPage() {
                 >
                   <span>{membership.scopeName}</span>
                   <span className="muted-text">
-                    {membership.scopeType} · {membership.role}
+                    {membership.scopeType} · {labelRole(membership.role)}
                   </span>
                 </div>
               ))}

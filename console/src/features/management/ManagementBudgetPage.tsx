@@ -9,6 +9,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { labelStatus } from '../../i18n/labels';
 
 export function ManagementBudgetPage({ projectId }: { projectId: string }) {
   const budgets = useQuery({
@@ -99,7 +100,7 @@ function BudgetCard({
         <StatusBadge phase={evaluation?.status || budget.status} />
       </div>
       <p>
-        策略状态：{budget.status} · version {budget.version}
+        策略状态：{labelStatus(budget.status)} · version {budget.version}
       </p>
       <div className="form-grid">
         <label>

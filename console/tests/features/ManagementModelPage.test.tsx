@@ -96,7 +96,7 @@ describe('Management model page', () => {
     });
     await userEvent.click(screen.getByRole('button', { name: '连接测试' }));
     expect(mocks.testModelProviderConnection).toHaveBeenCalledWith('provider-1');
-    expect(await screen.findByText(/CREDENTIAL_NOT_CONFIGURED/)).toBeInTheDocument();
+    expect(await screen.findByText(/凭据未配置/)).toBeInTheDocument();
     expect(screen.getByText('local / qwen-2.5')).toBeInTheDocument();
     expect(screen.getByText(/USD 1.2/)).toBeInTheDocument();
     expect(screen.getByText('Qwen · qwen-2.5')).toBeInTheDocument();

@@ -6,6 +6,7 @@ import { ResourceTable } from '../../components/ResourceTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useWorkers } from '../../queries/useWorkerQueries';
 import { CursorPagination } from '../../components/CursorPagination';
+import { labelRuntime, labelType } from '../../i18n/labels';
 
 export function WorkerListPage({ projectId }: { projectId: string }) {
   const [search, setSearch] = useState('');
@@ -70,12 +71,12 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
               header: '模板名称',
               render: (worker) => worker.templateName || '—',
             },
-            { key: 'runtime', header: 'Runtime', render: (worker) => worker.runtime },
+            { key: 'runtime', header: '运行时', render: (worker) => labelRuntime(worker.runtime) },
             {
               key: 'workerType',
               header: '类型',
               render: (worker) => (
-                <span className="status-badge">{worker.workerType || 'EXECUTOR'}</span>
+                <span className="status-badge">{labelType(worker.workerType || 'EXECUTOR')}</span>
               ),
             },
             {

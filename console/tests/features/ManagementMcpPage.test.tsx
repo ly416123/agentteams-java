@@ -88,12 +88,12 @@ describe('Management MCP page', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '连接测试' }));
     expect(mocks.testMcpConnection).toHaveBeenCalledWith('mcp-1');
-    expect(await screen.findByText(/SUCCESS · 12 ms/)).toBeInTheDocument();
+    expect(await screen.findByText(/成功 · 12 ms/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '查看 Discovery' }));
     expect(mocks.getMcpDiscovery).toHaveBeenCalledWith('mcp-1');
-    expect(await screen.findByText(/AVAILABLE · 1\/1 个实例/)).toBeInTheDocument();
-    expect(screen.getByText(/Discovery：.*sha256:tools/)).toBeInTheDocument();
+    expect(await screen.findByText(/可用 · 1\/1 个实例/)).toBeInTheDocument();
+    expect(screen.getByText(/发现状态：.*sha256:tools/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '编辑' }));
     const name = screen.getByLabelText('名称');
