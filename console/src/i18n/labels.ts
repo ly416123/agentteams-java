@@ -205,7 +205,7 @@ export function labelRole(value: unknown): string {
   return ROLE[normalized(value)] ?? (value ? '未知角色' : '未知角色');
 }
 export function labelRuntime(value: unknown): string {
-  return RUNTIME[normalized(value)] ?? (value ? String(value) : '未知运行时');
+  return RUNTIME[normalized(value)] ?? '未知运行时';
 }
 export function labelDecision(value: unknown): string {
   return DECISION[normalized(value)] ?? '未知决策';

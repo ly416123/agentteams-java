@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
-import { labelRole, labelRuntime, labelType } from '../../i18n/labels';
+import { labelRuntime, labelType } from '../../i18n/labels';
 import { Timeline } from '../../components/Timeline';
 import {
   useTeam,

@@ -12,7 +12,6 @@ import {
 import type { WorkerType } from '../../api/types';
 import { ErrorState } from '../../components/ErrorState';
 import { EmptyState } from '../../components/EmptyState';
-import { StatusBadge } from '../../components/StatusBadge';
 import { labelStatus, labelType } from '../../i18n/labels';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;

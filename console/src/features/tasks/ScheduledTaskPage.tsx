@@ -29,7 +29,7 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
       organizationId && project
         ? { organizationId, tenantId: project.tenantId, projectId: project.name }
         : undefined,
-    [organizationId, project, projectId],
+    [organizationId, project],
   );
 
   useEffect(() => {
