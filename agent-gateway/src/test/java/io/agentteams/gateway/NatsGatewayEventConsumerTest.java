@@ -184,6 +184,30 @@ class NatsGatewayEventConsumerTest {
     }
 
     @Test
+    void cleansUpTheTaskSubscriptionWhenConfigSubscriptionCreationFails() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        JetStream jetStream = mock(JetStream.class);
+        JetStreamSubscription taskSubscription = mock(JetStreamSubscription.class);
+        when(jetStream.subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class)))
+                .thenReturn(taskSubscription)
+                .thenThrow(new java.io.IOException("config subscription unavailable"));
+
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(
+                jetStream, new TaskAssignedCommandHandler(delivery),
+                new ConfigChangedCommandHandler(delivery, new ObjectMapper()), new ObjectMapper(),
+                "task.events.*", "gateway-tasks", "agent.events.*", "gateway-config");
+
+        assertThatThrownBy(consumer::start)
+                .isInstanceOf(java.io.IOException.class)
+                .hasMessage("config subscription unavailable");
+
+        verify(taskSubscription).unsubscribe();
+        consumer.close();
+        org.mockito.Mockito.verifyNoMoreInteractions(taskSubscription);
+    }
+
+    @Test
     void dispatchesDifferentAggregatesInParallel() throws Exception {
         CommandDeliveryService delivery = mock(CommandDeliveryService.class);
         CountDownLatch started = new CountDownLatch(2);

@@ -191,9 +191,20 @@ public final class NatsGatewayEventConsumer implements AutoCloseable {
             if (jetStream == null) {
                 throw new IllegalStateException("NATS runtime is not configured");
             }
-            subscription = jetStream.subscribe(subject, durable,
-                    subscribeOptions(durable));
-            configSubscription = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
+            JetStreamSubscription replacement = null;
+            JetStreamSubscription configReplacement = null;
+            try {
+                replacement = jetStream.subscribe(subject, durable, subscribeOptions(durable));
+                configReplacement = jetStream.subscribe(configSubject, configDurable, configSubscribeOptions());
+                subscription = replacement;
+                configSubscription = configReplacement;
+            } catch (IOException | JetStreamApiException error) {
+                subscription = null;
+                configSubscription = null;
+                unsubscribe(replacement);
+                unsubscribe(configReplacement);
+                throw error;
+            }
             running.set(true);
             if (connection != null) {
                 connection.addConnectionListener(connectionListener);
