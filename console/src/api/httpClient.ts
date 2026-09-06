@@ -1,5 +1,6 @@
 import type { ApiErrorShape } from './types';
 import { getMemoryAccessToken } from '../auth/memoryToken';
+import { createUuid } from '../utils/uuid';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -67,7 +68,7 @@ export function createHttpClient(options: ClientOptions = {}): HttpClient {
     const token = options.getAccessToken?.();
     if (token) headers.set('Authorization', `Bearer ${token}`);
     if (method !== 'GET' && method !== 'HEAD') {
-      headers.set('Idempotency-Key', headers.get('Idempotency-Key') || crypto.randomUUID());
+      headers.set('Idempotency-Key', headers.get('Idempotency-Key') || createUuid());
     }
     const response = await fetch(
       new Request(url, {

@@ -1,5 +1,6 @@
 import { apiClient, type HttpClient } from './httpClient';
 import { normalizeCursorPage, type CursorPage } from './types';
+import { createUuid } from '../utils/uuid';
 
 export type Conversation = {
   id?: string;
@@ -48,7 +49,7 @@ export function createConversation(
     sessionId?: string;
   },
   client: HttpClient = apiClient,
-  idempotencyKey: string = crypto.randomUUID(),
+  idempotencyKey: string = createUuid(),
 ) {
   return client.request<Conversation>('/api/v1/conversations', {
     method: 'POST',
@@ -81,7 +82,7 @@ export function sendConversationMessage(
   id: string,
   body: { content: string; expectedVersion?: number },
   client: HttpClient = apiClient,
-  idempotencyKey: string = crypto.randomUUID(),
+  idempotencyKey: string = createUuid(),
 ) {
   return client.request<ConversationMessageResponse>(`/api/v1/conversations/${id}/messages`, {
     method: 'POST',
@@ -94,7 +95,7 @@ export function cancelConversation(
   id: string,
   body: { expectedVersion?: number } = {},
   client: HttpClient = apiClient,
-  idempotencyKey: string = crypto.randomUUID(),
+  idempotencyKey: string = createUuid(),
 ) {
   return client.request<Conversation>(`/api/v1/conversations/${id}/cancel`, {
     method: 'POST',

@@ -19,6 +19,7 @@ import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { ErrorState } from '../../components/ErrorState';
 import { labelRole, labelType } from '../../i18n/labels';
 import { labelStatus } from '../../i18n/labels';
+import { createUuid } from '../../utils/uuid';
 
 type TranscriptItem = {
   key: string;
@@ -208,7 +209,7 @@ export function ConversationPage({
               className="button button--ghost"
               key={team.id}
               onClick={() => {
-                const id = crypto.randomUUID();
+                const id = createUuid();
                 void createConversation({ projectId, teamId: team.id, sessionId: id }, apiClient)
                   .then(() => {
                     window.location.assign(`/${projectId}/conversations/${id}`);
@@ -290,7 +291,7 @@ export function ConversationPage({
     if (!message || !conversation || status === 'CANCELLED') return;
     setSendError(undefined);
     setContent('');
-    pendingMessages.current.push({ content: message, idempotencyKey: crypto.randomUUID() });
+    pendingMessages.current.push({ content: message, idempotencyKey: createUuid() });
     setQueuedMessageCount(pendingMessages.current.length);
     setEvents((current) => {
       const finiteOrders = current.map(eventOrder).filter(Number.isFinite);
@@ -298,7 +299,7 @@ export function ConversationPage({
       return [
         ...current,
         {
-          id: `local-${crypto.randomUUID()}`,
+          id: `local-${createUuid()}`,
           type: 'user.message',
           data: message,
           payload: { text: message },
@@ -401,7 +402,7 @@ export function ConversationPage({
             conversation?.id || conversation?.sessionId || conversationId,
             { expectedVersion: conversation?.version },
             apiClient,
-            crypto.randomUUID(),
+            createUuid(),
           )
             .then((next) => {
               const updated = { ...conversationRef.current, ...next, status: 'CANCELLED' };

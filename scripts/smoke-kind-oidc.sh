@@ -107,15 +107,20 @@ kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PA
     ON CONFLICT (tenant_id, project_id, subject)
     DO UPDATE SET role = 'ADMIN', status = 'ACTIVE', updated_at = now();
     INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
-    SELECT 'MODEL_PROVIDER', id, 'tenant-a', 'project-a', 'team-a', now(), now()
-      FROM model_providers WHERE name = 'deepseek'
+    SELECT 'MODEL_PROVIDER', mp.id, p.tenant_id, p.id::text, 'team-a', now(), now()
+      FROM model_providers mp
+      CROSS JOIN projects p
+     WHERE mp.name = 'deepseek' AND p.tenant_id = 'tenant-a' AND p.name = 'project-a'
     ON CONFLICT (resource_type, resource_id)
     DO UPDATE SET tenant_id = EXCLUDED.tenant_id, project_id = EXCLUDED.project_id,
                   team = EXCLUDED.team, updated_at = EXCLUDED.updated_at;
     INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
-    SELECT 'MODEL', m.id, 'tenant-a', 'project-a', 'team-a', now(), now()
-      FROM models m JOIN model_providers p ON p.id = m.provider_id
+    SELECT 'MODEL', m.id, p.tenant_id, project.id::text, 'team-a', now(), now()
+      FROM models m
+      JOIN model_providers p ON p.id = m.provider_id
+      CROSS JOIN projects project
      WHERE p.name = 'deepseek' AND m.model_id = 'deepseek-chat'
+       AND project.tenant_id = 'tenant-a' AND project.name = 'project-a'
     ON CONFLICT (resource_type, resource_id)
     DO UPDATE SET tenant_id = EXCLUDED.tenant_id, project_id = EXCLUDED.project_id,
                   team = EXCLUDED.team, updated_at = EXCLUDED.updated_at;

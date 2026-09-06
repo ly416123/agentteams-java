@@ -1,4 +1,5 @@
 import { apiClient, type HttpClient } from './httpClient';
+import { createUuid } from '../utils/uuid';
 
 export type ScheduledTask = {
   id: string;
@@ -63,7 +64,7 @@ export function updateScheduledTask(
 ) {
   return client.request<ScheduledTask>(`/api/v1/scheduled-tasks/${scheduleId}/${action}`, {
     method: 'POST',
-    headers: { 'Idempotency-Key': crypto.randomUUID() },
+    headers: { 'Idempotency-Key': createUuid() },
     body: scope,
   });
 }
@@ -78,7 +79,7 @@ export function cancelScheduledTaskRun(
     `/api/v1/scheduled-tasks/${scheduleId}/runs/${runId}/cancel`,
     {
       method: 'POST',
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Idempotency-Key': createUuid() },
       body: scope,
     },
   );

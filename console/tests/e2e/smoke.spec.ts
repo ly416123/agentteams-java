@@ -124,14 +124,14 @@ test('real OIDC identity page manages internal user status lifecycle', async ({ 
   const userRow = page.locator('[aria-label="已登记内部用户"] .stack-list__item').filter({
     hasText: `${displayName} · ${subject}`,
   });
-  await expect(userRow).toContainText('ACTIVE');
+  await expect(userRow).toContainText('活跃');
   await userRow.getByRole('button', { name: `停用内部用户 ${displayName}` }).click();
   await expect(page.getByText('内部用户已停用')).toBeVisible({ timeout: 10_000 });
-  await expect(userRow).toContainText('DISABLED');
+  await expect(userRow).toContainText('已禁用');
 
   await userRow.getByRole('button', { name: `重新激活内部用户 ${displayName}` }).click();
   await expect(page.getByText('内部用户已重新激活')).toBeVisible({ timeout: 10_000 });
-  await expect(userRow).toContainText('ACTIVE');
+  await expect(userRow).toContainText('活跃');
 });
 
 test('real OIDC artifact page reads project metadata and retention policy', async ({ page }) => {
@@ -244,19 +244,19 @@ test('real OIDC task page creates, inspects and cancels a normal task', async ({
   // Reuse the deterministic team-a fixture when present; otherwise provision it
   // explicitly so the test does not depend on historical random Teams.
   await page.goto(`/${projectPath}/teams`);
-  await expect(page.getByRole('heading', { name: 'Teams' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '团队' })).toBeVisible();
   const teamA = page
     .getByRole('link')
     .filter({ hasText: /team-a/ })
     .first();
   if ((await teamA.count()) === 0) {
-    await page.getByRole('link', { name: '创建 Team' }).first().click();
-    await expect(page.getByRole('heading', { name: '创建 Team' })).toBeVisible();
+    await page.getByRole('link', { name: '创建团队' }).first().click();
+    await expect(page.getByRole('heading', { name: '创建团队' })).toBeVisible();
     await page.getByLabel('显示名称').fill('team-a');
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByRole('button', { name: '下一步' }).click();
-    await page.getByRole('button', { name: '创建 Team' }).click();
+    await page.getByRole('button', { name: '创建团队' }).click();
     await expect(page).toHaveURL(new RegExp(`/${projectPath}/teams/[^/]+$`));
   }
 
@@ -407,35 +407,35 @@ test('real OIDC organization page creates and version-updates an organization an
 
   await expect(page).toHaveURL(/:30080\/(?:console|[^/]+\/overview)$/, { timeout: 30_000 });
   await page.goto('/settings/organizations');
-  await expect(page.getByRole('heading', { name: 'Organization 与 Tenant' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '组织与租户' })).toBeVisible();
 
   const suffix = Date.now();
   const organizationName = `E2E Organization ${suffix}`;
   const tenantName = `E2E Tenant ${suffix}`;
   await page.getByLabel('组织名称').fill(organizationName);
-  await page.getByRole('button', { name: '创建 Organization' }).click();
-  await expect(page.getByText('Organization 已创建')).toBeVisible();
+  await page.getByRole('button', { name: '创建组织' }).click();
+  await expect(page.getByText('组织已创建')).toBeVisible();
 
   const organization = page.locator('article').filter({ hasText: organizationName });
   await expect(organization).toBeVisible();
-  await page.getByLabel('Tenant 名称').fill(tenantName);
-  await page.getByRole('button', { name: '创建 Tenant' }).click();
-  await expect(page.getByText('Tenant 已创建')).toBeVisible();
+  await page.getByLabel('租户名称').fill(tenantName);
+  await page.getByRole('button', { name: '创建租户' }).click();
+  await expect(page.getByText('租户已创建')).toBeVisible();
   await expect(organization).toContainText(tenantName);
 
-  await organization.getByRole('button', { name: '暂停 Tenant' }).click();
-  await expect(page.getByText('Tenant 状态已更新')).toBeVisible();
-  await expect(organization).toContainText('SUSPENDED');
-  await organization.getByRole('button', { name: '恢复 Tenant' }).click();
-  await expect(page.getByText('Tenant 状态已更新')).toBeVisible();
-  await expect(organization).toContainText('ACTIVE');
+  await organization.getByRole('button', { name: '暂停租户' }).click();
+  await expect(page.getByText('租户状态已更新')).toBeVisible();
+  await expect(organization).toContainText('已暂停');
+  await organization.getByRole('button', { name: '恢复租户' }).click();
+  await expect(page.getByText('租户状态已更新')).toBeVisible();
+  await expect(organization).toContainText('活跃');
 
-  await organization.getByRole('button', { name: '暂停 Organization' }).click();
-  await expect(page.getByText('Organization 状态已更新')).toBeVisible();
-  await expect(organization).toContainText('SUSPENDED');
-  await organization.getByRole('button', { name: '恢复 Organization' }).click();
-  await expect(page.getByText('Organization 状态已更新')).toBeVisible();
-  await expect(organization).toContainText('ACTIVE');
+  await organization.getByRole('button', { name: '暂停组织' }).click();
+  await expect(page.getByText('组织状态已更新')).toBeVisible();
+  await expect(organization).toContainText('已暂停');
+  await organization.getByRole('button', { name: '恢复组织' }).click();
+  await expect(page.getByText('组织状态已更新')).toBeVisible();
+  await expect(organization).toContainText('活跃');
 });
 
 test('real OIDC identity page completes external-user provisioning lifecycle', async ({ page }) => {
@@ -460,8 +460,8 @@ test('real OIDC identity page completes external-user provisioning lifecycle', a
   const integrationName = `E2E Provisioning Integration ${suffix}`;
   await page.goto('/settings/organizations');
   await page.getByLabel('组织名称').fill(organizationName);
-  await page.getByRole('button', { name: '创建 Organization' }).click();
-  await expect(page.getByText('Organization 已创建')).toBeVisible();
+  await page.getByRole('button', { name: '创建组织' }).click();
+  await expect(page.getByText('组织已创建')).toBeVisible();
 
   await page.goto('/settings/integrations');
   await page.getByLabel('Organization').selectOption({ label: organizationName });
@@ -512,8 +512,8 @@ test('real OIDC integrations page completes credential reference lifecycle', asy
   const integrationName = `E2E Credential Integration ${suffix}`;
   await page.goto('/settings/organizations');
   await page.getByLabel('组织名称').fill(organizationName);
-  await page.getByRole('button', { name: '创建 Organization' }).click();
-  await expect(page.getByText('Organization 已创建')).toBeVisible();
+  await page.getByRole('button', { name: '创建组织' }).click();
+  await expect(page.getByText('组织已创建')).toBeVisible();
 
   await page.goto('/settings/integrations');
   await page.getByLabel('Organization').selectOption({ label: organizationName });
@@ -559,7 +559,7 @@ test('real OIDC role page exposes the scoped project authorization matrix', asyn
   await page.goto('/settings/roles');
   await expect(page.getByRole('heading', { name: '角色与权限' })).toBeVisible();
   await expect(page.getByText('有效权限矩阵')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'OWNER' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '所有者' })).toBeVisible();
   await expect(page.getByText('PROJECT_READ').first()).toBeVisible();
 });
 
@@ -569,7 +569,17 @@ test('real OIDC project page creates a project in the current tenant', async ({ 
   const oidcPort = process.env.AGENTTEAMS_E2E_OIDC_PORT || '18082';
   test.skip(!username || !password, 'set Alice non-production OIDC credentials');
 
+  // L5 is served over HTTP. Exercise the compatibility path explicitly so a
+  // browser without the secure-context-only randomUUID API remains supported.
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, 'randomUUID', {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
   await page.goto('/console');
+  await expect.poll(() => page.evaluate(() => typeof globalThis.crypto?.randomUUID)).toBe('undefined');
   await expect(page).toHaveURL(/\/login$/);
   await page.getByRole('button', { name: '使用组织账号登录' }).click();
   await expect(page).toHaveURL(
@@ -581,12 +591,12 @@ test('real OIDC project page creates a project in the current tenant', async ({ 
 
   await expect(page).toHaveURL(/:30080\/[^/]+\/overview$/, { timeout: 30_000 });
   await page.goto('/settings/projects');
-  await expect(page.getByRole('heading', { name: 'Project 管理' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '项目管理' })).toBeVisible();
 
   const name = `E2E Project ${Date.now()}`;
-  await page.getByLabel('Project 名称').fill(name);
-  await page.getByRole('button', { name: '创建 Project' }).click();
-  await expect(page.getByText('Project 已创建')).toBeVisible();
+  await page.getByLabel('项目名称').fill(name);
+  await page.getByRole('button', { name: '创建项目' }).click();
+  await expect(page.getByText('项目已创建')).toBeVisible();
   await expect(page.getByText(name)).toBeVisible();
 });
 
@@ -609,21 +619,22 @@ test('real OIDC Team page creates a Team in the current project scope', async ({
   await expect(page).toHaveURL(/:30080\/[^/]+\/overview$/, { timeout: 30_000 });
   const projectPath = new URL(page.url()).pathname.split('/')[1];
   await page.goto(`/${projectPath}/teams`);
-  await expect(page.getByRole('heading', { name: 'Teams' })).toBeVisible();
-  await page.getByRole('link', { name: '创建 Team' }).first().click();
-  await expect(page.getByRole('heading', { name: '创建 Team' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '团队' })).toBeVisible();
+  await page.getByRole('link', { name: '创建团队' }).first().click();
+  await expect(page.getByRole('heading', { name: '创建团队' })).toBeVisible();
 
   const displayName = `E2E Team ${Date.now()}`;
   await page.getByLabel('显示名称').fill(displayName);
   await page.getByRole('button', { name: '下一步' }).click();
   await page.getByRole('button', { name: '下一步' }).click();
   await page.getByRole('button', { name: '下一步' }).click();
-  await page.getByRole('button', { name: '创建 Team' }).click();
+  await page.getByRole('button', { name: '创建团队' }).click();
 
   await expect(page).toHaveURL(new RegExp(`/${projectPath}/teams/[^/]+$`));
   await expect(page.getByRole('heading', { name: displayName })).toBeVisible();
   await page.getByRole('tab', { name: '版本与部署' }).click();
-  await expect(page.getByText('发布不会自动部署 Worker')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '部署', exact: true })).toBeVisible();
+  await expect(page.getByText('暂无部署')).toBeVisible();
 
   await page.goto('/00000000-0000-0000-0000-000000000026/teams');
   await expect(page.getByRole('heading', { name: '无权访问' })).toBeVisible();
@@ -654,36 +665,36 @@ test('real OIDC template flow provisions a Worker only after explicit instantiat
   const templateName = `e2e-worker-template-${suffix}`;
 
   await page.goto(`/${projectPath}/templates`);
-  await expect(page.getByRole('heading', { name: 'Worker Templates' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '工作节点模板' })).toBeVisible();
   await page.getByLabel('内部名称').fill(templateName);
   await page.getByLabel('显示名称').fill(displayName);
   await page.getByRole('button', { name: '创建模板' }).click();
-  await expect(page.getByText('Worker Template 已创建')).toBeVisible();
+  await expect(page.getByText('工作节点模板已创建')).toBeVisible();
 
   const templateOption = page.locator('#revision-template option').filter({ hasText: displayName });
   await expect(templateOption).toHaveCount(1);
   await page
     .locator('#revision-template')
     .selectOption((await templateOption.getAttribute('value'))!);
-  await page.getByLabel('Worker Spec JSON').fill(
+  await page.getByLabel('工作节点规格 JSON').fill(
     JSON.stringify({
       runtime: 'qwenpaw',
       modelProvider: 'deepseek',
       modelName: 'deepseek-chat',
     }),
   );
-  await page.getByRole('button', { name: '创建 Revision' }).click();
-  await expect(page.getByText(/Revision \d+ 已创建/)).toBeVisible();
-  await page.getByRole('button', { name: '发布此 Revision' }).click();
-  await expect(page.getByText(/Revision \d+ 已发布/)).toBeVisible();
+  await page.getByRole('button', { name: '创建版本' }).click();
+  await expect(page.getByText(/版本 \d+ 已创建/)).toBeVisible();
+  await page.getByRole('button', { name: '发布此版本' }).click();
+  await expect(page.getByText(/版本 \d+ 已发布/)).toBeVisible();
 
   const templateCard = page.locator('article').filter({ hasText: displayName });
-  await expect(templateCard.getByRole('button', { name: '显式实例化 Worker' })).toBeVisible();
-  await templateCard.getByRole('button', { name: '显式实例化 Worker' }).click();
-  await expect(page.getByText(/已创建实例 .*，等待 Worker Ready/)).toBeVisible({ timeout: 30_000 });
+  await expect(templateCard.getByRole('button', { name: '显式实例化工作节点' })).toBeVisible();
+  await templateCard.getByRole('button', { name: '显式实例化工作节点' }).click();
+  await expect(page.getByText(/已创建实例 .*，等待工作节点就绪/)).toBeVisible({ timeout: 30_000 });
 
   await page.goto(`/${projectPath}/workers`);
-  await expect(page.getByRole('heading', { name: 'Workers' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '工作节点' })).toBeVisible();
   const workerLink = page.getByRole('link', { name: /template-worker-/ }).first();
   await expect(workerLink).toBeVisible({ timeout: 30_000 });
   await workerLink.click();
@@ -716,26 +727,26 @@ test('real OIDC AgentSpec page creates publishes and deactivates independently',
   await expect(page).toHaveURL(/:30080\/[^/]+\/overview$/, { timeout: 30_000 });
   const projectPath = new URL(page.url()).pathname.split('/')[1];
   await page.goto(`/${projectPath}/agentspecs`);
-  await expect(page.getByRole('heading', { name: 'Agent Specs' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '智能体规格', exact: true })).toBeVisible();
 
   const name = `E2E AgentSpec ${Date.now()}`;
   await page.getByLabel('内部名称').fill(name);
-  await page.getByLabel('Runtime').fill('qwenpaw');
-  await page.getByLabel('Model Provider').fill('deepseek');
-  await page.getByLabel('Model Name').fill('deepseek-chat');
-  await page.getByLabel('Spec JSON').fill('{"mode":"safe"}');
-  await page.getByRole('button', { name: '创建 AgentSpec' }).click();
-  await expect(page.getByText('AgentSpec 已创建')).toBeVisible();
+  await page.getByLabel('运行时').fill('qwenpaw');
+  await page.getByLabel('模型服务商').fill('deepseek');
+  await page.getByLabel('模型名称').fill('deepseek-chat');
+  await page.getByLabel('规格 JSON').fill('{"mode":"safe"}');
+  await page.getByRole('button', { name: '创建智能体规格' }).click();
+  await expect(page.getByText('智能体规格已创建')).toBeVisible();
 
   const card = page.locator('article').filter({ hasText: name });
   await expect(card).toBeVisible();
-  await expect(card.getByText('DRAFT')).toBeVisible();
+  await expect(card.getByText('草稿')).toBeVisible();
   await card.getByRole('button', { name: '发布' }).click();
-  await expect(page.getByText('AgentSpec 已发布')).toBeVisible();
-  await expect(card.getByText('PUBLISHED')).toBeVisible();
+  await expect(page.getByText('智能体规格已发布')).toBeVisible();
+  await expect(card.getByText('已发布')).toBeVisible();
   await card.getByRole('button', { name: '停用' }).click();
-  await expect(page.getByText('AgentSpec 已停用')).toBeVisible();
-  await expect(card.getByText('DISABLED')).toBeVisible();
+  await expect(page.getByText('智能体规格已停用')).toBeVisible();
+  await expect(card.getByText('已禁用')).toBeVisible();
 });
 
 test('real OIDC MCP page manages a credential reference and fails closed without a secret', async ({
