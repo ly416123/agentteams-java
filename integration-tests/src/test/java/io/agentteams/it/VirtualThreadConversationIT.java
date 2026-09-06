@@ -8,7 +8,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.agentteams.manager.ManagerApplication;
 import io.agentteams.manager.conversation.ConversationRuntimeConfiguration;
-import io.agentteams.manager.security.ManagerAuthenticationFilter;
 import io.agentteams.manager.security.ManagerIdentityTokenValidator;
 import io.agentteams.manager.security.ManagerPrincipal;
 import java.io.IOException;
@@ -37,6 +36,7 @@ import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -154,7 +154,6 @@ class VirtualThreadConversationIT {
                 .properties(
                         "spring.main.web-application-type=servlet",
                         "spring.main.banner-mode=off",
-                        "spring.main.allow-bean-definition-overriding=true",
                         "server.port=0",
                         "server.address=127.0.0.1",
                         "spring.datasource.url=" + POSTGRES.getJdbcUrl(),
@@ -169,6 +168,9 @@ class VirtualThreadConversationIT {
                         "AGENTTEAMS_CONVERSATION_MAX_CONCURRENT_REQUESTS=2",
                         "AGENTTEAMS_CONVERSATION_MAX_EVENTS_PER_SESSION=100",
                         "AGENTTEAMS_CONVERSATION_MAX_SESSIONS=100",
+                        "agentteams.manager.security.issuer-uri=http://127.0.0.1:1",
+                        "agentteams.manager.security.jwk-set-uri=http://127.0.0.1:1",
+                        "agentteams.manager.security.audience=integration-test",
                         "agentteams.concurrency.virtual-threads.enabled=" + virtualThreadsEnabled)
                 .run();
     }
@@ -278,14 +280,10 @@ class VirtualThreadConversationIT {
 
     @Configuration(proxyBeanMethods = false)
     static class TestSecurityConfiguration {
-        @Bean(name = "managerIdentityTokenValidator")
-        ManagerIdentityTokenValidator managerIdentityTokenValidator() {
+        @Bean
+        @Primary
+        ManagerIdentityTokenValidator testManagerIdentityTokenValidator() {
             return token -> TEST_TOKEN.equals(token) ? Optional.of(PRINCIPAL) : Optional.empty();
-        }
-
-        @Bean(name = "managerAuthenticationFilter")
-        ManagerAuthenticationFilter managerAuthenticationFilter(ManagerIdentityTokenValidator validator) {
-            return new ManagerAuthenticationFilter(validator);
         }
     }
 

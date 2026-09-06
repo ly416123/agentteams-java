@@ -76,6 +76,15 @@ class ObservabilityAutoConfigurationTest {
     }
 
     @Test
+    void backsOffBeforeCollidingWithApplicationBeanUsingDefaultName() {
+        CorrelationIdFilter custom = new CorrelationIdFilter();
+        webContext.withBean("correlationIdFilter", CorrelationIdFilter.class, () -> custom)
+                .run(ctx -> assertThat(ctx.getBeansOfType(CorrelationIdFilter.class))
+                        .containsOnlyKeys("correlationIdFilter")
+                        .containsEntry("correlationIdFilter", custom));
+    }
+
+    @Test
     void backsOffWhenApplicationProvidesCorrelationIdFilter() {
         CorrelationIdFilter custom = new CorrelationIdFilter();
         webContext.withBean("customCorrelationIdFilter", CorrelationIdFilter.class, () -> custom)

@@ -241,7 +241,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
     <div class="meta">
       <div class="meta-card"><div class="k">架构风格</div><div class="v">Push 式事件驱动 + 六边形架构 + DDD</div></div>
       <div class="meta-card"><div class="k">Maven 模块</div><div class="v">13 个子模块</div></div>
-      <div class="meta-card"><div class="k">源码规模</div><div class="v">1,227 个 Java 文件（13 个 Maven 模块源码范围：861 主源码 + 366 测试）</div></div>
+      <div class="meta-card"><div class="k">源码规模</div><div class="v">1,231 个 Java 文件（13 个 Maven 模块源码范围：862 主源码 + 369 测试）</div></div>
       <div class="meta-card"><div class="k">部署形态</div><div class="v">Kubernetes（Helm Chart + Kind 开发集群）</div></div>
     </div>
   </div>
@@ -509,7 +509,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       <button type="button" class="mod-head" id="head-cp" aria-expanded="true" aria-controls="body-cp">
         <span class="mod-dot" style="background:#f78166"></span>
         <span class="mod-title">control-plane — 控制平面（核心）</span>
-        <span class="tagline">540 主源码 / 227 测试，业务 API + 持久化 + 调度 + 发件箱</span>
+        <span class="tagline">541 主源码 / 229 测试，业务 API + 持久化 + 调度 + 发件箱</span>
         <span class="mod-path">control-plane/src/main/java/io/agentteams/controlplane</span>
         <span class="mod-arrow">▶</span>
       </button>
@@ -689,7 +689,7 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
       </button>
       <div class="mod-body" id="body-it" role="region" aria-labelledby="head-it">
         <div class="pos">
-          <p>纯测试模块（7 个测试文件），Testcontainers 编排 PostgreSQL 16 + NATS 2.10 + MinIO，启动真实 Control Plane + 双 Gateway 副本。</p>
+          <p>纯测试模块（8 个测试文件），Testcontainers 编排 PostgreSQL 16 + NATS 2.10 + MinIO，启动真实 Control Plane + 双 Gateway 副本。</p>
           <table>
             <caption>集成测试覆盖</caption>
             <thead><tr><th scope="col" style="width:220px">测试</th><th scope="col">覆盖场景</th></tr></thead>
@@ -935,11 +935,11 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
 <section id="stats">
   <div class="wrap">
     <h2>规模统计</h2>
-    <p class="sub">1,227 个 Java 文件仅统计 13 个 Maven 模块源码范围（861 个主源码文件 + 366 个测试文件），不含 <code>target/</code> 构建产物、protobuf 生成代码及模块范围外的 <code>deploy/docker/TaskSandboxRunner.java</code>；Flyway 按 control-plane 的 V1–V89 迁移目录统计。</p>
+    <p class="sub">1,231 个 Java 文件仅统计 13 个 Maven 模块源码范围（862 个主源码文件 + 369 个测试文件），不含 <code>target/</code> 构建产物、protobuf 生成代码及模块范围外的 <code>deploy/docker/TaskSandboxRunner.java</code>；Flyway 按 control-plane 的 V1–V89 迁移目录统计。</p>
     <div class="stat-row">
       <div class="stat"><div class="num">13</div><div class="lbl">Maven 模块</div></div>
-      <div class="stat"><div class="num">861</div><div class="lbl">主源码文件</div></div>
-      <div class="stat"><div class="num">366</div><div class="lbl">测试文件</div></div>
+      <div class="stat"><div class="num">862</div><div class="lbl">主源码文件</div></div>
+      <div class="stat"><div class="num">369</div><div class="lbl">测试文件</div></div>
       <div class="stat"><div class="num">89</div><div class="lbl">Flyway 迁移</div></div>
       <div class="stat"><div class="num">15</div><div class="lbl">Agent/Server oneof 变体</div></div>
     </div>
@@ -953,15 +953,15 @@ footer { padding: 32px 0; color: var(--muted); font-size: 13px; text-align: cent
         <tr><td>application-contracts</td><td>45</td><td>12</td><td>应用端口 + Envelope + 脱敏器 + 追踪上下文</td></tr>
         <tr><td>observability</td><td>8</td><td>3</td><td>指标 + Correlation ID + W3C / 异步链路追踪</td></tr>
         <tr><td>storage</td><td>5</td><td>2</td><td>ObjectStorage + MinIO 实现 + 预签名</td></tr>
-        <tr><td>control-plane</td><td>540</td><td>227</td><td>业务 API / 服务 / 持久化 / Outbox / Config / Matrix / 安全</td></tr>
+        <tr><td>control-plane</td><td>541</td><td>229</td><td>业务 API / 服务 / 持久化 / Outbox / Config / Matrix / 安全</td></tr>
         <tr><td>agent-gateway</td><td>54</td><td>26</td><td>gRPC 服务 + 命令交付 + NATS + JDBC</td></tr>
         <tr><td>runtime</td><td>48</td><td>14</td><td>通道状态机 + QwenPaw 双边界 + 配置协调</td></tr>
         <tr><td>agent-worker</td><td>29</td><td>18</td><td>Worker 编排 + 配置拉取 / 文件下载 + AgentScope</td></tr>
         <tr><td>manager</td><td>83</td><td>32</td><td>模型提供 + 工具注册 + 会话与审计</td></tr>
         <tr><td>operator</td><td>27</td><td>15</td><td>3 个 CRD + 3 个 Reconciler + 资源工厂</td></tr>
-        <tr><td>integration-tests</td><td>0</td><td>7</td><td>E2E + 基础设施验收</td></tr>
+        <tr><td>integration-tests</td><td>0</td><td>8</td><td>E2E + 基础设施验收</td></tr>
         <tr><td>sdk/java</td><td>3</td><td>2</td><td>公共 API 客户端 + HMAC 签名 + 安全重试</td></tr>
-        <tr><td style="font-weight:700">合计</td><td style="font-weight:700">861</td><td style="font-weight:700">366</td><td>1,227 个 Java 文件（13 个 Maven 模块源码范围：主源码 + 测试）</td></tr>
+        <tr><td style="font-weight:700">合计</td><td style="font-weight:700">862</td><td style="font-weight:700">369</td><td>1,231 个 Java 文件（13 个 Maven 模块源码范围：主源码 + 测试）</td></tr>
         </tbody>
       </table>
     </div>
