@@ -89,3 +89,12 @@ Manager `/cancel` 接口。`--dry-run` 可在不访问服务的情况下检查�
 - 已修正脚本请求体并补充回归测试。L5 低并发短测实际结果为 2/2 成功，P50 约 2.5 秒，证明 QwenPaw 上游 SSE 终态链路可用。
 - 当前脚本直连 QwenPaw，只能作为上游协议/短测工具，不能作为 Java Manager 虚拟线程性能结论。正式 Java 对照必须经 Manager Conversation API；本次尝试因 L5 当前 Token 对应 Project 尚未建立有效 ACTIVE membership，Manager 返回 403 `project access denied`，未继续创建或修改 L5 业务数据。
 - L5 主机本身仍运行在无桌面 `multi-user.target`；但 QwenPaw Pod 当前由 supervisord 固定启动 Xvfb、XFCE 和 dbus。其 `config.json` 的浏览器 `headless=auto` 只控制 Chromium，不会关闭这些容器级桌面进程；未发现官方 `QWENPAW_*` 无 GUI 开关。该资源开销属于独立的运行镜像/启动方式治理项，尚未在本次调试中修改。
+
+### L5 Manager 权限复核（2026-09-06）
+
+- L5 Keycloak 能为仓库内的非生产 `alice` 测试身份签发 token；使用该 token 只读请求
+  `GET /api/v1/conversations?projectId=project-a&pageSize=1` 仍返回 HTTP 403、错误码
+  `FORBIDDEN`、消息 `project access denied`。
+- 通过 PostgreSQL 只读查询核对该 token subject 与 `project-a` 的
+  `project_memberships` 关系，结果为 `0` 行；因此当前阻塞已确认是 L5 业务权限数据缺失，
+  不是 Manager 路由、QwenPaw 协议或 Java 线程模型故障。本轮未执行任何权限写入。
