@@ -120,7 +120,7 @@ describe('Worker pages', () => {
   it('lists runtime, capabilities, heartbeat and current task', async () => {
     renderWithQuery(<WorkerListPage projectId="p-1" />);
     expect(await screen.findByText('分析 Worker')).toBeInTheDocument();
-    expect(screen.getByText('FAKE')).toBeInTheDocument();
+    expect(screen.getByText('未知运行时')).toBeInTheDocument();
     expect(screen.getByText('analysis-template')).toBeInTheDocument();
     expect(screen.getByText('reports')).toBeInTheDocument();
   });
