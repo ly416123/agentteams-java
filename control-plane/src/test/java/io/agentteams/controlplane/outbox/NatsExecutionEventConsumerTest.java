@@ -13,6 +13,7 @@ import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.TaskPhase;
+import io.agentteams.observability.AsyncConsumerTracing;
 import io.nats.client.Connection;
 import io.nats.client.ConnectionListener;
 import io.nats.client.JetStream;
@@ -23,6 +24,8 @@ import io.nats.client.impl.NatsJetStreamMetaData;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class NatsExecutionEventConsumerTest {
@@ -190,19 +193,105 @@ class NatsExecutionEventConsumerTest {
         listener.getValue().connectionEvent(connection, ConnectionListener.Events.RESUBSCRIBED);
 
         verify(firstSubscription).unsubscribe();
+        var options = org.mockito.ArgumentCaptor.forClass(PushSubscribeOptions.class);
         verify(jetStream, org.mockito.Mockito.times(2)).subscribe(
-                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), options.capture());
+        assertThat(options.getAllValues()).allMatch(option ->
+                option.getConsumerConfiguration().getMaxAckPending() >= 8);
         consumer.close();
         consumerStopped.countDown();
     }
 
+    @Test
+    void dispatchesDifferentTasksInParallel() throws Exception {
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        CountDownLatch started = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            started.countDown();
+            release.await(1, TimeUnit.SECONDS);
+            return null;
+        }).when(executionEvents).apply(any(), any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, command -> { },
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules(), "test-consumer",
+                AsyncConsumerTracing.noop(), 2, 2);
+
+        assertThat(consumer.dispatch(message(taskEventJson(java.util.UUID.randomUUID())))).isTrue();
+        assertThat(consumer.dispatch(message(taskEventJson(java.util.UUID.randomUUID())))).isTrue();
+        assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
+
+        release.countDown();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        verify(executionEvents, org.mockito.Mockito.times(2)).apply(any(), any(), any());
+        consumer.close();
+    }
+
+    @Test
+    void keepsExecutionEventsForOneTaskInOrder() throws Exception {
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        java.util.UUID taskId = java.util.UUID.randomUUID();
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                release.await(1, TimeUnit.SECONDS);
+            }
+            return null;
+        }).when(executionEvents).apply(any(), any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, command -> { },
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules(), "test-consumer",
+                AsyncConsumerTracing.noop(), 2, 2);
+
+        assertThat(consumer.dispatch(message(taskEventJson(taskId)))).isTrue();
+        assertThat(firstStarted.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(consumer.dispatch(message(taskEventJson(taskId)))).isTrue();
+        Thread.sleep(50);
+        assertThat(calls).hasValue(1);
+
+        release.countDown();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        assertThat(calls).hasValue(2);
+        consumer.close();
+    }
+
+    @Test
+    void leavesExecutionMessageUnacknowledgedWhenApplicationFails() throws Exception {
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(executionEvents).apply(any(), any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, command -> { },
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules(), "test-consumer",
+                AsyncConsumerTracing.noop(), 1, 1);
+        Message message = message(taskEventJson());
+
+        assertThat(consumer.dispatch(message)).isTrue();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        verify(message, never()).ack();
+        verify(message).nakWithDelay(Duration.ofMillis(250));
+        consumer.close();
+    }
+
     private static String taskEventJson() {
+        return taskEventJson(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"));
+    }
+
+    private static Message message(String payload) {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(payload.getBytes(StandardCharsets.UTF_8));
+        return message;
+    }
+
+    private static String taskEventJson(java.util.UUID taskId) {
         return """
                 {
                   "schemaVersion": 1,
                   "type": "TASK",
-                  "taskId": "11111111-1111-1111-1111-111111111111",
+                  "taskId": "%s",
                   "taskExecution": {
                     "eventId": "22222222-2222-2222-2222-222222222222",
                     "expectedVersion": 1,
@@ -218,6 +307,6 @@ class NatsExecutionEventConsumerTest {
                   },
                   "artifacts": []
                 }
-                """;
+                """.formatted(taskId);
     }
 }

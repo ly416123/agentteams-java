@@ -17,12 +17,15 @@ import io.nats.client.PushSubscribeOptions;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class NatsGatewayEventConsumerTest {
@@ -171,11 +174,114 @@ class NatsGatewayEventConsumerTest {
 
         verify(firstTaskSubscription).unsubscribe();
         verify(firstConfigSubscription).unsubscribe();
+        var options = org.mockito.ArgumentCaptor.forClass(PushSubscribeOptions.class);
         verify(jetStream, org.mockito.Mockito.times(4)).subscribe(
-                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), options.capture());
+        assertThat(options.getAllValues()).allMatch(option ->
+                option.getConsumerConfiguration().getMaxAckPending() >= 8);
         consumer.close();
         consumerStopped.countDown();
+    }
+
+    @Test
+    void dispatchesDifferentAggregatesInParallel() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        CountDownLatch started = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            started.countDown();
+            release.await(1, TimeUnit.SECONDS);
+            return null;
+        }).when(delivery).deliver(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(
+                new TaskAssignedCommandHandler(delivery), new ObjectMapper(), AsyncConsumerTracing.noop(), 2, 2);
+
+        assertThat(consumer.dispatch(message(eventJson(UUID.randomUUID())))).isTrue();
+        assertThat(consumer.dispatch(message(eventJson(UUID.randomUUID())))).isTrue();
+        assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
+
+        release.countDown();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        verify(delivery, org.mockito.Mockito.times(2)).deliver(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
+        consumer.close();
+    }
+
+    @Test
+    void keepsMessagesForOneAggregateInOrder() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        UUID taskId = UUID.randomUUID();
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                release.await(1, TimeUnit.SECONDS);
+            }
+            return null;
+        }).when(delivery).deliver(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(
+                new TaskAssignedCommandHandler(delivery), new ObjectMapper(), AsyncConsumerTracing.noop(), 2, 2);
+
+        assertThat(consumer.dispatch(message(eventJson(taskId)))).isTrue();
+        assertThat(firstStarted.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(consumer.dispatch(message(eventJson(taskId)))).isTrue();
+        Thread.sleep(50);
+        assertThat(calls).hasValue(1);
+
+        release.countDown();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        assertThat(calls).hasValue(2);
+        consumer.close();
+    }
+
+    @Test
+    void dispatchFailureLeavesMessageUnacknowledgedAndRecordsConsumerError() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        org.mockito.Mockito.doThrow(new IllegalStateException("delivery failed"))
+                .when(delivery).deliver(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any());
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(
+                new TaskAssignedCommandHandler(delivery), new ObjectMapper(), new GatewayMetrics(registry),
+                AsyncConsumerTracing.noop(), 1, 1);
+        Message message = message(eventJson(UUID.randomUUID()));
+
+        assertThat(consumer.dispatch(message)).isTrue();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        org.mockito.Mockito.verify(message, org.mockito.Mockito.never()).ack();
+        assertThat(registry.counter("agentteams.gateway.nats.events.rejected").count()).isEqualTo(1);
+        assertThat(registry.counter("agentteams.gateway.nats.consumer.errors").count()).isEqualTo(1);
+        consumer.close();
+    }
+
+    @Test
+    void stopsAcceptingMessagesBeforeWaitingForInFlightWork() throws Exception {
+        CommandDeliveryService delivery = mock(CommandDeliveryService.class);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            started.countDown();
+            release.await(1, TimeUnit.SECONDS);
+            return null;
+        }).when(delivery).deliver(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
+        NatsGatewayEventConsumer consumer = new NatsGatewayEventConsumer(
+                new TaskAssignedCommandHandler(delivery), new ObjectMapper(), AsyncConsumerTracing.noop(), 1, 1);
+        Message first = message(eventJson(UUID.randomUUID()));
+        Message second = message(eventJson(UUID.randomUUID()));
+
+        assertThat(consumer.dispatch(first)).isTrue();
+        assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
+        consumer.close(Duration.ofMillis(10));
+        assertThat(consumer.dispatch(second)).isFalse();
+        verify(second).nakWithDelay(Duration.ofMillis(250));
+
+        release.countDown();
+        assertThat(consumer.awaitIdle(Duration.ofSeconds(1))).isTrue();
     }
 
     private static Message message(String payload) {
@@ -185,10 +291,14 @@ class NatsGatewayEventConsumerTest {
     }
 
     private static String eventJson() {
+        return eventJson(TASK_ID);
+    }
+
+    private static String eventJson(UUID taskId) {
         return "{\"event_id\":\"" + UUID.randomUUID() + "\",\"event_type\":\"TaskAssigned\","
-                + "\"aggregate_type\":\"task\",\"aggregate_id\":\"" + TASK_ID + "\","
+                + "\"aggregate_type\":\"task\",\"aggregate_id\":\"" + taskId + "\","
                 + "\"aggregate_version\":2,\"occurred_at\":\"2026-08-16T00:00:00Z\",\"payload\":{"
-                + "\"taskId\":\"" + TASK_ID + "\",\"agentId\":\"" + AGENT_ID + "\","
+                + "\"taskId\":\"" + taskId + "\",\"agentId\":\"" + AGENT_ID + "\","
                 + "\"attemptId\":\"" + ATTEMPT_ID + "\",\"assignmentId\":\"" + ASSIGNMENT_ID + "\","
                 + "\"leaseId\":\"" + LEASE_ID + "\",\"spec\":{},\"taskType\":\"summarize\","
                 + "\"inputJson\":{\"text\":\"hello\"},\"requiredCapabilities\":[\"llm\"],"

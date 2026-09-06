@@ -23,9 +23,17 @@ import io.nats.client.impl.NatsJetStreamMetaData;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -35,6 +43,9 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(1);
     private static final Duration IDLE_BACKOFF = Duration.ofMillis(10);
     private static final Duration OUT_OF_ORDER_REDELIVERY_DELAY = Duration.ofMillis(250);
+    private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(30);
+    private static final int DEFAULT_CONCURRENCY = 8;
+    private static final int DEFAULT_MAX_ACK_PENDING = 32;
 
     private final JetStream jetStream;
     private final Connection connection;
@@ -43,6 +54,8 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private final ObjectMapper mapper;
     private final String durable;
     private final AsyncConsumerTracing tracing;
+    private final int maxAckPending;
+    private final OrderedDispatcher dispatcher;
     private final AtomicBoolean running = new AtomicBoolean();
     private final ConnectionListener connectionListener = this::onConnectionEvent;
     private JetStreamSubscription subscription;
@@ -50,40 +63,59 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ObjectMapper mapper, String durable) {
-        this(null, jetStream, executionEvents, command -> { }, mapper, durable, AsyncConsumerTracing.noop());
+        this(null, jetStream, executionEvents, command -> { }, mapper, durable, AsyncConsumerTracing.noop(),
+                DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsExecutionEventConsumer(Connection connection, ExecutionEventPort executionEvents,
             ObjectMapper mapper, String durable) throws IOException {
         this(connection, connection.jetStream(), executionEvents, command -> { }, mapper, durable,
-                AsyncConsumerTracing.noop());
+                AsyncConsumerTracing.noop(), DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, ObjectMapper mapper, String durable) {
-        this(null, jetStream, executionEvents, configEvents, mapper, durable, AsyncConsumerTracing.noop());
+        this(null, jetStream, executionEvents, configEvents, mapper, durable, AsyncConsumerTracing.noop(),
+                DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsExecutionEventConsumer(Connection connection, ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, ObjectMapper mapper, String durable) throws IOException {
         this(connection, connection.jetStream(), executionEvents, configEvents, mapper, durable,
-                AsyncConsumerTracing.noop());
+                AsyncConsumerTracing.noop(), DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing) {
-        this(null, jetStream, executionEvents, configEvents, mapper, durable, tracing);
+        this(null, jetStream, executionEvents, configEvents, mapper, durable, tracing,
+                DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
     }
 
     public NatsExecutionEventConsumer(Connection connection, ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing)
             throws IOException {
-        this(connection, connection.jetStream(), executionEvents, configEvents, mapper, durable, tracing);
+        this(connection, connection.jetStream(), executionEvents, configEvents, mapper, durable, tracing,
+                DEFAULT_CONCURRENCY, DEFAULT_MAX_ACK_PENDING);
+    }
+
+    public NatsExecutionEventConsumer(JetStream jetStream, ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing,
+            int concurrency, int maxAckPending) {
+        this(null, jetStream, executionEvents, configEvents, mapper, durable, tracing,
+                concurrency, maxAckPending);
+    }
+
+    public NatsExecutionEventConsumer(Connection connection, ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing,
+            int concurrency, int maxAckPending) throws IOException {
+        this(connection, connection.jetStream(), executionEvents, configEvents, mapper, durable, tracing,
+                concurrency, maxAckPending);
     }
 
     private NatsExecutionEventConsumer(Connection connection, JetStream jetStream,
             ExecutionEventPort executionEvents,
-            ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing) {
+            ConfigEventPort configEvents, ObjectMapper mapper, String durable, AsyncConsumerTracing tracing,
+            int concurrency, int maxAckPending) {
         this.jetStream = Objects.requireNonNull(jetStream, "jetStream");
         this.connection = connection;
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
@@ -91,6 +123,8 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
         this.durable = durable == null || durable.isBlank() ? "control-plane-execution-events" : durable;
         this.tracing = Objects.requireNonNull(tracing, "tracing");
+        this.maxAckPending = requirePositiveAtLeast(maxAckPending, concurrency, "maxAckPending");
+        this.dispatcher = new OrderedDispatcher(concurrency, this.maxAckPending);
     }
 
     public synchronized void start() throws IOException, JetStreamApiException {
@@ -98,7 +132,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             return;
         }
         subscription = jetStream.subscribe(PlatformEventSubjects.AGENT_EXECUTION_EVENTS, durable,
-                PushSubscribeOptions.builder().durable(durable).build());
+                subscribeOptions());
         running.set(true);
         if (connection != null) {
             connection.addConnectionListener(connectionListener);
@@ -112,7 +146,15 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
+        close(DEFAULT_SHUTDOWN_TIMEOUT);
+    }
+
+    public synchronized void close(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must not be negative");
+        }
         running.set(false);
         if (connection != null) {
             connection.removeConnectionListener(connectionListener);
@@ -125,6 +167,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             executor.shutdownNow();
             executor = null;
         }
+        dispatcher.close(timeout);
     }
 
     private void consumeLoop() {
@@ -133,7 +176,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 boolean processed = false;
                 Message message = subscription.nextMessage(RECEIVE_TIMEOUT);
                 if (message != null) {
-                    process(message);
+                    dispatch(message);
                     processed = true;
                 }
                 if (!processed) {
@@ -146,6 +189,47 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 LOGGER.log(Level.WARNING, "Agent execution event rejected and will be redelivered", error);
             }
         }
+    }
+
+    boolean dispatch(Message message) {
+        Objects.requireNonNull(message, "message");
+        boolean accepted = dispatcher.submit(orderingKey(message), () -> process(message),
+                error -> redeliverAfterDispatchFailure(message, error));
+        if (!accepted) {
+            redeliverAfterDispatchFailure(message,
+                    new RejectedExecutionException("NATS dispatcher is full or closed"));
+        }
+        return accepted;
+    }
+
+    boolean awaitIdle(Duration timeout) throws InterruptedException {
+        return dispatcher.awaitIdle(timeout);
+    }
+
+    private void redeliverAfterDispatchFailure(Message message, Throwable error) {
+        try {
+            message.nakWithDelay(OUT_OF_ORDER_REDELIVERY_DELAY);
+        } catch (RuntimeException nakFailure) {
+            LOGGER.log(Level.WARNING, "Unable to NAK rejected Control Plane NATS execution event", nakFailure);
+        }
+        LOGGER.log(Level.WARNING, "Agent execution event was rejected and will be redelivered", error);
+    }
+
+    private String orderingKey(Message message) {
+        try {
+            JsonNode root = mapper.readTree(message.getData());
+            if (root != null && root.isObject()) {
+                for (String field : new String[] {"aggregate_id", "taskId", "task_id", "agentId", "agent_id"}) {
+                    JsonNode value = root.get(field);
+                    if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                        return value.asText();
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // Invalid envelopes use one bounded poison-message lane and remain unacked.
+        }
+        return "__invalid__";
     }
 
     void process(Message message) {
@@ -254,7 +338,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             unsubscribe(subscription);
             try {
                 subscription = jetStream.subscribe(PlatformEventSubjects.AGENT_EXECUTION_EVENTS, durable,
-                        PushSubscribeOptions.builder().durable(durable).build());
+                        subscribeOptions());
                 LOGGER.info("Control Plane NATS execution subscription restored after reconnect");
             } catch (IOException | JetStreamApiException error) {
                 LOGGER.log(Level.WARNING,
@@ -266,6 +350,112 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
     private static void unsubscribe(JetStreamSubscription candidate) {
         if (candidate != null) {
             candidate.unsubscribe();
+        }
+    }
+
+    private PushSubscribeOptions subscribeOptions() {
+        return PushSubscribeOptions.builder().durable(durable)
+                .configuration(io.nats.client.api.ConsumerConfiguration.builder()
+                        .durable(durable)
+                        .maxAckPending(maxAckPending)
+                        .build())
+                .build();
+    }
+
+    private static int requirePositiveAtLeast(int value, int minimum, String field) {
+        if (value < 1 || value < minimum) {
+            throw new IllegalArgumentException(field + " must be positive and at least concurrency");
+        }
+        return value;
+    }
+
+    private static final class OrderedDispatcher {
+        private final ExecutorService workers;
+        private final Semaphore capacity;
+        private final java.util.Map<String, CompletableFuture<Void>> tails = new java.util.concurrent.ConcurrentHashMap<>();
+        private final Object monitor = new Object();
+        private final AtomicInteger inFlight = new AtomicInteger();
+        private final AtomicBoolean accepting = new AtomicBoolean(true);
+
+        private OrderedDispatcher(int concurrency, int maxAckPending) {
+            this.capacity = new Semaphore(maxAckPending);
+            this.workers = new ThreadPoolExecutor(concurrency, concurrency, 0L, TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(maxAckPending), runnable -> {
+                        Thread thread = new Thread(runnable, "control-plane-nats-dispatcher");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+        }
+
+        private boolean submit(String key, Runnable task, Consumer<Throwable> failureHandler) {
+            if (!accepting.get() || !capacity.tryAcquire()) {
+                return false;
+            }
+            inFlight.incrementAndGet();
+            CompletableFuture<Void> next;
+            try {
+                synchronized (tails) {
+                    CompletableFuture<Void> previous = tails.get(key);
+                    next = (previous == null ? CompletableFuture.completedFuture(null) : previous)
+                            .thenRunAsync(task, workers);
+                    tails.put(key, next);
+                }
+            } catch (RejectedExecutionException rejected) {
+                capacity.release();
+                decrementInFlight();
+                return false;
+            }
+            next.whenComplete((ignored, error) -> {
+                try {
+                    if (error != null) {
+                        failureHandler.accept(error);
+                    }
+                } finally {
+                    synchronized (tails) {
+                        if (tails.get(key) == next) {
+                            tails.remove(key);
+                        }
+                    }
+                    capacity.release();
+                    decrementInFlight();
+                }
+            });
+            return true;
+        }
+
+        private void decrementInFlight() {
+            if (inFlight.decrementAndGet() == 0) {
+                synchronized (monitor) {
+                    monitor.notifyAll();
+                }
+            }
+        }
+
+        private boolean awaitIdle(Duration timeout) throws InterruptedException {
+            long deadline = System.nanoTime() + timeout.toNanos();
+            synchronized (monitor) {
+                while (inFlight.get() != 0) {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0) {
+                        return false;
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(monitor, remaining);
+                }
+                return true;
+            }
+        }
+
+        private void close(Duration timeout) {
+            accepting.set(false);
+            workers.shutdown();
+            try {
+                if (!workers.awaitTermination(timeout.toNanos(), TimeUnit.NANOSECONDS)) {
+                    LOGGER.warning("Control Plane NATS dispatcher shutdown timed out");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                LOGGER.log(Level.WARNING, "Control Plane NATS dispatcher shutdown interrupted", interrupted);
+            }
         }
     }
 
