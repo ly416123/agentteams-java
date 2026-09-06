@@ -91,7 +91,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: maven
       - name: Unit and integration tests
         run: mvn -q -Pintegration-tests verify
@@ -281,7 +281,7 @@ jobs:
             -X POST http://127.0.0.1:18080/api/v1/agents \
             -H 'Idempotency-Key: ci-kind-recovery-agent' \
             -H 'Content-Type: application/json' \
-            -d '{"name":"ci-kind-recovery-agent","runtime":"qwenpaw","capabilities":{"qwenpaw":"true","java":"17"}}')
+            -d '{"name":"ci-kind-recovery-agent","runtime":"qwenpaw","capabilities":{"qwenpaw":"true","java":"21"}}')
           if [[ "$AGENT_STATUS" != "201" ]]; then
             echo "agent registration failed with HTTP $AGENT_STATUS" >&2
             cat "$AGENT_RESPONSE" >&2
