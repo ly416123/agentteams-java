@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.flywaydb.core.Flyway;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -74,6 +75,7 @@ class VirtualThreadConversationIT {
 
     @BeforeAll
     static void startUpstream() throws Exception {
+        migrateControlPlaneSchema();
         seedProjectAuthorizationTables();
         qwenPaw = new ConversationStub();
         qwenPaw.start();
@@ -90,7 +92,8 @@ class VirtualThreadConversationIT {
     void exercisesLongSseTerminalCancellationAndTimeoutWithBothExecutorModes() throws Exception {
         assertTimeoutPreemptively(Duration.ofMinutes(2), () -> {
             for (boolean virtualThreadsEnabled : new boolean[] { false, true }) {
-                try (ConfigurableApplicationContext manager = startManager(virtualThreadsEnabled)) {
+                ConfigurableApplicationContext manager = startManager(virtualThreadsEnabled);
+                try {
                     ConversationRuntimeConfiguration configuration = manager.getBean(
                             ConversationRuntimeConfiguration.class);
                     assertThat(configuration.virtualThreadsEnabled()).isEqualTo(virtualThreadsEnabled);
@@ -98,6 +101,8 @@ class VirtualThreadConversationIT {
                     longSseReachesMessageTerminal(manager, virtualThreadsEnabled);
                     cancellationPublishesConversationTerminal(manager, virtualThreadsEnabled);
                     idleUpstreamTimesOut(manager, virtualThreadsEnabled);
+                } finally {
+                    manager.close();
                 }
             }
         });
@@ -133,7 +138,10 @@ class VirtualThreadConversationIT {
 
         HttpResponse<String> events = getEvents(manager, sessionId);
         assertThat(events.statusCode()).isEqualTo(200);
-        assertThat(events.body()).contains("event: conversation.cancelled");
+        assertThat(events.body())
+                .contains("event: conversation.cancelled")
+                .doesNotContain("event: message.completed")
+                .doesNotContain("event: conversation.failed");
     }
 
     private static void idleUpstreamTimesOut(ConfigurableApplicationContext manager, boolean virtual)
@@ -146,7 +154,8 @@ class VirtualThreadConversationIT {
         assertThat(events.statusCode()).isEqualTo(200);
         assertThat(events.body())
                 .contains("event: conversation.failed")
-                .contains("CONVERSATION_TIMEOUT");
+                .contains("TIMEOUT")
+                .doesNotContain("event: message.completed");
     }
 
     private static ConfigurableApplicationContext startManager(boolean virtualThreadsEnabled) {
@@ -156,6 +165,10 @@ class VirtualThreadConversationIT {
                         "spring.main.banner-mode=off",
                         "server.port=0",
                         "server.address=127.0.0.1",
+                        "management.endpoint.health.group.readiness.include=readinessState,db",
+                        "management.endpoint.health.validate-group-membership=false",
+                        "spring.flyway.table=manager_flyway_schema_history",
+                        "spring.flyway.locations=classpath:db/manager-migration",
                         "spring.datasource.url=" + POSTGRES.getJdbcUrl(),
                         "spring.datasource.username=" + DATABASE_USER,
                         "spring.datasource.password=" + DATABASE_PASSWORD,
@@ -233,35 +246,20 @@ class VirtualThreadConversationIT {
         return URI.create("http://127.0.0.1:" + port + path);
     }
 
+    private static void migrateControlPlaneSchema() {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), DATABASE_USER, DATABASE_PASSWORD)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+    }
+
     private static void seedProjectAuthorizationTables() throws SQLException {
         try (Connection connection = DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), DATABASE_USER, DATABASE_PASSWORD);
                 var statement = connection.createStatement()) {
-            statement.execute("""
-                    CREATE TABLE IF NOT EXISTS projects (
-                        id UUID PRIMARY KEY,
-                        tenant_id TEXT NOT NULL,
-                        name TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'ACTIVE',
-                        created_by TEXT NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL,
-                        updated_at TIMESTAMPTZ NOT NULL,
-                        version BIGINT NOT NULL DEFAULT 0
-                    )
-                    """);
-            statement.execute("""
-                    CREATE TABLE IF NOT EXISTS project_memberships (
-                        tenant_id TEXT NOT NULL,
-                        project_id UUID NOT NULL,
-                        subject TEXT NOT NULL,
-                        role TEXT NOT NULL DEFAULT 'DEVELOPER',
-                        status TEXT NOT NULL DEFAULT 'ACTIVE',
-                        created_at TIMESTAMPTZ NOT NULL,
-                        updated_at TIMESTAMPTZ NOT NULL,
-                        version BIGINT NOT NULL DEFAULT 0,
-                        PRIMARY KEY (tenant_id, project_id, subject)
-                    )
-                    """);
             statement.executeUpdate("""
                     INSERT INTO projects (id, tenant_id, name, status, created_by, created_at, updated_at)
                     VALUES ('%s', '%s', '%s', 'ACTIVE', '%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -322,7 +320,7 @@ class VirtualThreadConversationIT {
             exchange.sendResponseHeaders(200, 0);
             try (exchange) {
                 var output = exchange.getResponseBody();
-                write(output, "event: data\ndata: {\"type\":\"text\",\"delta\":true,\"text\":\"part-1\"}\n\n");
+                write(output, "data: {\"type\":\"text\",\"delta\":true,\"text\":\"part-1\"}\n\n");
                 if (content.startsWith("cancel")) {
                     cancelScenarioStarted.countDown();
                     sleep(5_000);
@@ -334,7 +332,7 @@ class VirtualThreadConversationIT {
                 }
                 sleep(100);
                 write(output,
-                        "event: data\ndata: {\"type\":\"response\",\"status\":\"completed\","
+                        "data: {\"type\":\"response\",\"status\":\"completed\","
                                 + "\"object\":\"response\",\"text\":\"done\"}\n\n");
             } catch (IOException ignored) {
                 // The production cancel path is expected to close the in-flight SSE response.
