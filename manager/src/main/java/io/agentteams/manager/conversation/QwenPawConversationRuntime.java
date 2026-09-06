@@ -404,6 +404,17 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             appendFailure(state, ConversationRuntimeException.Code.PROTOCOL_ERROR);
             return true;
         }
+        String eventTypeValue = event.path("type").asText();
+        if (switch (eventTypeValue) {
+            case "plugin_call", "plugin_call_output", "turn_usage" -> true;
+            default -> false;
+        }) {
+            // QwenPaw emits tool/plugin envelopes and usage frames around the
+            // content stream. They are intermediate transport frames, not
+            // conversation terminals; the contained content or final response
+            // is emitted separately.
+            return false;
+        }
         String status = event.path("status").asText();
         if (!eventType.isEmpty() && switch (eventType) {
             case "task.created", "task.updated", "tool.started", "tool.completed" -> true;
@@ -424,7 +435,6 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             appendFailure(state, ConversationRuntimeException.Code.CANCELLED, sourceEventId);
             return true;
         }
-        String eventTypeValue = event.path("type").asText();
         if ("reasoning".equals(eventTypeValue)) {
             String messageId = event.path("id").asText();
             if (!messageId.isBlank()) {

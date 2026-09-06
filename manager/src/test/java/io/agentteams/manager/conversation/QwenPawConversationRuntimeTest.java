@@ -181,6 +181,32 @@ class QwenPawConversationRuntimeTest {
     }
 
     @Test
+    void acceptsPluginCallOutputEnvelopeBeforeResponseCompletion() throws Exception {
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream",
+                "data: {\"id\":\"plugin-1\",\"type\":\"plugin_call\","
+                        + "\"role\":\"assistant\",\"content\":[],"
+                        + "\"status\":\"in_progress\",\"object\":\"message\"}\n\n"
+                        + "data: {\"type\":\"turn_usage\",\"usage\":{}}\n\n"
+                        + "data: {\"id\":\"plugin-1\",\"type\":\"plugin_call_output\","
+                        + "\"role\":\"tool\",\"content\":[{\"type\":\"data\","
+                        + "\"delta\":false,\"status\":\"completed\","
+                        + "\"object\":\"content\",\"name\":\"memory_search\"}]}\n\n"
+                        + "data: {\"id\":\"response-1\",\"status\":\"completed\","
+                        + "\"object\":\"response\",\"output\":[]}\n\n"));
+        server.start();
+
+        QwenPawConversationRuntime runtime = runtime(null, 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        assertThat(runtime.events(SESSION_ID, 0)).extracting(ConversationEvent::type)
+                .containsExactly("conversation.started", "message.completed");
+        runtime.close();
+    }
+
+    @Test
     void classifiesHttp503WithoutPublishingTheRemoteBody() throws Exception {
         server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 503,
                 "application/json", "{\"message\":\"secret provider detail\"}"));

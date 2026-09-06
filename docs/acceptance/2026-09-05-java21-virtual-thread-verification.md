@@ -42,6 +42,7 @@ python3 scripts/benchmark-io-concurrency.py \
   --warmup-seconds 60 \
   --duration-seconds 300 \
   --runs 3 \
+  --timeout-seconds 60 \
   --output artifacts/java21-virtual-thread-benchmark.json
 ```
 
@@ -98,3 +99,15 @@ Manager `/cancel` 接口。`--dry-run` 可在不访问服务的情况下检查�
 - 通过 PostgreSQL 只读查询核对该 token subject 与 `project-a` 的
   `project_memberships` 关系，结果为 `0` 行；因此当前阻塞已确认是 L5 业务权限数据缺失，
   不是 Manager 路由、QwenPaw 协议或 Java 线程模型故障。本轮未执行任何权限写入。
+
+### L5 Manager 权限恢复与 SSE 解析修复（2026-09-06）
+
+- 按最小权限为非生产 `alice` 测试身份在 `tenant-a / project-a` 建立
+  `ACTIVE + DEVELOPER` membership；随后 Manager 会话列表只读请求返回 HTTP 200。
+- L5 原始 QwenPaw SSE 进一步确认包含 `plugin_call`、`plugin_call_output` 和 `turn_usage`
+  中间帧。Manager 原解析器将这些合法中间帧误判为 `PROTOCOL_ERROR`；已增加回归测试和兼容处理，
+  不改变 `message.completed`、取消和失败终态语义。
+- Java 21 容器中 `QwenPawConversationRuntimeTest` 全部 29 个测试通过。修复镜像在 L5、虚拟线程关闭
+  时完成 1/1 Manager 短测，P50 约 6.12 秒；同一镜像开启虚拟线程后单会话也成功完成，但 4 秒窗口
+  样本仅为 1 成功/2 错误，样本量和错误分布不足以支持性能结论，未进入正式压测。
+- 验证后已恢复原始 Java 17 Manager 镜像和虚拟线程关闭配置；Helm revision 44 为 `deployed`。
