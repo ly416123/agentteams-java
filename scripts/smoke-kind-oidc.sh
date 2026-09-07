@@ -115,7 +115,7 @@ kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PA
     DO UPDATE SET tenant_id = EXCLUDED.tenant_id, project_id = EXCLUDED.project_id,
                   team = EXCLUDED.team, updated_at = EXCLUDED.updated_at;
     INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
-    SELECT 'MODEL', m.id, p.tenant_id, project.id::text, 'team-a', now(), now()
+    SELECT 'MODEL', m.id, project.tenant_id, project.id::text, 'team-a', now(), now()
       FROM models m
       JOIN model_providers p ON p.id = m.provider_id
       CROSS JOIN projects project
