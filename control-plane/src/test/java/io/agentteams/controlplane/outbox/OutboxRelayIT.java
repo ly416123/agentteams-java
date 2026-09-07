@@ -218,7 +218,10 @@ class OutboxRelayIT {
 
         OutboxRelay relay = relay(failPredecessor, Clock.fixed(NOW, ZoneOffset.UTC));
         try (relay) {
-            assertThat(relay.relayOnce()).isEqualTo(2);
+            // claimDue 的聚合顺序过滤会在 claim 阶段跳过 predecessor 未 PUBLISHED 的
+            // successor，因此本轮只 claim 并重试 predecessor；successor 保持 PENDING
+            // 等 predecessor 发布成功后由后续轮次认领。
+            assertThat(relay.relayOnce()).isEqualTo(1);
         }
 
         assertThat(find(predecessor).status()).isEqualTo("PENDING");
