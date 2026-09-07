@@ -676,6 +676,49 @@ class FoundationRepositoryIT {
         assertThat(idempotencyKeyCount).isEqualTo(1);
     }
 
+    @Test
+    void assignsUnscopedTasksFromTheGlobalReadyPoolAndKeepsScopedTasksIsolated() {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentRepository agents = new AgentRepository(jdbc);
+        String spec = "{\"requiredCapabilities\":[\"qwenpaw\"]}";
+
+        AgentRecord unscopedAgent = AgentRecord.create(UUID.randomUUID(), "unscoped-worker",
+                AgentPhase.READY, "qwenpaw", "{\"qwenpaw\":\"true\"}", now);
+        AgentRecord otherProjectAgent = AgentRecord.create(UUID.randomUUID(), "other-project-worker",
+                AgentPhase.READY, "qwenpaw", "{\"qwenpaw\":\"true\"}", now);
+        AgentRecord matchingAgent = AgentRecord.create(UUID.randomUUID(), "matching-worker",
+                AgentPhase.READY, "qwenpaw", "{\"qwenpaw\":\"true\"}", now);
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(unscopedAgent);
+            tx.agents().insert(otherProjectAgent);
+            tx.agents().insert(matchingAgent);
+            return null;
+        });
+
+        // Unauthenticated deployments never write resource scopes; a task without
+        // a TASK scope must still be assignable from the global READY pool.
+        assertThat(agents.findReadyMatchingInTaskProject(spec, UUID.randomUUID(), now)).isPresent();
+
+        // Scoped tasks (authenticated deployments) only match project-bound Workers.
+        UUID scopedTaskId = UUID.randomUUID();
+        insertScope("WORKER", otherProjectAgent.id(), "tenant-b", "project-b");
+        insertScope("WORKER", matchingAgent.id(), "tenant-a", "project-a");
+        insertScope("TASK", scopedTaskId, "tenant-a", "project-a");
+
+        assertThat(agents.findReadyMatchingInTaskProject(spec, scopedTaskId, now))
+                .isPresent()
+                .get()
+                .extracting(AgentRecord::id)
+                .isEqualTo(matchingAgent.id());
+    }
+
+    private void insertScope(String resourceType, UUID resourceId, String tenant, String project) {
+        jdbc.update("""
+                INSERT INTO resource_scopes(resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'team-a', now(), now())
+                """, resourceType, resourceId, tenant, project);
+    }
+
     private static Void insertAndFail(FoundationTransaction tx, AgentRecord agent, TaskRecord task,
             TaskAttemptRecord attempt, TaskAssignmentRecord assignment, AgentLeaseRecord lease,
             UUID eventId, Instant now) {

@@ -140,19 +140,31 @@ public final class AgentRepository {
                 .stream().findFirst();
     }
 
-    /** Matches an unassigned task only against agents in the same tenant/project. */
+    /**
+     * Matches an unassigned task only against agents in the same tenant/project.
+     * Unauthenticated deployments never write resource scopes, so a task without
+     * a TASK scope falls back to the global READY pool; scoped tasks still require
+     * a project-bound Worker.
+     */
     public Optional<AgentRecord> findReadyMatchingInTaskProject(String taskSpecJson, UUID taskId, Instant now) {
         return jdbc.query("""
                 SELECT a.id, a.name, a.worker_type, a.phase, a.runtime, a.capabilities::text, a.metadata::text,
                        a.created_at, a.updated_at, a.version
                   FROM agents a
-                  JOIN resource_scopes worker_scope
-                    ON worker_scope.resource_type = 'WORKER' AND worker_scope.resource_id = a.id
-                  JOIN resource_scopes task_scope
+                  LEFT JOIN resource_scopes task_scope
                     ON task_scope.resource_type = 'TASK' AND task_scope.resource_id = ?
-                   AND task_scope.tenant_id = worker_scope.tenant_id
-                   AND task_scope.project_id = worker_scope.project_id
                  WHERE a.phase = 'READY'
+                   AND (
+                       task_scope.tenant_id IS NULL
+                       OR EXISTS (
+                           SELECT 1
+                             FROM resource_scopes worker_scope
+                            WHERE worker_scope.resource_type = 'WORKER'
+                              AND worker_scope.resource_id = a.id
+                              AND worker_scope.tenant_id = task_scope.tenant_id
+                              AND worker_scope.project_id = task_scope.project_id
+                       )
+                   )
                    AND NOT EXISTS (
                        SELECT 1
                          FROM worker_operations operation
