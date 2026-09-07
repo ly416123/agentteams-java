@@ -138,6 +138,35 @@ class NatsExecutionEventConsumerTest {
     }
 
     @Test
+    void preservesModelCallUsageAcrossTheNatsEnvelope() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(taskEventJson().replace("\"correlationId\": \"test\"",
+                "\"correlationId\": \"test\", \"modelCallUsage\": {\"provider\": \"qwenpaw\","
+                        + "\"model\": \"deepseek-chat\", \"latencyMillis\": 0, \"promptTokens\": 12479,"
+                        + "\"completionTokens\": 14, \"tenantId\": \"tenant-a\", \"projectId\": \"project-a\","
+                        + "\"workerId\": \"55555555-5555-5555-5555-555555555555\","
+                        + "\"taskId\": \"11111111-1111-1111-1111-111111111111\","
+                        + "\"teamId\": \"\", \"toolId\": \"\", \"quotaId\": \"\", \"quotaDimension\": \"\"}").getBytes(StandardCharsets.UTF_8));
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        var command = org.mockito.ArgumentCaptor.forClass(ExecutionEventPort.TaskExecutionCommand.class);
+        verify(executionEvents).apply(any(), command.capture(), any());
+        ExecutionEventPort.ModelCallUsage usage = command.getValue().modelCallUsage();
+        assertThat(usage).as("model call usage must survive the gateway envelope round trip").isNotNull();
+        assertThat(usage.provider()).isEqualTo("qwenpaw");
+        assertThat(usage.model()).isEqualTo("deepseek-chat");
+        assertThat(usage.promptTokens()).isEqualTo(12479L);
+        assertThat(usage.completionTokens()).isEqualTo(14L);
+        assertThat(usage.tenantId()).isEqualTo("tenant-a");
+        assertThat(usage.projectId()).isEqualTo("project-a");
+    }
+
+    @Test
     void acknowledgesConfigAppliedEventsWithoutWaitingBehindExecutionBacklog() {
         Message message = mock(Message.class);
         when(message.getData()).thenReturn("""
@@ -165,6 +194,38 @@ class NatsExecutionEventConsumerTest {
 
         verify(configEvents).applied(any(ConfigEventPort.ConfigAppliedCommand.class));
         verify(message).ack();
+    }
+
+    @Test
+    void acknowledgesConfigAppliedEventsThatNoLongerMatchTheCurrentBinding() {
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn("""
+                {
+                  "schemaVersion": 1,
+                  "type": "CONFIG_APPLIED",
+                  "eventId": "11111111-1111-1111-1111-111111111111",
+                  "bindingId": "22222222-2222-2222-2222-222222222222",
+                  "snapshotId": "33333333-3333-3333-3333-333333333333",
+                  "agentId": "44444444-4444-4444-4444-444444444444",
+                  "configVersion": 2,
+                  "applied": true,
+                  "errorMessage": "",
+                  "occurredAt": "2026-08-21T00:00:00Z",
+                  "source": "gateway",
+                  "correlationId": "stale-config"
+                }
+                """.getBytes(StandardCharsets.UTF_8));
+        ConfigEventPort configEvents = mock(ConfigEventPort.class);
+        doThrow(new IllegalArgumentException("config acknowledgement does not match binding"))
+                .when(configEvents).applied(any(ConfigEventPort.ConfigAppliedCommand.class));
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), mock(ExecutionEventPort.class), configEvents,
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        verify(message).ack();
+        verify(message, never()).nakWithDelay(any(Duration.class));
     }
 
     @Test

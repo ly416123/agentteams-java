@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/httpClient';
 import {
   useTask,
@@ -16,6 +16,7 @@ import { Timeline } from '../../components/Timeline';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { labelSource, labelStatus, labelType } from '../../i18n/labels';
+import { TaskExecutionObservability } from './TaskExecutionObservability';
 
 type TaskActionName = 'queue' | 'cancel' | 'retry' | 'pause' | 'approve' | 'reject';
 const actionLabels: Record<TaskActionName, string> = {
@@ -42,6 +43,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const runs = useTaskRuns(projectId, taskId);
   const recovery = useTaskRecovery(projectId, taskId);
   const action = useTaskAction(projectId, taskId);
+  const [searchParams] = useSearchParams();
   const [conflict, setConflict] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [conflictAction, setConflictAction] = useState<TaskActionName | null>(null);
@@ -109,6 +111,21 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
         <button className="button button--danger" onClick={() => setConfirmation('cancel')}>
           取消任务
         </button>
+        {(task.data.phase === 'QUEUED' || task.data.phase === 'PAUSED') && (
+          <button className="button button--ghost" onClick={() => runAction('pause')}>
+            {task.data.phase === 'PAUSED' ? '继续执行' : '暂停任务'}
+          </button>
+        )}
+        {(task.data.phase === 'DRAFT' || task.data.phase === 'QUEUED' || task.data.phase === 'PAUSED') && (
+          <>
+            <button className="button button--ghost" onClick={() => runAction('approve')}>
+              批准任务
+            </button>
+            <button className="button button--ghost" onClick={() => setConfirmation('reject')}>
+              拒绝任务
+            </button>
+          </>
+        )}
         {task.data.phase === 'FAILED' && (
           <button className="button button--ghost" onClick={() => runAction('retry')}>
             重试
@@ -192,24 +209,24 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
                 <div>
                   <strong>{item.attempt.id}</strong>
                   <div className="muted-text">
-                    {item.attempt.actor} · {labelSource(item.attempt.source)} · version{' '}
+                    {item.attempt.actor} · {labelSource(item.attempt.source)} · 版本{' '}
                     {item.attempt.version}
                   </div>
                 </div>
                 <StatusBadge phase={item.attempt.phase} />
                 <div className="detail-list">
                   <span>
-                    Assignment<strong>{item.assignment?.id || '未创建'}</strong>
+                    分配记录<strong>{item.assignment?.id || '未创建'}</strong>
                   </span>
                   <span>
-                    Lease<strong>{item.lease?.id || item.attempt.leaseId}</strong>
+                    租约<strong>{item.lease?.id || item.attempt.leaseId}</strong>
                   </span>
                   <span>
                     工作节点
                     <strong>{item.assignment?.agentId || item.lease?.agentId || '待分配'}</strong>
                   </span>
                   <span>
-                    Lease 状态<strong>{labelStatus(item.lease?.status || 'UNKNOWN')}</strong>
+                    租约状态<strong>{labelStatus(item.lease?.status || 'UNKNOWN')}</strong>
                   </span>
                 </div>
               </article>
@@ -217,6 +234,11 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           </div>
         )}
       </section>
+      <TaskExecutionObservability
+        projectId={projectId}
+        taskId={taskId}
+        runId={searchParams.get('runId') || runs.data?.[0]?.id || ''}
+      />
       <section className="panel">
         <div className="section-heading">
           <div>

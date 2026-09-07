@@ -19,22 +19,25 @@ class TaskProcessEventServiceTest {
     private static final UUID RUN_ID = UUID.randomUUID();
 
     @Test
-    void appendsIdempotentlyAndReplaysOnlyAuthorizedEventsAfterCursor() {
+    void appendsIdempotentlyAndReplaysOnlyAuthorizedEventsFromCursorInclusive() {
         InMemoryEventRepository repository = new InMemoryEventRepository();
         TaskProcessEventService service = new TaskProcessEventService(repository);
-        TaskProcessEvent publicEvent = event(1, TaskEventVisibility.REQUESTER, "PROGRESS");
+        TaskProcessEvent startedEvent = event(0, TaskEventVisibility.REQUESTER, "TASK.STARTED");
+        TaskProcessEvent progressEvent = event(1, TaskEventVisibility.REQUESTER, "PROGRESS");
         TaskProcessEvent internalEvent = event(2, TaskEventVisibility.INTERNAL_ONLY, "TOOL_RESULT");
 
-        assertThat(service.append(CONTEXT, publicEvent)).isEqualTo(publicEvent);
-        assertThat(service.append(CONTEXT, publicEvent)).isEqualTo(publicEvent);
+        assertThat(service.append(CONTEXT, startedEvent)).isEqualTo(startedEvent);
+        assertThat(service.append(CONTEXT, startedEvent)).isEqualTo(startedEvent);
+        service.append(CONTEXT, progressEvent);
         service.append(CONTEXT, internalEvent);
 
+        // The first event of a run starts at sequence 0, so after=0 must include it.
         assertThat(service.replay(CONTEXT, TASK_ID, RUN_ID, 0, Set.of(TaskEventVisibility.REQUESTER), 100))
-                .containsExactly(publicEvent);
+                .containsExactly(startedEvent, progressEvent);
         assertThat(service.replay(CONTEXT, TASK_ID, RUN_ID, 1,
                 Set.of(TaskEventVisibility.REQUESTER, TaskEventVisibility.INTERNAL_ONLY), 100))
-                .containsExactly(internalEvent);
-        assertThat(repository.insertions).isEqualTo(2);
+                .containsExactly(progressEvent, internalEvent);
+        assertThat(repository.insertions).isEqualTo(3);
     }
 
     @Test
@@ -42,7 +45,7 @@ class TaskProcessEventServiceTest {
         TaskProcessEventService service = new TaskProcessEventService(new InMemoryEventRepository());
         ExecutionContext other = new ExecutionContext("org-2", "tenant-2", "project-2", "team-2", "user-2");
 
-        assertThatThrownBy(() -> service.append(null, event(1, TaskEventVisibility.REQUESTER, "PROGRESS")))
+        assertThatThrownBy(() -> service.append(null, event(0, TaskEventVisibility.REQUESTER, "PROGRESS")))
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> service.replay(other, TASK_ID, RUN_ID, -1,
                 Set.of(TaskEventVisibility.REQUESTER), 100)).isInstanceOf(IllegalArgumentException.class);
@@ -75,7 +78,7 @@ class TaskProcessEventServiceTest {
                 Set<TaskEventVisibility> visible, int limit) {
             return events.stream().filter(stored -> stored.context().sameResourceScope(context))
                     .map(StoredEvent::event).filter(event -> event.taskId().equals(taskId) && event.runId().equals(runId))
-                    .filter(event -> event.sequence() > after && visible.contains(event.visibility()))
+                    .filter(event -> event.sequence() >= after && visible.contains(event.visibility()))
                     .sorted(java.util.Comparator.comparingLong(TaskProcessEvent::sequence)).limit(limit).toList();
         }
 

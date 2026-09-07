@@ -62,7 +62,7 @@ public class JdbcTaskProcessEventRepository implements TaskProcessEventRepositor
                        correlation_id, payload, payload_ref
                   FROM task_process_events
                  WHERE organization_id = ? AND tenant_id = ? AND task_id = ? AND run_id = ?
-                   AND sequence > ? AND visibility IN (""" + placeholders + ") ORDER BY sequence LIMIT ?";
+                   AND sequence >= ? AND visibility IN (""" + placeholders + ") ORDER BY sequence LIMIT ?";
         List<Object> arguments = new ArrayList<>(List.of(context.organizationId(), context.tenantId(), taskId, runId, after));
         levels.forEach(level -> arguments.add(level.name()));
         arguments.add(limit);

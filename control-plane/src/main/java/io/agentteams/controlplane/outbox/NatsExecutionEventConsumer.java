@@ -272,10 +272,18 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 span = tracing.start("agentteams.nats.execution.consume",
                         new TraceContext(envelope.correlationId(), "", ""));
                 span.tag("agentteams.event.type", envelope.type()).tag("agentteams.consumer.result", "ack");
-                configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(envelope.eventId(),
-                        envelope.bindingId(), envelope.snapshotId(), envelope.agentId(), envelope.configVersion(),
-                        envelope.applied(), envelope.errorMessage(), envelope.occurredAt(), envelope.source(),
-                        envelope.correlationId(), envelope.resourceResults()));
+                try {
+                    configEvents.applied(new ConfigEventPort.ConfigAppliedCommand(envelope.eventId(),
+                            envelope.bindingId(), envelope.snapshotId(), envelope.agentId(), envelope.configVersion(),
+                            envelope.applied(), envelope.errorMessage(), envelope.occurredAt(), envelope.source(),
+                            envelope.correlationId(), envelope.resourceResults()));
+                } catch (IllegalArgumentException stale) {
+                    // Config acknowledgements can outlive a replaced binding during
+                    // Worker/Gateway rollout. They cannot become valid by retrying
+                    // and must not poison the shared Agent event consumer.
+                    LOGGER.log(Level.WARNING, "Acknowledging stale ConfigApplied event: {0}", stale.getMessage());
+                    span.tag("agentteams.consumer.result", "stale");
+                }
                 message.ack();
                 return;
             }
@@ -527,7 +535,7 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         return new io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand(command.eventId(),
                 command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
                 command.agentId(), command.source(), command.phase(), command.failureCode(), command.failureMessage(),
-                context.correlationId(), context.traceparent(), context.tracestate());
+                context.correlationId(), context.traceparent(), context.tracestate(), command.modelCallUsage());
     }
 
     private static io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand withContext(

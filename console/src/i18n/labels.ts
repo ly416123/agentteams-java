@@ -25,6 +25,7 @@ const STATUS: Record<string, LabelMeta> = {
   ACTIVE: { label: '活跃', tone: 'success', priority: 10 },
   RUNNING: { label: '执行中', tone: 'info', priority: 30 },
   IN_PROGRESS: { label: '进行中', tone: 'info', priority: 30 },
+  EXECUTION: { label: '执行阶段', tone: 'info', priority: 30 },
   QUEUED: { label: '排队中', tone: 'info', priority: 40 },
   PAUSED: { label: '已暂停', tone: 'warning', priority: 50 },
   ASSIGNED: { label: '已分配', tone: 'info', priority: 30 },
@@ -38,6 +39,8 @@ const STATUS: Record<string, LabelMeta> = {
   UNHEALTHY: { label: '异常', tone: 'danger', priority: 80 },
   CANCELLED: { label: '已取消', tone: 'neutral', priority: 70 },
   REJECTED: { label: '已拒绝', tone: 'danger', priority: 80 },
+  BLOCKED: { label: '已阻塞', tone: 'danger', priority: 80 },
+  WAITING: { label: '等待处理', tone: 'warning', priority: 50 },
   TERMINATED: { label: '已终止', tone: 'neutral', priority: 70 },
   DRAINED: { label: '已排空', tone: 'neutral', priority: 60 },
   UPDATING: { label: '更新中', tone: 'info', priority: 30 },
@@ -141,6 +144,20 @@ const TYPE: Record<string, string> = {
   'TASK.FAILED': '任务失败',
   'TASK.PROCESS': '任务处理中',
   'TASK.RESULT': '任务结果',
+  // 过程事件流（task_process_events.event_type）的小写点号类型。
+  'TASK.STARTED': '任务启动',
+  'TASK.PROGRESS': '任务执行中',
+  'TASK.PLANNED': '任务规划',
+  'TASK.CHECKPOINT': '任务检查点',
+  PROGRESS: '进度更新',
+  TOOL_CALL: '工具调用',
+  TOOL_RESULT: '工具结果',
+  CHECKPOINT: '检查点',
+  WAITING: '等待处理',
+  HUMAN_INTERVENTION: '人工介入',
+  DECISION: '执行决策',
+  APPROVAL: '审批记录',
+  SUBTASK_CREATED: '创建子任务',
 };
 
 const SOURCE: Record<string, string> = {
@@ -161,6 +178,8 @@ const RUNTIME: Record<string, string> = {
   ANTHROPIC: 'Anthropic',
 };
 const DECISION: Record<string, string> = {
+  REQUESTER: '请求方可见',
+  INTERNAL_ONLY: '仅内部可见',
   CLEAN: '正常',
   REVIEW_REQUIRED: '需要审核',
   ALLOWED: '已允许',

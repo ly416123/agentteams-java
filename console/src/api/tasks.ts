@@ -1,6 +1,18 @@
 import { apiClient, type HttpClient } from './httpClient';
-import { normalizeCursorPage, type CursorPage, type Task, type TaskPhase } from './types';
+import {
+  normalizeCursorPage,
+  type CursorPage,
+  type Task,
+  type TaskDecisionRecord,
+  type TaskPhase,
+  type TaskProcessEvent,
+  type TaskProgressSnapshot,
+  type TaskResultManifest,
+  type TaskTreeNode,
+} from './types';
 export { streamTaskEvents } from './taskEvents';
+export { createTaskProcessEventParser, streamTaskProcessEvents } from './taskProcessEvents';
+export type { TaskProcessEventStreamOptions } from './taskProcessEvents';
 
 export type TaskFilters = {
   q?: string;
@@ -120,6 +132,34 @@ export function getTaskExecution(taskId: string, client: HttpClient = apiClient)
 }
 export function getTaskRuns(taskId: string, client: HttpClient = apiClient) {
   return client.request<TaskRun[]>(`/api/v1/tasks/${taskId}/runs`);
+}
+export function getTaskProcessEvents(
+  taskId: string,
+  runId: string,
+  after = 0,
+  client: HttpClient = apiClient,
+) {
+  return client.request<TaskProcessEvent[]>(`/api/v1/tasks/${taskId}/runs/${runId}/process-events`, {
+    query: { after, visibility: 'REQUESTER' },
+  });
+}
+export function getTaskProgress(taskId: string, runId: string, client: HttpClient = apiClient) {
+  return client.request<TaskProgressSnapshot>(`/api/v1/tasks/${taskId}/runs/${runId}/progress`, {
+    query: { phase: 'EXECUTION' },
+  });
+}
+export function getTaskTree(taskId: string, runId: string, client: HttpClient = apiClient) {
+  return client.request<TaskTreeNode[]>(`/api/v1/tasks/${taskId}/runs/${runId}/tree`);
+}
+export function getTaskDecisions(taskId: string, runId: string, client: HttpClient = apiClient) {
+  return client.request<TaskDecisionRecord[]>(`/api/v1/tasks/${taskId}/runs/${runId}/decisions`, {
+    query: { visibility: 'REQUESTER' },
+  });
+}
+export function getTaskResult(taskId: string, runId: string, client: HttpClient = apiClient) {
+  return client.request<TaskResultManifest>(`/api/v1/tasks/${taskId}/runs/${runId}/result`, {
+    query: { visibility: 'REQUESTER' },
+  });
 }
 export function getTaskCheckpoints(taskId: string, runId: string, client: HttpClient = apiClient) {
   return client.request<TaskCheckpoint[]>(`/api/v1/tasks/${taskId}/runs/${runId}/checkpoints`);

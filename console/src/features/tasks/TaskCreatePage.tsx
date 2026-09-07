@@ -11,6 +11,7 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
   const [teamId, setTeamId] = useState('');
   const [workerId, setWorkerId] = useState('');
   const [taskType, setTaskType] = useState('NORMAL');
+  const [inputJson, setInputJson] = useState('');
   const [formError, setFormError] = useState('');
   const projects = useProjects();
   const teams = useTeams(projectId, {});
@@ -23,6 +24,20 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
       setFormError('必须先选择真实项目和团队，才能生成带作用域的任务。');
       return;
     }
+    let inputPayload: Record<string, unknown> | undefined;
+    if (inputJson.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(inputJson);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          setFormError('任务输入 JSON 必须是一个 JSON 对象，例如 {"prompt":"…"}。');
+          return;
+        }
+        inputPayload = parsed as Record<string, unknown>;
+      } catch {
+        setFormError('任务输入 JSON 不是合法 JSON，请检查后再提交。');
+        return;
+      }
+    }
     setFormError('');
     create.mutate(
       {
@@ -33,6 +48,7 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
           scope: { tenant: project.tenantId, project: project.name, team: selectedTeam.name },
           teamId: selectedTeam.id,
           ...(workerId.trim() ? { workerId: workerId.trim() } : {}),
+          ...(inputPayload ? { inputJson: inputPayload } : {}),
         },
       },
       { onSuccess: (task) => navigate(`/${projectId}/tasks/${task.id}`) },
@@ -80,6 +96,16 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          任务输入 JSON（可选）
+          <textarea
+            aria-label="任务输入 JSON"
+            rows={4}
+            placeholder='{"prompt":"按 artifacts 协议产出两个交付物"}'
+            value={inputJson}
+            onChange={(event) => setInputJson(event.target.value)}
+          />
         </label>
         <label>
           任务类型

@@ -5,14 +5,19 @@ import {
   getTask,
   getTaskExecution,
   getTaskRuns,
+  getTaskDecisions,
   getTaskCheckpoints,
+  getTaskProgress,
   getTaskRecovery,
+  getTaskResult,
+  getTaskTree,
   listTasks,
+  streamTaskProcessEvents,
   streamTaskEvents,
   taskAction,
   type TaskFilters,
 } from '../api/tasks';
-import type { TaskEvent } from '../api/types';
+import type { TaskEvent, TaskProcessEvent } from '../api/types';
 import { normalizeCursorPage } from '../api/types';
 import { taskEventReconnectDelay } from '../api/taskEvents';
 import { queryKeys } from './queryKeys';
@@ -65,6 +70,143 @@ export function useTaskRecovery(projectId: string, taskId: string) {
     enabled: Boolean(projectId && taskId),
     refetchInterval: 5_000,
   });
+}
+
+export function useTaskProgress(projectId: string, taskId: string, runId: string) {
+  return useQuery({
+    queryKey: ['task-progress', projectId, taskId, runId],
+    queryFn: () => getTaskProgress(taskId, runId),
+    enabled: Boolean(projectId && taskId && runId),
+    refetchInterval: 3_000,
+  });
+}
+
+export function useTaskTree(projectId: string, taskId: string, runId: string) {
+  return useQuery({
+    queryKey: ['task-tree', projectId, taskId, runId],
+    queryFn: () => getTaskTree(taskId, runId),
+    enabled: Boolean(projectId && taskId && runId),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useTaskDecisions(projectId: string, taskId: string, runId: string) {
+  return useQuery({
+    queryKey: ['task-decisions', projectId, taskId, runId],
+    queryFn: () => getTaskDecisions(taskId, runId),
+    enabled: Boolean(projectId && taskId && runId),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useTaskResult(projectId: string, taskId: string, runId: string) {
+  return useQuery({
+    queryKey: ['task-result', projectId, taskId, runId],
+    queryFn: () => getTaskResult(taskId, runId),
+    enabled: Boolean(projectId && taskId && runId),
+  });
+}
+
+export function useTaskProcessEvents(projectId: string, taskId: string, runId: string) {
+  const [restart, setRestart] = useState(0);
+  const [state, setState] = useState<{
+    data: TaskProcessEvent[];
+    isLoading: boolean;
+    isError: boolean;
+    error?: unknown;
+    connectionState: 'connecting' | 'connected' | 'reconnecting';
+  }>({
+    data: [],
+    isLoading: Boolean(projectId && taskId && runId),
+    isError: false,
+    connectionState: 'connecting',
+  });
+  const eventsRef = useRef<TaskProcessEvent[]>([]);
+  const cursorRef = useRef<number>();
+  const resourceRef = useRef<string>();
+
+  useEffect(() => {
+    if (!projectId || !taskId || !runId) {
+      setState({ data: [], isLoading: false, isError: false, connectionState: 'connecting' });
+      return;
+    }
+    const controller = new AbortController();
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
+    let active = true;
+    const resource = `${projectId}:${taskId}:${runId}`;
+    if (resourceRef.current !== resource) {
+      eventsRef.current = [];
+      cursorRef.current = undefined;
+      resourceRef.current = resource;
+    }
+
+    setState({
+      data: eventsRef.current,
+      isLoading: true,
+      isError: false,
+      connectionState: 'connecting',
+    });
+
+    const scheduleReconnect = () => {
+      if (!active) return;
+      const delay = taskEventReconnectDelay(retryAttempt);
+      retryAttempt += 1;
+      setState((current) => ({ ...current, connectionState: 'reconnecting' }));
+      reconnectTimer = setTimeout(connect, delay);
+    };
+    const connect = async () => {
+      try {
+        await streamTaskProcessEvents(taskId, runId, {
+          after: cursorRef.current,
+          signal: controller.signal,
+          onEvents: (incoming) => {
+            if (!incoming.length || !active) return;
+            retryAttempt = 0;
+            const byId = new Map(eventsRef.current.map((event) => [event.eventId, event]));
+            incoming.forEach((event) => byId.set(event.eventId, event));
+            eventsRef.current = [...byId.values()].sort((left, right) => left.sequence - right.sequence);
+            cursorRef.current = Math.max(
+              cursorRef.current || 0,
+              ...incoming.map((event) => event.sequence),
+            );
+            setState({
+              data: eventsRef.current,
+              isLoading: false,
+              isError: false,
+              connectionState: 'connected',
+            });
+          },
+        });
+        setState((current) => ({
+          ...current,
+          isLoading: false,
+          isError: false,
+          connectionState: 'connected',
+        }));
+        scheduleReconnect();
+      } catch (error) {
+        if (!active || controller.signal.aborted) return;
+        setState((current) => ({
+          ...current,
+          isLoading: false,
+          isError: true,
+          error,
+          connectionState: 'reconnecting',
+        }));
+        scheduleReconnect();
+      }
+    };
+    void connect();
+    return () => {
+      active = false;
+      controller.abort();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, [projectId, taskId, runId, restart]);
+
+  const refetch = useCallback(async () => setRestart((value) => value + 1), []);
+  return { ...state, refetch };
 }
 export function useTaskEvents(projectId: string, taskId: string) {
   const [restart, setRestart] = useState(0);

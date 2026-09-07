@@ -230,6 +230,7 @@ paths:
         - $ref: '#/components/parameters/RunId'
         - name: after
           in: query
+          description: Replay cursor; returns events with sequence >= after (inclusive, so 0 includes the first event).
           schema: { type: integer, format: int64, minimum: 0, default: 0 }
         - $ref: '#/components/parameters/Visibility'
       responses:

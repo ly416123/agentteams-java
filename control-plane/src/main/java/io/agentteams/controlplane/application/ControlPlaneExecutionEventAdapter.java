@@ -4,6 +4,7 @@ import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
 import io.agentteams.application.api.ExecutionEventPort.ExecutionPhase;
 import io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand;
+import io.agentteams.application.api.TaskExecutionObservationPort;
 import io.agentteams.controlplane.persistence.ArtifactRecord;
 import io.agentteams.controlplane.audit.ModelCallAuditRecorder;
 import io.agentteams.controlplane.service.ExecutionEventService;
@@ -21,15 +22,22 @@ import java.util.UUID;
 public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPort {
     private final ExecutionEventService executionEvents;
     private final ModelCallAuditRecorder modelCallAudits;
+    private final TaskExecutionObservationPort observations;
 
     public ControlPlaneExecutionEventAdapter(ExecutionEventService executionEvents) {
-        this(executionEvents, ModelCallAuditRecorder.noop());
+        this(executionEvents, ModelCallAuditRecorder.noop(), TaskExecutionObservationPort.noop());
     }
 
     public ControlPlaneExecutionEventAdapter(ExecutionEventService executionEvents,
             ModelCallAuditRecorder modelCallAudits) {
+        this(executionEvents, modelCallAudits, TaskExecutionObservationPort.noop());
+    }
+
+    public ControlPlaneExecutionEventAdapter(ExecutionEventService executionEvents,
+            ModelCallAuditRecorder modelCallAudits, TaskExecutionObservationPort observations) {
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
         this.modelCallAudits = Objects.requireNonNull(modelCallAudits, "modelCallAudits");
+        this.observations = Objects.requireNonNull(observations, "observations");
     }
 
     @Override
@@ -45,10 +53,25 @@ public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPo
         executionEvents.apply(taskId, transition, artifacts.stream()
                 .map(artifact -> toRecord(taskId, command.attemptId(), command.eventId(), command.occurredAt(), artifact))
                 .toList());
+        observe(taskId, command, artifacts);
         if (command.phase() == ExecutionPhase.SUCCEEDED || command.phase() == ExecutionPhase.FAILED) {
             if (command.modelCallUsage() != null) {
                 modelCallAudits.record(taskId, command);
             }
+        }
+    }
+
+    private void observe(UUID taskId, TaskExecutionCommand command, List<ArtifactReference> artifacts) {
+        UUID runId = command.attemptId();
+        switch (command.phase()) {
+            case ACCEPTED -> observations.accepted(taskId, runId, command.eventId(), command.occurredAt(),
+                    command.correlationId());
+            case RUNNING -> observations.progress(taskId, runId, command.eventId(), command.occurredAt(),
+                    command.correlationId(), 0, "RUNNING", "任务执行中");
+            case SUCCEEDED -> observations.completed(taskId, runId, command.eventId(), command.occurredAt(),
+                    command.correlationId(), "", artifacts);
+            case FAILED -> observations.failed(taskId, runId, command.eventId(), command.occurredAt(),
+                    command.correlationId(), command.failureCode(), command.failureMessage());
         }
     }
 

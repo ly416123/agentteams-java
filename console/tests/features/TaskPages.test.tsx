@@ -87,6 +87,70 @@ vi.mock('../../src/api/tasks', () => ({
       },
     },
   ]),
+  getTaskRuns: vi.fn().mockResolvedValue([
+    {
+      id: 'run-1',
+      taskId: 'task-1',
+      status: 'RUNNING',
+      startedAt: '2026-08-29T02:00:00Z',
+      completedAt: null,
+      createdAt: '2026-08-29T02:00:00Z',
+      updatedAt: '2026-08-29T02:00:00Z',
+      version: 1,
+      resultStatus: null,
+      resultSummary: null,
+    },
+  ]),
+  getTaskProcessEvents: vi.fn().mockResolvedValue([]),
+  getTaskProgress: vi.fn().mockResolvedValue({
+    phase: 'EXECUTION',
+    completed: 1,
+    total: 2,
+    progress: 50,
+    waitingReason: '',
+  }),
+  getTaskTree: vi.fn().mockResolvedValue([
+    {
+      taskId: 'task-1',
+      parentTaskId: null,
+      sequence: 1,
+      status: 'RUNNING',
+      dependencyIds: [],
+      updatedAt: '2026-08-29T02:00:00Z',
+    },
+  ]),
+  getTaskDecisions: vi.fn().mockResolvedValue([
+    {
+      id: 'decision-1',
+      taskId: 'task-1',
+      runId: 'run-1',
+      visibility: 'REQUESTER',
+      goalSummary: '确定执行步骤',
+      selectedAction: '继续执行',
+      evidenceSummary: 'Worker 已就绪',
+      constraintsSummary: '',
+      confidence: 0.9,
+      createdAt: '2026-08-29T02:00:00Z',
+    },
+  ]),
+  getTaskResult: vi.fn().mockResolvedValue({
+    taskId: 'task-1',
+    runId: 'run-1',
+    status: 'SUCCEEDED',
+    summary: '任务已完成',
+    artifacts: [
+      {
+        name: 'report.md',
+        storageRef: 'artifact://report.md',
+        contentType: 'text/markdown',
+        sizeBytes: 1024,
+        sha256: 'abc123',
+        version: 1,
+        stage: 'FINAL',
+        visibility: 'REQUESTER',
+      },
+    ],
+  }),
   getTaskRecovery: vi.fn().mockResolvedValue(null),
   streamTaskEvents: vi.fn().mockImplementation(async (_taskId, options) => {
     options.onEvents([
@@ -96,6 +160,22 @@ vi.mock('../../src/api/tasks', () => ({
         type: 'task.created',
         message: '任务已创建',
         createdAt: '2026-08-29T01:00:00Z',
+      },
+    ]);
+  }),
+  streamTaskProcessEvents: vi.fn().mockImplementation(async (_taskId, _runId, options) => {
+    options.onEvents([
+      {
+        eventId: 'process-1',
+        taskId: 'task-1',
+        runId: 'run-1',
+        sequence: 1,
+        eventType: 'PROGRESS',
+        visibility: 'REQUESTER',
+        occurredAt: '2026-08-29T02:00:00Z',
+        correlationId: 'corr-1',
+        payload: '{"message":"Worker 已开始执行"}',
+        payloadRef: null,
       },
     ]);
   }),
@@ -169,6 +249,26 @@ describe('Task pages', () => {
     expect(screen.getByRole('button', { name: '确认取消任务' })).toBeInTheDocument();
   });
 
+  it('shows operator controls for queued work and keeps them versioned', async () => {
+    vi.mocked(getTask).mockResolvedValueOnce({
+      id: 'task-1',
+      title: '生成周报',
+      description: '汇总本周运行数据',
+      phase: 'QUEUED',
+      priority: 2,
+      createdAt: '2026-08-29T01:00:00Z',
+      updatedAt: '2026-08-29T02:00:00Z',
+      version: 4,
+      teamId: 'team-1',
+      workerId: 'worker-1',
+    });
+    renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+    expect(await screen.findByRole('button', { name: '暂停任务' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '批准任务' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '拒绝任务' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('任务将被拒绝');
+  });
+
   it('shows attempt, assignment and lease metadata for the task', async () => {
     vi.mocked(getTaskExecution).mockClear();
     renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
@@ -177,6 +277,16 @@ describe('Task pages', () => {
     expect(screen.getByText('assignment-1')).toBeInTheDocument();
     expect(screen.getByText('lease-1')).toBeInTheDocument();
     expect(getTaskExecution).toHaveBeenCalledWith('task-1');
+  });
+
+  it('shows detailed execution progress, process events, decisions and artifacts', async () => {
+    renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+    expect(await screen.findByText('执行总览')).toBeInTheDocument();
+    expect(await screen.findByText('50%')).toBeInTheDocument();
+    expect(await screen.findByTestId('task-process-events')).toHaveTextContent('Worker 已开始执行');
+    expect(screen.getByText('确定执行步骤')).toBeInTheDocument();
+    expect(screen.getByText('report.md')).toBeInTheDocument();
+    expect(screen.getByText('任务分解')).toBeInTheDocument();
   });
 
   it('shows durable recovery count, reason and next retry time', async () => {
@@ -270,7 +380,7 @@ describe('Task pages', () => {
     renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
     expect(await screen.findByText('已排队')).toBeInTheDocument();
     await waitFor(() => expect(stream).toHaveBeenCalledTimes(2), { timeout: 1000 });
-    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0);
     expect(screen.getAllByText('已排队')).toHaveLength(1);
   });
 
