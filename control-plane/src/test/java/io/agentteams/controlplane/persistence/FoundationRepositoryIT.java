@@ -78,6 +78,46 @@ class FoundationRepositoryIT {
     }
 
     @Test
+    void bridgesLegacyTenantScopeToUnifiedOrganizationMemberships() {
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .cleanDisabled(false).load().clean();
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .target("81").load().migrate();
+        UUID projectId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-07T00:00:00Z");
+        jdbc.update("""
+                INSERT INTO projects(id, tenant_id, name, status, created_by, created_at, updated_at, version)
+                VALUES (?, 'tenant-a', 'project-a', 'ACTIVE', 'migration-test', ?, ?, 0)
+                """, projectId, Timestamp.from(now), Timestamp.from(now));
+        jdbc.update("""
+                INSERT INTO project_memberships(tenant_id, project_id, subject, role, created_at, updated_at, version)
+                VALUES ('tenant-a', ?, 'subject-a', 'ADMIN', ?, ?, 0)
+                """, projectId, Timestamp.from(now), Timestamp.from(now));
+
+        Flyway.configure().locations("filesystem:src/main/resources/db/migration")
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .load().migrate();
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM legacy_tenant_mappings WHERE legacy_tenant_key = 'tenant-a'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM organization_memberships membership
+                  JOIN legacy_tenant_mappings mapping ON mapping.organization_id = membership.organization_id
+                 WHERE mapping.legacy_tenant_key = 'tenant-a' AND membership.subject = 'subject-a'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM tenant_memberships membership
+                  JOIN legacy_tenant_mappings mapping ON mapping.tenant_id = membership.tenant_id
+                 WHERE mapping.legacy_tenant_key = 'tenant-a' AND membership.subject = 'subject-a'
+                """, Integer.class)).isEqualTo(1);
+    }
+
+    @Test
     void writesProjectBudgetPolicyAndEvaluationAfterLatestMigration() {
         Instant now = Instant.parse("2026-08-28T08:00:00Z");
         UUID policyId = UUID.randomUUID();

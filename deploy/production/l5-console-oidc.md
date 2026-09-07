@@ -1,7 +1,7 @@
 # L5 Console 登录配置
 
-L5 浏览器入口为 `http://192.168.1.16:30080`，Keycloak 的浏览器入口为
-`http://192.168.1.16:30082`。L5 必须使用仓库中的
+L5 浏览器入口为 `http://192.168.122.55:30080`，Keycloak 的浏览器入口为
+`http://192.168.122.55:30082`。L5 必须使用仓库中的
 [`deploy/helm/l5-values.yaml`](../helm/l5-values.yaml) 覆盖 OIDC 配置。
 
 ## 根因
@@ -16,7 +16,7 @@ L5 浏览器入口为 `http://192.168.1.16:30080`，Keycloak 的浏览器入口�
 
 ```bash
 kubectl -n agentteams set env deployment/keycloak \
-  KC_HOSTNAME=http://192.168.1.16:30082
+  KC_HOSTNAME=http://192.168.122.55:30082
 
 helm upgrade agentteams deploy/helm/agentteams-java \
   --namespace agentteams --reuse-values \
@@ -31,13 +31,13 @@ helm upgrade agentteams deploy/helm/agentteams-java \
 ## 验证
 
 ```bash
-curl -fsS http://192.168.1.16:30080/config.js
-curl -fsS http://192.168.1.16:30082/realms/agentteams/.well-known/openid-configuration
+curl -fsS http://192.168.122.55:30080/config.js
+curl -fsS http://192.168.122.55:30082/realms/agentteams/.well-known/openid-configuration
 kubectl -n agentteams get deploy \
   keycloak agentteams-agentteams-java-console \
   agentteams-agentteams-java-control-plane agentteams-agentteams-java-manager
 ```
 
 验证结果应满足：Console、Keycloak discovery 返回 HTTP 200，OIDC discovery 的
-`issuer` 为 `http://192.168.1.16:30082/realms/agentteams`，四个 Deployment 均为
+`issuer` 为 `http://192.168.122.55:30082/realms/agentteams`，四个 Deployment 均为
 Ready。不要在 L5 重新直接套用 Kind 的 `127.0.0.1:18082` 配置。

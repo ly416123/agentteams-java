@@ -83,7 +83,7 @@ it('falls back to getRandomValues when randomUUID is unavailable', () => {
 - [ ] **步骤 1：准备 L5 环境参数**
 
 ```bash
-export AGENTTEAMS_E2E_BASE_URL=http://192.168.1.16:30080
+export AGENTTEAMS_E2E_BASE_URL=http://192.168.122.55:30080
 export AGENTTEAMS_E2E_OIDC_PORT=30082
 export AGENTTEAMS_E2E_USERNAME=alice
 export AGENTTEAMS_E2E_PASSWORD=alice-dev
@@ -95,7 +95,7 @@ export AGENTTEAMS_E2E_QUOTA_ADMIN_PASSWORD=quota-admin-dev
 
 - [ ] **步骤 2：验证登录链路**
 
-运行 Playwright 登录用例，断言 Console 进入 `/<projectId>/overview`、Control Plane 已连接、OIDC 地址为 `192.168.1.16:30082`，并收集 `pageerror` 与 `console.error`。
+运行 Playwright 登录用例，断言 Console 进入 `/<projectId>/overview`、Control Plane 已连接、OIDC 地址为 `192.168.122.55:30082`，并收集 `pageerror` 与 `console.error`。
 
 - [ ] **步骤 3：验证降级浏览器**
 
@@ -155,7 +155,7 @@ export AGENTTEAMS_E2E_QUOTA_ADMIN_PASSWORD=quota-admin-dev
 
 - [ ] **步骤 3：执行完整 Playwright 套件**
 
-运行：`AGENTTEAMS_E2E_BASE_URL=http://192.168.1.16:30080 AGENTTEAMS_E2E_OIDC_PORT=30082 npm --prefix console run e2e -- --project=chromium`
+运行：`AGENTTEAMS_E2E_BASE_URL=http://192.168.122.55:30080 AGENTTEAMS_E2E_OIDC_PORT=30082 npm --prefix console run e2e -- --project=chromium`
 
 预期：目标用例全部通过；失败时保留 `test-results` 中的截图、Trace 和页面错误摘要。
 
