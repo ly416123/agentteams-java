@@ -20,6 +20,11 @@ spec:
     # Keep the legacy QwenPaw execution path explicit until AgentScope is enabled
     # for a compatible Worker image and rollout policy.
     AGENTTEAMS_RUNTIME: "QWENPAW"
+    # Provider/model 必须在 QwenPaw 服务侧已存在（内置或 custom provider），
+    # 否则 Worker 启动时的 native model config PUT 会 404 并 CrashLoop。
+    # CI Kind 验收 job 会把这两项 sed 成配置步骤注册的 agentteams-ci。
+    AGENTTEAMS_MODEL_PROVIDER: "qwenpaw"
+    AGENTTEAMS_MODEL: "unknown"
     # Keep virtual-thread SSE readers disabled until the Java 21 baseline and
     # production canary measurements approve enabling them for this Worker.
     AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
