@@ -22,7 +22,7 @@ jobs:
       - name: Set up Helm for Console contracts
         uses: azure/setup-helm@v5
         with:
-          version: v3.16.4
+          version: v3.18.6
       - name: Set up Node.js for Console
         if: ${{ hashFiles('console/package.json') != '' }}
         uses: actions/setup-node@v4
@@ -96,6 +96,10 @@ jobs:
           java-version: '21'
           cache: maven
       - name: Unit and integration tests
+        env:
+          # Manager 的 DeepSeekConfiguration 启动时强制校验 key；集成测试走
+          # 本地 QwenPaw mock，不真调外部 API，占位值即可。
+          DEEPSEEK_API_KEY: dummy-ci-key
         run: mvn -q -Pintegration-tests verify
       - name: Helm lint
         run: helm lint deploy/helm/agentteams-java
@@ -154,7 +158,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v5
         with:
-          version: v3.16.4
+          version: v3.18.6
       - name: Create Kind cluster
         uses: helm/kind-action@v1.12.0
         with:
@@ -538,7 +542,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v5
         with:
-          version: v3.16.4
+          version: v3.18.6
       - name: Create Kind cluster
         uses: helm/kind-action@v1.12.0
         with:
