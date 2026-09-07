@@ -50,7 +50,6 @@ public final class TeamService {
     }
 
     public TeamRecord create(String name, String displayName, TeamPolicyRecord policy, Instant now) {
-        requireScopeContext();
         Objects.requireNonNull(policy, "policy");
         Objects.requireNonNull(now, "now");
         TeamRecord team = TeamRecord.create(UUID.randomUUID(), name, displayName, now);
@@ -69,7 +68,6 @@ public final class TeamService {
 
     public TeamRecord create(String idempotencyKey, String name, String displayName,
             TeamPolicyRecord policy, Instant now) {
-        requireScopeContext();
         if (idempotency == null) {
             throw new IllegalStateException("team idempotency is not configured");
         }
@@ -300,16 +298,20 @@ public final class TeamService {
     }
 
     private void bindIfAuthenticated(UUID resourceId, Instant createdAt) {
-        resourceScopes.bind("TEAM", resourceId, requireScopeContext(), createdAt);
+        // When API authentication is disabled (agentteams.security.api.enabled=false) no
+        // principal is bound to the request; scope binding and visibility then only apply
+        // to authenticated callers, keeping unauthenticated dev/acceptance deployments working.
+        PrincipalContext.current().ifPresent(principal ->
+                resourceScopes.bind("TEAM", resourceId, principal, createdAt));
     }
 
     private void requireVisible(UUID resourceId) {
-        requireScopeContext();
+        if (PrincipalContext.current().isEmpty()) return;
         resourceScopes.requireVisible("TEAM", resourceId);
     }
 
     private void requireWorkerVisible(UUID resourceId) {
-        requireScopeContext();
+        if (PrincipalContext.current().isEmpty()) return;
         resourceScopes.requireVisible("WORKER", resourceId);
     }
 

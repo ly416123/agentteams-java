@@ -2,8 +2,10 @@ package io.agentteams.controlplane.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -95,6 +97,27 @@ class TeamServiceScopeTest {
     }
 
     @Test
+    void skipsScopeBindingWhenRequestIsUnauthenticated() {
+        // apiEnabled=false deployments carry no principal; team creation must
+        // still succeed without binding or visibility checks.
+        PrincipalContext.clear();
+        TeamPolicyRecord policy = new TeamPolicyRecord(UUID.randomUUID(), 2, false, List.of("qwenpaw"), List.of(),
+                NOW, 0);
+        when(transaction.teams()).thenReturn(teams);
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Function<FoundationTransaction, Object> work = invocation.getArgument(0);
+            return work.apply(transaction);
+        });
+
+        TeamRecord created = service.create("team-a", "Team A", policy, NOW);
+
+        verify(resourceScopes, never()).bind(anyString(), any(), any(), any());
+        verify(teams).insert(created);
+        verify(teams).insertPolicy(any(TeamPolicyRecord.class));
+    }
+
+    @Test
     void rejectsAuthenticatedTeamOperationOutsideTheCallerScope() {
         UUID teamId = UUID.randomUUID();
         doThrow(new AuthorizationException("resource is outside caller project"))
@@ -165,12 +188,22 @@ class TeamServiceScopeTest {
     }
 
     @Test
-    void rejectsIndividualVisibilityChecksWithoutAnAuthenticatedPrincipal() {
+    void allowsIndividualReadsWithoutAnAuthenticatedPrincipal() {
+        // apiEnabled=false deployments carry no principal; individual reads must
+        // still succeed because visibility checks only apply to authenticated callers
+        // (ResourceScopeRepository.visible() already treats a missing principal as visible).
         PrincipalContext.clear();
+        UUID teamId = UUID.randomUUID();
+        TeamRecord team = new TeamRecord(teamId, "team", "Team", "ACTIVE", NOW, NOW, 0);
+        when(transaction.teams()).thenReturn(teams);
+        when(teams.findById(teamId)).thenReturn(Optional.of(team));
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Function<FoundationTransaction, Object> work = invocation.getArgument(0);
+            return work.apply(transaction);
+        });
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.get(UUID.randomUUID()))
-                .isInstanceOf(AuthorizationException.class)
-                .hasMessageContaining("authentication");
+        assertThat(service.get(teamId)).isEqualTo(team);
     }
 
     @Test
