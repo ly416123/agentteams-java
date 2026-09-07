@@ -96,10 +96,6 @@ jobs:
           java-version: '21'
           cache: maven
       - name: Unit and integration tests
-        env:
-          # Manager 的 DeepSeekConfiguration 启动时强制校验 key；集成测试走
-          # 本地 QwenPaw mock，不真调外部 API，占位值即可。
-          DEEPSEEK_API_KEY: dummy-ci-key
         run: mvn -q -Pintegration-tests verify
       - name: Helm lint
         run: helm lint deploy/helm/agentteams-java
@@ -174,6 +170,12 @@ jobs:
       - name: Install Kind dependencies
         run: |
           kubectl apply -f deploy/kind-dev-infra.yaml
+          # Manager 的 existingSecret（含 deepseek-api-key placeholder）在两处
+          # Kind job 均无 install-kind-dev.sh 兜底，需在此显式创建。
+          kubectl -n agentteams create secret generic agentteams-manager \
+            --from-literal=password=agentteams-dev \
+            --from-literal=deepseek-api-key=kind-dev-placeholder \
+            --dry-run=client -o yaml | kubectl apply -f -
           kubectl -n agentteams rollout status statefulset/postgresql --timeout=180s
           kubectl -n agentteams rollout status statefulset/nats --timeout=180s
           kubectl -n agentteams rollout status statefulset/minio --timeout=180s
@@ -553,6 +555,12 @@ jobs:
       - name: Install Kind dependencies
         run: |
           kubectl apply -f deploy/kind-dev-infra.yaml
+          # Manager 的 existingSecret（含 deepseek-api-key placeholder）在两处
+          # Kind job 均无 install-kind-dev.sh 兜底，需在此显式创建。
+          kubectl -n agentteams create secret generic agentteams-manager \
+            --from-literal=password=agentteams-dev \
+            --from-literal=deepseek-api-key=kind-dev-placeholder \
+            --dry-run=client -o yaml | kubectl apply -f -
           kubectl -n agentteams rollout status statefulset/postgresql --timeout=180s
           kubectl -n agentteams rollout status statefulset/nats --timeout=180s
           kubectl -n agentteams rollout status statefulset/minio --timeout=180s

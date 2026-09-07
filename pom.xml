@@ -275,6 +275,10 @@
                                 <DOCKER_HOST>unix://${user.home}/.colima/default/docker.sock</DOCKER_HOST>
                                 <TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>/var/run/docker.sock</TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>
                             </environmentVariables>
+                            <systemPropertyVariables>
+                                <!-- Docker Engine 29 rejects clients below API 1.44. -->
+                                <api.version>1.44</api.version>
+                            </systemPropertyVariables>
                         </configuration>
                     </plugin>
                 </plugins>

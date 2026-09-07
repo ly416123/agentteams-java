@@ -184,7 +184,10 @@ class VirtualThreadConversationIT {
                         "agentteams.manager.security.issuer-uri=http://127.0.0.1:1",
                         "agentteams.manager.security.jwk-set-uri=http://127.0.0.1:1",
                         "agentteams.manager.security.audience=integration-test",
-                        "agentteams.concurrency.virtual-threads.enabled=" + virtualThreadsEnabled)
+                        "agentteams.concurrency.virtual-threads.enabled=" + virtualThreadsEnabled,
+                        // Manager 启动强制校验模型凭据；上游是本地 ConversationStub，
+                        // 不会真调外部 API，占位值仅满足装配。
+                        "DEEPSEEK_API_KEY=dummy-it-key")
                 .run();
     }
 

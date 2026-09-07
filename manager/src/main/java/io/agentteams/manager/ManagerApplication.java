@@ -18,8 +18,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -41,8 +43,15 @@ public class ManagerApplication {
     }
 
     @Bean
-    ModelProvider managerModelProvider() {
-        return DeepSeekConfiguration.fromEnvironment(System.getenv())
+    ModelProvider managerModelProvider(Environment environment) {
+        Map<String, String> configuration = new HashMap<>(System.getenv());
+        // Spring 属性（测试通过 .properties() 注入的占位凭据）优先于 OS env；
+        // 生产环境两者同源，此处合并只是把读取统一收口到 Spring Environment。
+        for (String key : new String[] {"DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "DEEPSEEK_TIMEOUT_SECONDS"}) {
+            String value = environment.getProperty(key);
+            if (value != null && !value.isBlank()) configuration.put(key, value);
+        }
+        return DeepSeekConfiguration.fromEnvironment(configuration)
                 .createProvider(HttpClient.newHttpClient(), new ObjectMapper());
     }
 
