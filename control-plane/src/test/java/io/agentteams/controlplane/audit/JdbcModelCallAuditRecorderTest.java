@@ -40,16 +40,29 @@ class JdbcModelCallAuditRecorderTest {
                     occurred_at, tenant_id, project_id, cost_usd, cost_status, worker_id, task_id, team_id,
                     tool_id, quota_id, quota_dimension)
                 VALUES (?, ?, (SELECT organization_id::text FROM legacy_tenant_mappings WHERE legacy_tenant_key = ?),
-                    (SELECT actor FROM tasks WHERE id = ?), ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (source_event_id) DO NOTHING
+                    (SELECT actor FROM tasks WHERE id = ?), ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?,
+                    COALESCE((SELECT p.id::text FROM projects p WHERE p.tenant_id = ? AND (p.id::text = ? OR p.name = ?)), ?),
+                    0, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING
                 """), values.capture());
+        // Every placeholder must be bound: an unbound parameter only surfaces at runtime.
+        assertThat(values.getValue()).hasSize(25);
         assertThat(values.getValue()[0]).isEqualTo(eventId);
         assertThat(values.getValue()[1]).isEqualTo(eventId);
         assertThat(values.getValue()[2]).isEqualTo("tenant-a");
         assertThat(values.getValue()[3]).isEqualTo(taskId);
         assertThat(values.getValue()[4]).isEqualTo("qwen");
         assertThat(values.getValue()[13]).isEqualTo("tenant-a");
-        assertThat(values.getValue()[14]).isEqualTo("project-a");
-        assertThat(values.getValue()[20]).isEqualTo("quota-1");
+        // project_id is bound through the canonicalization subquery: tenant filter, id/name match and raw fallback.
+        assertThat(values.getValue()[14]).isEqualTo("tenant-a");
+        assertThat(values.getValue()[15]).isEqualTo("project-a");
+        assertThat(values.getValue()[16]).isEqualTo("project-a");
+        assertThat(values.getValue()[17]).isEqualTo("project-a");
+        assertThat(values.getValue()[18]).isEqualTo("UNPRICED");
+        assertThat(values.getValue()[19]).isEqualTo("worker-1");
+        assertThat(values.getValue()[20]).isEqualTo(taskId.toString());
+        assertThat(values.getValue()[21]).isEqualTo("team-a");
+        assertThat(values.getValue()[23]).isEqualTo("quota-1");
+        assertThat(values.getValue()[24]).isEqualTo("project");
     }
 }

@@ -24,6 +24,7 @@ class QwenPawRuntimeTest {
 
         assertThat(runtime.submit(task).accepted()).isTrue();
         assertThat(port.started()).isTrue();
+        assertThat(port.appliedConfiguration()).containsEntry("command", "qwenpaw");
         assertThat(port.submitted()).containsExactly(task);
         assertThat(runtime.cancel(task.id())).isTrue();
         assertThat(port.cancelled()).containsExactly(task.id());
@@ -83,6 +84,22 @@ class QwenPawRuntimeTest {
     }
 
     @Test
+    void mergesSparseTeamConfigurationWithWorkerStartupValues() {
+        RecordingProcessPort port = new RecordingProcessPort();
+        QwenPawRuntime runtime = new QwenPawRuntime(port);
+        runtime.start(new AgentRuntimeContext("qwenpaw-test", 1,
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), result -> { },
+                Map.of("provider_id", "deepseek", "model", "deepseek-chat")));
+
+        runtime.applyConfig(new RuntimeConfigSnapshot(2, "sha-2", Map.of("mode", "team")));
+
+        assertThat(port.appliedConfiguration()).containsEntry("provider_id", "deepseek")
+                .containsEntry("model", "deepseek-chat")
+                .containsEntry("mode", "team");
+        runtime.stop();
+    }
+
+    @Test
     void carriesWorkerTaskTeamToolAndQuotaDimensionsIntoAdmissionRequest() {
         RecordingProcessPort port = new RecordingProcessPort();
         AtomicReference<RuntimeModelCallAdmissionRequest> request = new AtomicReference<>();
@@ -126,6 +143,7 @@ class QwenPawRuntimeTest {
         private boolean stopped;
         private final java.util.List<RuntimeTask> submitted = new java.util.ArrayList<>();
         private final java.util.List<UUID> cancelled = new java.util.ArrayList<>();
+        private Map<String, String> appliedConfiguration = Map.of();
 
         @Override
         public void start(AgentRuntimeContext context, RuntimeResultSink resultSink) {
@@ -136,6 +154,11 @@ class QwenPawRuntimeTest {
         @Override
         public void submit(RuntimeTask task) {
             submitted.add(task);
+        }
+
+        @Override
+        public void applyConfig(RuntimeConfigSnapshot snapshot) {
+            appliedConfiguration = snapshot.values();
         }
 
         @Override
@@ -156,6 +179,7 @@ class QwenPawRuntimeTest {
         boolean stopped() { return stopped; }
         java.util.List<RuntimeTask> submitted() { return submitted; }
         java.util.List<UUID> cancelled() { return cancelled; }
+        Map<String, String> appliedConfiguration() { return appliedConfiguration; }
 
         private RuntimeResultSink resultSink;
     }

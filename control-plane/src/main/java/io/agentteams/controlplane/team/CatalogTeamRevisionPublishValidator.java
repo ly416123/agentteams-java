@@ -25,7 +25,9 @@ public final class CatalogTeamRevisionPublishValidator implements TeamRevisionPu
     @Override
     public void validate(TeamRevision revision) {
         scopes.requireVisible("TEAM", revision.teamId());
-        revision.memberAgentIds().forEach(agent -> scopes.requireVisible("AGENT", agent));
+        // Team members are worker resources in the scope catalog. Using AGENT here
+        // makes every publish fail with FORBIDDEN even when the caller can see the Worker.
+        revision.memberAgentIds().forEach(worker -> scopes.requireVisible("WORKER", worker));
         revisions.validatePublish(revision);
         var parsed = parser.parse(revision.overlayJson());
         var request = PrincipalContext.current()

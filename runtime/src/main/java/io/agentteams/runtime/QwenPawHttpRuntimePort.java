@@ -354,17 +354,28 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
 
     private RuntimeCallUsage usage(JsonNode event) {
         JsonNode usage = event.path("usage");
-        if (!usage.isObject()
-                || (!usage.has("prompt_tokens") && !usage.has("completion_tokens"))) {
+        if (!usage.isObject()) {
             return null;
         }
-        long promptTokens = nonNegativeLong(usage.path("prompt_tokens"));
-        long completionTokens = nonNegativeLong(usage.path("completion_tokens"));
-        String model = event.path("model").asText(usage.path("model").asText("unknown"));
+        // QwenPaw terminal response events report input_tokens/output_tokens,
+        // while turn_usage and OpenAI-style events report prompt_tokens/completion_tokens.
+        if (!usage.has("prompt_tokens") && !usage.has("completion_tokens")
+                && !usage.has("input_tokens") && !usage.has("output_tokens")) {
+            return null;
+        }
+        long promptTokens = nonNegativeLong(firstPresent(usage, "prompt_tokens", "input_tokens"));
+        long completionTokens = nonNegativeLong(firstPresent(usage, "completion_tokens", "output_tokens"));
+        String model = event.path("model").asText(usage.path("model").asText(
+                usage.path("model_name").asText("unknown")));
         if (model.isBlank()) {
             model = "unknown";
         }
         return new RuntimeCallUsage("qwenpaw", model, 0, promptTokens, completionTokens);
+    }
+
+    private static JsonNode firstPresent(JsonNode usage, String primary, String fallback) {
+        JsonNode value = usage.path(primary);
+        return value.isMissingNode() || value.isNull() ? usage.path(fallback) : value;
     }
 
     private static long nonNegativeLong(JsonNode value) {
@@ -376,7 +387,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         ArrayNode input = body.putArray("input");
         ObjectNode message = input.addObject();
         message.put("role", "user");
-        message.putArray("content").addObject().put("type", "text").put("text", task.inputJson());
+        message.putArray("content").addObject().put("type", "text").put("text", promptText(task));
         // A task may be retried with the same task ID after its Worker dies.
         // QwenPaw keeps session state by session_id, so reusing the task ID
         // would let the new attempt collide with the abandoned request.
@@ -394,6 +405,27 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             }
         }
         return objectMapper.writeValueAsString(body);
+    }
+
+    /**
+     * Task specs address QwenPaw through an {@code inputJson} envelope whose
+     * {@code prompt} member carries the user instruction. Send just that member
+     * when present so model calls see the instruction instead of the envelope;
+     * scalar or unparsed inputs fall back to the raw task input.
+     */
+    private static String promptText(RuntimeTask task) {
+        try {
+            JsonNode input = new ObjectMapper().readTree(task.inputJson());
+            if (input.isObject()) {
+                JsonNode prompt = input.path("prompt");
+                if (prompt.isTextual() && !prompt.asText().isBlank()) {
+                    return prompt.asText();
+                }
+            }
+        } catch (IOException ignored) {
+            // Fall through and forward the raw input.
+        }
+        return task.inputJson();
     }
 
     private URI chatEndpoint() {

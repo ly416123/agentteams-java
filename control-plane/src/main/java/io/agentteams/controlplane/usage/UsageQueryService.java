@@ -502,14 +502,13 @@ public final class UsageQueryService {
 
         static ScopeFilter current(UsageFilters filters) {
             return PrincipalContext.current().map(principal -> {
+                // Usage is project-scoped: the principal's team claim is a display
+                // name (e.g. "team-a") while model_call_audits.team_id stores the
+                // team UUID, so filtering on it would silently drop every row.
+                // Team-level analysis is served by the groupBy=team dimension.
                 StringBuilder clause = new StringBuilder(" AND tenant_id = ? AND project_id = ?");
                 List<Object> values = new java.util.ArrayList<>(List.of(
                         principal.scope().tenant(), principal.scope().project()));
-                String team = principal.scope().team();
-                if (team != null && !team.isBlank()) {
-                    clause.append(" AND (team_id IS NULL OR team_id = ?)");
-                    values.add(team);
-                }
                 appendFilters(clause, values, filters);
                 return new ScopeFilter(clause.toString(), List.copyOf(values));
             }).orElse(new ScopeFilter("", List.of()));

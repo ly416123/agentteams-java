@@ -4,16 +4,45 @@ ALTER TABLE integrations
     ADD COLUMN IF NOT EXISTS external_key TEXT,
     ADD COLUMN IF NOT EXISTS display_name TEXT;
 
-UPDATE integrations
-   SET external_key = COALESCE(NULLIF(btrim(external_key), ''), NULLIF(btrim(name), ''), id::text),
-       display_name = COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(name), ''), external_key, id::text);
+DO $migration$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = 'integrations' AND column_name = 'name'
+    ) THEN
+        EXECUTE $sql$
+            UPDATE integrations
+               SET external_key = COALESCE(NULLIF(btrim(external_key), ''), NULLIF(btrim(name), ''), id::text),
+                   display_name = COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(name), ''), external_key, id::text)
+        $sql$;
+    ELSE
+        UPDATE integrations
+           SET external_key = COALESCE(NULLIF(btrim(external_key), ''), id::text),
+               display_name = COALESCE(NULLIF(btrim(display_name), ''), external_key, id::text);
+    END IF;
+END
+$migration$;
 
 ALTER TABLE integrations
     ALTER COLUMN external_key SET NOT NULL,
-    ALTER COLUMN display_name SET NOT NULL,
-    ALTER COLUMN name DROP NOT NULL,
-    ALTER COLUMN channel_type DROP NOT NULL,
-    ALTER COLUMN user_assertion_mode DROP NOT NULL;
+    ALTER COLUMN display_name SET NOT NULL;
+
+DO $migration$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+               AND table_name = 'integrations' AND column_name = 'name') THEN
+        EXECUTE 'ALTER TABLE integrations ALTER COLUMN name DROP NOT NULL';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+               AND table_name = 'integrations' AND column_name = 'channel_type') THEN
+        EXECUTE 'ALTER TABLE integrations ALTER COLUMN channel_type DROP NOT NULL';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+               AND table_name = 'integrations' AND column_name = 'user_assertion_mode') THEN
+        EXECUTE 'ALTER TABLE integrations ALTER COLUMN user_assertion_mode DROP NOT NULL';
+    END IF;
+END
+$migration$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS integrations_organization_external_key_unique
     ON integrations (organization_id, external_key);
@@ -45,10 +74,18 @@ CREATE TABLE IF NOT EXISTS management_users (
     CONSTRAINT management_users_version_non_negative CHECK (version >= 0)
 );
 
-INSERT INTO management_users (id, subject, display_name, status, created_at, updated_at, version)
-SELECT id, 'legacy:platform-user:' || id::text, display_name, status, created_at, updated_at, version
-  FROM platform_users
-ON CONFLICT (id) DO NOTHING;
+DO $migration$
+BEGIN
+    IF to_regclass('public.platform_users') IS NOT NULL THEN
+        EXECUTE $sql$
+            INSERT INTO management_users (id, subject, display_name, status, created_at, updated_at, version)
+            SELECT id, 'legacy:platform-user:' || id::text, display_name, status, created_at, updated_at, version
+              FROM platform_users
+            ON CONFLICT (id) DO NOTHING
+        $sql$;
+    END IF;
+END
+$migration$;
 
 ALTER TABLE external_identities
     ADD COLUMN IF NOT EXISTS organization_id UUID;
@@ -78,9 +115,17 @@ BEGIN
 END
 $$;
 
-ALTER TABLE external_identities
-    ADD CONSTRAINT external_identities_management_user_fk
-    FOREIGN KEY (internal_user_id) REFERENCES management_users(id);
+DO $migration$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'external_identities_management_user_fk'
+    ) THEN
+        ALTER TABLE external_identities
+            ADD CONSTRAINT external_identities_management_user_fk
+            FOREIGN KEY (internal_user_id) REFERENCES management_users(id);
+    END IF;
+END
+$migration$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS external_identities_management_unique
     ON external_identities (integration_id, external_organization_id, external_user_id);
@@ -99,55 +144,43 @@ SELECT id, now(), 0
   FROM integrations
 ON CONFLICT (integration_id) DO NOTHING;
 
--- The legacy branch keyed memberships by principal_id. The current Control
--- Plane authorizes by the verified OIDC subject, so retain the legacy key as
--- nullable metadata and restore subject-keyed writes for the current API.
-ALTER TABLE organization_memberships ADD COLUMN IF NOT EXISTS subject TEXT;
-UPDATE organization_memberships
-   SET subject = 'legacy:principal:' || principal_id::text
- WHERE subject IS NULL;
-ALTER TABLE organization_memberships
-    DROP CONSTRAINT IF EXISTS organization_memberships_pkey,
-    DROP CONSTRAINT IF EXISTS organization_memberships_principal_status_idx_check,
-    ALTER COLUMN principal_id DROP NOT NULL,
-    ALTER COLUMN subject SET NOT NULL,
-    ADD CONSTRAINT organization_memberships_pkey PRIMARY KEY (organization_id, subject);
+-- The legacy branch keyed memberships by principal_id. If the database already
+-- has subject-keyed memberships, this bridge is intentionally a no-op.
+DO $migration$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+               AND table_name = 'organization_memberships' AND column_name = 'principal_id') THEN
+        EXECUTE 'ALTER TABLE organization_memberships ADD COLUMN IF NOT EXISTS subject TEXT';
+        EXECUTE 'UPDATE organization_memberships SET subject = ''legacy:principal:'' || principal_id::text WHERE subject IS NULL';
+        EXECUTE 'ALTER TABLE organization_memberships DROP CONSTRAINT IF EXISTS organization_memberships_pkey,
+            DROP CONSTRAINT IF EXISTS organization_memberships_principal_status_idx_check,
+            ALTER COLUMN principal_id DROP NOT NULL, ALTER COLUMN subject SET NOT NULL,
+            ADD CONSTRAINT organization_memberships_pkey PRIMARY KEY (organization_id, subject)';
 
-ALTER TABLE tenant_memberships ADD COLUMN IF NOT EXISTS subject TEXT;
-UPDATE tenant_memberships
-   SET subject = 'legacy:principal:' || principal_id::text
- WHERE subject IS NULL;
-ALTER TABLE tenant_memberships
-    DROP CONSTRAINT IF EXISTS tenant_memberships_pkey,
-    ALTER COLUMN principal_id DROP NOT NULL,
-    ALTER COLUMN subject SET NOT NULL,
-    ADD CONSTRAINT tenant_memberships_pkey PRIMARY KEY (tenant_id, subject);
+        EXECUTE 'ALTER TABLE tenant_memberships ADD COLUMN IF NOT EXISTS subject TEXT';
+        EXECUTE 'UPDATE tenant_memberships SET subject = ''legacy:principal:'' || principal_id::text WHERE subject IS NULL';
+        EXECUTE 'ALTER TABLE tenant_memberships DROP CONSTRAINT IF EXISTS tenant_memberships_pkey,
+            ALTER COLUMN principal_id DROP NOT NULL, ALTER COLUMN subject SET NOT NULL,
+            ADD CONSTRAINT tenant_memberships_pkey PRIMARY KEY (tenant_id, subject)';
 
-ALTER TABLE project_memberships ADD COLUMN IF NOT EXISTS subject TEXT;
-UPDATE project_memberships
-   SET subject = 'legacy:principal:' || principal_id::text
- WHERE subject IS NULL;
-ALTER TABLE project_memberships
-    DROP CONSTRAINT IF EXISTS project_memberships_pkey,
-    ALTER COLUMN principal_id DROP NOT NULL,
-    ALTER COLUMN subject SET NOT NULL,
-    ADD CONSTRAINT project_memberships_pkey PRIMARY KEY (tenant_id, project_id, subject);
+        EXECUTE 'ALTER TABLE project_memberships ADD COLUMN IF NOT EXISTS subject TEXT';
+        EXECUTE 'UPDATE project_memberships SET subject = ''legacy:principal:'' || principal_id::text WHERE subject IS NULL';
+        EXECUTE 'ALTER TABLE project_memberships DROP CONSTRAINT IF EXISTS project_memberships_pkey,
+            ALTER COLUMN principal_id DROP NOT NULL, ALTER COLUMN subject SET NOT NULL,
+            ADD CONSTRAINT project_memberships_pkey PRIMARY KEY (tenant_id, project_id, subject)';
 
-ALTER TABLE project_membership_idempotency ADD COLUMN IF NOT EXISTS subject TEXT;
-UPDATE project_membership_idempotency
-   SET subject = 'legacy:principal:' || principal_id::text
- WHERE subject IS NULL;
-ALTER TABLE project_membership_idempotency
-    ALTER COLUMN principal_id DROP NOT NULL,
-    ALTER COLUMN subject SET NOT NULL;
+        EXECUTE 'ALTER TABLE project_membership_idempotency ADD COLUMN IF NOT EXISTS subject TEXT';
+        EXECUTE 'UPDATE project_membership_idempotency SET subject = ''legacy:principal:'' || principal_id::text WHERE subject IS NULL';
+        EXECUTE 'ALTER TABLE project_membership_idempotency ALTER COLUMN principal_id DROP NOT NULL,
+            ALTER COLUMN subject SET NOT NULL';
 
-ALTER TABLE project_invitations ADD COLUMN IF NOT EXISTS subject TEXT;
-UPDATE project_invitations
-   SET subject = 'legacy:principal:' || principal_id::text
- WHERE subject IS NULL;
-ALTER TABLE project_invitations
-    ALTER COLUMN principal_id DROP NOT NULL,
-    ALTER COLUMN subject SET NOT NULL;
+        EXECUTE 'ALTER TABLE project_invitations ADD COLUMN IF NOT EXISTS subject TEXT';
+        EXECUTE 'UPDATE project_invitations SET subject = ''legacy:principal:'' || principal_id::text WHERE subject IS NULL';
+        EXECUTE 'ALTER TABLE project_invitations ALTER COLUMN principal_id DROP NOT NULL,
+            ALTER COLUMN subject SET NOT NULL';
+    END IF;
+END
+$migration$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS organization_memberships_subject_unique
     ON organization_memberships (organization_id, subject);

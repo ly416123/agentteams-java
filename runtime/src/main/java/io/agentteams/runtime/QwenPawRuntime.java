@@ -2,7 +2,12 @@ package io.agentteams.runtime;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 
@@ -32,11 +37,16 @@ public final class QwenPawRuntime implements AgentRuntime {
         // GatewayRuntimeAdapter calls complete()/fail().
         state.start(new AgentRuntimeContext(context.runtimeName(), context.maxConcurrency(), context.clock(),
                 ignored -> { }, context.configuration()));
+        RuntimeConfigSnapshot startupConfiguration = startupConfiguration(context.configuration());
         try {
             process.start(context, result -> context.resultSink().accept(releaseAdmission(result)));
+            process.applyConfig(startupConfiguration);
+            activeConfiguration = startupConfiguration;
+            state.applyConfig(startupConfiguration);
         } catch (RuntimeException error) {
             state.stop();
             this.context = null;
+            activeConfiguration = null;
             throw error;
         }
     }
@@ -104,13 +114,14 @@ public final class QwenPawRuntime implements AgentRuntime {
     @Override
     public void applyConfig(RuntimeConfigSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
+        RuntimeConfigSnapshot effective = mergeWithStartupConfiguration(snapshot);
         try {
-            process.applyConfig(snapshot);
+            process.applyConfig(effective);
         } catch (RuntimeException error) {
             throw new RuntimeConfigApplyException("QwenPaw configuration activation failed", error);
         }
-        activeConfiguration = snapshot;
-        state.applyConfig(snapshot);
+        activeConfiguration = effective;
+        state.applyConfig(effective);
     }
 
     @Override
@@ -161,6 +172,35 @@ public final class QwenPawRuntime implements AgentRuntime {
         RuntimeModelCallDimensions dimensions = new RuntimeModelCallDimensions(workerId, task.id().toString(),
                 teamId, toolId, quotaId, quotaDimension);
         return new RuntimeModelCallAdmissionRequest(provider, model, maxTokens, tenantId, projectId, dimensions);
+    }
+
+    /**
+     * Team deployments are overlays. Keep the immutable Worker startup values
+     * (especially the QwenPaw provider/model) when a team sends a sparse
+     * manifest such as {@code {}}.
+     */
+    private RuntimeConfigSnapshot mergeWithStartupConfiguration(RuntimeConfigSnapshot snapshot) {
+        if (context == null) {
+            throw new IllegalStateException("runtime has not started");
+        }
+        Map<String, String> values = new LinkedHashMap<>(context.configuration());
+        values.putAll(snapshot.values());
+        return new RuntimeConfigSnapshot(snapshot.version(), snapshot.checksum(), values,
+                snapshot.files(), snapshot.skillDirectories(), snapshot.mcpServers(), snapshot.skillCapabilities());
+    }
+
+    private static RuntimeConfigSnapshot startupConfiguration(Map<String, String> values) {
+        String canonical = values.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .collect(java.util.stream.Collectors.joining("\n"));
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return new RuntimeConfigSnapshot(1, HexFormat.of().formatHex(digest), values);
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 
     private void releaseAdmission(UUID taskId) {

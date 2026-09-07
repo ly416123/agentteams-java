@@ -141,6 +141,65 @@ class QwenPawHttpRuntimePortTest {
     }
 
     @Test
+    void capturesInputOutputTokenUsageFromQwenPawResponseSnapshot() throws Exception {
+        // L5 qwenpaw terminal events report input_tokens/output_tokens and
+        // carry the model name on the turn_usage event instead of the response.
+        server.createContext("/api/console/chat", exchange -> writeResponse(exchange, 200,
+                "text/event-stream",
+                "data: {\"object\":\"response\",\"status\":\"in_progress\"}\n\n"
+                        + "data: {\"type\":\"message\",\"role\":\"assistant\","
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"任务完成\"}],"
+                        + "\"usage\":{\"input_tokens\":12479,\"output_tokens\":14}}\n\n"
+                        + "data: {\"object\":\"response\",\"status\":\"completed\","
+                        + "\"output\":[{\"type\":\"message\",\"role\":\"assistant\","
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"任务完成\"}]}],"
+                        + "\"usage\":{\"input_tokens\":12479,\"output_tokens\":14}}\n\n"));
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<RuntimeResult> result = new AtomicReference<>();
+        RuntimeTask task = task();
+        port.start(context(), value -> {
+            result.set(value);
+            completed.countDown();
+        });
+        port.submit(task);
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(result.get().callUsage()).isEqualTo(
+                new RuntimeCallUsage("qwenpaw", "unknown", 0, 12479, 14));
+        port.stop();
+    }
+
+    @Test
+    void sendsThePromptMemberInsteadOfTheEnvelopeWhenPresent() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"status\":\"completed\",\"output\":\"ack\"}\n\n");
+        });
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<RuntimeResult> result = new AtomicReference<>();
+        RuntimeTask task = new RuntimeTask(UUID.randomUUID(), "chat",
+                "{\"prompt\":\"产出两个交付物\",\"tenant\":\"tenant-a\"}", Map.of());
+        port.start(context(), value -> {
+            result.set(value);
+            completed.countDown();
+        });
+        port.submit(task);
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        JsonNode request = MAPPER.readTree(requestBody.get());
+        assertThat(request.path("input").get(0).path("content").get(0).path("text").asText())
+                .isEqualTo("产出两个交付物");
+        port.stop();
+    }
+
+    @Test
     void appliesConfigurationThroughRuntimeEndpoint() throws Exception {
         server.createContext("/api/models/active", exchange -> {
             captureRequest(exchange);

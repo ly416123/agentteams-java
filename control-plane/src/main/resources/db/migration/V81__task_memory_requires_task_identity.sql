@@ -7,4 +7,5 @@ ALTER TABLE memories ADD CONSTRAINT memories_scope_owner_check CHECK (
     OR (scope = 'TASK' AND task_id IS NOT NULL AND (project_id IS NOT NULL OR team_id IS NOT NULL))
 );
 
-CREATE INDEX memories_task_scope_idx ON memories (organization_id, tenant_id, task_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS memories_task_scope_idx
+    ON memories (organization_id, tenant_id, task_id, updated_at DESC);
