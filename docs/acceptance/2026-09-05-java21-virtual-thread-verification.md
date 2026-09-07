@@ -63,7 +63,7 @@ Manager `/cancel` 接口。`--dry-run` 可在不访问服务的情况下检查�
 
 ### L5 环境检查（2026-09-06）
 
-- 节点 `192.168.1.16` 为 Linux/amd64，K3s 节点为 `Ready`，默认目标为 `multi-user.target`。
+- 节点 `192.168.125.55` 为 Linux/amd64，K3s 节点为 `Ready`，默认目标为 `multi-user.target`。
 - Manager 和 Worker Pod 均可用，但运行时版本为 Temurin 17.0.20；当前分支的 Java 21 镜像尚未部署。
 - Manager/Worker 未注入 `AGENTTEAMS_VIRTUAL_THREADS_ENABLED`，按代码默认值保持关闭。
 - QwenPaw `/api/console/chat` 可建立 HTTP 200 SSE 连接，但短测未收到终态事件；因此尚不能把该环境作为正式吞吐和尾延迟基线。

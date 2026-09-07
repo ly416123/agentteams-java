@@ -1,6 +1,6 @@
 # AgentTeams Java
 
-This directory contains the Java 17 Maven foundation for AgentTeams. The
+This directory contains the Java 21 Maven foundation for AgentTeams. The
 existing Go implementation is outside this project and is not modified by
 this build.
 
@@ -28,8 +28,8 @@ module additions do not silently make it stale.
 
 ## Build
 
-The parent POM configures the Maven compiler for Java 17 (`--release 17`) and
-UTF-8. A Java 17 JDK is required to build the project. Unit tests are enabled
+The parent POM configures the Maven compiler for Java 21 (`--release 21`) and
+UTF-8. A Java 21 JDK is required to build the project. Unit tests are enabled
 by default:
 
 ```text
@@ -80,7 +80,7 @@ OIDC/生产凭据限制记录在[管理端阶段验证报告](docs/acceptance/20
 
 公共契约位于 [`openapi/agentteams-public.yaml`](openapi/agentteams-public.yaml)，当前冻结
 Project/Task 核心接口、游标分页、Bearer 鉴权、`Idempotency-Key` 和统一错误结构。
-Java 17 与 TypeScript 客户端分别位于 [`sdk/java`](sdk/java) 和
+Java 21 与 TypeScript 客户端分别位于 [`sdk/java`](sdk/java) 和
 [`sdk/typescript`](sdk/typescript)；它们只访问公共 API，不暴露 Kubernetes、Matrix
 AppService 或其他内部接口。
 
@@ -245,7 +245,7 @@ Codex session, so that connector-specific result remains explicitly
 unverified rather than being inferred from the Playwright result.
 
 The independent Ubuntu/KVM L5 host is `ly-MacBookAir7-2` at
-`192.168.122.55`. It also passed the real L5 TaskSandbox acceptance: both
+`192.168.125.55`. It also passed the real L5 TaskSandbox acceptance: both
 `gvisor` and `kata-qemu` profiles reached `READY`,
 their generated Jobs/Pods used the expected RuntimeClass, guest and host
 kernels were observed, and cleanup completed with
@@ -421,7 +421,7 @@ trap 'kill "$PORT_FORWARD_PID" 2>/dev/null || true' EXIT
 until curl -fsS localhost:8080/actuator/health >/dev/null; do sleep 2; done
 AGENT_ID=$(curl -fsS -X POST http://localhost:8080/api/v1/agents \
   -H 'Idempotency-Key: smoke-agent-1' -H 'Content-Type: application/json' \
-  -d '{"name":"smoke-agent","runtime":"fake","capabilities":{"java":"17"}}' \
+  -d '{"name":"smoke-agent","runtime":"fake","capabilities":{"java":"21"}}' \
   | jq -r '.id')
 TASK_ID=$(curl -fsS -X POST http://localhost:8080/api/v1/tasks \
   -H 'Idempotency-Key: smoke-task-1' -H 'Content-Type: application/json' \

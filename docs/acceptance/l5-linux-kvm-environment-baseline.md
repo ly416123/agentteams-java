@@ -141,3 +141,15 @@ sudo -n /usr/local/bin/k3s crictl info
 - 每次验收结束还必须确认由验收创建的 Worker CR 已停用或删除；仅检查 Pod/Deployment
   不足以证明 Worker 已清理；
 - L6 外部供应商、生产 Secret Manager 和长期运行验收仍按项目约束保留至最终阶段。
+
+## 6. 无图形界面运行建议
+
+TaskSandbox 的 L5 验收脚本只依赖 `kubectl`、K3s/containerd、RuntimeClass、Operator、SSH、网络和日志，不需要桌面环境、显示管理器、窗口管理器或 X11/Wayland。因此，L5 主机可以按无图形界面服务器运行，以减少常驻内存和 CPU 消耗。
+
+需要保留的能力包括：
+
+- K3s server/agent、containerd、gVisor `runsc`、Kata/QEMU 和 `/dev/kvm`；
+- SSH、DNS、时间同步、网络访问、journald 和 Kubernetes 事件日志；
+- 运行验收所需的 `kubectl`、镜像导入工具和必要的诊断命令。
+
+Console 或 Playwright 验收属于另一类场景。它们需要浏览器，但可以使用 headless Chromium，不需要启动完整桌面。关闭图形界面本身只能减少基础开销，L5 主机的主要资源控制仍是限制 Worker 副本数、清理历史 Worker CR、设置合理的 Pod requests/limits，并在验收前检查可用内存和 Swap。

@@ -7,7 +7,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 VALUES = ROOT / "deploy/helm/l5-values.yaml"
-PUBLIC_ISSUER = "http://192.168.1.16:30082/realms/agentteams"
+PUBLIC_ISSUER = "http://192.168.122.55:30082/realms/agentteams"
 
 
 class L5ConsoleOidcContractTest(unittest.TestCase):

@@ -32,9 +32,9 @@ describe('OIDC authentication', () => {
   });
 
   it('disables PKCE only for the local HTTP LAN demo surface', () => {
-    expect(shouldDisablePkce({ protocol: 'http:', hostname: '192.168.1.16' })).toBe(true);
+    expect(shouldDisablePkce({ protocol: 'http:', hostname: '192.168.122.55' })).toBe(true);
     expect(shouldDisablePkce({ protocol: 'http:', hostname: 'localhost' })).toBe(false);
-    expect(shouldDisablePkce({ protocol: 'https:', hostname: '192.168.1.16' })).toBe(false);
+    expect(shouldDisablePkce({ protocol: 'https:', hostname: '192.168.122.55' })).toBe(false);
   });
 
   it('keeps the access token in provider memory after loading the current session', async () => {
