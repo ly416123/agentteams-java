@@ -60,13 +60,13 @@
       "directAccessGrantsEnabled": true,
       "standardFlowEnabled": true,
       "redirectUris": [
-        "http://192.168.1.16:30080/auth/callback",
+        "http://192.168.122.55:30080/auth/callback",
         "http://localhost:30080/auth/callback",
         "http://127.0.0.1:30080/auth/callback",
         "http://api.agentteams.localhost:30080/auth/callback"
       ],
       "webOrigins": [
-        "http://192.168.1.16:30080",
+        "http://192.168.122.55:30080",
         "http://localhost:30080",
         "http://127.0.0.1:30080",
         "http://api.agentteams.localhost:30080"
@@ -180,6 +180,7 @@
       ],
       "realmRoles": [
         "task:read", "task:create", "task:cancel", "task:retry", "task:pause", "task:approve", "task:reject",
+        "artifact:read", "artifact:write",
         "agent:read", "agent:write", "team:read", "team:write",
         "usage:read", "usage:export", "quota:write", "model:read", "model:write",
         "agent-spec:read", "agent-spec:write", "skill:read", "skill:write",

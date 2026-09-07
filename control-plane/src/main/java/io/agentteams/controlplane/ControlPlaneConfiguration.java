@@ -2,6 +2,7 @@ package io.agentteams.controlplane;
 
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.application.api.ConfigEventPort;
+import io.agentteams.application.api.TaskExecutionObservationPort;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.controlplane.application.ControlPlaneExecutionEventAdapter;
 import io.agentteams.controlplane.application.ControlPlaneTaskCommandAdapter;
@@ -699,9 +700,10 @@ public class ControlPlaneConfiguration {
 
     @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(ExecutionEventService.class)
-    ExecutionEventPort executionEventPort(ExecutionEventService executionEvents, DataSource dataSource) {
+    ExecutionEventPort executionEventPort(ExecutionEventService executionEvents, DataSource dataSource,
+            TaskExecutionObservationPort observations) {
         return new ControlPlaneExecutionEventAdapter(executionEvents,
-                new JdbcModelCallAuditRecorder(new org.springframework.jdbc.core.JdbcTemplate(dataSource)));
+                new JdbcModelCallAuditRecorder(new org.springframework.jdbc.core.JdbcTemplate(dataSource)), observations);
     }
 
     @Bean

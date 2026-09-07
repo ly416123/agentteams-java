@@ -13,3 +13,5 @@ data:
   AGENTTEAMS_AGENTSCOPE_AGENT_ALLOWLIST: {{ join "," .Values.agentRuntime.agentScope.agentAllowlist | quote }}
   AGENTTEAMS_AGENTSCOPE_TEAM_ALLOWLIST: {{ join "," .Values.agentRuntime.agentScope.teamAllowlist | quote }}
   AGENTTEAMS_AGENTSCOPE_TENANT_ALLOWLIST: {{ join "," .Values.agentRuntime.agentScope.tenantAllowlist | quote }}
+  AGENTTEAMS_ARTIFACT_UPLOAD_ENABLED: {{ .Values.agentRuntime.artifactUploadEnabled | quote }}
+  AGENTTEAMS_ARTIFACT_UPLOAD_TIMEOUT_SECONDS: "5"

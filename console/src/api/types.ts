@@ -190,6 +190,67 @@ export type TaskEvent = {
   createdAt?: string;
 };
 
+export type TaskProcessEvent = {
+  eventId: string;
+  taskId: string;
+  runId: string;
+  sequence: number;
+  eventType: string;
+  visibility: string;
+  occurredAt: string;
+  correlationId: string;
+  payload?: string | null;
+  payloadRef?: string | null;
+};
+
+export type TaskProgressSnapshot = {
+  phase: string;
+  completed: number;
+  total: number;
+  progress: number;
+  waitingReason?: string;
+};
+
+export type TaskTreeNode = {
+  taskId: string;
+  parentTaskId?: string | null;
+  sequence: number;
+  status: string;
+  dependencyIds: string[];
+  updatedAt: string;
+};
+
+export type TaskDecisionRecord = {
+  id: string;
+  taskId: string;
+  runId: string;
+  visibility: string;
+  goalSummary: string;
+  selectedAction: string;
+  evidenceSummary?: string;
+  constraintsSummary?: string;
+  confidence?: number | null;
+  createdAt: string;
+};
+
+export type TaskResultManifest = {
+  taskId: string;
+  runId: string;
+  status: string;
+  summary: string;
+  artifacts: Array<{
+    name: string;
+    storageRef: string;
+    contentType: string;
+    sizeBytes: number;
+    sha256: string;
+    version: number;
+    stage: string;
+    visibility: string;
+    downloadUrl?: string | null;
+  }>;
+};
+
 export type Worker = {
   id: string;
   name: string;

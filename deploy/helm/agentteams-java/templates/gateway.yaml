@@ -68,6 +68,14 @@ spec:
               value: {{ .Values.gateway.quota.internalToken | quote }}
             - name: AGENTTEAMS_GATEWAY_QUOTA_REQUEST_TIMEOUT
               value: {{ .Values.gateway.quota.requestTimeout | quote }}
+            - name: AGENTTEAMS_GATEWAY_ARTIFACT_ENABLED
+              value: {{ .Values.gateway.artifact.enabled | quote }}
+            - name: AGENTTEAMS_GATEWAY_ARTIFACT_CONTROL_PLANE_URL
+              value: {{ default (printf "http://%s-control-plane:%d" (include "agentteams-java.fullname" .) (int .Values.controlPlane.port)) .Values.gateway.artifact.controlPlaneUrl | quote }}
+            - name: AGENTTEAMS_GATEWAY_ARTIFACT_INTERNAL_TOKEN
+              value: {{ .Values.gateway.artifact.internalToken | quote }}
+            - name: AGENTTEAMS_GATEWAY_ARTIFACT_REQUEST_TIMEOUT
+              value: {{ .Values.gateway.artifact.requestTimeout | quote }}
             - name: AGENTTEAMS_GATEWAY_WORKER_OPERATIONS_REMOTE_ENABLED
               value: {{ .Values.gateway.workerOperations.remoteEnabled | quote }}
             - name: AGENTTEAMS_GATEWAY_WORKER_OPERATIONS_CONTROL_PLANE_URL

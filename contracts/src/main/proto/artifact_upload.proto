@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package io.agentteams.contracts.v1;
+
+option java_multiple_files = true;
+option java_package = "io.agentteams.contracts.v1";
+option java_outer_classname = "ArtifactUploadProto";
+
+import "agent_channel.proto";
+import "google/protobuf/timestamp.proto";
+
+// Direct-to-object-storage task artifact upload contract v1.
+//
+// The Control Plane issues short-lived presigned URLs so artifact bytes flow
+// from the Worker straight to object storage; the Gateway only proxies the two
+// small metadata calls and never carries artifact payloads.
+//
+// Schema evolution rules:
+// - Add fields only with new field numbers.
+// - Never reuse a removed field number or name; reserve both when a field is
+//   removed in a future revision.
+// - Enum zero values are deliberately unspecified and must remain stable.
+
+enum ArtifactProtocolError {
+  ARTIFACT_PROTOCOL_ERROR_UNSPECIFIED = 0;
+  ARTIFACT_PROTOCOL_ERROR_INVALID_ARGUMENT = 1;
+  ARTIFACT_PROTOCOL_ERROR_ATTEMPT_MISMATCH = 2;
+  ARTIFACT_PROTOCOL_ERROR_UPLOAD_NOT_FOUND = 3;
+  ARTIFACT_PROTOCOL_ERROR_VERIFICATION_FAILED = 4;
+  ARTIFACT_PROTOCOL_ERROR_DEADLINE_EXCEEDED = 5;
+  ARTIFACT_PROTOCOL_ERROR_INTERNAL = 6;
+}
+
+// Requests a presigned upload ticket for one task artifact. The attempt must
+// belong to the requesting agent; agent_id is echoed for that ownership check.
+message PrepareArtifactUploadRequest {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  string task_id = 3;
+  string attempt_id = 4;
+  string agent_id = 5;
+  string name = 6;
+  string content_type = 7;
+  uint64 size_bytes = 8;
+  google.protobuf.Timestamp deadline = 9;
+}
+
+message PrepareArtifactUploadResponse {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  bool accepted = 3;
+  string storage_key = 4;
+  string upload_url = 5;
+  string download_url = 6;
+  ArtifactProtocolError protocol_error = 7;
+}
+
+// Confirms a completed upload. The Control Plane re-reads the stored object,
+// recomputes its checksum and only then exposes the artifact metadata.
+message CompleteArtifactUploadRequest {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  string task_id = 3;
+  string attempt_id = 4;
+  string agent_id = 5;
+  string name = 6;
+  string storage_key = 7;
+  string content_type = 8;
+  uint64 size_bytes = 9;
+  string sha256 = 10;
+  google.protobuf.Timestamp deadline = 11;
+}
+
+message CompleteArtifactUploadResponse {
+  EventMetadata metadata = 1;
+  ProtocolVersion protocol_version = 2;
+  bool accepted = 3;
+  string artifact_id = 4;
+  string storage_key = 5;
+  ArtifactProtocolError protocol_error = 6;
+}
+
+// The transport is deliberately a separate service from AgentChannel. Artifact
+// upload calls are short request/response operations and must not consume the
+// bidirectional worker event stream or its delivery ordering.
+service TaskArtifactService {
+  rpc PrepareTaskArtifactUpload(PrepareArtifactUploadRequest) returns (PrepareArtifactUploadResponse);
+  rpc CompleteTaskArtifactUpload(CompleteArtifactUploadRequest) returns (CompleteArtifactUploadResponse);
+}

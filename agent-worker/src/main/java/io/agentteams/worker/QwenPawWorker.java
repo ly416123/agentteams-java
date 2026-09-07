@@ -27,8 +27,10 @@ import io.agentteams.runtime.QwenPawHttpRuntimeConfiguration;
 import io.agentteams.runtime.QwenPawHttpRuntimePort;
 import io.agentteams.runtime.ProjectScopedRuntimeModelCallAdmission;
 import io.agentteams.runtime.GrpcRuntimeQuotaPort;
+import io.agentteams.runtime.GrpcRuntimeArtifactUploadPort;
 import io.agentteams.runtime.RuntimeModelCallAdmission;
 import io.agentteams.runtime.RuntimeQuotaPort;
+import io.agentteams.runtime.RuntimeArtifactUploadPort;
 import io.agentteams.runtime.RuntimeResult;
 import io.agentteams.runtime.RuntimeResultSink;
 import io.agentteams.runtime.RuntimeSubmission;
@@ -133,7 +135,8 @@ public final class QwenPawWorker implements AutoCloseable {
                 new SkillArtifactFetcher(configuration.configFetchTimeout(), configuration.maxArtifactBytes()),
                 configuration.maxArtifactBytes());
         this.configDirectory = configuration.configDirectory();
-        this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock);
+        this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock,
+                artifactUploadPort(configuration, gatewayChannel, clock));
         RuntimeResultSink resultSink = this::onRuntimeResult;
         this.hello = hello(configuration, clock);
         runtime.start(new AgentRuntimeContext("qwenpaw", configuration.maxConcurrentTasks(), clock,
@@ -164,6 +167,13 @@ public final class QwenPawWorker implements AutoCloseable {
         if (!configuration.quotaRemoteEnabled()) return null;
         return new GrpcRuntimeQuotaPort(channel, configuration.agentId(), clock,
                 configuration.quotaTimeout(), () -> "");
+    }
+
+    static RuntimeArtifactUploadPort artifactUploadPort(WorkerConfiguration configuration,
+            ManagedChannel channel, Clock clock) {
+        if (!configuration.artifactUploadEnabled()) return null;
+        return new GrpcRuntimeArtifactUploadPort(channel, configuration.agentId(), clock,
+                configuration.artifactUploadTimeout(), () -> "");
     }
 
     private static ManagedChannel gatewayChannel(WorkerConfiguration configuration,
@@ -680,6 +690,8 @@ public final class QwenPawWorker implements AutoCloseable {
             String projectId,
             boolean quotaRemoteEnabled,
             Duration quotaTimeout,
+            boolean artifactUploadEnabled,
+            Duration artifactUploadTimeout,
             Duration qwenPawConnectTimeout,
             Duration reconnectDelay,
             String runtimeVersion,
@@ -705,6 +717,7 @@ public final class QwenPawWorker implements AutoCloseable {
             String tenantId = scopedValue(environment, "AGENTTEAMS_SCOPE_TENANT", "AGENTTEAMS_TENANT_ID");
             String projectId = scopedValue(environment, "AGENTTEAMS_SCOPE_PROJECT", "AGENTTEAMS_PROJECT_ID");
             boolean quotaRemoteEnabled = booleanValue(environment, "AGENTTEAMS_QUOTA_REMOTE_ENABLED", false);
+            boolean artifactUploadEnabled = booleanValue(environment, "AGENTTEAMS_ARTIFACT_UPLOAD_ENABLED", false);
             if ((tenantId == null) != (projectId == null)) {
                 throw new IllegalArgumentException("tenant and project scope must be supplied together");
             }
@@ -739,6 +752,8 @@ public final class QwenPawWorker implements AutoCloseable {
                     projectId,
                     quotaRemoteEnabled,
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_QUOTA_TIMEOUT_SECONDS", 3)),
+                    artifactUploadEnabled,
+                    Duration.ofSeconds(integer(environment, "AGENTTEAMS_ARTIFACT_UPLOAD_TIMEOUT_SECONDS", 5)),
                     Duration.ofSeconds(integer(environment, "QWENPAW_CONNECT_TIMEOUT_SECONDS", 10)),
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_RECONNECT_DELAY_SECONDS", 2)),
                     value(environment, "AGENTTEAMS_RUNTIME_VERSION", "0.1.0"),

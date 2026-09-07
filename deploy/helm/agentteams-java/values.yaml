@@ -182,6 +182,14 @@ gateway:
     controlPlaneUrl: ""
     internalToken: ""
     requestTimeout: 3s
+  artifact:
+    # The Gateway exposes the gRPC artifact upload contract only when this
+    # bridge is enabled. Artifact bytes flow from the Worker straight to
+    # object storage through Control Plane presigned URLs.
+    enabled: false
+    controlPlaneUrl: ""
+    internalToken: ""
+    requestTimeout: 5s
   workerOperations:
     # Gateway reports its live Worker Hello facts to the Control Plane only
     # when this explicitly configured bridge is enabled.
@@ -225,6 +233,10 @@ agentRuntime:
   # Workers consume the rendered runtime ConfigMap. Keep the safe QwenPaw path
   # as the default until an AgentScope-capable worker advertises its capability.
   default: QWENPAW
+  # Workers upload artifacts straight to object storage through Gateway-brokered
+  # presigned URLs when the worker image supports it; upload failures degrade to
+  # the in-process memory:// artifact reference.
+  artifactUploadEnabled: false
   agentScope:
     enabled: false
     rolloutPercentage: 0

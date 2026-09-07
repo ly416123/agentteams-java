@@ -19,29 +19,38 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
     private final GrpcTlsProperties tlsProperties;
     private final GrpcServerTracingInterceptor tracingInterceptor;
     private final QuotaServiceHandler quotaService;
+    private final ArtifactUploadHandler artifactUploadService;
     private volatile Server server;
 
     public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
             AgentChannelService channelService) {
         this(configuredPort, shutdownTimeout, channelService, new GrpcTlsProperties(),
-                new GrpcServerTracingInterceptor(null, null), null);
+                new GrpcServerTracingInterceptor(null, null), null, null);
     }
 
     public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
             AgentChannelService channelService, GrpcTlsProperties tlsProperties) {
         this(configuredPort, shutdownTimeout, channelService, tlsProperties,
-                new GrpcServerTracingInterceptor(null, null), null);
+                new GrpcServerTracingInterceptor(null, null), null, null);
     }
 
     public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
             AgentChannelService channelService, GrpcTlsProperties tlsProperties,
             GrpcServerTracingInterceptor tracingInterceptor) {
-        this(configuredPort, shutdownTimeout, channelService, tlsProperties, tracingInterceptor, null);
+        this(configuredPort, shutdownTimeout, channelService, tlsProperties, tracingInterceptor, null, null);
     }
 
     public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
             AgentChannelService channelService, GrpcTlsProperties tlsProperties,
             GrpcServerTracingInterceptor tracingInterceptor, QuotaServiceHandler quotaService) {
+        this(configuredPort, shutdownTimeout, channelService, tlsProperties, tracingInterceptor,
+                quotaService, null);
+    }
+
+    public AgentGatewayGrpcServer(int configuredPort, Duration shutdownTimeout,
+            AgentChannelService channelService, GrpcTlsProperties tlsProperties,
+            GrpcServerTracingInterceptor tracingInterceptor, QuotaServiceHandler quotaService,
+            ArtifactUploadHandler artifactUploadService) {
         if (configuredPort < 0 || configuredPort > 65_535) {
             throw new IllegalArgumentException("gRPC port must be between 0 and 65535");
         }
@@ -54,6 +63,7 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
         this.tlsProperties = Objects.requireNonNull(tlsProperties, "tlsProperties");
         this.tracingInterceptor = Objects.requireNonNull(tracingInterceptor, "tracingInterceptor");
         this.quotaService = quotaService;
+        this.artifactUploadService = artifactUploadService;
     }
 
     public synchronized void start() throws IOException {
@@ -67,6 +77,9 @@ public final class AgentGatewayGrpcServer implements AutoCloseable {
                 .addService(channelService);
         if (quotaService != null) {
             builder.addService(quotaService);
+        }
+        if (artifactUploadService != null) {
+            builder.addService(artifactUploadService);
         }
         if (tlsProperties.isEnabled()) {
             SslContext sslContext = GrpcSslContexts.forServer(

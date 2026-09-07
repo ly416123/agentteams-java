@@ -1,12 +1,20 @@
-# L5 LAN overlay. Apply this file after kind-values.yaml when the browser
-# reaches the cluster through the L5 host NodePorts.
+# L5 LAN overlay. Apply this file after kind-values.yaml and
+# kind-oidc-values.yaml when the cluster runs on the L5 k3s host.
 #
 # Keep the issuer browser-reachable while keeping JWKS retrieval on the
 # in-cluster Keycloak Service. Do not reuse the Kind-only 127.0.0.1:18082
 # issuer on L5: that address belongs to the browser host's local port-forward.
+
+# Pin the images deployed on L5 (imported via k3s ctr, imagePullPolicy
+# IfNotPresent). Without these pins a Helm upgrade would roll workloads back
+# to the ghcr.io :latest tags, which do not exist on the L5 host.
+images:
+  controlPlane: ghcr.io/ly416123/agentteams-control-plane:l5-artifact-upload-20260907-v1
+  gateway: ghcr.io/ly416123/agentteams-agent-gateway:l5-artifact-upload-20260907-v1
 console:
+  image: ghcr.io/ly416123/agentteams-console:l5-artifact-upload-20260907-v1
   config:
-    oidcIssuer: http://192.168.1.16:30082/realms/agentteams
+    oidcIssuer: http://192.168.122.55:30082/realms/agentteams
     oidcClientId: agentteams-api
 
 controlPlane:
@@ -14,17 +22,34 @@ controlPlane:
     apiEnabled: true
     oidc:
       enabled: true
-      issuerUri: http://192.168.1.16:30082/realms/agentteams
+      issuerUri: http://192.168.122.55:30082/realms/agentteams
       jwkSetUri: http://keycloak:8080/realms/agentteams/protocol/openid-connect/certs
       audience: agentteams-api
       tenantClaim: tenant
       projectClaim: project
       teamClaim: team
       permissionsClaim: permissions
+  workerProvisioner:
+    # Dynamic workers are provisioned with this image; keep it in sync with
+    # the pinned control-plane/gateway tag above.
+    image: ghcr.io/ly416123/agentteams-agent-worker:l5-artifact-upload-20260907-v1
 
 manager:
   security:
     enabled: true
-    issuerUri: http://192.168.1.16:30082/realms/agentteams
+    issuerUri: http://192.168.122.55:30082/realms/agentteams
     jwkSetUri: http://keycloak:8080/realms/agentteams/protocol/openid-connect/certs
     audience: agentteams-api
+
+# Artifact direct upload: MinIO presigned URLs must point at the L5 host
+# NodePort (kind-values pins the Kind-only 127.0.0.1:19000 port-forward),
+# the gateway bridge must be enabled, and workers must opt in via the
+# chart-managed agent-runtime configmap.
+storage:
+  presignEndpoint: http://192.168.122.55:30090
+gateway:
+  artifact:
+    enabled: true
+    internalToken: kind-quota-internal
+agentRuntime:
+  artifactUploadEnabled: true

@@ -56,7 +56,8 @@ class TaskProcessControllerTest {
         when(results.get(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER)))
                 .thenReturn(java.util.Optional.of(new TaskResultManifest(TASK_ID, RUN_ID, "SUCCEEDED", "done", List.of())));
 
-        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, resolver)).build();
+        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, resolver,
+                noArtifactService())).build();
 
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/process-events", TASK_ID, RUN_ID))
                 .andExpect(status().isOk());
@@ -78,7 +79,8 @@ class TaskProcessControllerTest {
         when(events.replay(CONTEXT, TASK_ID, RUN_ID, 3, Set.of(TaskEventVisibility.REQUESTER), 100))
                 .thenReturn(List.of(event()));
 
-        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, resolver)).build();
+        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, resolver,
+                noArtifactService())).build();
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/process-events/stream", TASK_ID, RUN_ID)
                         .header("Last-Event-ID", "3"))
                 .andExpect(status().isOk())
@@ -101,7 +103,8 @@ class TaskProcessControllerTest {
                 Instant.parse("2026-08-31T00:00:00Z"))));
         when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
 
-        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, tree, decisions, resolver)).build();
+        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, tree, decisions,
+                resolver, noArtifactService())).build();
 
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/tree", TASK_ID, RUN_ID)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/decisions", TASK_ID, RUN_ID)).andExpect(status().isOk());
@@ -110,5 +113,20 @@ class TaskProcessControllerTest {
     private static TaskProcessEvent event() {
         return new TaskProcessEvent(UUID.randomUUID(), TASK_ID, RUN_ID, 1, "PROGRESS",
                 TaskEventVisibility.REQUESTER, Instant.parse("2026-08-31T00:00:00Z"), "corr-1", "{\"progress\":100}", null);
+    }
+
+    private static org.springframework.beans.factory.ObjectProvider<io.agentteams.controlplane.artifact.ArtifactService>
+            noArtifactService() {
+        return new org.springframework.beans.factory.ObjectProvider<>() {
+            @Override
+            public io.agentteams.controlplane.artifact.ArtifactService getObject() {
+                throw new java.util.NoSuchElementException();
+            }
+
+            @Override
+            public io.agentteams.controlplane.artifact.ArtifactService getIfAvailable() {
+                return null;
+            }
+        };
     }
 }

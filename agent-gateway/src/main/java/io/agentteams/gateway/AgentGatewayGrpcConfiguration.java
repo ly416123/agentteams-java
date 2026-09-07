@@ -39,7 +39,7 @@ import io.opentelemetry.context.propagation.TextMapPropagator;
 /** Default process wiring; production deployments can replace each port adapter with a durable bean. */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({GrpcServerProperties.class, GrpcTlsProperties.class, NatsGatewayProperties.class,
-        GatewayQuotaProperties.class, GatewayOperationProperties.class})
+        GatewayQuotaProperties.class, GatewayArtifactUploadProperties.class, GatewayOperationProperties.class})
 public class AgentGatewayGrpcConfiguration {
 
     @Bean
@@ -59,6 +59,23 @@ public class AgentGatewayGrpcConfiguration {
         return new ControlPlaneQuotaReservationClient(HttpClient.newBuilder()
                 .connectTimeout(properties.getRequestTimeout())
                 .build(), objectMapper, properties);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agentteams.gateway.artifact.enabled", havingValue = "true")
+    @ConditionalOnMissingBean(ControlPlaneArtifactUploadClient.class)
+    public ControlPlaneArtifactUploadClient controlPlaneArtifactUploadClient(
+            GatewayArtifactUploadProperties properties, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new ControlPlaneArtifactUploadClient(HttpClient.newBuilder()
+                .connectTimeout(properties.getRequestTimeout())
+                .build(), objectMapper, properties);
+    }
+
+    @Bean
+    @ConditionalOnBean(ControlPlaneArtifactUploadClient.class)
+    @ConditionalOnMissingBean(ArtifactUploadHandler.class)
+    public ArtifactUploadHandler artifactUploadHandler(ControlPlaneArtifactUploadClient client) {
+        return new ArtifactUploadHandler(client);
     }
 
     @Bean
@@ -243,11 +260,12 @@ public class AgentGatewayGrpcConfiguration {
     @Bean(initMethod = "start", destroyMethod = "stop")
     public AgentGatewayGrpcServer agentGatewayGrpcServer(GrpcServerProperties properties,
             GrpcTlsProperties tlsProperties, AgentChannelService channelService, ObjectProvider<Tracer> tracers,
-            ObjectProvider<Propagator> propagators, ObjectProvider<QuotaServiceHandler> quotaService) {
+            ObjectProvider<Propagator> propagators, ObjectProvider<QuotaServiceHandler> quotaService,
+            ObjectProvider<ArtifactUploadHandler> artifactUploadService) {
         return new AgentGatewayGrpcServer(properties.getPort(), properties.getShutdownTimeout(), channelService,
                 tlsProperties, new GrpcServerTracingInterceptor(
                         tracers.getIfAvailable(() -> Tracer.NOOP), tracingPropagator(propagators)),
-                quotaService.getIfAvailable());
+                quotaService.getIfAvailable(), artifactUploadService.getIfAvailable());
     }
 
     @Bean

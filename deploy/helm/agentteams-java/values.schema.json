@@ -445,6 +445,16 @@
             "internalToken": { "type": "string" },
             "requestTimeout": { "type": "string", "minLength": 1 }
           }
+        },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "controlPlaneUrl": { "type": "string" },
+            "internalToken": { "type": "string" },
+            "requestTimeout": { "type": "string", "minLength": 1 }
+          }
         }
       }
     },
@@ -480,6 +490,7 @@
       "additionalProperties": false,
       "properties": {
         "default": { "type": "string", "enum": ["QWENPAW", "AGENTSCOPE"] },
+        "artifactUploadEnabled": { "type": "boolean" },
         "agentScope": {
           "type": "object",
           "additionalProperties": false,

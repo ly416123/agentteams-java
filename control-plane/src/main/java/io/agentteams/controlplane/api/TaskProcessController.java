@@ -4,6 +4,7 @@ import io.agentteams.application.api.TaskEventVisibility;
 import io.agentteams.application.api.TaskProgressSnapshot;
 import io.agentteams.application.api.TaskProcessEvent;
 import io.agentteams.application.api.TaskResultManifest;
+import io.agentteams.controlplane.artifact.ArtifactService;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.security.ExecutionContextResolver;
@@ -16,6 +17,7 @@ import io.agentteams.controlplane.task.TaskDecisionRecord;
 import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
+import java.time.Duration;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,6 +26,7 @@ import java.util.Set;
 import java.util.UUID;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,28 +47,32 @@ public final class TaskProcessController {
     private final TaskTreeService tree;
     private final TaskDecisionRecordService decisions;
     private final ExecutionContextResolver contextResolver;
+    private final ObjectProvider<ArtifactService> artifactService;
 
     @Autowired
     public TaskProcessController(TaskProcessEventService events, TaskProgressService progress,
             TaskResultManifestService results, TaskTreeService tree, TaskDecisionRecordService decisions,
-            ExecutionContextResolver contextResolver) {
+            ExecutionContextResolver contextResolver, ObjectProvider<ArtifactService> artifactService) {
         this.events = Objects.requireNonNull(events, "events");
         this.progress = Objects.requireNonNull(progress, "progress");
         this.results = Objects.requireNonNull(results, "results");
         this.tree = Objects.requireNonNull(tree, "tree");
         this.decisions = Objects.requireNonNull(decisions, "decisions");
         this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver");
+        this.artifactService = Objects.requireNonNull(artifactService, "artifactService");
     }
 
     /** Compatibility constructor for callers that only consume the original three read projections. */
     public TaskProcessController(TaskProcessEventService events, TaskProgressService progress,
-            TaskResultManifestService results, ExecutionContextResolver contextResolver) {
+            TaskResultManifestService results, ExecutionContextResolver contextResolver,
+            ObjectProvider<ArtifactService> artifactService) {
         this.events = Objects.requireNonNull(events, "events");
         this.progress = Objects.requireNonNull(progress, "progress");
         this.results = Objects.requireNonNull(results, "results");
         this.tree = null;
         this.decisions = null;
         this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver");
+        this.artifactService = Objects.requireNonNull(artifactService, "artifactService");
     }
 
     @GetMapping("/{taskId}/runs/{runId}/process-events")
@@ -99,11 +106,40 @@ public final class TaskProcessController {
     }
 
     @GetMapping("/{taskId}/runs/{runId}/result")
-    public TaskResultManifest result(@PathVariable UUID taskId, @PathVariable UUID runId,
+    public TaskResultResponse result(@PathVariable UUID taskId, @PathVariable UUID runId,
             @RequestParam(defaultValue = "REQUESTER") String visibility) {
         TaskEventVisibility requested = visibleLevel(visibility);
-        return results.get(context(), taskId, runId, Set.of(requested))
+        TaskResultManifest manifest = results.get(context(), taskId, runId, Set.of(requested))
                 .orElseThrow(() -> new ResourceNotFoundException("task result", runId));
+        return new TaskResultResponse(manifest.taskId().toString(), manifest.runId().toString(),
+                manifest.status(), manifest.summary(), manifest.artifacts().stream()
+                        .map(artifact -> new ResultArtifact(artifact.name(),
+                                artifact.storageRef(), artifact.contentType(), artifact.sizeBytes(), artifact.sha256(),
+                                artifact.version(), artifact.stage(), artifact.visibility().name(),
+                                downloadUrlFor(artifact)))
+                        .toList());
+    }
+
+    /** Presigns a short-lived download for durable references; memory-only artifacts have none. */
+    private String downloadUrlFor(TaskResultManifest.ArtifactMetadata artifact) {
+        ArtifactService artifacts = artifactService.getIfAvailable();
+        if (artifacts == null || artifact.storageRef() == null || !artifact.storageRef().startsWith("tasks/")) {
+            return null;
+        }
+        try {
+            return artifacts.prepareDownload(artifact.storageRef(), Duration.ofMinutes(15)).toString();
+        } catch (RuntimeException error) {
+            return null;
+        }
+    }
+
+    /** Result response with per-artifact presigned download links where storage backs them. */
+    public record TaskResultResponse(String taskId, String runId, String status, String summary,
+            List<ResultArtifact> artifacts) {
+    }
+
+    public record ResultArtifact(String name, String storageRef, String contentType, long sizeBytes,
+            String sha256, long version, String stage, String visibility, String downloadUrl) {
     }
 
     @GetMapping("/{taskId}/runs/{runId}/tree")

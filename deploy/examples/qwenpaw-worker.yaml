@@ -29,6 +29,11 @@ spec:
     AGENTTEAMS_QUOTA_TIMEOUT_SECONDS: "3"
     AGENTTEAMS_SCOPE_TENANT: ""
     AGENTTEAMS_SCOPE_PROJECT: ""
+    # Artifact direct upload is opt-in. When enabled together with Control Plane
+    # object storage, artifacts land as MinIO objects and downloads use presigned
+    # URLs; upload failures degrade back to the memory:// reference.
+    AGENTTEAMS_ARTIFACT_UPLOAD_ENABLED: "false"
+    AGENTTEAMS_ARTIFACT_UPLOAD_TIMEOUT_SECONDS: "5"
     # Worker tracing is disabled by default. Set the endpoint to the same
     # OTLP/HTTP collector used by Control Plane and Gateway to enable it.
     AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: "false"
