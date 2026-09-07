@@ -89,6 +89,9 @@ def helper_exec(namespace: str, pod_name: str, statement: str) -> str:
 
 
 def reference_rows(namespace: str, postgres_pod: str) -> list[dict]:
+    # storage_key values starting with memory:// are the runtime's designed
+    # in-process fallback when Worker artifact upload is unavailable or fails;
+    # they intentionally have no MinIO object and carry no storage obligation.
     rows = sql(namespace, postgres_pod, """
         select coalesce(json_agg(ref_json order by kind, reference_id), '[]'::json)
           from (
@@ -98,6 +101,7 @@ def reference_rows(namespace: str, postgres_pod: str) -> list[dict]:
                                      'size_bytes', size_bytes,
                                      'checksum', sha256) as ref_json
               from artifacts
+             where storage_key is not null and storage_key not like 'memory://%'
             union all
             select 'config_file' as kind, id::text as reference_id,
                    json_build_object('kind', 'config_file', 'id', id::text,
@@ -105,6 +109,7 @@ def reference_rows(namespace: str, postgres_pod: str) -> list[dict]:
                                      'size_bytes', size_bytes,
                                      'checksum', checksum) as ref_json
               from config_files
+             where storage_key is not null and storage_key not like 'memory://%'
             union all
             select 'config_upload' as kind, id::text as reference_id,
                    json_build_object('kind', 'config_upload', 'id', id::text,
@@ -113,6 +118,7 @@ def reference_rows(namespace: str, postgres_pod: str) -> list[dict]:
                                      'checksum', expected_checksum) as ref_json
               from config_uploads
              where status = 'COMPLETED'
+               and storage_key is not null and storage_key not like 'memory://%'
           ) ref_rows;
     """)
     parsed = json.loads(rows or "[]")
