@@ -119,6 +119,19 @@ message TaskProgress {
   string message = 4;
 }
 
+// Worker-reported, best-effort action stream entry (e.g. tool calls). It never
+// carries prompts, chain-of-thought, or task state transitions, and must not
+// be retried by transport machinery: dedup happens on metadata.event_id at the
+// Control Plane.
+message TaskEventReport {
+  EventMetadata metadata = 1;
+  // Worker-local per-task ordering hint. The Control Plane assigns its own
+  // storage sequence and uses it as the SSE cursor.
+  uint32 sequence = 2;
+  string event_type = 3;
+  bytes payload = 4;
+}
+
 message TaskHeartbeat {
   EventMetadata metadata = 1;
   string status = 2;
@@ -246,6 +259,7 @@ message AgentMessage {
     Ack ack = 8;
     Error error = 9;
     AgentHeartbeat agent_heartbeat = 10;
+    TaskEventReport task_event_report = 11;
   }
 }
 
