@@ -6,7 +6,7 @@
 
 1. **创建过程**：任务由哪个会话的哪条消息创建（来源回链）
 2. **分配过程**：排队 → 调度器分配给 worker → worker 确认接收 → 开始执行的语义化时间线
-3. **执行过程**：AI 执行期间的结构化动作流水（工具调用、产出物），SSE 实时推送
+3. **执行过程**：AI 执行期间的结构化动作流水（工具调用等），SSE 实时推送；产出物仍由既有结果清单区块承担，不新增产出物事件
 
 ## 已确认决策
 
@@ -49,7 +49,7 @@ QwenPaw pod (SSE 中间事件)
 | QwenPaw SSE 事件 | 上报 eventType | payload 示例 |
 |---|---|---|
 | `tool.started` | `tool.called` | `{"tool":"web_search"}` |
-| `plugin_call_output` | `tool.finished` | `{"tool":"web_search","elapsedMs":2300,"ok":true}` |
+| `plugin_call_output` | `tool.finished`（runtime 按 tool 名配对计时得 elapsedMs，未配对的 started 单独成事件） | `{"tool":"web_search","elapsedMs":2300,"ok":true}` |
 | reasoning / message.delta | 丢弃（安全边界） | — |
 | message.completed（object=message） | 不单独上报（终态路径已有） | — |
 
@@ -64,6 +64,7 @@ QwenPaw pod (SSE 中间事件)
 5. **control-plane**：`NatsExecutionEventConsumer` 新增 TASK_EVENT 分支；`ControlPlaneTaskExecutionObservationAdapter.observed(taskId, runId, eventType, payload, at)` 二次校验白名单与 4KB 上限后经 `TaskProcessEventService.append` 落库（visibility=REQUESTER）。
 6. **来源关联**：MCP `create_task` 新增可选 `source: {conversationId, messageId}` 参数，存入 `inputJson.source`；任务详情 API 已返回 inputJson，无需新端点。MCP server 侧若可从注入上下文读到会话则自动补全，读不到则字段为空。
 7. **console**：`TaskDetailPage` 重排为 CSS grid 主列 + 右栏 320px；新组件 `TaskInfoPanel`（DAG 缩略图 + 事件/成果物/决策/详情标签 + 键值详情 + 来源会话回链）与 `TaskDag`（一期纯 div/SVG 层级渲染投影树，无图库依赖）；时间线增加 actor 映射与 `tool.finished` 耗时徽标。回链跳转 `/conversations/{id}`；source 缺失时不渲染回链区块。
+8. **时间线双流合并**：详情页时间线由前端合并两条既有事件流——任务生命周期流（streamTaskEvents：创建/排队/分配/接收等调度语义）与过程事件流（process-events SSE：动作事件）——按 occurredAt 归并排序后渲染；两流均已有断点续传与重连，合并不引入新后端端点。
 
 ### sequence 双轨制与幂等
 
