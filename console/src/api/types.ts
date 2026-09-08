@@ -120,6 +120,7 @@ export type Task = {
   creator?: string;
   summary?: string;
   taskType?: string;
+  source?: { conversationId?: string; messageId?: string } | null;
 };
 
 export const TASK_PHASES = [

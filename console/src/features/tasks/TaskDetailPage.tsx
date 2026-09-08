@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/httpClient';
 import {
@@ -6,6 +6,7 @@ import {
   useTaskAction,
   useTaskEvents,
   useTaskExecution,
+  useTaskProcessEvents,
   useTaskRuns,
   useTaskCheckpoints,
   useTaskRecovery,
@@ -17,6 +18,7 @@ import { VersionConflictModal } from '../../components/VersionConflictModal';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { labelSource, labelStatus, labelType } from '../../i18n/labels';
 import { TaskExecutionObservability } from './TaskExecutionObservability';
+import { TaskInfoPanel, mergeTaskTimelines } from './TaskInfoPanel';
 
 type TaskActionName = 'queue' | 'cancel' | 'retry' | 'pause' | 'approve' | 'reject';
 const actionLabels: Record<TaskActionName, string> = {
@@ -44,6 +46,22 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const recovery = useTaskRecovery(projectId, taskId);
   const action = useTaskAction(projectId, taskId);
   const [searchParams] = useSearchParams();
+  const runId = searchParams.get('runId') || runs.data?.[0]?.id || '';
+  const processEvents = useTaskProcessEvents(projectId, taskId, runId);
+  const timelineItems = useMemo(
+    () =>
+      mergeTaskTimelines(
+        (events.data || []).map((event) => ({
+          id: event.id,
+          title: labelType(event.type),
+          description: event.message,
+          time: event.createdAt,
+          tone: event.phase?.toLowerCase(),
+        })),
+        processEvents.data || [],
+      ),
+    [events.data, processEvents.data],
+  );
   const [conflict, setConflict] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [conflictAction, setConflictAction] = useState<TaskActionName | null>(null);
@@ -138,56 +156,41 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
       {Boolean(conflictRefreshError) && (
         <ErrorState error={conflictRefreshError} onRetry={() => void retryLatestAction()} />
       )}
-      <div className="content-grid">
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">生命周期</p>
-              <h2>状态时间线</h2>
+      <div className="detail-layout">
+        <div className="detail-layout__main">
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">生命周期</p>
+                <h2>状态时间线</h2>
+              </div>
             </div>
-          </div>
-          {events.connectionState === 'reconnecting' && (
-            <div className="info-box" role="status">
-              事件流已断开，正在重连
-              <button className="button button--ghost" onClick={() => void events.refetch()}>
-                手动重连
-              </button>
-            </div>
-          )}
-          {events.isError && events.connectionState !== 'reconnecting' && (
-            <ErrorState error={events.error} onRetry={() => void events.refetch()} />
-          )}
-          <Timeline
-            items={(events.data || []).map((event) => ({
-              id: event.id,
-              title: labelType(event.type),
-              description: event.message,
-              time: event.createdAt,
-              tone: event.phase?.toLowerCase(),
-            }))}
+            {events.connectionState === 'reconnecting' && (
+              <div className="info-box" role="status">
+                事件流已断开，正在重连
+                <button className="button button--ghost" onClick={() => void events.refetch()}>
+                  手动重连
+                </button>
+              </div>
+            )}
+            {events.isError && events.connectionState !== 'reconnecting' && (
+              <ErrorState error={events.error} onRetry={() => void events.refetch()} />
+            )}
+            {processEvents.connectionState === 'reconnecting' && (
+              <div className="info-box" role="status">过程事件流已断开，正在重连</div>
+            )}
+            <Timeline items={timelineItems} />
+          </section>
+        </div>
+        <aside className="detail-layout__aside">
+          <TaskInfoPanel
+            projectId={projectId}
+            taskId={taskId}
+            runId={runId}
+            task={task.data}
+            processEvents={processEvents.data || []}
           />
-        </section>
-        <section className="panel">
-          <p className="eyebrow">执行上下文</p>
-          <h2>执行信息</h2>
-          <div className="detail-list">
-            <span>
-              团队<strong>{task.data.teamId || '未绑定'}</strong>
-            </span>
-            <span>
-              工作节点<strong>{task.data.workerId || '待分配'}</strong>
-            </span>
-            <span>
-              优先级<strong>P{task.data.priority}</strong>
-            </span>
-            <span>
-              任务类型<strong>{task.data.taskType || 'NORMAL'}</strong>
-            </span>
-            <span>
-              创建时间<strong>{new Date(task.data.createdAt).toLocaleString('zh-CN')}</strong>
-            </span>
-          </div>
-        </section>
+        </aside>
       </div>
       <section className="panel">
         <div className="section-heading">
@@ -237,7 +240,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
       <TaskExecutionObservability
         projectId={projectId}
         taskId={taskId}
-        runId={searchParams.get('runId') || runs.data?.[0]?.id || ''}
+        runId={runId}
       />
       <section className="panel">
         <div className="section-heading">
