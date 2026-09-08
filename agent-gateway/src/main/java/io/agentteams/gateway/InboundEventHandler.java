@@ -78,6 +78,7 @@ public final class InboundEventHandler {
             case TASK_HEARTBEAT -> application.taskHeartbeat(snapshot, message.getTaskHeartbeat());
             case TASK_COMPLETED -> application.taskCompleted(snapshot, message.getTaskCompleted());
             case TASK_FAILED -> application.taskFailed(snapshot, message.getTaskFailed());
+            case TASK_EVENT_REPORT -> application.taskEventReport(snapshot, message.getTaskEventReport());
             case AGENT_HEARTBEAT -> application.agentHeartbeat(snapshot, message.getAgentHeartbeat());
             case CONFIG_APPLIED -> application.configApplied(snapshot, message.getConfigApplied());
             case ERROR -> throw new GatewayExceptions.InvalidMessage("agent reported an Error payload");
@@ -100,6 +101,7 @@ public final class InboundEventHandler {
             case TASK_HEARTBEAT -> message.getTaskHeartbeat().getMetadata();
             case TASK_COMPLETED -> message.getTaskCompleted().getMetadata();
             case TASK_FAILED -> message.getTaskFailed().getMetadata();
+            case TASK_EVENT_REPORT -> message.getTaskEventReport().getMetadata();
             case AGENT_HEARTBEAT -> message.getAgentHeartbeat().getMetadata();
             case CONFIG_APPLIED -> message.getConfigApplied().getMetadata();
             case ACK -> message.getAck().getMetadata();

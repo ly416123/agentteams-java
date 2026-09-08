@@ -7,6 +7,7 @@ import io.agentteams.application.api.ExecutionEventPort.ArtifactReference;
 import io.agentteams.application.api.ExecutionEventPort.ExecutionPhase;
 import io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand;
 import io.agentteams.application.api.ExecutionEventPort.RejectionCommand;
+import io.agentteams.application.api.ExecutionEventPort.TaskEventReportCommand;
 import io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand;
 import io.agentteams.application.api.ExecutionEventPort.ModelCallUsage;
 import io.agentteams.application.api.TaskExecutionObservationPort;
@@ -14,6 +15,7 @@ import io.agentteams.contracts.v1.ArtifactRef;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.TaskAccepted;
 import io.agentteams.contracts.v1.TaskCompleted;
+import io.agentteams.contracts.v1.TaskEventReport;
 import io.agentteams.contracts.v1.TaskFailed;
 import io.agentteams.contracts.v1.TaskHeartbeat;
 import io.agentteams.contracts.v1.TaskProgress;
@@ -28,6 +30,7 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
 
     private static final String SOURCE = "gateway";
     private static final String ARTIFACT_CONTENT_TYPE = "application/octet-stream";
+    private static final int MAX_EVENT_PAYLOAD_BYTES = ExecutionEventPort.MAX_EVENT_PAYLOAD_BYTES;
 
     private final ExecutionEventPort executionEvents;
     private final ConfigEventPort configEvents;
@@ -156,6 +159,35 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         observations.failed(uuid(metadata.getTaskId(), "task_id"), uuid(metadata.getAttemptId(), "attempt_id"),
                 uuid(metadata.getEventId(), "event_id"), occurredAt(metadata), correlationId(metadata),
                 event.getCode(), details);
+    }
+
+    @Override
+    public void taskEventReport(ConnectionRegistry.ConnectionSnapshot connection, TaskEventReport event) {
+        try {
+            EventMetadata metadata = event.getMetadata();
+            UUID taskId = uuid(metadata.getTaskId(), "task_id");
+            UUID attemptId = uuid(metadata.getAttemptId(), "attempt_id");
+            UUID leaseId = uuid(metadata.getLeaseId(), "lease_id");
+            UUID eventId = uuid(metadata.getEventId(), "event_id");
+            if (!connection.agentId().equals(metadata.getAgentId())) {
+                throw invalid("agent_id does not match connection");
+            }
+            if (event.getEventType().isBlank()) {
+                throw invalid("event_type is required");
+            }
+            if (event.getPayload().size() > MAX_EVENT_PAYLOAD_BYTES) {
+                throw invalid("payload exceeds " + MAX_EVENT_PAYLOAD_BYTES + " bytes");
+            }
+            executionEvents.taskEventReport(taskId, new TaskEventReportCommand(eventId, attemptId, leaseId,
+                    occurredAt(metadata), connection.agentId(), event.getEventType(),
+                    event.getPayload().isEmpty() ? null : event.getPayload().toStringUtf8(),
+                    event.getSequence(), correlationId(metadata)));
+        } catch (GatewayExceptions.InvalidMessage error) {
+            // 公理一：过程上报永远 best effort——校验失败丢弃并告警，绝不
+            // 用 InvalidMessage 关闭承载终态事件的流。
+            System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING,
+                    "Dropping invalid task event report: " + error.getMessage());
+        }
     }
 
     private void observeAccepted(EventMetadata metadata) {
