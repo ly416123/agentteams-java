@@ -658,6 +658,13 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         version: { type: integer, format: int64, minimum: 0 }
+        source:
+          type: [object, 'null']
+          nullable: true
+          description: 来源会话回链；仅暴露标识符，不暴露会话内容。
+          properties:
+            conversationId: { type: string }
+            messageId: { type: [string, 'null'] }
     CreateScheduledTaskRequest:
       type: object
       required: [name, organizationId, tenantId, projectId, cronExpression, timeZone, title]

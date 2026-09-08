@@ -172,6 +172,8 @@ public final class TaskController {
     public record TaskLifecycleRequest(Long expectedVersion, String actor, String source) {
     }
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     public record TaskResponse(UUID id, String title, String description, String phase,
             int priority, String taskType, Instant createdAt, Instant updatedAt, long version,
             SourceRef source) {
@@ -188,12 +190,13 @@ public final class TaskController {
 
         private static SourceRef sourceOf(TaskRecord task) {
             try {
-                JsonNode source = new ObjectMapper().readTree(task.specJson()).path("inputJson").path("source");
+                JsonNode source = JSON.readTree(task.specJson()).path("inputJson").path("source");
                 String conversationId = source.path("conversationId").asText("");
                 if (conversationId.isBlank()) {
                     return null;
                 }
-                return new SourceRef(conversationId, source.path("messageId").asText(null));
+                String messageId = source.path("messageId").asText("");
+                return new SourceRef(conversationId, messageId.isBlank() ? null : messageId);
             } catch (Exception ignored) {
                 return null;
             }

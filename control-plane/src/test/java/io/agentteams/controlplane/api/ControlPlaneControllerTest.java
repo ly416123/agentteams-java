@@ -436,6 +436,41 @@ class ControlPlaneControllerTest {
                 .andExpect(jsonPath("$.message").value("required dependency is unavailable"));
     }
 
+    @Test
+    void exposesConversationSourceRefFromTaskSpec() throws Exception {
+        UUID id = UUID.randomUUID();
+        String spec = "{\"inputJson\":{\"prompt\":\"p\",\"source\":{\"conversationId\":\"conv-1\"," +
+                "\"messageId\":\"msg-9\"}}}";
+        when(tasks.get(id)).thenReturn(new TaskRecord(id, "Build API", "description", TaskPhase.QUEUED, 0,
+                spec, "api", "rest", null, null, Instant.now(), Instant.now(), 1));
+
+        mockMvc.perform(get("/api/v1/tasks/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source.conversationId").value("conv-1"))
+                .andExpect(jsonPath("$.source.messageId").value("msg-9"));
+    }
+
+    @Test
+    void omitsBlankMessageIdAndSourcelessSpecsFromTaskResponse() throws Exception {
+        UUID blankMessage = UUID.randomUUID();
+        when(tasks.get(blankMessage)).thenReturn(new TaskRecord(blankMessage, "Build API", "description",
+                TaskPhase.QUEUED, 0,
+                "{\"inputJson\":{\"source\":{\"conversationId\":\"conv-1\",\"messageId\":\"  \"}}}",
+                "api", "rest", null, null, Instant.now(), Instant.now(), 1));
+        mockMvc.perform(get("/api/v1/tasks/{id}", blankMessage))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source.conversationId").value("conv-1"))
+                .andExpect(jsonPath("$.source.messageId").doesNotExist());
+
+        UUID noSource = UUID.randomUUID();
+        when(tasks.get(noSource)).thenReturn(new TaskRecord(noSource, "Build API", "description",
+                TaskPhase.QUEUED, 0, "{\"inputJson\":{\"prompt\":\"p\"}}",
+                "api", "rest", null, null, Instant.now(), Instant.now(), 1));
+        mockMvc.perform(get("/api/v1/tasks/{id}", noSource))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").doesNotExist());
+    }
+
     private static TaskRecord task(UUID id, TaskPhase phase, long version) {
         return new TaskRecord(id, "Build API", "description", phase, 0, "{}",
                 "api", "rest", null, null, Instant.now(), Instant.now(), version);

@@ -122,6 +122,36 @@ class ControlPlaneTaskExecutionObservationAdapterTest {
     }
 
     @Test
+    void observedDropsPersistenceFailuresWithoutThrowing() {
+        TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
+        when(runs.contextForTask(TASK_ID)).thenReturn(Optional.of(CONTEXT));
+        when(runs.nextSequence(RUN_ID)).thenReturn(1L);
+        TaskProcessEventService process = mock(TaskProcessEventService.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("database unavailable"))
+                .when(process).append(any(), any());
+        ControlPlaneTaskExecutionObservationAdapter adapter = new ControlPlaneTaskExecutionObservationAdapter(
+                runs, process, mock(TaskResultManifestService.class), mock(WebhookDeliveryService.class));
+
+        // 公理一：落库被拒按丢弃处理，绝不外推毒化承载终态事件的消费者。
+        adapter.observed(TASK_ID, RUN_ID, UUID.randomUUID(), NOW, "corr-1", "tool.called", "{}");
+
+        verify(process).append(any(), any());
+    }
+
+    @Test
+    void observedDropsNonJsonPayload() {
+        TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
+        when(runs.contextForTask(TASK_ID)).thenReturn(Optional.of(CONTEXT));
+        TaskProcessEventService process = mock(TaskProcessEventService.class);
+        ControlPlaneTaskExecutionObservationAdapter adapter = new ControlPlaneTaskExecutionObservationAdapter(
+                runs, process, mock(TaskResultManifestService.class), mock(WebhookDeliveryService.class));
+
+        adapter.observed(TASK_ID, RUN_ID, UUID.randomUUID(), NOW, "corr-1", "tool.called", "not-json");
+
+        verify(process, never()).append(any(), any());
+    }
+
+    @Test
     void observedDropsUnscopedTaskWithoutThrowing() {
         TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
         when(runs.contextForTask(TASK_ID)).thenReturn(Optional.empty());
