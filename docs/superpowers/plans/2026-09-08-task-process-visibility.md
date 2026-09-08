@@ -1,6 +1,6 @@
 # 任务过程可见性一期 实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
 **目标：** 对话创建的任务在 Console 详情页实时可见执行过程——QwenPaw SSE 中的白名单动作（工具调用）经 worker→gateway→NATS→控制面落入 `task_process_events`，前端主列时间线合并生命周期流与过程事件流，右栏新增信息面板（DAG、标签页、来源会话回链）。
 
