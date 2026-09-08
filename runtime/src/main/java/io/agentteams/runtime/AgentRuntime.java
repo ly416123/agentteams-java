@@ -22,5 +22,12 @@ public interface AgentRuntime {
         Objects.requireNonNull(snapshot, "snapshot");
     }
 
+    /**
+     * Optional hook to receive whitelisted middle-of-execution events.
+     * Runtimes without event reporting simply keep the default no-op.
+     */
+    default void setEventSink(RuntimeEventSink eventSink) {
+    }
+
     void stop();
 }

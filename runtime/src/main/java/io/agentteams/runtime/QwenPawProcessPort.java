@@ -14,5 +14,9 @@ public interface QwenPawProcessPort {
         java.util.Objects.requireNonNull(snapshot, "snapshot");
     }
 
+    /** Optional middle-event reporting hook; ports without a sink stay silent. */
+    default void setEventSink(RuntimeEventSink eventSink) {
+    }
+
     void stop();
 }

@@ -19,6 +19,7 @@ public final class QwenPawRuntime implements AgentRuntime {
     private final FakeRuntime state = new FakeRuntime();
     private AgentRuntimeContext context;
     private volatile RuntimeConfigSnapshot activeConfiguration;
+    private volatile RuntimeEventSink eventSink;
 
     public QwenPawRuntime(QwenPawProcessPort process) {
         this(process, RuntimeModelCallAdmission.noop());
@@ -39,6 +40,7 @@ public final class QwenPawRuntime implements AgentRuntime {
                 ignored -> { }, context.configuration()));
         RuntimeConfigSnapshot startupConfiguration = startupConfiguration(context.configuration());
         try {
+            process.setEventSink(eventSink);
             process.start(context, result -> context.resultSink().accept(releaseAdmission(result)));
             process.applyConfig(startupConfiguration);
             activeConfiguration = startupConfiguration;
@@ -134,7 +136,13 @@ public final class QwenPawRuntime implements AgentRuntime {
             state.stop();
             context = null;
             activeConfiguration = null;
+            eventSink = null;
         }
+    }
+
+    @Override
+    public void setEventSink(RuntimeEventSink eventSink) {
+        this.eventSink = eventSink;
     }
 
     private RuntimeModelCallAdmissionRequest admissionRequest(RuntimeTask task) {
