@@ -15,6 +15,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -38,6 +39,9 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
     private final ObjectMapper objectMapper;
     private final Map<UUID, RequestHandle> requests = new ConcurrentHashMap<>();
     private final Object lifecycleMonitor = new Object();
+    private volatile RuntimeEventSink eventSink;
+    /** tool 名 → tool.started 时刻，用于在同一任务内配对计算 elapsedMs。 */
+    private final Map<UUID, Map<String, Instant>> toolStarts = new ConcurrentHashMap<>();
 
     private volatile boolean started;
     private volatile RuntimeResultSink resultSink;
@@ -252,6 +256,60 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         }
     }
 
+    @Override
+    public void setEventSink(RuntimeEventSink eventSink) {
+        this.eventSink = eventSink;
+    }
+
+    /** 公理一：中间事件 best-effort，回调失败绝不影响 SSE 主循环。 */
+    private void reportMiddleEvent(UUID taskId, CharSequence data) {
+        RuntimeEventSink sink = eventSink;
+        if (sink == null || data.isEmpty() || "[DONE]".contentEquals(data)) {
+            return;
+        }
+        try {
+            RuntimeEvent event = runtimeEvent(taskId, objectMapper.readTree(data.toString()));
+            if (event != null) {
+                try {
+                    sink.accept(event);
+                } catch (RuntimeException ignored) {
+                    // 上报方失败按丢弃处理。
+                }
+            }
+        } catch (IOException ignored) {
+            // 非 JSON 数据由 parseEvent 的终态语义处理。
+        }
+    }
+
+    /** 白名单映射：tool.started→tool.called、plugin_call_output→tool.finished，其余（含 reasoning/message.delta）丢弃。 */
+    private RuntimeEvent runtimeEvent(UUID taskId, JsonNode event) {
+        String type = event.path("type").asText("");
+        if ("tool.started".equals(type)) {
+            String tool = event.path("tool").asText("");
+            if (tool.isBlank()) {
+                return null;
+            }
+            toolStarts.computeIfAbsent(taskId, ignored -> new ConcurrentHashMap<>()).put(tool, now());
+            ObjectNode payload = objectMapper.createObjectNode().put("tool", tool);
+            return new RuntimeEvent(taskId, "tool.called", payload.toString(), now());
+        }
+        if ("plugin_call_output".equals(type)) {
+            String tool = event.path("tool").asText("");
+            if (tool.isBlank()) {
+                return null;
+            }
+            Instant startedAt = toolStarts.computeIfAbsent(taskId, ignored -> new ConcurrentHashMap<>())
+                    .remove(tool);
+            long elapsedMs = startedAt == null ? 0
+                    : Math.max(0, Duration.between(startedAt, now()).toMillis());
+            boolean ok = !"error".equals(event.path("status").asText("success")) && !event.has("error");
+            ObjectNode payload = objectMapper.createObjectNode().put("tool", tool)
+                    .put("elapsedMs", elapsedMs).put("ok", ok);
+            return new RuntimeEvent(taskId, "tool.finished", payload.toString(), now());
+        }
+        return null;
+    }
+
     private void processResponse(RuntimeTask task, RequestHandle handle,
             HttpResponse<InputStream> response, RuntimeResultSink sink) {
         handle.stream = response.body();
@@ -276,6 +334,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             while ((line = reader.readLine()) != null) {
                 if (line.isEmpty()) {
                     SseEvent event = parseEvent(data);
+                    reportMiddleEvent(task.id(), data);
                     data.setLength(0);
                     if (event == null) {
                         continue;
@@ -299,6 +358,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
                 }
             }
             SseEvent event = parseEvent(data);
+            reportMiddleEvent(task.id(), data);
             if (event != null) {
                 latestOutput = event.output().isBlank() ? latestOutput : event.output();
                 latestUsage = event.callUsage() == null ? latestUsage : event.callUsage();
@@ -333,6 +393,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
     private void publish(RuntimeTask task, RequestHandle handle,
             RuntimeResultSink sink, RuntimeResult result) {
         if (requests.remove(task.id(), handle) && handle.terminal.compareAndSet(false, true)) {
+            toolStarts.remove(task.id());
             sink.accept(result);
         }
     }
