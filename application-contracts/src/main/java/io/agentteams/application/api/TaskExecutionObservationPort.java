@@ -30,6 +30,15 @@ public interface TaskExecutionObservationPort {
     void failed(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
             String failureCode, String failureMessage);
 
+    /**
+     * Records a whitelisted middle-of-execution action (tool calls etc.).
+     * Implementations must drop invalid input instead of throwing: this
+     * stream is best effort and shares the consumer with terminal events.
+     */
+    default void observed(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
+            String eventType, String payloadJson) {
+    }
+
     static TaskExecutionObservationPort noop() {
         return new TaskExecutionObservationPort() {
             @Override

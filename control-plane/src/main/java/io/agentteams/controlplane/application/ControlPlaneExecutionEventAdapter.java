@@ -93,7 +93,11 @@ public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPo
 
     @Override
     public void taskEventReport(UUID taskId, ExecutionEventPort.TaskEventReportCommand command) {
-        // 过程上报转发 observations.observed 由消费链路任务落地；先以空实现保持接口新增后可编译。
+        Objects.requireNonNull(command, "command");
+        // runId 与既有 observe(...) 相同：run == attempt。白名单与范围校验
+        // 由观测适配器二次校验（不信任上游）。
+        observations.observed(taskId, command.attemptId(), command.eventId(), command.occurredAt(),
+                command.correlationId(), command.eventType(), command.payloadJson());
     }
 
     private static ArtifactRecord toRecord(UUID taskId, UUID attemptId, UUID eventId, Instant at,

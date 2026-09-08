@@ -229,6 +229,31 @@ class NatsExecutionEventConsumerTest {
     }
 
     @Test
+    void dispatchesTaskEventEnvelopeToExecutionPortAndAcks() throws Exception {
+        java.util.UUID taskId = java.util.UUID.randomUUID();
+        ExecutionEventPort.TaskEventReportCommand command = new ExecutionEventPort.TaskEventReportCommand(
+                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                java.time.Instant.now(), "worker-1", "tool.called", "{\"tool\":\"web_search\"}", 2, "corr-1");
+        io.agentteams.application.api.ExecutionEventEnvelope envelope =
+                io.agentteams.application.api.ExecutionEventEnvelope.taskEvent(taskId, command);
+        Message message = mock(Message.class);
+        when(message.getData()).thenReturn(new com.fasterxml.jackson.databind.ObjectMapper()
+                .findAndRegisterModules().writeValueAsString(envelope).getBytes(StandardCharsets.UTF_8));
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        var captured = org.mockito.ArgumentCaptor.forClass(ExecutionEventPort.TaskEventReportCommand.class);
+        verify(executionEvents).taskEventReport(org.mockito.ArgumentMatchers.eq(taskId), captured.capture());
+        assertThat(captured.getValue().eventType()).isEqualTo("tool.called");
+        assertThat(captured.getValue().sequence()).isEqualTo(2L);
+        verify(message).ack();
+    }
+
+    @Test
     void rebuildsDurableSubscriptionAfterNatsResubscribedEvent() throws Exception {
         Connection connection = mock(Connection.class);
         JetStream jetStream = mock(JetStream.class);

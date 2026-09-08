@@ -298,6 +298,9 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 executionEvents.renewLease(envelope.taskId(), withContext(envelope.leaseRenewal(), envelope));
             } else if ("REJECTION".equals(envelope.type())) {
                 executionEvents.rejectUnaccepted(envelope.taskId(), withContext(envelope.rejection(), envelope));
+            } else if ("TASK_EVENT".equals(envelope.type())) {
+                executionEvents.taskEventReport(envelope.taskId(),
+                        withContext(envelope.taskEventReport(), envelope));
             } else {
                 throw new IllegalArgumentException("unsupported execution event type: " + envelope.type());
             }
@@ -556,6 +559,16 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
                 command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
                 command.agentId(), command.source(), command.rejectionReason(), context.correlationId(),
                 context.traceparent(), context.tracestate());
+    }
+
+    private static io.agentteams.application.api.ExecutionEventPort.TaskEventReportCommand withContext(
+            io.agentteams.application.api.ExecutionEventPort.TaskEventReportCommand command,
+            ExecutionEventEnvelope envelope) {
+        TraceContext context = new TraceContext(envelope.correlationId(), envelope.traceparent(),
+                envelope.tracestate());
+        return new io.agentteams.application.api.ExecutionEventPort.TaskEventReportCommand(command.eventId(),
+                command.attemptId(), command.leaseId(), command.occurredAt(), command.agentId(),
+                command.eventType(), command.payloadJson(), command.sequence(), context.correlationId());
     }
 
     private static Duration outOfOrderRedeliveryDelay(Message message) {
