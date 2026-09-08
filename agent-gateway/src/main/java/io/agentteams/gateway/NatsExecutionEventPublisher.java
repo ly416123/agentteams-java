@@ -38,7 +38,7 @@ public final class NatsExecutionEventPublisher implements ExecutionEventPort {
 
     @Override
     public void taskEventReport(UUID taskId, ExecutionEventPort.TaskEventReportCommand command) {
-        // TASK_EVENT 信封发布由过程上报发布任务落地；先以空实现保持接口新增后可编译。
+        publish(taskId, command.agentId(), ExecutionEventEnvelope.taskEvent(taskId, command));
     }
 
     private void publish(UUID taskId, String agentId, ExecutionEventEnvelope envelope) {
