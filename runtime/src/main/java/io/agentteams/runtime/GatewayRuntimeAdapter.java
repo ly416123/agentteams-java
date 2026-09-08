@@ -35,12 +35,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class GatewayRuntimeAdapter {
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    private static final int MAX_EVENT_PAYLOAD_BYTES = 4096;
+
     private final String agentId;
     private final AgentChannelPort channel;
     private final AgentRuntime runtime;
     private final Clock clock;
     private final RuntimeArtifactUploadPort uploads;
     private final Map<UUID, AssignmentContext> assignments = new ConcurrentHashMap<>();
+    /** null 表示不限速；worker 按配置传入（默认 30/s）。 */
+    private final RuntimeEventRateLimiter eventLimiter;
 
     public GatewayRuntimeAdapter(String agentId, AgentChannelPort channel, AgentRuntime runtime, Clock clock) {
         this(agentId, channel, runtime, clock, null);
@@ -49,12 +53,20 @@ public final class GatewayRuntimeAdapter {
     /** The upload port is optional; without it artifacts stay in-process memory references. */
     public GatewayRuntimeAdapter(String agentId, AgentChannelPort channel, AgentRuntime runtime, Clock clock,
             RuntimeArtifactUploadPort uploads) {
+        this(agentId, channel, runtime, clock, uploads, 0);
+    }
+
+    /** eventRateLimit <= 0 表示不限速；否则为每滑动秒允许的事件数。 */
+    public GatewayRuntimeAdapter(String agentId, AgentChannelPort channel, AgentRuntime runtime, Clock clock,
+            RuntimeArtifactUploadPort uploads, int eventRateLimit) {
         if (agentId == null || agentId.isBlank()) throw new IllegalArgumentException("agentId must not be blank");
         this.agentId = agentId;
         this.channel = Objects.requireNonNull(channel, "channel");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.uploads = uploads;
+        this.eventLimiter = eventRateLimit > 0
+                ? new RuntimeEventRateLimiter(eventRateLimit, java.time.Duration.ofSeconds(1), clock) : null;
     }
 
     public RuntimeSubmission acceptAssignment(TaskAssigned assignment) {
@@ -132,6 +144,35 @@ public final class GatewayRuntimeAdapter {
                 .setMetadata(metadata(taskId, context)).setStatus(status == null ? "" : status)
                 .setLeaseExpiresAt(context.leaseExpiresAt()).build()).build());
         context.advanceVersion();
+    }
+
+    /**
+     * Reports a whitelisted middle-of-execution action for the given task.
+     * 公理一：best effort——未知任务、限速超额、超大载荷一律丢弃，绝不
+     * 威胁任务赋值、聚合版本或 gRPC 通道；因此也不推进 expectedVersion。
+     */
+    public void reportEvent(UUID taskId, String eventType, String payloadJson) {
+        if (eventType == null || eventType.isBlank()) {
+            return;
+        }
+        AssignmentContext context = assignments.get(taskId);
+        if (context == null) {
+            return;
+        }
+        byte[] payload = payloadJson == null ? new byte[0] : payloadJson.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > MAX_EVENT_PAYLOAD_BYTES) {
+            return;
+        }
+        if (eventLimiter != null && !eventLimiter.tryAcquire()) {
+            return;
+        }
+        channel.send(AgentMessage.newBuilder().setTaskEventReport(
+                io.agentteams.contracts.v1.TaskEventReport.newBuilder()
+                        .setMetadata(metadata(taskId, context))
+                        .setSequence((int) context.nextEventSequence())
+                        .setEventType(eventType)
+                        .setPayload(ByteString.copyFrom(payload))
+                        .build()).build());
     }
 
     /** Keeps terminal execution events aligned after a heartbeat sent by the channel client. */
@@ -368,6 +409,7 @@ public final class GatewayRuntimeAdapter {
         private final String quotaId;
         private final String quotaDimension;
         private long expectedVersion;
+        private long eventSequence;
 
         private AssignmentContext(EventMetadata metadata, Timestamp leaseExpiresAt, String tenantId,
                 String projectId, String teamId, String toolId, String quotaId, String quotaDimension) {
@@ -396,6 +438,11 @@ public final class GatewayRuntimeAdapter {
 
         private synchronized void advanceVersion() {
             expectedVersion = Math.addExact(expectedVersion, 1);
+        }
+
+        private synchronized long nextEventSequence() {
+            eventSequence = Math.addExact(eventSequence, 1);
+            return eventSequence;
         }
 
         private boolean matches(EventMetadata input) {
