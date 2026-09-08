@@ -36,6 +36,11 @@ public final class NatsExecutionEventPublisher implements ExecutionEventPort {
         publish(taskId, command.agentId(), ExecutionEventEnvelope.rejection(taskId, command));
     }
 
+    @Override
+    public void taskEventReport(UUID taskId, ExecutionEventPort.TaskEventReportCommand command) {
+        // TASK_EVENT 信封发布由过程上报发布任务落地；先以空实现保持接口新增后可编译。
+    }
+
     private void publish(UUID taskId, String agentId, ExecutionEventEnvelope envelope) {
         try {
             jetStream.publish(PlatformEventSubjects.agentExecution(agentId), mapper.writeValueAsBytes(envelope));

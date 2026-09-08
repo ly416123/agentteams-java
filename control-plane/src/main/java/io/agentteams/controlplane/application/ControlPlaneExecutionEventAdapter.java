@@ -91,6 +91,11 @@ public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPo
                 command.agentId(), command.source(), command.rejectionReason()));
     }
 
+    @Override
+    public void taskEventReport(UUID taskId, ExecutionEventPort.TaskEventReportCommand command) {
+        // 过程上报转发 observations.observed 由消费链路任务落地；先以空实现保持接口新增后可编译。
+    }
+
     private static ArtifactRecord toRecord(UUID taskId, UUID attemptId, UUID eventId, Instant at,
             ArtifactReference artifact) {
         UUID id = UUID.nameUUIDFromBytes((eventId + "\n" + artifact.name() + "\n" + artifact.sha256())

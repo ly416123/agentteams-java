@@ -188,8 +188,8 @@ public interface ExecutionEventPort {
             Objects.requireNonNull(occurredAt, "occurredAt");
             requireText(agentId, "agentId");
             requireText(eventType, "eventType");
-            if (sequence < 0) {
-                throw new IllegalArgumentException("sequence must not be negative");
+            if (sequence < 0 || sequence > 0xFFFFFFFFL) {
+                throw new IllegalArgumentException("sequence must fit in uint32");
             }
             if (payloadJson != null && payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
                     > MAX_EVENT_PAYLOAD_BYTES) {
