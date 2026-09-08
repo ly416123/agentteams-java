@@ -132,6 +132,26 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertEqual(body["spec"]["inputJson"]["prompt"], "生成中国企业500强名单，PDF 格式")
         self.assertEqual(self.server.queue_body, {"expectedVersion": 0})
 
+    def test_create_task_writes_conversation_source_into_input_json(self):
+        self._use_env(self.env)
+        payload = MCP.call_tool("create_task", {
+            "title": "来源回链", "prompt": "p",
+            "source": {"conversation_id": "conv-1", "message_id": "msg-9"},
+        })
+        self.assertTrue(payload["ok"], payload)
+        method, path, headers, body = next(r for r in self.server.requests
+                                           if r[0] == "POST" and r[1] == "/api/v1/tasks")
+        self.assertEqual(body["spec"]["inputJson"]["source"],
+                         {"conversationId": "conv-1", "messageId": "msg-9"})
+
+    def test_create_task_without_source_keeps_input_json_unchanged(self):
+        self._use_env(self.env)
+        payload = MCP.call_tool("create_task", {"title": "无来源", "prompt": "p"})
+        self.assertTrue(payload["ok"], payload)
+        method, path, headers, body = next(r for r in self.server.requests
+                                           if r[0] == "POST" and r[1] == "/api/v1/tasks")
+        self.assertNotIn("source", body["spec"]["inputJson"])
+
     def test_password_grant_token_is_fetched_once_and_cached(self):
         env = dict(self.env)
         env.pop("AGENTTEAMS_MCP_TOKEN")

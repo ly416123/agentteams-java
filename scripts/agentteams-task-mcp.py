@@ -69,6 +69,19 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                         "'produce a PDF file')."
                     ),
                 },
+                "source": {
+                    "type": "object",
+                    "description": (
+                        "Optional conversation origin of this task. Pass "
+                        "conversation_id (and message_id when known) so the "
+                        "console task page can link back to the originating "
+                        "chat conversation."
+                    ),
+                    "properties": {
+                        "conversation_id": {"type": "string", "description": "Conversation UUID."},
+                        "message_id": {"type": "string", "description": "Originating message id."},
+                    },
+                },
             },
             "required": ["title", "prompt"],
         },
@@ -265,10 +278,20 @@ def tool_create_task(arguments: dict[str, Any]) -> dict[str, Any]:
     title = _clean_text(arguments.get("title"), "title", MAX_TITLE, required=True)
     description = _clean_text(arguments.get("description"), "description", MAX_DESCRIPTION, required=False)
     prompt = _clean_text(arguments.get("prompt"), "prompt", MAX_PROMPT, required=True)
+    source = arguments.get("source") or {}
+    conversation_id = _clean_text(source.get("conversation_id"), "source.conversation_id", MAX_TITLE,
+                                  required=False)
+    message_id = _clean_text(source.get("message_id"), "source.message_id", MAX_TITLE, required=False)
+    input_json: dict[str, Any] = {"prompt": prompt}
+    if conversation_id:
+        origin = {"conversationId": conversation_id}
+        if message_id:
+            origin["messageId"] = message_id
+        input_json["source"] = origin
     spec = {
         "scope": {"tenant": config.tenant, "project": config.project, "team": config.team},
         "taskType": "qwenpaw",
-        "inputJson": {"prompt": prompt},
+        "inputJson": input_json,
         "requiredCapabilities": [],
     }
     created = _http_json(

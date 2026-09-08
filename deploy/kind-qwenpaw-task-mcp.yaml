@@ -3,24 +3,24 @@ data:
   agentteams-task-mcp.py: |-
     #!/usr/bin/env python3
     """AgentTeams task tools as a zero-dependency stdio MCP server.
-
+    
     Lets a QwenPaw conversation agent create, inspect, and collect AgentTeams
     tasks through the control-plane REST API. Protocol handling follows the
     newline-delimited JSON-RPC shape used by upstream AgentTeams plugins
     (initialize -> 2024-11-05, tools/list, tools/call).
-
+    
     Required environment:
       AGENTTEAMS_CONTROL_PLANE_URL  base URL, e.g. http://agentteams-control-plane:8080
       AGENTTEAMS_MCP_SCOPE          JSON {"tenant","project","team"} used for created tasks
-
+    
     Authentication (either):
       AGENTTEAMS_MCP_TOKEN          static bearer token, or
       AGENTTEAMS_OIDC_TOKEN_URL + AGENTTEAMS_MCP_USERNAME + AGENTTEAMS_MCP_PASSWORD
       (password grant against Keycloak; token cached until shortly before expiry)
     """
-
+    
     from __future__ import annotations
-
+    
     import json
     import os
     import sys
@@ -31,18 +31,18 @@ data:
     import uuid
     from dataclasses import dataclass
     from typing import Any
-
+    
     SERVER_NAME = "agentteams-tasks"
     SERVER_VERSION = "0.1.0"
     PROTOCOL_VERSION = "2024-11-05"
     HTTP_TIMEOUT_SECONDS = 20.0
-
+    
     MAX_TITLE = 200
     MAX_DESCRIPTION = 2000
     MAX_PROMPT = 8000
-
+    
     TOOL_NAMES = ["create_task", "get_task", "get_task_result"]
-
+    
     TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "create_task": {
             "description": (
@@ -71,6 +71,19 @@ data:
                             "including the requested deliverable format (for example "
                             "'produce a PDF file')."
                         ),
+                    },
+                    "source": {
+                        "type": "object",
+                        "description": (
+                            "Optional conversation origin of this task. Pass "
+                            "conversation_id (and message_id when known) so the "
+                            "console task page can link back to the originating "
+                            "chat conversation."
+                        ),
+                        "properties": {
+                            "conversation_id": {"type": "string", "description": "Conversation UUID."},
+                            "message_id": {"type": "string", "description": "Originating message id."},
+                        },
                     },
                 },
                 "required": ["title", "prompt"],
@@ -104,8 +117,8 @@ data:
             },
         },
     }
-
-
+    
+    
     @dataclass
     class Config:
         control_plane_url: str
@@ -117,14 +130,14 @@ data:
         oidc_client_id: str
         username: str | None
         password: str | None
-
-
+    
+    
     DEFAULT_CONFIG_FILE = "/opt/agentteams-mcp/mcp-env.json"
-
-
+    
+    
     def _merge_config_file(env: dict[str, str]) -> dict[str, str]:
         """Overlay settings from AGENTTEAMS_MCP_CONFIG_FILE beneath explicit env.
-
+    
         The file keeps credentials off the QwenPaw MCP client listing (GET /api/mcp
         returns client.env verbatim), so registered clients only carry the path.
         QwenPaw does not always forward client.env to the spawned stdio process,
@@ -140,8 +153,8 @@ data:
         merged = {str(key): str(value) for key, value in file_settings.items()}
         merged.update({key: value for key, value in env.items() if key.startswith("AGENTTEAMS_")})
         return merged
-
-
+    
+    
     def load_config(env: dict[str, str] | None = None) -> Config:
         source = _merge_config_file(dict(os.environ if env is None else env))
         base = (source.get("AGENTTEAMS_CONTROL_PLANE_URL") or "").rstrip("/")
@@ -163,26 +176,26 @@ data:
             username=source.get("AGENTTEAMS_MCP_USERNAME") or None,
             password=source.get("AGENTTEAMS_MCP_PASSWORD") or None,
         )
-
-
+    
+    
     _CONFIG: Config | None = None
     _TOKEN_CACHE: dict[str, Any] = {"token": None, "expires_at": 0.0}
-
-
+    
+    
     def get_config() -> Config:
         global _CONFIG
         if _CONFIG is None:
             _CONFIG = load_config()
         return _CONFIG
-
-
+    
+    
     def reset_state() -> None:
         global _CONFIG
         _CONFIG = None
         _TOKEN_CACHE["token"] = None
         _TOKEN_CACHE["expires_at"] = 0.0
-
-
+    
+    
     def _http_json(method: str, url: str, *, token: str | None = None,
                    idempotency_key: str | None = None, body: Any = None,
                    form: dict[str, str] | None = None) -> dict[str, Any]:
@@ -212,8 +225,8 @@ data:
         if not payload:
             return {}
         return json.loads(payload)
-
-
+    
+    
     def _fetch_token() -> str:
         if _TOKEN_CACHE["token"] and time.time() < _TOKEN_CACHE["expires_at"] - 30.0:
             return _TOKEN_CACHE["token"]
@@ -234,8 +247,8 @@ data:
         _TOKEN_CACHE["token"] = token
         _TOKEN_CACHE["expires_at"] = time.time() + float(response.get("expires_in", 300))
         return token
-
-
+    
+    
     def _clean_text(value: Any, field: str, max_length: int, required: bool) -> str:
         if value is None:
             value = ""
@@ -248,8 +261,8 @@ data:
         if len(text) > max_length:
             raise ValueError(f"{field} must be at most {max_length} characters")
         return text
-
-
+    
+    
     def _safe_uuid(value: Any, field: str) -> str:
         if not isinstance(value, str):
             raise ValueError(f"{field} must be a string")
@@ -257,21 +270,31 @@ data:
             return str(uuid.UUID(value.strip()))
         except ValueError as error:
             raise ValueError(f"{field} must be a UUID") from error
-
-
+    
+    
     def _api_url(config: Config, path: str) -> str:
         return config.control_plane_url + path
-
-
+    
+    
     def tool_create_task(arguments: dict[str, Any]) -> dict[str, Any]:
         config = get_config()
         title = _clean_text(arguments.get("title"), "title", MAX_TITLE, required=True)
         description = _clean_text(arguments.get("description"), "description", MAX_DESCRIPTION, required=False)
         prompt = _clean_text(arguments.get("prompt"), "prompt", MAX_PROMPT, required=True)
+        source = arguments.get("source") or {}
+        conversation_id = _clean_text(source.get("conversation_id"), "source.conversation_id", MAX_TITLE,
+                                      required=False)
+        message_id = _clean_text(source.get("message_id"), "source.message_id", MAX_TITLE, required=False)
+        input_json: dict[str, Any] = {"prompt": prompt}
+        if conversation_id:
+            origin = {"conversationId": conversation_id}
+            if message_id:
+                origin["messageId"] = message_id
+            input_json["source"] = origin
         spec = {
             "scope": {"tenant": config.tenant, "project": config.project, "team": config.team},
             "taskType": "qwenpaw",
-            "inputJson": {"prompt": prompt},
+            "inputJson": input_json,
             "requiredCapabilities": [],
         }
         created = _http_json(
@@ -295,16 +318,16 @@ data:
             "note": "The task is queued; a worker will execute the prompt. "
                     "Use get_task to watch progress and get_task_result for deliverables.",
         }
-
-
+    
+    
     def tool_get_task(arguments: dict[str, Any]) -> dict[str, Any]:
         config = get_config()
         task_id = _safe_uuid(arguments.get("task_id"), "task_id")
         task = _http_json("GET", _api_url(config, f"/api/v1/tasks/{task_id}"), token=_fetch_token())
         return {"ok": True, "taskId": task_id, "phase": task.get("phase"),
                 "title": task.get("title"), "updatedAt": task.get("updatedAt")}
-
-
+    
+    
     def tool_get_task_result(arguments: dict[str, Any]) -> dict[str, Any]:
         config = get_config()
         task_id = _safe_uuid(arguments.get("task_id"), "task_id")
@@ -328,8 +351,8 @@ data:
             })
         return {"ok": True, "taskId": task_id, "status": result.get("status"),
                 "summary": result.get("summary"), "artifacts": artifacts}
-
-
+    
+    
     def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "create_task":
             return tool_create_task(arguments)
@@ -338,13 +361,13 @@ data:
         if name == "get_task_result":
             return tool_get_task_result(arguments)
         return {"ok": False, "error": f"unsupported tool: {name}"}
-
-
+    
+    
     def list_tools() -> list[dict[str, Any]]:
         return [{"name": name, "description": TOOL_SCHEMAS[name]["description"],
                  "inputSchema": TOOL_SCHEMAS[name]["inputSchema"]} for name in TOOL_NAMES]
-
-
+    
+    
     def handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
         method = request.get("method")
         request_id = request.get("id")
@@ -375,8 +398,8 @@ data:
                                                        ensure_ascii=False)}],
                       "isError": True}
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
-
-
+    
+    
     def main() -> int:
         try:
             get_config()
@@ -400,8 +423,8 @@ data:
             if response is not None:
                 print(json.dumps(response, ensure_ascii=False), flush=True)
         return 0
-
-
+    
+    
     if __name__ == "__main__":
         raise SystemExit(main())
   mcp-env.json: |
