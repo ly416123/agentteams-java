@@ -95,4 +95,19 @@ class GatewayRuntimeAdapterEventReportTest {
         adapter.reportEvent(taskId, "tool.called", "{}");
         assertEquals(1, channel.sent.size());
     }
+
+    @Test
+    void rateLimitBudgetIsPerTask() {
+        CapturingChannel channel = new CapturingChannel();
+        GatewayRuntimeAdapter adapter = adapter(channel, 1);
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        adapter.acceptAssignment(assignment(first));
+        adapter.acceptAssignment(assignment(second));
+        channel.sent.clear();
+        adapter.reportEvent(first, "tool.called", "{}");
+        adapter.reportEvent(second, "tool.called", "{}");
+        // 规格要求每任务滑动窗口：两个任务各自的预算互不挤占（worker 级共享窗口只会放行 1 条）。
+        assertEquals(2, channel.sent.size());
+    }
 }

@@ -1,6 +1,6 @@
 # 任务过程可见性一期 实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]`）语法来跟踪进度。
 
 **目标：** 对话创建的任务在 Console 详情页实时可见执行过程——QwenPaw SSE 中的白名单动作（工具调用）经 worker→gateway→NATS→控制面落入 `task_process_events`，前端主列时间线合并生命周期流与过程事件流，右栏新增信息面板（DAG、标签页、来源会话回链）。
 
@@ -61,7 +61,7 @@
 **文件：**
 - 修改：`contracts/src/main/proto/agent_channel.proto`（TaskProgress 之后 L120 附近 + AgentMessage oneof L237-250）
 
-- [ ] **步骤 1：在 `message TaskProgress { ... }` 之后（L120 `}` 与 L122 `message TaskHeartbeat` 之间）插入消息**
+- [x] **步骤 1：在 `message TaskProgress { ... }` 之后（L120 `}` 与 L122 `message TaskHeartbeat` 之间）插入消息**
 
 ```protobuf
 // Worker-reported, best-effort action stream entry (e.g. tool calls). It never
@@ -78,20 +78,20 @@ message TaskEventReport {
 }
 ```
 
-- [ ] **步骤 2：在 `AgentMessage` 的 oneof 中（`AgentHeartbeat agent_heartbeat = 10;` 之后）加字段**
+- [x] **步骤 2：在 `AgentMessage` 的 oneof 中（`AgentHeartbeat agent_heartbeat = 10;` 之后）加字段**
 
 ```protobuf
     TaskEventReport task_event_report = 11;
 ```
 
-- [ ] **步骤 3：编译生成并确认**
+- [x] **步骤 3：编译生成并确认**
 
 运行：`cd /Users/gecko/code/agentteams-java && mvn -q -pl contracts install -DskipTests`
 预期：BUILD SUCCESS。再确认生成类存在：
 `ls contracts/target/generated-sources/protobuf/java/io/agentteams/contracts/v1/ | grep TaskEventReport`
 预期：输出 `TaskEventReport.java`、`TaskEventReportOrBuilder.java`
 
-- [ ] **步骤 4：Commit**
+- [x] **步骤 4：Commit**
 
 ```bash
 git add contracts/src/main/proto/agent_channel.proto
@@ -116,7 +116,7 @@ oneof 字段 11：metadata 沿用既有事件元数据，sequence 为 worker 本
 - 修改：`application-contracts/src/main/java/io/agentteams/application/api/ExecutionEventEnvelope.java`
 - 测试：`application-contracts/src/test/java/io/agentteams/application/api/ExecutionEventEnvelopeTest.java`（新建）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 创建 `application-contracts/src/test/java/io/agentteams/application/api/ExecutionEventEnvelopeTest.java`：
 
@@ -161,12 +161,12 @@ class ExecutionEventEnvelopeTest {
 }
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl application-contracts -am test -Dtest=ExecutionEventEnvelopeTest`
 预期：编译错误 `cannot find symbol: method taskEvent` / `TaskEventReportCommand`（红）
 
-- [ ] **步骤 3：实现 ExecutionEventPort 的命令与端口方法**
+- [x] **步骤 3：实现 ExecutionEventPort 的命令与端口方法**
 
 在 `ExecutionEventPort.java` 中，`rejectUnaccepted` 声明之后加端口方法，`ArtifactReference` record 之前加命令 record：
 
@@ -203,7 +203,7 @@ class ExecutionEventEnvelopeTest {
     }
 ```
 
-- [ ] **步骤 4：实现 ExecutionEventEnvelope 的 TASK_EVENT 类型**
+- [x] **步骤 4：实现 ExecutionEventEnvelope 的 TASK_EVENT 类型**
 
 四处修改 `ExecutionEventEnvelope.java`：
 
@@ -227,12 +227,12 @@ class ExecutionEventEnvelopeTest {
     }
 ```
 
-- [ ] **步骤 5：运行验证通过**
+- [x] **步骤 5：运行验证通过**
 
 运行：`mvn -q -pl application-contracts -am test`
 预期：PASS（含既有测试，说明既有 TASK/LEASE_RENEWAL/REJECTION 构造点未被破坏——次构造器已同步补参）
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add application-contracts/src/main/java/io/agentteams/application/api/ExecutionEventPort.java \
@@ -262,7 +262,7 @@ git commit -m "feat(契约): 添加任务过程上报命令与 TASK_EVENT 信封
 - 修改：`runtime/src/main/java/io/agentteams/runtime/QwenPawRuntime.java`（存储并转发）
 - 测试：`runtime/src/test/java/io/agentteams/runtime/RuntimeEventRateLimiterTest.java`（新建）
 
-- [ ] **步骤 1：编写失败的限速器测试**
+- [x] **步骤 1：编写失败的限速器测试**
 
 创建 `runtime/src/test/java/io/agentteams/runtime/RuntimeEventRateLimiterTest.java`：
 
@@ -315,12 +315,12 @@ class RuntimeEventRateLimiterTest {
 }
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl runtime -am test -Dtest=RuntimeEventRateLimiterTest`
 预期：编译错误 `cannot find symbol: class RuntimeEventRateLimiter`（红）
 
-- [ ] **步骤 3：实现三个新类型与两处 SPI 转发**
+- [x] **步骤 3：实现三个新类型与两处 SPI 转发**
 
 创建 `RuntimeEventRateLimiter.java`：
 
@@ -434,12 +434,12 @@ public interface RuntimeEventSink {
     }
 ```
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl runtime -am test`
 预期：PASS（既有 runtime 测试全绿，default 方法零破坏）
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add runtime/src/main/java/io/agentteams/runtime/RuntimeEvent.java \
@@ -467,7 +467,7 @@ QwenPawProcessPort 的 default 方法逐层注入，未接线的运行时保持
 - 修改：`runtime/src/main/java/io/agentteams/runtime/QwenPawHttpRuntimePort.java`
 - 测试：`runtime/src/test/java/io/agentteams/runtime/QwenPawHttpRuntimeEventTest.java`（新建，自包含）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 创建 `runtime/src/test/java/io/agentteams/runtime/QwenPawHttpRuntimeEventTest.java`：
 
@@ -562,12 +562,12 @@ class QwenPawHttpRuntimeEventTest {
 }
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl runtime -am test -Dtest=QwenPawHttpRuntimeEventTest`
 预期：FAIL——第一个用例 events 为空（白名单转换尚未实现）
 
-- [ ] **步骤 3：实现白名单转换与配对计时**
+- [x] **步骤 3：实现白名单转换与配对计时**
 
 修改 `QwenPawHttpRuntimePort.java`：
 
@@ -644,12 +644,12 @@ class QwenPawHttpRuntimeEventTest {
 
 ⑤ `publish(...)` 中 `requests.remove(task.id(), handle)` 成功分支加 `toolStarts.remove(task.id());`（终态后清理配对表）。
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl runtime -am test`
 预期：PASS（新用例 + 既有 QwenPawHttpRuntimePortTest 全绿——终态语义未被改动）
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add runtime/src/main/java/io/agentteams/runtime/QwenPawHttpRuntimePort.java \
@@ -673,7 +673,7 @@ tool.finished（含 elapsedMs 与 ok），reasoning/message.delta 等其余
 - 修改：`runtime/src/main/java/io/agentteams/runtime/GatewayRuntimeAdapter.java`
 - 测试：`runtime/src/test/java/io/agentteams/runtime/GatewayRuntimeAdapterEventReportTest.java`（新建，自包含）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 创建 `runtime/src/test/java/io/agentteams/runtime/GatewayRuntimeAdapterEventReportTest.java`：
 
@@ -772,12 +772,12 @@ class GatewayRuntimeAdapterEventReportTest {
 }
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl runtime -am test -Dtest=GatewayRuntimeAdapterEventReportTest`
 预期：编译错误 `cannot find symbol: method reportEvent` / 构造器缺少 6 参形式（红）
 
-- [ ] **步骤 3：实现 reportEvent 与限速接线**
+- [x] **步骤 3：实现 reportEvent 与限速接线**
 
 修改 `GatewayRuntimeAdapter.java`：
 
@@ -856,12 +856,12 @@ class GatewayRuntimeAdapterEventReportTest {
 
 ⑤ 类顶部常量区加 `private static final int MAX_EVENT_PAYLOAD_BYTES = 4096;`（`metadata(...)` helper 已设置 eventId/agentId/taskId/expectedVersion/occurredAt，直接复用，无需 advanceVersion）。
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl runtime -am test`
 预期：PASS（新 3 用例 + 既有 GatewayRuntimeAdapterTest 系列全绿）
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add runtime/src/main/java/io/agentteams/runtime/GatewayRuntimeAdapter.java \
@@ -886,7 +886,7 @@ GatewayRuntimeAdapter.reportEvent 作为 worker 出口闸门：未分配任务
 - 修改：`agent-worker/src/main/java/io/agentteams/worker/WorkerRuntimeRouter.java`
 - 测试：`agent-worker/src/test/java/io/agentteams/worker/QwenPawWorkerEventRateLimitTest.java`（新建）
 
-- [ ] **步骤 1：编写失败的配置测试**
+- [x] **步骤 1：编写失败的配置测试**
 
 创建 `agent-worker/src/test/java/io/agentteams/worker/QwenPawWorkerEventRateLimitTest.java`：
 
@@ -915,12 +915,12 @@ class QwenPawWorkerEventRateLimitTest {
 }
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl agent-worker -am test -Dtest=QwenPawWorkerEventRateLimitTest`
 预期：编译错误 `cannot find symbol: method eventRateLimit()`（红）
 
-- [ ] **步骤 3：实现配置组件与接线**
+- [x] **步骤 3：实现配置组件与接线**
 
 ① `WorkerConfiguration` record：在 `int modelCallMaxConcurrent,` 组件之后插入一行 `int eventRateLimit,`。
 
@@ -946,12 +946,12 @@ class QwenPawWorkerEventRateLimitTest {
     }
 ```
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl agent-worker -am test`
 预期：PASS。若既有测试直接 new 了 WorkerConfiguration，按组件顺序在 modelCallMaxConcurrent 之后补 `30`（编译器会逐个指出位置）。
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add agent-worker/src/main/java/io/agentteams/worker/QwenPawWorker.java \
@@ -978,7 +978,7 @@ WorkerConfiguration 新增 AGENTTEAMS_EVENT_RATE_LIMIT（默认 30），
 - 修改：`agent-gateway/src/main/java/io/agentteams/gateway/ControlPlaneGatewayApplicationHandler.java`
 - 测试：`agent-gateway/src/test/java/io/agentteams/gateway/TaskEventReportHandlingTest.java`（新建）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 创建 `agent-gateway/src/test/java/io/agentteams/gateway/TaskEventReportHandlingTest.java`
 （模式沿用 `ControlPlaneGatewayApplicationHandlerTest`：Mockito mock ExecutionEventPort + 本地 connection()/metadata() helper）：
@@ -1071,12 +1071,12 @@ class TaskEventReportHandlingTest {
 }
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl agent-gateway -am test -Dtest=TaskEventReportHandlingTest`
 预期：编译错误 `cannot find symbol: method taskEventReport`（红）
 
-- [ ] **步骤 3：实现接口 default、路由与校验**
+- [x] **步骤 3：实现接口 default、路由与校验**
 
 ① `GatewayApplicationHandler.java`：import 区加 `import io.agentteams.contracts.v1.TaskEventReport;`；接口内（`taskFailed` 之后）加：
 
@@ -1133,12 +1133,12 @@ class TaskEventReportHandlingTest {
     }
 ```
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl agent-gateway -am test`
 预期：PASS（新 3 用例 + 既有 InboundEventHandlerTest / ControlPlaneGatewayApplicationHandlerTest 全绿——default 方法未破坏既有实现）
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add agent-gateway/src/main/java/io/agentteams/gateway/GatewayApplicationHandler.java \
@@ -1164,7 +1164,7 @@ InvalidMessage，保证中间事件永不威胁承载终态事件的连接。
 - 修改：`agent-gateway/src/main/java/io/agentteams/gateway/NatsExecutionEventPublisher.java`
 - 测试：`agent-gateway/src/test/java/io/agentteams/gateway/NatsExecutionEventPublisherTest.java`（新建，若已存在同名文件则追加用例）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 ```java
 package io.agentteams.gateway;
@@ -1210,12 +1210,12 @@ class NatsExecutionEventPublisherTest {
 
 （`JetStream` 打桩用 `mock(JetStream.class)`，与既有 `NatsGatewayEventConsumerTest` 一致；publisher 走 `jetStream.publish(String subject, byte[] body)` 重载。）
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl agent-gateway -am test -Dtest=NatsExecutionEventPublisherTest`
 预期：编译错误 `cannot find symbol: method taskEventReport`（红）
 
-- [ ] **步骤 3：实现发布方法**
+- [x] **步骤 3：实现发布方法**
 
 `NatsExecutionEventPublisher.java` 在 `rejectUnaccepted(...)` 之后加：
 
@@ -1226,12 +1226,12 @@ class NatsExecutionEventPublisherTest {
     }
 ```
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl agent-gateway -am test`
 预期：PASS（envelope JSON 序列化往返包含 taskEventReport 组件）
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add agent-gateway/src/main/java/io/agentteams/gateway/NatsExecutionEventPublisher.java \
@@ -1255,7 +1255,7 @@ TASK_EVENT，沿 agentExecution 主题投递，复用既有 trace 上下文，
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/application/ControlPlaneExecutionEventAdapter.java`
 - 测试：`control-plane/src/test/java/io/agentteams/controlplane/outbox/`（既有 consumer 测试文件追加用例；`grep -l "TASK_EVENT\|ExecutionEventEnvelope" control-plane/src/test -r | head -1` 定位）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 在 `NatsExecutionEventConsumerTest`（`control-plane/src/test/java/io/agentteams/controlplane/outbox/`）追加用例——沿用该文件既有的 `Message message = mock(Message.class)` + `when(message.getData())` 打桩：
 
@@ -1286,12 +1286,12 @@ TASK_EVENT，沿 agentExecution 主题投递，复用既有 trace 上下文，
 
 （import 区按需补：`com.fasterxml.jackson.databind.ObjectMapper`、`io.agentteams.application.api.ExecutionEventEnvelope`、`java.time.Instant`、`java.util.UUID`、`org.mockito.ArgumentCaptor`、`org.mockito.ArgumentMatchers.eq`。）
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl control-plane -am test -Dtest=NatsExecutionEventConsumerTest#dispatchesTaskEventEnvelopeToExecutionPortAndAcks`
 预期：FAIL——`unsupported execution event type: TASK_EVENT`（分发无此分支，消息走 IllegalArgumentException）
 
-- [ ] **步骤 3：实现分发分支与适配器转发**
+- [x] **步骤 3：实现分发分支与适配器转发**
 
 ① `NatsExecutionEventConsumer.process` 的类型分发链（`REJECTION` 分支之后）加：
 
@@ -1327,12 +1327,12 @@ TASK_EVENT，沿 agentExecution 主题投递，复用既有 trace 上下文，
     }
 ```
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl control-plane -am test`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add control-plane/src/main/java/io/agentteams/controlplane/outbox/NatsExecutionEventConsumer.java \
@@ -1358,7 +1358,7 @@ git commit -m "feat(控制面): 消费 TASK_EVENT 并转发观测端口
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/api/TaskController.java`（TaskResponse L174-181）
 - 测试：`control-plane/src/test/java/io/agentteams/controlplane/application/ControlPlaneTaskExecutionObservationAdapterTest.java`（已存在，追加用例；Mockito 替身模式与类内既有常量见步骤 1）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 在 `ControlPlaneTaskExecutionObservationAdapterTest`（已存在，`control-plane/src/test/java/io/agentteams/controlplane/application/`）追加用例——沿用该文件的 Mockito 模式：mock `TaskRunObservationRepository`/`TaskProcessEventService`，类内已有 `TASK_ID`/`RUN_ID`/`NOW`/`CONTEXT` 常量：
 
@@ -1412,12 +1412,12 @@ git commit -m "feat(控制面): 消费 TASK_EVENT 并转发观测端口
 
 （该测试类已 import `mock/when/verify/assertThat/Optional/UUID/Instant`；按需补 `import org.mockito.ArgumentCaptor;`、`import static org.mockito.Mockito.never;`、`import io.agentteams.application.api.TaskEventVisibility;`。包私有构造器 `ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository, ...)` 与既有用例一致。）
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`mvn -q -pl control-plane -am test -Dtest=ControlPlaneTaskExecutionObservationAdapterTest`
 预期：编译错误 `cannot find symbol: method observed`（红）
 
-- [ ] **步骤 3：实现观测端口方法与二次校验**
+- [x] **步骤 3：实现观测端口方法与二次校验**
 
 ① `TaskExecutionObservationPort.java`：`failed(...)` 声明之后加 default 方法（default 保证既有 noop/实现零破坏）：
 
@@ -1511,12 +1511,12 @@ git commit -m "feat(控制面): 消费 TASK_EVENT 并转发观测端口
 
 （`TaskController` 若尚无 Jackson import，补 `import com.fasterxml.jackson.databind.JsonNode;` 与 `import com.fasterxml.jackson.databind.ObjectMapper;`。）
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`mvn -q -pl control-plane -am test`
 预期：PASS（新 3 用例 + 既有观测适配器测试全绿）
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add application-contracts/src/main/java/io/agentteams/application/api/TaskExecutionObservationPort.java \
@@ -1541,7 +1541,7 @@ observed() 作为入口闸门执行白名单（tool.called/tool.finished）、
 - 修改：`scripts/agentteams-task-mcp.py`（TOOL_SCHEMAS create_task L44-73、`tool_create_task` L262-291）
 - 修改：`scripts/test_agentteams_task_mcp.py`（追加用例）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 在既有 TestCase 类中追加两个用例——沿用该文件的本地 `ThreadingHTTPServer` 假服务器模式（`self._use_env(self.env)` + `MCP.call_tool` + `self.server.requests` 捕获请求体，与既有 `test_create_task_posts_spec_and_queues_with_idempotency_keys` 一致）：
 
@@ -1567,12 +1567,12 @@ observed() 作为入口闸门执行白名单（tool.called/tool.finished）、
         self.assertNotIn("source", body["spec"]["inputJson"])
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`python3 scripts/test_agentteams_task_mcp.py`
 预期：FAIL/ERROR——`tool_create_task` 不接受 source、inputJson 无 source 键
 
-- [ ] **步骤 3：实现 source 参数**
+- [x] **步骤 3：实现 source 参数**
 
 ① `TOOL_SCHEMAS["create_task"]["inputSchema"]["properties"]` 中 `prompt` 之后加：
 
@@ -1614,12 +1614,12 @@ observed() 作为入口闸门执行白名单（tool.called/tool.finished）、
 
 （原 `"inputJson": {"prompt": prompt},` 一行删除，由上面的 `input_json` 取代。`_clean_text` 为既有 helper；若其 `required` 形参为必填，则传 `required=False`。）
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`python3 scripts/test_agentteams_task_mcp.py`
 预期：全部用例 OK（含既有 8 项 + 新 2 项）
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add scripts/agentteams-task-mcp.py scripts/test_agentteams_task_mcp.py
@@ -1646,7 +1646,7 @@ spec.inputJson.source（camelCase），控制面原样持久化，Console
 - 修改：`console/src/styles/global.css`
 - 测试：`console/tests/features/TaskInfoPanel.test.tsx`（新建）
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 创建 `console/tests/features/TaskInfoPanel.test.tsx`：
 
@@ -1725,12 +1725,12 @@ describe('TaskInfoPanel', () => {
 });
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`cd console && npx vitest run tests/features/TaskInfoPanel.test.tsx`
 预期：FAIL——模块 `../../src/features/tasks/TaskInfoPanel` 不存在（红）
 
-- [ ] **步骤 3：实现 TaskDag 与 TaskInfoPanel**
+- [x] **步骤 3：实现 TaskDag 与 TaskInfoPanel**
 
 创建 `console/src/features/tasks/TaskDag.tsx`（SVG 分层布局：根在上，子节点按 sequence 横排，直线连边）：
 
@@ -1957,7 +1957,7 @@ export function TaskInfoPanel({
 }
 ```
 
-- [ ] **步骤 4：TaskDetailPage 重排（grid 主列 + 右栏）与双流合并**
+- [x] **步骤 4：TaskDetailPage 重排（grid 主列 + 右栏）与双流合并**
 
 ① `console/src/api/types.ts` 的 `Task` 类型尾部加一行：
 
@@ -2123,12 +2123,12 @@ export function mergeTaskTimelines(
 }
 ```
 
-- [ ] **步骤 5：运行验证通过**
+- [x] **步骤 5：运行验证通过**
 
 运行：`cd console && npx vitest run tests/features/TaskInfoPanel.test.tsx tests/features/TaskPages.test.tsx`
 预期：PASS（新 4 用例 + 既有 TaskPages 全绿；若 TaskPages 既有用例断言「执行信息」在主列，按新布局把断言移到右栏）
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add console/src/api/types.ts \
@@ -2154,22 +2154,22 @@ git commit -m "feat(控制台): 任务详情页新增右栏信息面板与过程
 
 **文件：** 无新增（只运行验证）
 
-- [ ] **步骤 1：Java 全模块回归**
+- [x] **步骤 1：Java 全模块回归**
 
 运行：`cd /Users/gecko/code/agentteams-java && mvn -q test`
 预期：BUILD SUCCESS，全部模块测试通过（重点确认 agent-gateway / control-plane 的既有 consumer/observation 用例未回归）
 
-- [ ] **步骤 2：Console 回归**
+- [x] **步骤 2：Console 回归**
 
 运行：`cd console && npx vitest run`
 预期：全部通过；`npx tsc -p tsconfig.app.json --noEmit` 无类型错误
 
-- [ ] **步骤 3：MCP 契约测试回归**
+- [x] **步骤 3：MCP 契约测试回归**
 
 运行：`python3 scripts/test_agentteams_task_mcp.py`
 预期：全部 OK
 
-- [ ] **步骤 4：核对规格覆盖并收尾**
+- [x] **步骤 4：核对规格覆盖并收尾**
 
 对照规格 `docs/superpowers/specs/2026-09-08-task-process-visibility-design.md` 逐节核对：
 - 8 环节数据流 → 任务 1-10 每环节一个模块
@@ -2181,7 +2181,7 @@ git commit -m "feat(控制台): 任务详情页新增右栏信息面板与过程
 
 若有遗漏，补任务后再运行本步骤确认。
 
-- [ ] **步骤 5：最终提交（若有零散修正）**
+- [x] **步骤 5：最终提交（若有零散修正）**
 
 ```bash
 git status --short

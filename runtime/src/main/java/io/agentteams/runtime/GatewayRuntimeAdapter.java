@@ -48,8 +48,8 @@ public final class GatewayRuntimeAdapter {
     private final Clock clock;
     private final RuntimeArtifactUploadPort uploads;
     private final Map<UUID, AssignmentContext> assignments = new ConcurrentHashMap<>();
-    /** null 表示不限速；worker 按配置传入（默认 30/s）。 */
-    private final RuntimeEventRateLimiter eventLimiter;
+    /** <= 0 表示不限速；每个任务赋值各自持有一个滑动窗口限速器（默认 30/s）。 */
+    private final int eventRateLimit;
 
     public GatewayRuntimeAdapter(String agentId, AgentChannelPort channel, AgentRuntime runtime, Clock clock) {
         this(agentId, channel, runtime, clock, null);
@@ -70,8 +70,7 @@ public final class GatewayRuntimeAdapter {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.uploads = uploads;
-        this.eventLimiter = eventRateLimit > 0
-                ? new RuntimeEventRateLimiter(eventRateLimit, java.time.Duration.ofSeconds(1), clock) : null;
+        this.eventRateLimit = eventRateLimit;
     }
 
     public RuntimeSubmission acceptAssignment(TaskAssigned assignment) {
@@ -100,7 +99,8 @@ public final class GatewayRuntimeAdapter {
                 assignment.getInputJson().toStringUtf8(), metadata);
         AssignmentContext assignmentContext = new AssignmentContext(input, assignment.getLeaseExpiresAt(),
                 assignment.getTenantId(), assignment.getProjectId(), assignment.getTeamId(),
-                assignment.getToolId(), assignment.getQuotaId(), assignment.getQuotaDimension());
+                assignment.getToolId(), assignment.getQuotaId(), assignment.getQuotaDimension(),
+                eventRateLimit, clock);
         AssignmentContext existing = assignments.putIfAbsent(taskId, assignmentContext);
         boolean registered = existing == null;
         if (existing != null && existing.matches(input)) {
@@ -173,6 +173,7 @@ public final class GatewayRuntimeAdapter {
                             + MAX_EVENT_PAYLOAD_BYTES + " bytes");
             return;
         }
+        RuntimeEventRateLimiter eventLimiter = context.eventLimiter();
         if (eventLimiter != null && !eventLimiter.tryAcquire()) {
             // 高频路径降为 debug，避免日志刷屏。
             LOG.log(System.Logger.Level.DEBUG, "Rate limit shed runtime event for task " + taskId);
@@ -420,11 +421,13 @@ public final class GatewayRuntimeAdapter {
         private final String toolId;
         private final String quotaId;
         private final String quotaDimension;
+        private final RuntimeEventRateLimiter eventLimiter;
         private long expectedVersion;
         private long eventSequence;
 
         private AssignmentContext(EventMetadata metadata, Timestamp leaseExpiresAt, String tenantId,
-                String projectId, String teamId, String toolId, String quotaId, String quotaDimension) {
+                String projectId, String teamId, String toolId, String quotaId, String quotaDimension,
+                int eventRateLimit, Clock clock) {
             this.metadata = metadata;
             this.leaseExpiresAt = leaseExpiresAt;
             this.tenantId = tenantId;
@@ -434,6 +437,13 @@ public final class GatewayRuntimeAdapter {
             this.quotaId = quotaId;
             this.quotaDimension = quotaDimension;
             this.expectedVersion = metadata.getExpectedVersion();
+            // 规格要求每任务独立滑动窗口：预算随赋值生命周期走，任务完成后随 assignments 清理。
+            this.eventLimiter = eventRateLimit > 0
+                    ? new RuntimeEventRateLimiter(eventRateLimit, java.time.Duration.ofSeconds(1), clock) : null;
+        }
+
+        private RuntimeEventRateLimiter eventLimiter() {
+            return eventLimiter;
         }
 
         private synchronized EventMetadata metadata() {

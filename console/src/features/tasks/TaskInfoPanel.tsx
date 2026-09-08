@@ -58,8 +58,9 @@ export function mergeTaskTimelines(
     time: event.occurredAt,
     tone: event.eventType === 'task.failed' ? 'danger' : undefined,
   }));
+  // ISO 时间戳可能省略尾零（Instant.toString 同秒混合精度），用时间戳数值比较而非字典序。
   return [...lifecycleItems, ...processItems].sort(
-    (left, right) => (left.time || '').localeCompare(right.time || ''),
+    (left, right) => (Date.parse(left.time || '') || 0) - (Date.parse(right.time || '') || 0),
   );
 }
 
