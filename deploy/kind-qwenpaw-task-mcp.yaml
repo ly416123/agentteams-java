@@ -1,0 +1,422 @@
+apiVersion: v1
+data:
+  agentteams-task-mcp.py: |-
+    #!/usr/bin/env python3
+    """AgentTeams task tools as a zero-dependency stdio MCP server.
+
+    Lets a QwenPaw conversation agent create, inspect, and collect AgentTeams
+    tasks through the control-plane REST API. Protocol handling follows the
+    newline-delimited JSON-RPC shape used by upstream AgentTeams plugins
+    (initialize -> 2024-11-05, tools/list, tools/call).
+
+    Required environment:
+      AGENTTEAMS_CONTROL_PLANE_URL  base URL, e.g. http://agentteams-control-plane:8080
+      AGENTTEAMS_MCP_SCOPE          JSON {"tenant","project","team"} used for created tasks
+
+    Authentication (either):
+      AGENTTEAMS_MCP_TOKEN          static bearer token, or
+      AGENTTEAMS_OIDC_TOKEN_URL + AGENTTEAMS_MCP_USERNAME + AGENTTEAMS_MCP_PASSWORD
+      (password grant against Keycloak; token cached until shortly before expiry)
+    """
+
+    from __future__ import annotations
+
+    import json
+    import os
+    import sys
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    import uuid
+    from dataclasses import dataclass
+    from typing import Any
+
+    SERVER_NAME = "agentteams-tasks"
+    SERVER_VERSION = "0.1.0"
+    PROTOCOL_VERSION = "2024-11-05"
+    HTTP_TIMEOUT_SECONDS = 20.0
+
+    MAX_TITLE = 200
+    MAX_DESCRIPTION = 2000
+    MAX_PROMPT = 8000
+
+    TOOL_NAMES = ["create_task", "get_task", "get_task_result"]
+
+    TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+        "create_task": {
+            "description": (
+                "Create an AgentTeams task and immediately queue it for execution. "
+                "A worker agent (QwenPaw runtime) picks it up, executes the prompt, "
+                "and publishes artifacts that become downloadable. Use for real "
+                "deliverables such as reports or files. Returns the taskId and phase. "
+                "Check progress later with get_task and fetch deliverables with "
+                "get_task_result."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short human-readable task title.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional longer description of the request.",
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": (
+                            "Complete execution instruction for the worker agent, "
+                            "including the requested deliverable format (for example "
+                            "'produce a PDF file')."
+                        ),
+                    },
+                },
+                "required": ["title", "prompt"],
+            },
+        },
+        "get_task": {
+            "description": (
+                "Return the current phase of an AgentTeams task (DRAFT, QUEUED, "
+                "ASSIGNED, RUNNING, SUCCEEDED, FAILED, ...)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task UUID."},
+                },
+                "required": ["task_id"],
+            },
+        },
+        "get_task_result": {
+            "description": (
+                "Return the final result of a finished AgentTeams task: status, "
+                "summary, and the artifact list with presigned download URLs "
+                "(valid for about 15 minutes)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task UUID."},
+                },
+                "required": ["task_id"],
+            },
+        },
+    }
+
+
+    @dataclass
+    class Config:
+        control_plane_url: str
+        tenant: str
+        project: str
+        team: str
+        static_token: str | None
+        oidc_token_url: str | None
+        oidc_client_id: str
+        username: str | None
+        password: str | None
+
+
+    DEFAULT_CONFIG_FILE = "/opt/agentteams-mcp/mcp-env.json"
+
+
+    def _merge_config_file(env: dict[str, str]) -> dict[str, str]:
+        """Overlay settings from AGENTTEAMS_MCP_CONFIG_FILE beneath explicit env.
+
+        The file keeps credentials off the QwenPaw MCP client listing (GET /api/mcp
+        returns client.env verbatim), so registered clients only carry the path.
+        QwenPaw does not always forward client.env to the spawned stdio process,
+        so fall back to the ConfigMap mount point when the variable is unset.
+        """
+        path = env.get("AGENTTEAMS_MCP_CONFIG_FILE")
+        if not path and os.path.exists(DEFAULT_CONFIG_FILE):
+            path = DEFAULT_CONFIG_FILE
+        if not path or not os.path.exists(path):
+            return env
+        with open(path, encoding="utf-8") as handle:
+            file_settings = json.load(handle)
+        merged = {str(key): str(value) for key, value in file_settings.items()}
+        merged.update({key: value for key, value in env.items() if key.startswith("AGENTTEAMS_")})
+        return merged
+
+
+    def load_config(env: dict[str, str] | None = None) -> Config:
+        source = _merge_config_file(dict(os.environ if env is None else env))
+        base = (source.get("AGENTTEAMS_CONTROL_PLANE_URL") or "").rstrip("/")
+        if not base:
+            raise ValueError("AGENTTEAMS_CONTROL_PLANE_URL is required")
+        scope_raw = source.get("AGENTTEAMS_MCP_SCOPE") or '{"tenant":"tenant-a","project":"project-a","team":"team-a"}'
+        scope = json.loads(scope_raw)
+        for key in ("tenant", "project", "team"):
+            if not isinstance(scope.get(key), str) or not scope[key].strip():
+                raise ValueError(f"AGENTTEAMS_MCP_SCOPE is missing string field: {key}")
+        return Config(
+            control_plane_url=base,
+            tenant=scope["tenant"],
+            project=scope["project"],
+            team=scope["team"],
+            static_token=source.get("AGENTTEAMS_MCP_TOKEN") or None,
+            oidc_token_url=source.get("AGENTTEAMS_OIDC_TOKEN_URL") or None,
+            oidc_client_id=source.get("AGENTTEAMS_OIDC_CLIENT_ID") or "agentteams-api",
+            username=source.get("AGENTTEAMS_MCP_USERNAME") or None,
+            password=source.get("AGENTTEAMS_MCP_PASSWORD") or None,
+        )
+
+
+    _CONFIG: Config | None = None
+    _TOKEN_CACHE: dict[str, Any] = {"token": None, "expires_at": 0.0}
+
+
+    def get_config() -> Config:
+        global _CONFIG
+        if _CONFIG is None:
+            _CONFIG = load_config()
+        return _CONFIG
+
+
+    def reset_state() -> None:
+        global _CONFIG
+        _CONFIG = None
+        _TOKEN_CACHE["token"] = None
+        _TOKEN_CACHE["expires_at"] = 0.0
+
+
+    def _http_json(method: str, url: str, *, token: str | None = None,
+                   idempotency_key: str | None = None, body: Any = None,
+                   form: dict[str, str] | None = None) -> dict[str, Any]:
+        headers = {"Accept": "application/json"}
+        data = None
+        if form is not None:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            data = urllib.parse.urlencode(form).encode("utf-8")
+        elif body is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+                payload = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:300]
+            raise RuntimeError(f"HTTP {error.code} from {url}: {detail}") from error
+        except urllib.error.URLError as error:
+            # DNS failures and refused connections surface as URLError; convert so
+            # the stdio loop can report them as tool errors instead of crashing.
+            raise RuntimeError(f"connection to {url} failed: {error.reason}") from error
+        if not payload:
+            return {}
+        return json.loads(payload)
+
+
+    def _fetch_token() -> str:
+        if _TOKEN_CACHE["token"] and time.time() < _TOKEN_CACHE["expires_at"] - 30.0:
+            return _TOKEN_CACHE["token"]
+        config = get_config()
+        if config.static_token:
+            return config.static_token
+        if not (config.oidc_token_url and config.username and config.password):
+            raise ValueError("no AGENTTEAMS_MCP_TOKEN and no OIDC password-grant credentials configured")
+        response = _http_json("POST", config.oidc_token_url, form={
+            "grant_type": "password",
+            "client_id": config.oidc_client_id,
+            "username": config.username,
+            "password": config.password,
+        })
+        token = response.get("access_token")
+        if not token:
+            raise RuntimeError("token endpoint returned no access_token")
+        _TOKEN_CACHE["token"] = token
+        _TOKEN_CACHE["expires_at"] = time.time() + float(response.get("expires_in", 300))
+        return token
+
+
+    def _clean_text(value: Any, field: str, max_length: int, required: bool) -> str:
+        if value is None:
+            value = ""
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string")
+        text = "".join(char for char in value.replace("\r\n", "\n") if char >= " " or char in "\n\t")
+        text = text.strip()
+        if required and not text:
+            raise ValueError(f"{field} must not be blank")
+        if len(text) > max_length:
+            raise ValueError(f"{field} must be at most {max_length} characters")
+        return text
+
+
+    def _safe_uuid(value: Any, field: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string")
+        try:
+            return str(uuid.UUID(value.strip()))
+        except ValueError as error:
+            raise ValueError(f"{field} must be a UUID") from error
+
+
+    def _api_url(config: Config, path: str) -> str:
+        return config.control_plane_url + path
+
+
+    def tool_create_task(arguments: dict[str, Any]) -> dict[str, Any]:
+        config = get_config()
+        title = _clean_text(arguments.get("title"), "title", MAX_TITLE, required=True)
+        description = _clean_text(arguments.get("description"), "description", MAX_DESCRIPTION, required=False)
+        prompt = _clean_text(arguments.get("prompt"), "prompt", MAX_PROMPT, required=True)
+        spec = {
+            "scope": {"tenant": config.tenant, "project": config.project, "team": config.team},
+            "taskType": "qwenpaw",
+            "inputJson": {"prompt": prompt},
+            "requiredCapabilities": [],
+        }
+        created = _http_json(
+            "POST", _api_url(config, "/api/v1/tasks"),
+            token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
+            body={"title": title, "description": description, "spec": spec},
+        )
+        task_id = created.get("id")
+        if not task_id:
+            return {"ok": False, "error": "task creation returned no id", "response": created}
+        queued = _http_json(
+            "POST", _api_url(config, f"/api/v1/tasks/{task_id}/queue"),
+            token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
+            body={"expectedVersion": 0},
+        )
+        return {
+            "ok": True,
+            "taskId": task_id,
+            "phase": queued.get("phase"),
+            "title": title,
+            "note": "The task is queued; a worker will execute the prompt. "
+                    "Use get_task to watch progress and get_task_result for deliverables.",
+        }
+
+
+    def tool_get_task(arguments: dict[str, Any]) -> dict[str, Any]:
+        config = get_config()
+        task_id = _safe_uuid(arguments.get("task_id"), "task_id")
+        task = _http_json("GET", _api_url(config, f"/api/v1/tasks/{task_id}"), token=_fetch_token())
+        return {"ok": True, "taskId": task_id, "phase": task.get("phase"),
+                "title": task.get("title"), "updatedAt": task.get("updatedAt")}
+
+
+    def tool_get_task_result(arguments: dict[str, Any]) -> dict[str, Any]:
+        config = get_config()
+        task_id = _safe_uuid(arguments.get("task_id"), "task_id")
+        runs = _http_json("GET", _api_url(config, f"/api/v1/tasks/{task_id}/runs"), token=_fetch_token())
+        if not runs:
+            return {"ok": True, "taskId": task_id, "status": "no_run_yet",
+                    "note": "The task has not produced a run yet; check back with get_task."}
+        latest = max(runs, key=lambda run: run.get("createdAt", ""))
+        result = _http_json(
+            "GET", _api_url(config, f"/api/v1/tasks/{task_id}/runs/{latest['id']}/result"),
+            token=_fetch_token(),
+        )
+        artifacts = []
+        for artifact in result.get("artifacts") or []:
+            artifacts.append({
+                "name": artifact.get("name"),
+                "storageRef": artifact.get("storageRef"),
+                "contentType": artifact.get("contentType"),
+                "sizeBytes": artifact.get("sizeBytes"),
+                "downloadUrl": artifact.get("downloadUrl"),
+            })
+        return {"ok": True, "taskId": task_id, "status": result.get("status"),
+                "summary": result.get("summary"), "artifacts": artifacts}
+
+
+    def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "create_task":
+            return tool_create_task(arguments)
+        if name == "get_task":
+            return tool_get_task(arguments)
+        if name == "get_task_result":
+            return tool_get_task_result(arguments)
+        return {"ok": False, "error": f"unsupported tool: {name}"}
+
+
+    def list_tools() -> list[dict[str, Any]]:
+        return [{"name": name, "description": TOOL_SCHEMAS[name]["description"],
+                 "inputSchema": TOOL_SCHEMAS[name]["inputSchema"]} for name in TOOL_NAMES]
+
+
+    def handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
+        method = request.get("method")
+        request_id = request.get("id")
+        if request_id is None and isinstance(method, str) and method.startswith("notifications/"):
+            return None
+        try:
+            if method == "initialize":
+                result = {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+                    "capabilities": {"tools": {}},
+                }
+            elif method == "tools/list":
+                result = {"tools": list_tools()}
+            elif method == "tools/call":
+                params = request.get("params", {}) or {}
+                payload = call_tool(str(params.get("name", "")), params.get("arguments", {}) or {})
+                result = {"content": [{"type": "text",
+                                       "text": json.dumps(payload, ensure_ascii=False)}],
+                          "isError": not payload.get("ok", True)}
+            else:
+                result = {"content": [{"type": "text",
+                                        "text": json.dumps({"ok": False, "error": "unknown_method",
+                                                            "method": method}, ensure_ascii=False)}]}
+        except Exception as error:  # never crash the stdio loop on tool errors
+            result = {"content": [{"type": "text",
+                                    "text": json.dumps({"ok": False, "error": str(error)},
+                                                       ensure_ascii=False)}],
+                      "isError": True}
+        return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+    def main() -> int:
+        try:
+            get_config()
+        except (ValueError, OSError, json.JSONDecodeError):
+            # Settings are re-validated lazily on the first tools/call; failing
+            # soft here keeps the MCP client discoverable even when env injection
+            # or the config file is temporarily missing.
+            pass
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                request = json.loads(line)
+            except json.JSONDecodeError:
+                response = {"jsonrpc": "2.0", "id": None,
+                            "error": {"code": -32700, "message": "Parse error"}}
+                print(json.dumps(response, ensure_ascii=False), flush=True)
+                continue
+            response = handle_request(request)
+            if response is not None:
+                print(json.dumps(response, ensure_ascii=False), flush=True)
+        return 0
+
+
+    if __name__ == "__main__":
+        raise SystemExit(main())
+  mcp-env.json: |
+    {
+      "AGENTTEAMS_CONTROL_PLANE_URL": "http://agentteams-agentteams-java-control-plane:8080",
+      "AGENTTEAMS_OIDC_TOKEN_URL": "http://keycloak:8080/realms/agentteams/protocol/openid-connect/token",
+      "AGENTTEAMS_OIDC_CLIENT_ID": "agentteams-api",
+      "AGENTTEAMS_MCP_USERNAME": "alice",
+      "AGENTTEAMS_MCP_PASSWORD": "alice-dev",
+      "AGENTTEAMS_MCP_SCOPE": "{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}"
+    }
+kind: ConfigMap
+metadata:
+  name: qwenpaw-task-mcp
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: qwenpaw-task-mcp
+    app.kubernetes.io/part-of: agentteams

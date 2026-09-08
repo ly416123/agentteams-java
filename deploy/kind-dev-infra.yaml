@@ -409,6 +409,11 @@ spec:
               mountPath: /app/working.secret
             - name: working-backups
               mountPath: /app/working.backups
+            # AgentTeams task tools MCP server, registered into QwenPaw via
+            # POST /api/mcp as a stdio client (see kind-qwenpaw-task-mcp.yaml).
+            - name: task-mcp
+              mountPath: /opt/agentteams-mcp
+              readOnly: true
       volumes:
         - name: working
           persistentVolumeClaim:
@@ -419,6 +424,9 @@ spec:
         - name: working-backups
           persistentVolumeClaim:
             claimName: qwenpaw-backups
+        - name: task-mcp
+          configMap:
+            name: qwenpaw-task-mcp
 ---
 apiVersion: v1
 kind: Service
