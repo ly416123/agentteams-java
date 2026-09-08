@@ -1,3 +1,5 @@
+{{- $mgr := default dict .Values.manager -}}
+{{- $conv := default dict $mgr.conversation -}}
 {{- if .Values.networkPolicy.enabled }}
 {{- if .Values.sandbox.enabled }}
 apiVersion: networking.k8s.io/v1
@@ -49,6 +51,13 @@ spec:
         {{- if .Values.controlPlane.matrix.appservice.hsTokenSecret }}
         - podSelector:
             matchLabels: { app.kubernetes.io/name: tuwunel }
+        {{- end }}
+        {{- if eq (default "fake" $conv.runtime) "qwenpaw" }}
+        # The QwenPaw conversation runtime hosts the AgentTeams task MCP
+        # server; its stdio process calls the Control Plane task API with the
+        # service-account credentials configured on the MCP client.
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: qwenpaw }
         {{- end }}
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
