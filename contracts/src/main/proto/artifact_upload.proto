@@ -29,6 +29,9 @@ enum ArtifactProtocolError {
   ARTIFACT_PROTOCOL_ERROR_VERIFICATION_FAILED = 4;
   ARTIFACT_PROTOCOL_ERROR_DEADLINE_EXCEEDED = 5;
   ARTIFACT_PROTOCOL_ERROR_INTERNAL = 6;
+  // Gateway refused the call because the request carried no transport
+  // credential (x-agent-token / Authorization bearer).
+  ARTIFACT_PROTOCOL_ERROR_UNAUTHENTICATED = 7;
 }
 
 // Requests a presigned upload ticket for one task artifact. The attempt must

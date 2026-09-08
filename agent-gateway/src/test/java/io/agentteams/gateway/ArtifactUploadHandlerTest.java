@@ -19,16 +19,20 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 class ArtifactUploadHandlerTest {
     private static final String TASK_ID = UUID.randomUUID().toString();
     private static final String ATTEMPT_ID = UUID.randomUUID().toString();
 
+    /** 现有用例默认持有传输凭证；空白凭证场景由专门的拒绝用例覆盖。 */
+    private static final Supplier<String> CREDENTIAL = () -> "worker-1";
+
     @Test
     void mapsPrepareToBridgeAndReturnsPresignedTicket() {
         RecordingBridge bridge = new RecordingBridge();
-        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge);
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(), CREDENTIAL);
         RecordingObserver<PrepareArtifactUploadResponse> observer = new RecordingObserver<>();
 
         handler.prepareTaskArtifactUpload(prepareRequest(), observer);
@@ -57,7 +61,7 @@ class ArtifactUploadHandlerTest {
     void clampsThePresignWindowToTheWorkerDeadline() {
         RecordingBridge bridge = new RecordingBridge();
         Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC);
-        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, clock);
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, clock, CREDENTIAL);
         RecordingObserver<PrepareArtifactUploadResponse> observer = new RecordingObserver<>();
         PrepareArtifactUploadRequest request = PrepareArtifactUploadRequest.newBuilder()
                 .mergeFrom(prepareRequest())
@@ -73,7 +77,7 @@ class ArtifactUploadHandlerTest {
     @Test
     void rejectsMalformedPrepareWithoutCallingTheBridge() {
         RecordingBridge bridge = new RecordingBridge();
-        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge);
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(), CREDENTIAL);
         RecordingObserver<PrepareArtifactUploadResponse> observer = new RecordingObserver<>();
 
         handler.prepareTaskArtifactUpload(PrepareArtifactUploadRequest.newBuilder()
@@ -93,7 +97,7 @@ class ArtifactUploadHandlerTest {
         RecordingBridge bridge = new RecordingBridge();
         bridge.prepareError = new ControlPlaneArtifactUploadClient.ControlPlaneInvocationException(
                 "Control Plane artifact endpoint returned HTTP 403", 403);
-        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge);
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(), CREDENTIAL);
         RecordingObserver<PrepareArtifactUploadResponse> observer = new RecordingObserver<>();
 
         handler.prepareTaskArtifactUpload(prepareRequest(), observer);
@@ -108,7 +112,7 @@ class ArtifactUploadHandlerTest {
     @Test
     void mapsCompleteToBridgeAndReturnsArtifactId() {
         RecordingBridge bridge = new RecordingBridge();
-        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge);
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(), CREDENTIAL);
         RecordingObserver<CompleteArtifactUploadResponse> observer = new RecordingObserver<>();
 
         handler.completeTaskArtifactUpload(completeRequest(), observer);
@@ -132,7 +136,7 @@ class ArtifactUploadHandlerTest {
     @Test
     void rejectsMalformedCompleteWithoutCallingTheBridge() {
         RecordingBridge bridge = new RecordingBridge();
-        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge);
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(), CREDENTIAL);
         RecordingObserver<CompleteArtifactUploadResponse> observer = new RecordingObserver<>();
 
         handler.completeTaskArtifactUpload(CompleteArtifactUploadRequest.newBuilder()
@@ -142,6 +146,40 @@ class ArtifactUploadHandlerTest {
             assertThat(response.getAccepted()).isFalse();
             assertThat(response.getProtocolError())
                     .isEqualTo(ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_INVALID_ARGUMENT);
+        });
+        assertThat(bridge.completes).isEmpty();
+    }
+
+    @Test
+    void rejectsPrepareWithoutTransportCredential() {
+        RecordingBridge bridge = new RecordingBridge();
+        // 公理二：无传输凭证（x-agent-token/Bearer）的 unary 调用直接拒绝，
+        // 不触碰 Control Plane。凭证有效性由未来的认证端口校验。
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(), () -> "");
+        RecordingObserver<PrepareArtifactUploadResponse> observer = new RecordingObserver<>();
+
+        handler.prepareTaskArtifactUpload(prepareRequest(), observer);
+
+        assertThat(observer.values).singleElement().satisfies(response -> {
+            assertThat(response.getAccepted()).isFalse();
+            assertThat(response.getProtocolError())
+                    .isEqualTo(ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_UNAUTHENTICATED);
+        });
+        assertThat(bridge.prepares).isEmpty();
+    }
+
+    @Test
+    void rejectsCompleteWithoutTransportCredential() {
+        RecordingBridge bridge = new RecordingBridge();
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(), () -> "");
+        RecordingObserver<CompleteArtifactUploadResponse> observer = new RecordingObserver<>();
+
+        handler.completeTaskArtifactUpload(completeRequest(), observer);
+
+        assertThat(observer.values).singleElement().satisfies(response -> {
+            assertThat(response.getAccepted()).isFalse();
+            assertThat(response.getProtocolError())
+                    .isEqualTo(ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_UNAUTHENTICATED);
         });
         assertThat(bridge.completes).isEmpty();
     }

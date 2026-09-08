@@ -16,6 +16,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * gRPC transport adapter for direct-to-object-storage artifact upload tickets.
@@ -30,14 +31,21 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
 
     private final ArtifactUploadBridge client;
     private final Clock clock;
+    /** Transport credential reader; blank means the call carries no identity. */
+    private final Supplier<String> transportIdentity;
 
     public ArtifactUploadHandler(ArtifactUploadBridge client) {
         this(client, Clock.systemUTC());
     }
 
-    ArtifactUploadHandler(ArtifactUploadBridge client, Clock clock) {
+    public ArtifactUploadHandler(ArtifactUploadBridge client, Clock clock) {
+        this(client, clock, GrpcTransportIdentity::current);
+    }
+
+    ArtifactUploadHandler(ArtifactUploadBridge client, Clock clock, Supplier<String> transportIdentity) {
         this.client = Objects.requireNonNull(client, "client");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.transportIdentity = Objects.requireNonNull(transportIdentity, "transportIdentity");
     }
 
     @Override
@@ -45,6 +53,7 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
             StreamObserver<PrepareArtifactUploadResponse> observer) {
         try {
             validatePrepare(request);
+            requireTransportCredential();
             ArtifactUploadHttp.PrepareResponse prepared = client.prepare(new ArtifactUploadHttp.PrepareRequest(
                     request.getTaskId(), request.getAttemptId(), request.getAgentId(), request.getName(),
                     request.getContentType(),
@@ -59,6 +68,9 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
                     .setDownloadUrl(prepared.downloadUrl())
                     .build());
             observer.onCompleted();
+        } catch (UnauthenticatedException error) {
+            respondPrepare(request, observer, false, "", "", "",
+                    ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_UNAUTHENTICATED);
         } catch (IllegalArgumentException error) {
             respondPrepare(request, observer, false, "", "", "",
                     ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_INVALID_ARGUMENT);
@@ -76,6 +88,7 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
             StreamObserver<CompleteArtifactUploadResponse> observer) {
         try {
             validateComplete(request);
+            requireTransportCredential();
             ArtifactUploadHttp.CompleteResponse completed = client.complete(
                     new ArtifactUploadHttp.CompleteRequest(request.getTaskId(), request.getAttemptId(),
                             request.getAgentId(), request.getName(), request.getStorageKey(),
@@ -89,6 +102,9 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
                     .setStorageKey(completed.storageKey())
                     .build());
             observer.onCompleted();
+        } catch (UnauthenticatedException error) {
+            respondComplete(request, observer, false, "", "",
+                    ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_UNAUTHENTICATED);
         } catch (IllegalArgumentException error) {
             respondComplete(request, observer, false, "", "",
                     ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_INVALID_ARGUMENT);
@@ -98,6 +114,22 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
             respondComplete(request, observer, false, "", "",
                     ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_INTERNAL);
         }
+    }
+
+    /**
+     * 公理二：unary 上传请求必须携带传输凭证（AgentChannel 的 HELLO 认证
+     * 不适用独立 unary 调用，凭证非空是第一道身份闸门）。空凭证直接以
+     * UNAUTHENTICATED 拒绝，不触碰 Control Plane。
+     */
+    private void requireTransportCredential() {
+        String credential = transportIdentity.get();
+        if (credential == null || credential.isBlank()) {
+            throw new UnauthenticatedException();
+        }
+    }
+
+    /** Distinct from IllegalArgumentException so it maps to UNAUTHENTICATED, not INVALID_ARGUMENT. */
+    private static final class UnauthenticatedException extends RuntimeException {
     }
 
     private static ArtifactProtocolError invocationError(
