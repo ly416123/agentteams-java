@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.persistence.TaskListRecord;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -172,11 +173,30 @@ public final class TaskController {
     }
 
     public record TaskResponse(UUID id, String title, String description, String phase,
-            int priority, String taskType, Instant createdAt, Instant updatedAt, long version) {
+            int priority, String taskType, Instant createdAt, Instant updatedAt, long version,
+            SourceRef source) {
+
+        /** 来源会话回链；仅暴露标识符，不暴露会话内容。 */
+        public record SourceRef(String conversationId, String messageId) {
+        }
 
         static TaskResponse from(TaskRecord task) {
             return new TaskResponse(task.id(), task.title(), task.description(), task.phase().name(),
-                    task.priority(), task.taskType(), task.createdAt(), task.updatedAt(), task.version());
+                    task.priority(), task.taskType(), task.createdAt(), task.updatedAt(), task.version(),
+                    sourceOf(task));
+        }
+
+        private static SourceRef sourceOf(TaskRecord task) {
+            try {
+                JsonNode source = new ObjectMapper().readTree(task.specJson()).path("inputJson").path("source");
+                String conversationId = source.path("conversationId").asText("");
+                if (conversationId.isBlank()) {
+                    return null;
+                }
+                return new SourceRef(conversationId, source.path("messageId").asText(null));
+            } catch (Exception ignored) {
+                return null;
+            }
         }
     }
 

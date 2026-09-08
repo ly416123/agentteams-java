@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutionObservationPort {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int MAX_SUMMARY_LENGTH = 4096;
+    private static final Set<String> ALLOWED_RUNTIME_EVENT_TYPES = Set.of("tool.called", "tool.finished");
+    private static final int MAX_RUNTIME_PAYLOAD_BYTES = 4096;
     private final TaskRunObservationRepository runs;
     private final TaskProcessEventService processEvents;
     private final TaskResultManifestService results;
@@ -157,6 +160,43 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
         enqueueWebhook(context, "task.failed", lifecycleEventId(runId, eventId, "failed"), runId, 0,
                 occurredAt, resultPayload, correlationId);
         enqueueWebhook(context, "task.result", resultEventId(runId), runId, 0, occurredAt, resultPayload, correlationId);
+    }
+
+    @Override
+    @Transactional
+    public void observed(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
+            String eventType, String payloadJson) {
+        // 公理二：入口二次校验——白名单 + 4KB + 合法 JSON，违规一律丢弃。
+        if (eventType == null || !ALLOWED_RUNTIME_EVENT_TYPES.contains(eventType)) {
+            return;
+        }
+        if (payloadJson != null
+                && payloadJson.getBytes(StandardCharsets.UTF_8).length > MAX_RUNTIME_PAYLOAD_BYTES) {
+            return;
+        }
+        JsonNode payload = parseRuntimePayload(payloadJson);
+        if (payload == null) {
+            return;
+        }
+        try {
+            recordProcess(taskId, runId, eventId, occurredAt, correlationId, eventType, payload, "RUNNING");
+        } catch (RuntimeException error) {
+            // 落库被拒（含敏感词护栏）按丢弃处理，绝不毒化承载终态事件的消费者。
+            System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING,
+                    "Dropping runtime event " + eventId + ": " + error.getMessage());
+        }
+    }
+
+    private static JsonNode parseRuntimePayload(String json) {
+        if (json == null || json.isBlank()) {
+            return JSON.createObjectNode();
+        }
+        try {
+            JsonNode node = JSON.readTree(json);
+            return node != null && node.isObject() ? node : null;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private ExecutionContext recordProcess(UUID taskId, UUID runId, UUID eventId, Instant occurredAt,
