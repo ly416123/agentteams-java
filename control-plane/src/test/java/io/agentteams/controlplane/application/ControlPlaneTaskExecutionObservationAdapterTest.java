@@ -2,6 +2,7 @@ package io.agentteams.controlplane.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 class ControlPlaneTaskExecutionObservationAdapterTest {
@@ -162,6 +164,37 @@ class ControlPlaneTaskExecutionObservationAdapterTest {
         adapter.observed(TASK_ID, UUID.randomUUID(), UUID.randomUUID(), NOW, "corr-1", "tool.called", "{}");
 
         verify(process, never()).append(any(), any());
+    }
+
+    @Test
+    void observedCountsDropsByReason() {
+        TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
+        TaskProcessEventService process = mock(TaskProcessEventService.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ControlPlaneTaskExecutionObservationAdapter adapter = new ControlPlaneTaskExecutionObservationAdapter(
+                runs, process, mock(TaskResultManifestService.class), mock(WebhookDeliveryService.class),
+                null, null, null, registry);
+
+        // 公理二的丢弃路径必须可观测：unknown_type / oversized_payload / invalid_json。
+        adapter.observed(TASK_ID, RUN_ID, UUID.randomUUID(), NOW, "corr-1", "reasoning", "{}");
+        adapter.observed(TASK_ID, RUN_ID, UUID.randomUUID(), NOW, "corr-1", "tool.called", "x".repeat(4097));
+        adapter.observed(TASK_ID, RUN_ID, UUID.randomUUID(), NOW, "corr-1", "tool.called", "not-json");
+
+        assertThat(registry.counter("agentteams.controlplane.task.events.dropped", "reason", "unknown_type").count())
+                .isEqualTo(1.0);
+        assertThat(registry.counter("agentteams.controlplane.task.events.dropped", "reason", "oversized_payload").count())
+                .isEqualTo(1.0);
+        assertThat(registry.counter("agentteams.controlplane.task.events.dropped", "reason", "invalid_json").count())
+                .isEqualTo(1.0);
+
+        // 落库失败 → persist_failed，同样计数且不外抛。
+        when(runs.contextForTask(TASK_ID)).thenReturn(Optional.of(CONTEXT));
+        when(runs.nextSequence(RUN_ID)).thenReturn(1L);
+        doThrow(new IllegalStateException("database unavailable")).when(process).append(any(), any());
+        adapter.observed(TASK_ID, RUN_ID, UUID.randomUUID(), NOW, "corr-1", "tool.called", "{}");
+
+        assertThat(registry.counter("agentteams.controlplane.task.events.dropped", "reason", "persist_failed").count())
+                .isEqualTo(1.0);
     }
 
     @Test

@@ -233,10 +233,10 @@ public class AgentGatewayGrpcConfiguration {
     @ConditionalOnMissingBean(GatewayApplicationHandler.class)
     public GatewayApplicationHandler controlPlaneGatewayApplicationHandler(
             ExecutionEventPort executionEvents, ObjectProvider<ConfigEventPort> configEvents,
-            ObjectProvider<TaskExecutionObservationPort> observations, Clock clock) {
+            ObjectProvider<TaskExecutionObservationPort> observations, Clock clock, GatewayMetricsPort metrics) {
         ConfigEventPort available = configEvents.getIfAvailable(() -> command -> { });
         TaskExecutionObservationPort observationPort = observations.getIfAvailable(TaskExecutionObservationPort::noop);
-        return new ControlPlaneGatewayApplicationHandler(executionEvents, available, observationPort, clock);
+        return new ControlPlaneGatewayApplicationHandler(executionEvents, available, observationPort, clock, metrics);
     }
 
     @Bean

@@ -11,8 +11,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import io.agentteams.application.api.ExecutionEventPort;
+import io.agentteams.application.api.TaskExecutionObservationPort;
 import io.agentteams.contracts.v1.EventMetadata;
 import io.agentteams.contracts.v1.TaskEventReport;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -91,6 +93,31 @@ class TaskEventReportHandlingTest {
                 .setMetadata(metadata()).setEventType("tool.called")
                 .setPayload(ByteString.copyFromUtf8("x".repeat(4097))).build());
         verifyNoInteractions(events);
+    }
+
+    @Test
+    void countsDroppedTaskEventReportsByReason() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ExecutionEventPort events = mock(ExecutionEventPort.class);
+        doThrow(new IllegalStateException("nats unavailable")).when(events)
+                .taskEventReport(eq(TASK_ID), any());
+        ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(events,
+                command -> { }, TaskExecutionObservationPort.noop(), clock(), new GatewayMetrics(registry));
+
+        // 归属不符 → invalid；有效报告但发布失败 → publish_failed。
+        handler.taskEventReport(connection(), TaskEventReport.newBuilder()
+                .setMetadata(metadata().toBuilder().setAgentId("someone-else")).setEventType("tool.called")
+                .build());
+        handler.taskEventReport(connection(), TaskEventReport.newBuilder()
+                .setMetadata(metadata()).setSequence(1).setEventType("tool.called")
+                .setPayload(ByteString.copyFromUtf8("{}")).build());
+
+        assertThat(registry.counter("agentteams.gateway.task.events.dropped", "reason", "invalid").count())
+                .isEqualTo(1.0);
+        assertThat(registry.counter("agentteams.gateway.task.events.dropped", "reason", "publish_failed").count())
+                .isEqualTo(1.0);
+        assertThat(registry.counter("agentteams.gateway.task.events.dropped", "reason", "unknown").count())
+                .isEqualTo(0.0);
     }
 
     private Clock clock() {

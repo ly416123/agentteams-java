@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** Stable low-cardinality Gateway metrics. */
 public final class GatewayMetrics implements GatewayMetricsPort {
+    private final MeterRegistry registry;
     private final AtomicInteger activeConnections = new AtomicInteger();
     private final Counter opened;
     private final Counter closed;
@@ -22,7 +23,7 @@ public final class GatewayMetrics implements GatewayMetricsPort {
     private final Counter natsConsumerErrors;
 
     public GatewayMetrics(MeterRegistry registry) {
-        Objects.requireNonNull(registry, "registry");
+        this.registry = Objects.requireNonNull(registry, "registry");
         Gauge.builder("agentteams.gateway.connections.active", activeConnections, AtomicInteger::get)
                 .description("Active Gateway streams").register(registry);
         opened = registry.counter("agentteams.gateway.connections.opened");
@@ -73,4 +74,9 @@ public final class GatewayMetrics implements GatewayMetricsPort {
 
     @Override
     public void natsConsumerError() { natsConsumerErrors.increment(); }
+
+    @Override
+    public void taskEventDropped(String reason) {
+        registry.counter("agentteams.gateway.task.events.dropped", "reason", reason).increment();
+    }
 }

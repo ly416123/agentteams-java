@@ -22,6 +22,7 @@ import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
 import io.agentteams.controlplane.webhook.WebhookScope;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,20 +50,23 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
     private final TaskTreeService taskTree;
     private final TaskDecisionRecordService decisions;
     private final TaskRecoveryCheckpointRepository checkpoints;
+    /** Null when no meter registry is present; drop accounting is best effort. */
+    private final MeterRegistry registry;
 
     @Autowired
     public ControlPlaneTaskExecutionObservationAdapter(JdbcTaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions,
-            TaskRecoveryCheckpointRepository checkpoints) {
-        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, taskTree, decisions, checkpoints);
+            TaskRecoveryCheckpointRepository checkpoints, ObjectProvider<MeterRegistry> meterRegistry) {
+        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, taskTree, decisions,
+                checkpoints, meterRegistry != null ? meterRegistry.getIfAvailable() : null);
     }
 
     /** Compatibility constructor for composition tests that only exercise Worker lifecycle facts. */
     public ControlPlaneTaskExecutionObservationAdapter(JdbcTaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks) {
-        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, null, null, null);
+        this((TaskRunObservationRepository) runs, processEvents, results, webhooks, null, null, null, null);
     }
 
     ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
@@ -73,13 +78,13 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
     ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions) {
-        this(runs, processEvents, results, webhooks, taskTree, decisions, null);
+        this(runs, processEvents, results, webhooks, taskTree, decisions, null, null);
     }
 
     ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions,
-            TaskRecoveryCheckpointRepository checkpoints) {
+            TaskRecoveryCheckpointRepository checkpoints, MeterRegistry registry) {
         this.runs = Objects.requireNonNull(runs, "runs");
         this.processEvents = Objects.requireNonNull(processEvents, "processEvents");
         this.results = Objects.requireNonNull(results, "results");
@@ -90,6 +95,7 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
         this.taskTree = taskTree;
         this.decisions = decisions;
         this.checkpoints = checkpoints;
+        this.registry = registry;
     }
 
     @Override
@@ -166,25 +172,35 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
     @Transactional
     public void observed(UUID taskId, UUID runId, UUID eventId, Instant occurredAt, String correlationId,
             String eventType, String payloadJson) {
-        // 公理二：入口二次校验——白名单 + 4KB + 合法 JSON，违规一律丢弃。
+        // 公理二：入口二次校验——白名单 + 4KB + 合法 JSON，违规一律丢弃并按原因计数。
         if (eventType == null || !ALLOWED_RUNTIME_EVENT_TYPES.contains(eventType)) {
+            countDrop("unknown_type");
             return;
         }
         if (payloadJson != null
                 && payloadJson.getBytes(StandardCharsets.UTF_8).length > MAX_RUNTIME_PAYLOAD_BYTES) {
+            countDrop("oversized_payload");
             return;
         }
         JsonNode payload = parseRuntimePayload(payloadJson);
         if (payload == null) {
+            countDrop("invalid_json");
             return;
         }
         try {
             recordProcess(taskId, runId, eventId, occurredAt, correlationId, eventType, payload, "RUNNING");
         } catch (RuntimeException error) {
             // 落库被拒（含敏感词护栏）按丢弃处理，绝不毒化承载终态事件的消费者。
+            countDrop("persist_failed");
             System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING,
                     "Dropping runtime event " + eventId + ": " + error.getMessage());
         }
+    }
+
+    /** 规格：丢弃路径必须可观测。registry 缺席时静默跳过（计数本身也是 best effort）。 */
+    private void countDrop(String reason) {
+        if (registry == null) return;
+        registry.counter("agentteams.controlplane.task.events.dropped", "reason", reason).increment();
     }
 
     private static JsonNode parseRuntimePayload(String json) {

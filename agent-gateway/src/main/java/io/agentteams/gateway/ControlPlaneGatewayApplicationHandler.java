@@ -36,6 +36,7 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
     private final ConfigEventPort configEvents;
     private final TaskExecutionObservationPort observations;
     private final Clock clock;
+    private final GatewayMetricsPort metrics;
 
     public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents, Clock clock) {
         this(executionEvents, command -> { }, TaskExecutionObservationPort.noop(), clock);
@@ -48,10 +49,17 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
 
     public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents,
             ConfigEventPort configEvents, TaskExecutionObservationPort observations, Clock clock) {
+        this(executionEvents, configEvents, observations, clock, GatewayMetricsPort.noop());
+    }
+
+    public ControlPlaneGatewayApplicationHandler(ExecutionEventPort executionEvents,
+            ConfigEventPort configEvents, TaskExecutionObservationPort observations, Clock clock,
+            GatewayMetricsPort metrics) {
         this.executionEvents = Objects.requireNonNull(executionEvents, "executionEvents");
         this.configEvents = Objects.requireNonNull(configEvents, "configEvents");
         this.observations = Objects.requireNonNull(observations, "observations");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     @Override
@@ -182,9 +190,15 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
                     occurredAt(metadata), connection.agentId(), event.getEventType(),
                     event.getPayload().isEmpty() ? null : event.getPayload().toStringUtf8(),
                     event.getSequence(), correlationId(metadata)));
+        } catch (GatewayExceptions.InvalidMessage error) {
+            metrics.taskEventDropped("invalid");
+            // 公理一：过程上报永远 best effort——校验失败丢弃并告警，绝不
+            // 把 InvalidMessage 抛回承载终态事件的 gRPC 流。
+            System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING,
+                    "Dropping task event report: " + error.getMessage());
         } catch (RuntimeException error) {
-            // 公理一：过程上报永远 best effort——校验/发布失败（含 NATS
-            // 抖动）一律丢弃并告警，绝不把异常抛回承载终态事件的 gRPC 流。
+            metrics.taskEventDropped("publish_failed");
+            // 发布失败（含 NATS 抖动）同样只丢弃告警，不得威胁终态事件流。
             System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING,
                     "Dropping task event report: " + error.getMessage());
         }
