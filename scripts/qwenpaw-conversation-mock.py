@@ -144,6 +144,7 @@ class Handler(BaseHTTPRequestHandler):
         idempotency_key = self.headers.get("Idempotency-Key", "")
         request_fingerprint = json.dumps(request, sort_keys=True, separators=(",", ":"))
         conflict = False
+        new_request = False
         with CONFIG_LOCK:
             state = SESSIONS.setdefault(
                 session_id, {"cursor": 0, "cancelled": False, "events": [], "requests": {}}
@@ -152,6 +153,9 @@ class Handler(BaseHTTPRequestHandler):
             if previous is not None and previous["fingerprint"] != request_fingerprint:
                 conflict = True
             elif idempotency_key:
+                # A brand-new key is a new conversation turn, not a retry of
+                # an earlier request; retries reuse their original key.
+                new_request = previous is None
                 state["requests"][idempotency_key] = {
                     "fingerprint": request_fingerprint,
                 }
@@ -172,7 +176,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "999999")
         self.end_headers()
 
-        events = self.session_events(session_id)
+        events = self.session_events(session_id, new_request)
         query = parse_qs(urlsplit(self.path).query)
         after_values = [query.get("after", ["0"])[0], self.headers.get("Last-Event-ID", "0")]
         try:
@@ -204,7 +208,8 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.flush_stream()
 
-    def session_events(self, session_id: str) -> list[tuple[int, str, dict[str, Any]]]:
+    def session_events(self, session_id: str,
+                       is_new_request: bool) -> list[tuple[int, str, dict[str, Any]]]:
         with CONFIG_LOCK:
             state = SESSIONS.setdefault(
                 session_id, {"cursor": 0, "cancelled": False, "events": [], "requests": {}}
@@ -229,6 +234,33 @@ class Handler(BaseHTTPRequestHandler):
                     event_payload = dict(payload)
                     event_payload["cursor"] = state["cursor"]
                     state["events"].append((state["cursor"], event_name, event_payload))
+                return list(state["events"])
+            if is_new_request:
+                # Real QwenPaw answers every turn with fresh event ids and
+                # content. Replaying the first turn for a new idempotency key
+                # would make Manager's source-event dedup discard the whole
+                # response, so a new key must emit a fresh cursored round.
+                state["round"] = int(state.get("round", 1)) + 1
+                round_no = state["round"]
+                appended: list[tuple[int, str, dict[str, Any]]] = []
+                for event_name, payload in (
+                    ("message.delta", {
+                        "status": "in_progress", "type": "message", "delta": True,
+                        "role": "assistant",
+                        "content": [{"text": f"CONVERSATION_MOCK_DELTA_{round_no}"}],
+                    }),
+                    ("message.completed", {
+                        "status": "completed", "object": "response",
+                        "output": [{"type": "message", "role": "assistant",
+                                     "content": [{"text": f"CONVERSATION_MOCK_OK_{round_no}"}]}],
+                    }),
+                ):
+                    state["cursor"] += 1
+                    event_payload = dict(payload)
+                    event_payload["cursor"] = state["cursor"]
+                    appended.append((state["cursor"], event_name, event_payload))
+                state["events"].extend(appended)
+                return appended
             return list(state["events"])
 
     def write_event(self, session_id: str, event_name: str, payload: dict[str, Any]) -> None:

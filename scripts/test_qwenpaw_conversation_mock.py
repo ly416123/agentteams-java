@@ -123,6 +123,25 @@ class QwenPawConversationMockTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 409)
         self.assertNotIn("different prompt", raised.exception.read().decode())
 
+    def test_new_idempotency_key_emits_a_fresh_round_for_multi_turn_sessions(self):
+        first = self.read_chat("session-multi", "first prompt", {"Idempotency-Key": "round-1"})
+        self.assertIn("CONVERSATION_MOCK_OK", first)
+
+        retry = self.read_chat("session-multi", "first prompt", {"Idempotency-Key": "round-1"})
+        self.assertEqual(retry, first)
+
+        second = self.read_chat("session-multi", "second prompt", {"Idempotency-Key": "round-2"})
+        self.assertIn("id: 4\n", second)
+        self.assertIn("id: 5\n", second)
+        self.assertNotIn("id: 1\n", second)
+        self.assertIn("CONVERSATION_MOCK_DELTA_2", second)
+        self.assertIn("CONVERSATION_MOCK_OK_2", second)
+        self.assertNotIn('"text":"CONVERSATION_MOCK_OK"}', second)
+
+        third = self.read_chat("session-multi", "third prompt", {"Idempotency-Key": "round-3"})
+        self.assertIn("id: 6\n", third)
+        self.assertIn("CONVERSATION_MOCK_OK_3", third)
+
     def test_kind_manifest_declares_the_conversation_mock_without_changing_openai_mock(self):
         manifest_path = ROOT / "deploy/kind-qwenpaw-openai-mock.yaml"
         manifest = manifest_path.read_text(encoding="utf-8")
