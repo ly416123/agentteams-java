@@ -136,7 +136,10 @@ public final class QwenPawWorker implements AutoCloseable {
                 configuration.maxArtifactBytes());
         this.configDirectory = configuration.configDirectory();
         this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock,
-                artifactUploadPort(configuration, gatewayChannel, clock));
+                artifactUploadPort(configuration, gatewayChannel, clock), configuration.eventRateLimit());
+        // runtime SSE 中间事件 → 适配器出口（限速与白名单在两侧兜底）。
+        this.runtime.setEventSink(event -> runtimeAdapter.reportEvent(event.taskId(), event.eventType(),
+                event.payloadJson()));
         RuntimeResultSink resultSink = this::onRuntimeResult;
         this.hello = hello(configuration, clock);
         runtime.start(new AgentRuntimeContext("qwenpaw", configuration.maxConcurrentTasks(), clock,
@@ -686,6 +689,7 @@ public final class QwenPawWorker implements AutoCloseable {
             String model,
             int modelMaxTokens,
             int modelCallMaxConcurrent,
+            int eventRateLimit,
             String tenantId,
             String projectId,
             boolean quotaRemoteEnabled,
@@ -748,6 +752,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     value(environment, "AGENTTEAMS_MODEL", "unknown"),
                     integer(environment, "AGENTTEAMS_MODEL_MAX_TOKENS", 1024),
                     integer(environment, "AGENTTEAMS_MODEL_CALL_MAX_CONCURRENT", maxConcurrentTasks),
+                    integer(environment, "AGENTTEAMS_EVENT_RATE_LIMIT", 30),
                     tenantId,
                     projectId,
                     quotaRemoteEnabled,

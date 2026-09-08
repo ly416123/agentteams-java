@@ -55,6 +55,11 @@ public final class WorkerRuntimeRouter implements AgentRuntime {
     }
 
     @Override
+    public void setEventSink(io.agentteams.runtime.RuntimeEventSink eventSink) {
+        qwenPaw.setEventSink(eventSink);
+    }
+
+    @Override
     public RuntimeSubmission submit(RuntimeTask task) {
         Objects.requireNonNull(task, "task");
         AgentRuntime existing = owners.get(task.id());
