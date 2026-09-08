@@ -19,6 +19,11 @@ public interface ExecutionEventPort {
      */
     void rejectUnaccepted(UUID taskId, RejectionCommand command);
 
+    /** Publishes a best-effort worker action report without touching task state. */
+    void taskEventReport(UUID taskId, TaskEventReportCommand command);
+
+    int MAX_EVENT_PAYLOAD_BYTES = 4096;
+
     enum ExecutionPhase {
         ACCEPTED,
         RUNNING,
@@ -166,6 +171,32 @@ public interface ExecutionEventPort {
             if (expectedVersion < 0) {
                 throw new IllegalArgumentException("expectedVersion must not be negative");
             }
+        }
+    }
+
+    /**
+     * Best-effort middle-of-execution action report (tool calls etc.). It is
+     * never a task state transition: the sequence is worker-local ordering
+     * context and deduplication happens on eventId at the Control Plane.
+     */
+    record TaskEventReportCommand(UUID eventId, UUID attemptId, UUID leaseId, Instant occurredAt,
+            String agentId, String eventType, String payloadJson, long sequence, String correlationId) {
+        public TaskEventReportCommand {
+            Objects.requireNonNull(eventId, "eventId");
+            Objects.requireNonNull(attemptId, "attemptId");
+            Objects.requireNonNull(leaseId, "leaseId");
+            Objects.requireNonNull(occurredAt, "occurredAt");
+            requireText(agentId, "agentId");
+            requireText(eventType, "eventType");
+            if (sequence < 0) {
+                throw new IllegalArgumentException("sequence must not be negative");
+            }
+            if (payloadJson != null && payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                    > MAX_EVENT_PAYLOAD_BYTES) {
+                throw new IllegalArgumentException("payload exceeds " + MAX_EVENT_PAYLOAD_BYTES + " bytes");
+            }
+            TraceContext context = new TraceContext(correlationId, "", "");
+            correlationId = context.correlationId();
         }
     }
 
