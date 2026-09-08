@@ -241,6 +241,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
         projectId={projectId}
         taskId={taskId}
         runId={runId}
+        processEvents={processEvents}
       />
       <section className="panel">
         <div className="section-heading">

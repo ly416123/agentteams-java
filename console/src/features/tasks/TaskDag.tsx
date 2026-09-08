@@ -53,6 +53,7 @@ export function TaskDag({ nodes, rootTaskId }: { nodes: TaskTreeNode[]; rootTask
     <div className="task-dag" data-testid="task-dag">
       <svg width="100%" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="任务分解图">
         {positioned.map(({ node, x, y }) => {
+          if (node.taskId === rootTaskId) return null;
           const parent = byId.get(node.parentTaskId || rootTaskId);
           if (!parent) return null;
           return (

@@ -1,9 +1,9 @@
+import type { TaskProcessEvent } from '../../api/types';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelDecision, labelType } from '../../i18n/labels';
 import {
   useTaskDecisions,
-  useTaskProcessEvents,
   useTaskProgress,
   useTaskResult,
   useTaskTree,
@@ -13,13 +13,21 @@ export function TaskExecutionObservability({
   projectId,
   taskId,
   runId,
+  processEvents,
 }: {
   projectId: string;
   taskId: string;
   runId: string;
+  /** 过程事件流由页面级 useTaskProcessEvents 持有并注入，避免同页双路 SSE 连接。 */
+  processEvents: {
+    data: TaskProcessEvent[];
+    isError: boolean;
+    error?: unknown;
+    connectionState: 'connecting' | 'connected' | 'reconnecting';
+    refetch: () => Promise<unknown>;
+  };
 }) {
   const progress = useTaskProgress(projectId, taskId, runId);
-  const processEvents = useTaskProcessEvents(projectId, taskId, runId);
   const tree = useTaskTree(projectId, taskId, runId);
   const decisions = useTaskDecisions(projectId, taskId, runId);
   const result = useTaskResult(projectId, taskId, runId);

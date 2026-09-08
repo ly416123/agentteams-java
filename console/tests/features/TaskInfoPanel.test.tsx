@@ -17,7 +17,7 @@ vi.mock('../../src/queries/useTaskQueries', () => ({
     data: [{ id: 'd1', selectedAction: 'create_task', goalSummary: '创建任务', createdAt: '2026-09-08T00:00:00Z' }],
   }),
   useTaskResult: () => ({
-    data: { status: 'SUCCEEDED', summary: '完成', artifacts: [{ name: 'output.md', storageRef: 'tasks/x', contentType: 'text/markdown', sizeBytes: 12, sha256: 'ab' }] },
+    data: { status: 'SUCCEEDED', summary: '完成', artifacts: [{ name: 'output.md', storageRef: 'tasks/x', contentType: 'text/markdown', sizeBytes: 12, sha256: 'ab', version: 1, stage: 'FINAL', visibility: 'REQUESTER' }] },
   }),
 }));
 
@@ -62,7 +62,7 @@ describe('TaskInfoPanel', () => {
     const backlink = screen.getByTestId('source-backlink');
     expect(within(backlink).getByRole('link', { name: /打开来源会话/ })).toHaveAttribute(
       'href',
-      expect.stringContaining('conv-1'),
+      '/p1/conversations/conv-1',
     );
   });
 

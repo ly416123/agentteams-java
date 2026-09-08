@@ -56,7 +56,7 @@ export function mergeTaskTimelines(
     title: PROCESS_EVENT_LABELS[event.eventType] || event.eventType,
     description: processEventSummary(event),
     time: event.occurredAt,
-    tone: event.eventType === 'task.failed' ? 'failed' : 'running',
+    tone: event.eventType === 'task.failed' ? 'danger' : undefined,
   }));
   return [...lifecycleItems, ...processItems].sort(
     (left, right) => (left.time || '').localeCompare(right.time || ''),
@@ -118,7 +118,7 @@ export function TaskInfoPanel({
           <ul className="info-panel__list">
             {!result.data?.artifacts?.length && <li className="muted-text">尚未产出成果物。</li>}
             {result.data?.artifacts?.map((artifact) => (
-              <li key={artifact.name}>
+              <li key={`${artifact.name}-${artifact.version}`}>
                 <strong>{artifact.name}</strong>
                 <span className="muted-text">{artifact.contentType} · {artifact.sizeBytes} B</span>
               </li>
@@ -146,7 +146,7 @@ export function TaskInfoPanel({
               来源会话
               <strong>
                 {source?.conversationId
-                  ? <Link to={`/${projectId}/conversations?sessionId=${source.conversationId}`}>打开来源会话</Link>
+                  ? <Link to={`/${projectId}/conversations/${source.conversationId}`}>打开来源会话</Link>
                   : '未关联'}
               </strong>
             </span>
