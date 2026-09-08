@@ -1,7 +1,9 @@
 package io.agentteams.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -67,6 +69,18 @@ class TaskEventReportHandlingTest {
                 .setMetadata(metadata().toBuilder().setAgentId("someone-else")).setEventType("tool.called")
                 .build());
         verifyNoInteractions(events);
+    }
+
+    @Test
+    void keepsStreamAliveWhenPublishingFails() {
+        ExecutionEventPort events = mock(ExecutionEventPort.class);
+        doThrow(new IllegalStateException("nats unavailable")).when(events)
+                .taskEventReport(eq(TASK_ID), any());
+        ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(events, clock());
+        // NATS 发布失败不得沿 route() 传播关闭承载终态事件的 gRPC 流。
+        handler.taskEventReport(connection(), TaskEventReport.newBuilder()
+                .setMetadata(metadata()).setSequence(1).setEventType("tool.called")
+                .setPayload(ByteString.copyFromUtf8("{}")).build());
     }
 
     @Test

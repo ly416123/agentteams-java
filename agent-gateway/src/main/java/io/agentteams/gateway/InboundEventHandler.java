@@ -36,6 +36,23 @@ public final class InboundEventHandler {
             handleAck(connection, snapshot, message.getAck());
             return;
         }
+        if (message.getPayloadCase() == AgentMessage.PayloadCase.TASK_EVENT_REPORT) {
+            // 公理一：中间事件的元数据校验/去重/路由全部 best effort——
+            // 任何失败丢弃并告警，绝不关闭承载终态事件的流；终态事件
+            // 保持 fail-fast 不变。
+            try {
+                handleTracked(connection, snapshot, message);
+            } catch (RuntimeException error) {
+                System.getLogger(InboundEventHandler.class.getName()).log(System.Logger.Level.WARNING,
+                        "Dropping task event report: " + error.getMessage());
+            }
+            return;
+        }
+        handleTracked(connection, snapshot, message);
+    }
+
+    private void handleTracked(AgentConnection connection, ConnectionRegistry.ConnectionSnapshot snapshot,
+            AgentMessage message) {
         EventMetadata metadata = metadata(message);
         validateMetadata(snapshot, metadata);
         Instant receivedAt = clock.instant();

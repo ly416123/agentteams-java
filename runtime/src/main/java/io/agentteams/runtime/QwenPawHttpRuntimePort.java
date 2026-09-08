@@ -292,7 +292,9 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         String type = event.path("type").asText("");
         if ("tool.started".equals(type)) {
             String tool = event.path("tool").asText("");
-            if (tool.isBlank()) {
+            // 任务已离场（cancel/终态）后，读线程缓冲的尾部事件不再触碰
+            // 配对表，避免重建条目污染 taskId 复用的下一次 attempt。
+            if (tool.isBlank() || !requests.containsKey(taskId)) {
                 return null;
             }
             toolStarts.computeIfAbsent(taskId, ignored -> new ConcurrentHashMap<>()).put(tool, now());
@@ -301,7 +303,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         }
         if ("plugin_call_output".equals(type)) {
             String tool = event.path("tool").asText("");
-            if (tool.isBlank()) {
+            if (tool.isBlank() || !requests.containsKey(taskId)) {
                 return null;
             }
             Instant startedAt = toolStarts.computeIfAbsent(taskId, ignored -> new ConcurrentHashMap<>())

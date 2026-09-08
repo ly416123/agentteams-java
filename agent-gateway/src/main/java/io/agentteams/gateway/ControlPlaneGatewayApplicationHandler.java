@@ -182,11 +182,11 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
                     occurredAt(metadata), connection.agentId(), event.getEventType(),
                     event.getPayload().isEmpty() ? null : event.getPayload().toStringUtf8(),
                     event.getSequence(), correlationId(metadata)));
-        } catch (GatewayExceptions.InvalidMessage error) {
-            // 公理一：过程上报永远 best effort——校验失败丢弃并告警，绝不
-            // 用 InvalidMessage 关闭承载终态事件的流。
+        } catch (RuntimeException error) {
+            // 公理一：过程上报永远 best effort——校验/发布失败（含 NATS
+            // 抖动）一律丢弃并告警，绝不把异常抛回承载终态事件的 gRPC 流。
             System.getLogger(getClass().getName()).log(System.Logger.Level.WARNING,
-                    "Dropping invalid task event report: " + error.getMessage());
+                    "Dropping task event report: " + error.getMessage());
         }
     }
 

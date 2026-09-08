@@ -107,6 +107,37 @@ class InboundEventHandlerTest {
     }
 
     @Test
+    void forwardsTaskEventReportToApplication() {
+        GatewayTestFixtures.RecordingInboundStore eventStore = new GatewayTestFixtures.RecordingInboundStore();
+        GatewayTestFixtures.RecordingApplicationHandler application = new GatewayTestFixtures.RecordingApplicationHandler();
+        AgentMessage message = GatewayTestFixtures.taskEventReport("agent-1", "report-1");
+        ConnectionRegistry registry = new ConnectionRegistry();
+        InboundEventHandler handler = handler(registry, eventStore, application);
+
+        handler.handle(connected(registry, "agent-1"), message);
+
+        assertThat(eventStore.seen).containsExactly("report-1");
+        assertThat(application.taskEventReports).containsExactly(message.getTaskEventReport());
+    }
+
+    @Test
+    void keepsStreamAliveWhenTaskEventReportMetadataIsInvalid() {
+        GatewayTestFixtures.RecordingInboundStore eventStore = new GatewayTestFixtures.RecordingInboundStore();
+        GatewayTestFixtures.RecordingApplicationHandler application = new GatewayTestFixtures.RecordingApplicationHandler();
+        ConnectionRegistry registry = new ConnectionRegistry();
+        InboundEventHandler handler = handler(registry, eventStore, application);
+        AgentConnection connection = connected(registry, "agent-1");
+
+        // 公理一：行为异常 worker 的非法中间事件丢弃并告警，不抛 InvalidMessage
+        // 关闭承载终态事件的流（终态消息保持 fail-fast 对照）。
+        handler.handle(connection, GatewayTestFixtures.taskEventReport("agent-1", ""));
+
+        assertThat(application.taskEventReports).isEmpty();
+        assertThatThrownBy(() -> handler.handle(connection, GatewayTestFixtures.accepted("agent-1", "")))
+                .isInstanceOf(GatewayExceptions.InvalidMessage.class);
+    }
+
+    @Test
     void ignoresDuplicateInboundEventId() {
         ConnectionRegistry registry = new ConnectionRegistry();
         GatewayTestFixtures.RecordingInboundStore eventStore = new GatewayTestFixtures.RecordingInboundStore();

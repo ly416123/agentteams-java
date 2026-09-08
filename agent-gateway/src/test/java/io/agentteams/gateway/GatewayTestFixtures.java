@@ -88,6 +88,15 @@ final class GatewayTestFixtures {
                 .build()).build();
     }
 
+    static AgentMessage taskEventReport(String agentId, String eventId) {
+        return AgentMessage.newBuilder().setTaskEventReport(io.agentteams.contracts.v1.TaskEventReport.newBuilder()
+                .setMetadata(taskMetadata(agentId, eventId))
+                .setSequence(1)
+                .setEventType("tool.called")
+                .setPayload(ByteString.copyFromUtf8("{\"tool\":\"web_search\"}"))
+                .build()).build();
+    }
+
     static AgentMessage ack(String agentId, String eventId, long sequence) {
         return AgentMessage.newBuilder().setAck(io.agentteams.contracts.v1.Ack.newBuilder()
                 .setMetadata(metadata(eventId, agentId))
@@ -227,6 +236,7 @@ final class GatewayTestFixtures {
         final List<io.agentteams.contracts.v1.AgentHeartbeat> agentHeartbeats = new ArrayList<>();
         final List<io.agentteams.contracts.v1.TaskCompleted> completed = new ArrayList<>();
         final List<io.agentteams.contracts.v1.TaskFailed> failed = new ArrayList<>();
+        final List<io.agentteams.contracts.v1.TaskEventReport> taskEventReports = new ArrayList<>();
 
         @Override
         public void taskAccepted(ConnectionRegistry.ConnectionSnapshot connection,
@@ -250,6 +260,12 @@ final class GatewayTestFixtures {
         public void agentHeartbeat(ConnectionRegistry.ConnectionSnapshot connection,
                 io.agentteams.contracts.v1.AgentHeartbeat event) {
             agentHeartbeats.add(event);
+        }
+
+        @Override
+        public void taskEventReport(ConnectionRegistry.ConnectionSnapshot connection,
+                io.agentteams.contracts.v1.TaskEventReport event) {
+            taskEventReports.add(event);
         }
 
         @Override
