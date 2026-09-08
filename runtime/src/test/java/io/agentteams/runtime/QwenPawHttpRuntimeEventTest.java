@@ -32,11 +32,17 @@ class QwenPawHttpRuntimeEventTest {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/api/console/chat", exchange -> {
             String body = String.join("\n", List.of(
+                    "data: {\"type\":\"plugin_call_output\",\"tool\":\"lonely\",\"status\":\"success\"}",
+                    "",
                     "data: {\"type\":\"tool.started\",\"tool\":\"web_search\"}",
                     "",
                     "data: {\"type\":\"reasoning\",\"text\":\"internal thought\"}",
                     "",
                     "data: {\"type\":\"plugin_call_output\",\"tool\":\"web_search\",\"status\":\"success\"}",
+                    "",
+                    "data: {\"type\":\"tool.started\",\"tool\":\"breaking\"}",
+                    "",
+                    "data: {\"type\":\"plugin_call_output\",\"tool\":\"breaking\",\"status\":\"failed\"}",
                     "",
                     "data: {\"object\":\"response\",\"status\":\"completed\",\"output\":\"done\"}",
                     "",
@@ -69,13 +75,20 @@ class QwenPawHttpRuntimeEventTest {
         port.submit(new RuntimeTask(UUID.randomUUID(), "qwenpaw", "{\"prompt\":\"hi\"}", Map.of()));
         assertTrue(terminal.await(5, TimeUnit.SECONDS));
         // reasoning 被白名单丢弃；tool.started→tool.called、plugin_call_output→tool.finished。
-        assertEquals(List.of("tool.called", "tool.finished"),
+        assertEquals(List.of("tool.finished", "tool.called", "tool.finished", "tool.called", "tool.finished"),
                 events.stream().map(RuntimeEvent::eventType).toList());
-        RuntimeEvent called = events.get(0);
+        // 无配对 start 的 plugin_call_output：elapsedMs 固定为 0。
+        RuntimeEvent unpaired = events.get(0);
+        assertTrue(unpaired.payloadJson().contains("\"tool\":\"lonely\""));
+        assertTrue(unpaired.payloadJson().contains("\"elapsedMs\":0"));
+        RuntimeEvent called = events.get(1);
         assertTrue(called.payloadJson().contains("\"tool\":\"web_search\""));
-        RuntimeEvent finished = events.get(1);
+        RuntimeEvent finished = events.get(2);
         assertTrue(finished.payloadJson().contains("\"ok\":true"));
         assertTrue(finished.payloadJson().contains("\"elapsedMs\":"));
+        // status=failed 的输出映射为 ok=false（固化取值约定）。
+        RuntimeEvent failedTool = events.get(4);
+        assertTrue(failedTool.payloadJson().contains("\"ok\":false"));
     }
 
     @Test

@@ -28,6 +28,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,6 +37,10 @@ public final class GatewayRuntimeAdapter {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private static final int MAX_EVENT_PAYLOAD_BYTES = 4096;
+
+    private static final Set<String> ALLOWED_EVENT_TYPES = Set.of("tool.called", "tool.finished");
+
+    private static final System.Logger LOG = System.getLogger(GatewayRuntimeAdapter.class.getName());
 
     private final String agentId;
     private final AgentChannelPort channel;
@@ -148,22 +153,29 @@ public final class GatewayRuntimeAdapter {
 
     /**
      * Reports a whitelisted middle-of-execution action for the given task.
-     * 公理一：best effort——未知任务、限速超额、超大载荷一律丢弃，绝不
-     * 威胁任务赋值、聚合版本或 gRPC 通道；因此也不推进 expectedVersion。
+     * 公理一：best effort——未知任务、限速超额、超大载荷一律丢弃（留下告警
+     * 可运维），绝不威胁任务赋值、聚合版本或 gRPC 通道；因此也不推进
+     * expectedVersion。
      */
     public void reportEvent(UUID taskId, String eventType, String payloadJson) {
-        if (eventType == null || eventType.isBlank()) {
+        if (eventType == null || !ALLOWED_EVENT_TYPES.contains(eventType)) {
             return;
         }
         AssignmentContext context = assignments.get(taskId);
         if (context == null) {
+            LOG.log(System.Logger.Level.DEBUG, "Dropping runtime event for unknown task " + taskId);
             return;
         }
         byte[] payload = payloadJson == null ? new byte[0] : payloadJson.getBytes(StandardCharsets.UTF_8);
         if (payload.length > MAX_EVENT_PAYLOAD_BYTES) {
+            LOG.log(System.Logger.Level.WARNING,
+                    "Dropping runtime event for task " + taskId + ": payload exceeds "
+                            + MAX_EVENT_PAYLOAD_BYTES + " bytes");
             return;
         }
         if (eventLimiter != null && !eventLimiter.tryAcquire()) {
+            // 高频路径降为 debug，避免日志刷屏。
+            LOG.log(System.Logger.Level.DEBUG, "Rate limit shed runtime event for task " + taskId);
             return;
         }
         channel.send(AgentMessage.newBuilder().setTaskEventReport(

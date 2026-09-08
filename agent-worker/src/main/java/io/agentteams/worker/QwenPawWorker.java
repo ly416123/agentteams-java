@@ -752,7 +752,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     value(environment, "AGENTTEAMS_MODEL", "unknown"),
                     integer(environment, "AGENTTEAMS_MODEL_MAX_TOKENS", 1024),
                     integer(environment, "AGENTTEAMS_MODEL_CALL_MAX_CONCURRENT", maxConcurrentTasks),
-                    integer(environment, "AGENTTEAMS_EVENT_RATE_LIMIT", 30),
+                    nonNegativeInteger(environment, "AGENTTEAMS_EVENT_RATE_LIMIT", 30),
                     tenantId,
                     projectId,
                     quotaRemoteEnabled,
@@ -838,6 +838,15 @@ public final class QwenPawWorker implements AutoCloseable {
             if (result == null) return fallback;
             int parsed = Integer.parseInt(result);
             if (parsed <= 0) throw new IllegalArgumentException(name + " must be positive");
+            return parsed;
+        }
+
+        /** 与 integer 不同：允许 0（过程上报限速用 0 表示不限速）。 */
+        private static int nonNegativeInteger(Map<String, String> environment, String name, int fallback) {
+            String result = optional(environment, name);
+            if (result == null) return fallback;
+            int parsed = Integer.parseInt(result);
+            if (parsed < 0) throw new IllegalArgumentException(name + " must not be negative");
             return parsed;
         }
 

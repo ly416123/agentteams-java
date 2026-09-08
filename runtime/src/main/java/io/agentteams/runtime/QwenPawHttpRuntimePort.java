@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * task completion rather than progress updates.</p>
  */
 public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
+    private static final System.Logger LOG = System.getLogger(QwenPawHttpRuntimePort.class.getName());
     private final QwenPawHttpRuntimeConfiguration configuration;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -233,6 +234,8 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
     @Override
     public void cancel(UUID taskId) {
         Objects.requireNonNull(taskId, "taskId");
+        // 取消路径同样清理配对表：租约过期重试复用同一 taskId，残留会污染下一 attempt 计时。
+        toolStarts.remove(taskId);
         RequestHandle handle = requests.remove(taskId);
         if (handle != null) {
             handle.cancel();
@@ -251,6 +254,7 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         }
         requests.values().forEach(RequestHandle::cancel);
         requests.clear();
+        toolStarts.clear();
         if (executor != null) {
             executor.shutdownNow();
         }
@@ -272,8 +276,10 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
             if (event != null) {
                 try {
                     sink.accept(event);
-                } catch (RuntimeException ignored) {
-                    // 上报方失败按丢弃处理。
+                } catch (RuntimeException error) {
+                    // 公理一：上报方失败按丢弃处理，但必须留痕可运维。
+                    LOG.log(System.Logger.Level.WARNING,
+                            "Dropping runtime event for task " + taskId + ": " + error.getMessage());
                 }
             }
         } catch (IOException ignored) {
@@ -302,7 +308,9 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
                     .remove(tool);
             long elapsedMs = startedAt == null ? 0
                     : Math.max(0, Duration.between(startedAt, now()).toMillis());
-            boolean ok = !"error".equals(event.path("status").asText("success")) && !event.has("error");
+            // 固化取值约定：success→ok=true，failed/error→ok=false。
+            String status = event.path("status").asText("success");
+            boolean ok = !"error".equals(status) && !"failed".equals(status) && !event.has("error");
             ObjectNode payload = objectMapper.createObjectNode().put("tool", tool)
                     .put("elapsedMs", elapsedMs).put("ok", ok);
             return new RuntimeEvent(taskId, "tool.finished", payload.toString(), now());
