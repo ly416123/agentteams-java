@@ -21,7 +21,7 @@ vi.mock('../../src/queries/useTaskQueries', () => ({
   }),
 }));
 
-function renderPanel(processEvents: TaskProcessEvent[]) {
+function renderPanel(processEvents: TaskProcessEvent[], taskOverride: Record<string, unknown> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <MemoryRouter>
@@ -30,7 +30,7 @@ function renderPanel(processEvents: TaskProcessEvent[]) {
           projectId="p1"
           taskId="root"
           runId="r1"
-          task={{ id: 'root', title: 'T', phase: 'RUNNING', priority: 5, source: { conversationId: 'conv-1' } } as never}
+          task={{ id: 'root', title: 'T', phase: 'RUNNING', priority: 5, source: { conversationId: 'conv-1' }, ...taskOverride } as never}
           processEvents={processEvents}
         />
       </QueryClientProvider>
@@ -71,5 +71,12 @@ describe('TaskInfoPanel', () => {
     renderPanel([]);
     await user.click(screen.getByRole('tab', { name: '成果物' }));
     expect(screen.getByText('output.md')).toBeInTheDocument();
+  });
+
+  it('omits the source backlink block when the task has no source', async () => {
+    const user = userEvent.setup();
+    renderPanel([], { source: null });
+    await user.click(screen.getByRole('tab', { name: '详情' }));
+    expect(screen.queryByTestId('source-backlink')).not.toBeInTheDocument();
   });
 });

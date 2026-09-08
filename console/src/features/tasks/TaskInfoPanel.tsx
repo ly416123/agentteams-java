@@ -142,14 +142,14 @@ export function TaskInfoPanel({
             <span>优先级<strong>P{task.priority}</strong></span>
             <span>团队<strong>{task.teamId || '未绑定'}</strong></span>
             <span>创建时间<strong>{new Date(task.createdAt).toLocaleString('zh-CN')}</strong></span>
-            <span data-testid="source-backlink">
-              来源会话
-              <strong>
-                {source?.conversationId
-                  ? <Link to={`/${projectId}/conversations/${source.conversationId}`}>打开来源会话</Link>
-                  : '未关联'}
-              </strong>
-            </span>
+            {source?.conversationId && (
+              <span data-testid="source-backlink">
+                来源会话
+                <strong>
+                  <Link to={`/${projectId}/conversations/${source.conversationId}`}>打开来源会话</Link>
+                </strong>
+              </span>
+            )}
           </div>
         )}
       </section>
