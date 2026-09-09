@@ -1,6 +1,10 @@
 spring:
   application:
     name: agentteams-manager
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 55MB
   flyway:
     enabled: true
     table: manager_flyway_schema_history
