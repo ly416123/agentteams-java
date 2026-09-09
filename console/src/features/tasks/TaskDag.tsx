@@ -29,7 +29,11 @@ function layout(nodes: TaskTreeNode[], rootTaskId: string): Positioned[] {
       centerX = offset;
       cursor = offset + NODE_WIDTH + H_GAP;
     }
-    positioned.push({ node: nodes.find((n) => n.taskId === taskId) as TaskTreeNode, x: centerX, y: depth * (NODE_HEIGHT + V_GAP) });
+    positioned.push({
+      node: nodes.find((n) => n.taskId === taskId) as TaskTreeNode,
+      x: centerX,
+      y: depth * (NODE_HEIGHT + V_GAP),
+    });
     return centerX;
   };
   if (nodes.some((node) => node.taskId === rootTaskId)) {
@@ -38,7 +42,24 @@ function layout(nodes: TaskTreeNode[], rootTaskId: string): Positioned[] {
   return positioned;
 }
 
-export function TaskDag({ nodes, rootTaskId }: { nodes: TaskTreeNode[]; rootTaskId: string }) {
+type TaskDagProps = {
+  nodes: TaskTreeNode[];
+  rootTaskId: string;
+  /** subtaskId → title（未登记的子任务回落短 id）。 */
+  titles?: Map<string, string>;
+  /** 当前下钻选中的子任务；null/undefined 表示全量视图。 */
+  selectedSubtaskId?: string | null;
+  /** 点击子任务节点回调；不传则节点不可点击。 */
+  onSelectSubtask?: (subtaskId: string) => void;
+};
+
+export function TaskDag({
+  nodes,
+  rootTaskId,
+  titles,
+  selectedSubtaskId,
+  onSelectSubtask,
+}: TaskDagProps) {
   if (!nodes.length) {
     return <p className="muted-text">当前运行暂无任务分解。</p>;
   }
@@ -49,6 +70,15 @@ export function TaskDag({ nodes, rootTaskId }: { nodes: TaskTreeNode[]; rootTask
   const width = Math.max(...positioned.map((p) => p.x + NODE_WIDTH)) + 8;
   const height = Math.max(...positioned.map((p) => p.y + NODE_HEIGHT)) + 8;
   const byId = new Map(positioned.map((p) => [p.node.taskId, p]));
+  // 依赖边：dependencyIds 指向同 run 内的其它子任务（不指向根，根边已由 parent 关系绘制）。
+  const deps: Array<{ from: Positioned; to: Positioned }> = [];
+  positioned.forEach(({ node, x, y }) => {
+    (node.dependencyIds || []).forEach((depId) => {
+      if (depId === rootTaskId) return;
+      const from = byId.get(depId);
+      if (from) deps.push({ from, to: { node, x, y } });
+    });
+  });
   return (
     <div className="task-dag" data-testid="task-dag">
       <svg width="100%" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="任务分解图">
@@ -67,19 +97,50 @@ export function TaskDag({ nodes, rootTaskId }: { nodes: TaskTreeNode[]; rootTask
             />
           );
         })}
-        {positioned.map(({ node, x, y }) => (
-          <g key={node.taskId} transform={`translate(${x}, ${y})`} data-testid="task-dag-node">
-            <rect
-              width={NODE_WIDTH}
-              height={NODE_HEIGHT}
-              rx={8}
-              className={`task-dag__node task-dag__node--${node.status.toLowerCase()}`}
-            />
-            <text x={NODE_WIDTH / 2} y={NODE_HEIGHT / 2 + 4} textAnchor="middle" className="task-dag__label">
-              {node.taskId === rootTaskId ? '根任务' : node.taskId.slice(0, 8)}
-            </text>
-          </g>
+        {deps.map(({ from, to }) => (
+          <line
+            key={`dep-${to.node.taskId}-${from.node.taskId}`}
+            x1={from.x + NODE_WIDTH}
+            y1={from.y + NODE_HEIGHT / 2}
+            x2={to.x}
+            y2={to.y + NODE_HEIGHT / 2}
+            className="task-dag__edge task-dag__edge--dependency"
+          />
         ))}
+        {positioned.map(({ node, x, y }) => {
+          const label =
+            node.taskId === rootTaskId
+              ? '根任务'
+              : titles?.get(node.taskId) || node.taskId.slice(0, 8);
+          const selected = node.taskId === selectedSubtaskId;
+          const clickable = node.taskId !== rootTaskId && Boolean(onSelectSubtask);
+          return (
+            <g
+              key={node.taskId}
+              transform={`translate(${x}, ${y})`}
+              data-testid="task-dag-node"
+              data-status={node.status}
+              className={selected ? 'task-dag__node-wrapper--selected' : undefined}
+              onClick={clickable ? () => onSelectSubtask?.(node.taskId) : undefined}
+              style={clickable ? { cursor: 'pointer' } : undefined}
+            >
+              <rect
+                width={NODE_WIDTH}
+                height={NODE_HEIGHT}
+                rx={8}
+                className={`task-dag__node task-dag__node--${node.status.toLowerCase()}`}
+              />
+              <text
+                x={NODE_WIDTH / 2}
+                y={NODE_HEIGHT / 2 + 4}
+                textAnchor="middle"
+                className="task-dag__label"
+              >
+                {label.length > 12 ? `${label.slice(0, 11)}…` : label}
+              </text>
+            </g>
+          );
+        })}
       </svg>
     </div>
   );

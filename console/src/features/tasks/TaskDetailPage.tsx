@@ -18,7 +18,12 @@ import { VersionConflictModal } from '../../components/VersionConflictModal';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { labelSource, labelStatus, labelType } from '../../i18n/labels';
 import { TaskExecutionObservability } from './TaskExecutionObservability';
-import { TaskInfoPanel, mergeTaskTimelines } from './TaskInfoPanel';
+import {
+  TaskInfoPanel,
+  buildSubtaskContext,
+  mergeTaskTimelines,
+  withSubtaskOwnership,
+} from './TaskInfoPanel';
 
 type TaskActionName = 'queue' | 'cancel' | 'retry' | 'pause' | 'approve' | 'reject';
 const actionLabels: Record<TaskActionName, string> = {
@@ -48,6 +53,12 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const [searchParams] = useSearchParams();
   const runId = searchParams.get('runId') || runs.data?.[0]?.id || '';
   const processEvents = useTaskProcessEvents(projectId, taskId, runId);
+  // 下钻状态：选中子任务后主列时间线只剩该子任务相关条目（DAG 点击 → 过滤）。
+  const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
+  const subtaskTitles = useMemo(
+    () => buildSubtaskContext(processEvents.data || []).titles,
+    [processEvents.data],
+  );
   const timelineItems = useMemo(
     () =>
       mergeTaskTimelines(
@@ -58,9 +69,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           time: event.createdAt,
           tone: event.phase?.toLowerCase(),
         })),
-        processEvents.data || [],
-      ),
-    [events.data, processEvents.data],
+        withSubtaskOwnership(processEvents.data || []),
+      ).filter((item) => !selectedSubtaskId || item.subtaskId === selectedSubtaskId),
+    [events.data, processEvents.data, selectedSubtaskId],
   );
   const [conflict, setConflict] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -134,7 +145,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
             {task.data.phase === 'PAUSED' ? '继续执行' : '暂停任务'}
           </button>
         )}
-        {(task.data.phase === 'DRAFT' || task.data.phase === 'QUEUED' || task.data.phase === 'PAUSED') && (
+        {(task.data.phase === 'DRAFT' ||
+          task.data.phase === 'QUEUED' ||
+          task.data.phase === 'PAUSED') && (
           <>
             <button className="button button--ghost" onClick={() => runAction('approve')}>
               批准任务
@@ -177,7 +190,18 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
               <ErrorState error={events.error} onRetry={() => void events.refetch()} />
             )}
             {processEvents.connectionState === 'reconnecting' && (
-              <div className="info-box" role="status">过程事件流已断开，正在重连</div>
+              <div className="info-box" role="status">
+                过程事件流已断开，正在重连
+              </div>
+            )}
+            {selectedSubtaskId && (
+              <div className="info-box" role="status" data-testid="subtask-filter-hint">
+                正在查看子任务{' '}
+                {subtaskTitles.get(selectedSubtaskId) || selectedSubtaskId.slice(0, 8)} 的事件
+                <button className="button button--ghost" onClick={() => setSelectedSubtaskId(null)}>
+                  清除筛选
+                </button>
+              </div>
             )}
             <Timeline items={timelineItems} />
           </section>
@@ -189,6 +213,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
             runId={runId}
             task={task.data}
             processEvents={processEvents.data || []}
+            selectedSubtaskId={selectedSubtaskId}
+            onSelectSubtask={setSelectedSubtaskId}
+            subtaskTitles={subtaskTitles}
           />
         </aside>
       </div>

@@ -133,6 +133,24 @@ export type TimelineItem = {
   subtaskId?: string;
 };
 
+/** 给过程事件标注归属子任务：tool.* 取时间窗口归属；subtask.* 取自身 payload。 */
+export function withSubtaskOwnership(
+  process: TaskProcessEventLite[],
+): Array<TaskProcessEventLite & { subtaskId?: string }> {
+  const attribution = subtaskWindow(process);
+  return process.map((event) => {
+    let subtaskId = attribution.get(event.eventId);
+    if (!subtaskId && event.eventType.startsWith('subtask.') && event.payload) {
+      try {
+        subtaskId = subtaskPayload(JSON.parse(event.payload) as Record<string, unknown>).subtaskId;
+      } catch {
+        // best-effort：解析失败不阻塞归属
+      }
+    }
+    return { ...event, subtaskId };
+  });
+}
+
 /** 生命周期流与过程事件流按时间归并，供详情页主列时间线渲染。 */
 export function mergeTaskTimelines(
   lifecycle: Array<{
@@ -181,12 +199,19 @@ export function TaskInfoPanel({
   runId,
   task,
   processEvents,
+  selectedSubtaskId,
+  onSelectSubtask,
+  subtaskTitles,
 }: {
   projectId: string;
   taskId: string;
   runId: string;
   task: Task;
   processEvents: TaskProcessEvent[];
+  /** 当前下钻选中的子任务（TaskDetailPage 状态提升）。 */
+  selectedSubtaskId?: string | null;
+  onSelectSubtask?: (subtaskId: string) => void;
+  subtaskTitles?: Map<string, string>;
 }) {
   const [tab, setTab] = useState<TabName>('events');
   const tree = useTaskTree(projectId, taskId, runId);
@@ -198,7 +223,13 @@ export function TaskInfoPanel({
       <section className="panel">
         <p className="eyebrow">任务结构</p>
         <h2>分解图</h2>
-        <TaskDag nodes={(tree.data || []) as TaskTreeNode[]} rootTaskId={taskId} />
+        <TaskDag
+          nodes={(tree.data || []) as TaskTreeNode[]}
+          rootTaskId={taskId}
+          titles={subtaskTitles}
+          selectedSubtaskId={selectedSubtaskId}
+          onSelectSubtask={onSelectSubtask}
+        />
       </section>
       <section className="panel">
         <div className="info-panel__tabs" role="tablist">
