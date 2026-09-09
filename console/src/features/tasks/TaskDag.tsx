@@ -70,11 +70,13 @@ export function TaskDag({
   const width = Math.max(...positioned.map((p) => p.x + NODE_WIDTH)) + 8;
   const height = Math.max(...positioned.map((p) => p.y + NODE_HEIGHT)) + 8;
   const byId = new Map(positioned.map((p) => [p.node.taskId, p]));
-  // 依赖边：dependencyIds 指向同 run 内的其它子任务（不指向根，根边已由 parent 关系绘制）。
+  // 依赖边：dependencyIds 指向同 run 内的其它子任务（不指向根，根边已由 parent 关系绘制）；Set 去重防数据异常时重复渲染。
   const deps: Array<{ from: Positioned; to: Positioned }> = [];
   positioned.forEach(({ node, x, y }) => {
+    const seen = new Set<string>();
     (node.dependencyIds || []).forEach((depId) => {
-      if (depId === rootTaskId) return;
+      if (depId === rootTaskId || seen.has(depId)) return;
+      seen.add(depId);
       const from = byId.get(depId);
       if (from) deps.push({ from, to: { node, x, y } });
     });
@@ -122,6 +124,16 @@ export function TaskDag({
               data-status={node.status}
               className={selected ? 'task-dag__node-wrapper--selected' : undefined}
               onClick={clickable ? () => onSelectSubtask?.(node.taskId) : undefined}
+              onKeyDown={
+                clickable
+                  ? (event) => {
+                      if (event.key === 'Enter' || event.key === ' ')
+                        onSelectSubtask?.(node.taskId);
+                    }
+                  : undefined
+              }
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
               style={clickable ? { cursor: 'pointer' } : undefined}
             >
               <rect

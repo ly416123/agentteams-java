@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/httpClient';
 import {
@@ -55,6 +55,8 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const processEvents = useTaskProcessEvents(projectId, taskId, runId);
   // 下钻状态：选中子任务后主列时间线只剩该子任务相关条目（DAG 点击 → 过滤）。
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
+  // 跨 run 切换时旧 run 的子任务不再存在，重置下钻避免空时间线误导。
+  useEffect(() => setSelectedSubtaskId(null), [runId]);
   const subtaskTitles = useMemo(
     () => buildSubtaskContext(processEvents.data || []).titles,
     [processEvents.data],

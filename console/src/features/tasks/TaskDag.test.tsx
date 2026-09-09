@@ -58,6 +58,25 @@ describe('TaskDag', () => {
     expect(screen.getByText(A1.slice(0, 8))).toBeTruthy();
   });
 
+  it('超过 12 字符的标题截断为 11 字符加省略号', () => {
+    render(
+      <TaskDag
+        nodes={nodes}
+        rootTaskId={ROOT}
+        titles={new Map([[A1, '抓取并解析所有未读邮件附件']])}
+      />,
+    );
+    expect(screen.getByText('抓取并解析所有未读邮件…')).toBeTruthy();
+  });
+
+  it('dependencyIds 含重复项时依赖边不重复渲染', () => {
+    const duplicated = nodes.map((node) =>
+      node.taskId === A2 ? { ...node, dependencyIds: [A1, A1] } : node,
+    );
+    const { container } = render(<TaskDag nodes={duplicated} rootTaskId={ROOT} />);
+    expect(container.querySelectorAll('line.task-dag__edge--dependency')).toHaveLength(1);
+  });
+
   it('dependencyIds 渲染依赖虚线边', () => {
     const { container } = render(<TaskDag nodes={nodes} rootTaskId={ROOT} />);
     const deps = container.querySelectorAll('line.task-dag__edge--dependency');
@@ -76,7 +95,9 @@ describe('TaskDag', () => {
     fireEvent.click(screen.getByText('抓取邮件').closest('g')!);
     expect(onSelect).toHaveBeenCalledWith(A1);
 
-    rerender(<TaskDag nodes={nodes} rootTaskId={ROOT} titles={titles} onSelectSubtask={onSelect} />);
+    rerender(
+      <TaskDag nodes={nodes} rootTaskId={ROOT} titles={titles} onSelectSubtask={onSelect} />,
+    );
     fireEvent.click(screen.getByText('根任务'));
     expect(onSelect).toHaveBeenCalledTimes(1);
 
