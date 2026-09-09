@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository;
 
 /** Persistence for conversation-produced files. */
 @Repository
-public final class JdbcConversationFileRepository {
+public class JdbcConversationFileRepository {
     private static final String INSERT = """
             INSERT INTO conversation_files (id, session_id, name, content_type, size_bytes,
                     storage_key, created_at)
