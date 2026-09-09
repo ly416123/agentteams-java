@@ -8,6 +8,7 @@ import io.agentteams.controlplane.security.ExecutionContext;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -77,6 +78,13 @@ public class SubtaskService {
         }
         if (requestedIds.contains(taskId)) {
             throw new IllegalArgumentException("subtask id must differ from the main task id");
+        }
+        Set<UUID> requestedSet = new HashSet<>(requestedIds);
+        for (SubtaskSpec spec : specs) {
+            if (!requestedSet.containsAll(spec.dependencyIds())) {
+                throw new IllegalArgumentException(
+                        "dependencyIds must reference subtasks within the same plan");
+            }
         }
         Instant at = clock.instant();
         tree.deleteOthers(context, runId, requestedIds);

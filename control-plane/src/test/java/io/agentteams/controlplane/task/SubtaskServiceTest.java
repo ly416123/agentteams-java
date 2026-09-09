@@ -179,6 +179,17 @@ class SubtaskServiceTest {
     }
 
     @Test
+    void planRejectsDependencyOutsideThePlan() {
+        // 设计文档：dependencyIds 必须引用同一清单内存在的子任务 id，悬空引用不应持久化。
+        UUID outsider = UUID.randomUUID();
+        assertThatThrownBy(() -> service.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(UUID.randomUUID(), "抓取邮件", 1, List.of(outsider)))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("within the same plan");
+        assertThat(events.all).isEmpty();
+    }
+
+    @Test
     void planAndStatusRejectTasksWithoutVisibleScope() {
         when(runs.contextForTask(taskId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.plan(taskId,

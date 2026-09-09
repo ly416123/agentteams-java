@@ -178,6 +178,57 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/subtasks:
+    parameters: *signedHeaders
+    put:
+      operationId: planSubtasks
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubtaskPlanRequest' }
+      responses:
+        '200':
+          description: 全量声明式同步后的子任务节点清单
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubtaskPlanResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/subtasks/{subtaskId}/status:
+    parameters: *signedHeaders
+    put:
+      operationId: updateSubtaskStatus
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/SubtaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubtaskStatusUpdateRequest' }
+      responses:
+        '200':
+          description: 推进后的子任务节点
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskTreeNode' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/runs/{runId}/progress:
     parameters: *signedHeaders
     get:
@@ -512,6 +563,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    SubtaskId:
+      name: subtaskId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     RunId:
       name: runId
       in: path
@@ -779,6 +835,60 @@ components:
         correlationId: { type: string }
         payload: { type: string }
         payloadRef: { type: string }
+    SubtaskSpec:
+      type: object
+      required: [subtaskId, title, sequence, dependencyIds]
+      additionalProperties: false
+      properties:
+        subtaskId: { type: string, format: uuid }
+        title: { type: string, minLength: 1 }
+        sequence: { type: integer, minimum: 1 }
+        dependencyIds:
+          type: array
+          description: 必须引用同一清单内存在的子任务 id。
+          items: { type: string, format: uuid }
+    SubtaskPlanRequest:
+      type: object
+      required: [subtasks]
+      additionalProperties: false
+      properties:
+        subtasks:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/SubtaskSpec' }
+    SubtaskPlanResponse:
+      type: object
+      required: [nodes]
+      properties:
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/TaskTreeNode' }
+    SubtaskStatusUpdateRequest:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [RUNNING, SUCCEEDED, FAILED, CANCELLED] }
+        note:
+          type: [string, 'null']
+          nullable: true
+          description: 随状态事件透出的备注；不能提供时事件不含 note。
+    TaskTreeNode:
+      type: object
+      required: [taskId, parentTaskId, sequence, status, dependencyIds, updatedAt]
+      properties:
+        taskId: { type: string, format: uuid }
+        parentTaskId:
+          type: [string, 'null']
+          format: uuid
+          nullable: true
+        sequence: { type: integer }
+        status: { type: string }
+        dependencyIds:
+          type: array
+          items: { type: string, format: uuid }
+        updatedAt: { type: string, format: date-time }
     TaskResultManifest:
       type: object
       required: [taskId, runId, status, summary, artifacts]
