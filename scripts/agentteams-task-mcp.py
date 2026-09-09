@@ -445,14 +445,15 @@ def tool_plan_subtasks(arguments: dict[str, Any]) -> dict[str, Any]:
                                  MAX_TITLE, required=True),
             "sequence": _positive_int(spec.get("sequence"), f"subtasks[{index}].sequence"),
         }
-        dependencies = spec.get("dependencyIds")
-        if dependencies:
-            if not isinstance(dependencies, list):
-                raise ValueError(f"subtasks[{index}].dependencyIds must be a list")
-            item["dependencyIds"] = [
-                _safe_uuid(dep, f"subtasks[{index}].dependencyIds[{position}]")
-                for position, dep in enumerate(dependencies, start=1)
-            ]
+        # 服务端 SubtaskSpec 契约要求 dependencyIds 键必须存在（null 被拒 → 400），
+        # 无依赖时也恒带空数组，不省略键。
+        dependencies = spec.get("dependencyIds") or []
+        if not isinstance(dependencies, list):
+            raise ValueError(f"subtasks[{index}].dependencyIds must be a list")
+        item["dependencyIds"] = [
+            _safe_uuid(dep, f"subtasks[{index}].dependencyIds[{position}]")
+            for position, dep in enumerate(dependencies, start=1)
+        ]
         declared.append(item)
     planned = _http_json(
         "PUT", _api_url(config, f"/api/v1/tasks/{task_id}/subtasks"),
@@ -489,7 +490,7 @@ def tool_update_subtask_status(arguments: dict[str, Any]) -> dict[str, Any]:
         token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
         body=body,
     )
-    return {"ok": True, "taskId": subtask_id, "status": status,
+    return {"ok": True, "taskId": task_id, "subtaskId": subtask_id, "status": status,
             "note": "Subtask status updated; the main task keeps running regardless."}
 
 

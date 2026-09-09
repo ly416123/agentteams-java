@@ -221,6 +221,8 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertEqual(headers.get("Authorization"), "Bearer static-test-token")
         self.assertEqual([s["subtaskId"] for s in body["subtasks"]], [a1, a2])
         self.assertEqual([s["title"] for s in body["subtasks"]], ["抓取邮件", "生成摘要"])
+        # 契约锁：无依赖的子任务也必须恒带 dependencyIds 键（服务端拒绝 null）。
+        self.assertEqual(body["subtasks"][0]["dependencyIds"], [])
         self.assertEqual(body["subtasks"][1]["dependencyIds"], [a1])
 
     def test_plan_subtasks_validates_input_before_calling_api(self):
@@ -256,6 +258,8 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         })
         self.assertTrue(payload["ok"], payload)
         self.assertEqual(payload["status"], "FAILED")
+        self.assertEqual(payload["taskId"], self.server.task_id)
+        self.assertEqual(payload["subtaskId"], sid)
         method, path, headers, body = next(
             r for r in self.server.requests
             if r[0] == "PUT" and f"/subtasks/{sid}/status" in r[1])
