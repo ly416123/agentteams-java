@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 public final class ConversationFileService {
     public static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
     private static final int MAX_NAME_LENGTH = 255;
+    /** content_type 列为 VARCHAR(128)，超长回退默认类型（截断后的 MIME 无意义）。 */
+    static final int MAX_CONTENT_TYPE_LENGTH = 128;
 
     /** Raised when the uploaded file exceeds {@link #MAX_FILE_BYTES}. */
     public static final class FileTooLargeException extends RuntimeException {
@@ -60,6 +62,9 @@ public final class ConversationFileService {
         UUID fileId = UUID.randomUUID();
         String safeContentType = contentType == null || contentType.isBlank()
                 ? "application/octet-stream" : contentType;
+        if (safeContentType.length() > MAX_CONTENT_TYPE_LENGTH) {
+            safeContentType = "application/octet-stream";
+        }
         String storageKey = "conversations/" + sessionId + "/files/" + fileId + "/" + name;
         storage.upload(storageKey, new ByteArrayInputStream(content), content.length, safeContentType);
         ConversationFile file = new ConversationFile(fileId, sessionId, name, safeContentType,

@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 
 class ConversationFileServiceTest {
@@ -66,6 +67,15 @@ class ConversationFileServiceTest {
         assertThat(sanitized).endsWith(".pdf");
         assertThat(ConversationFileService.sanitizeName("///")).isEqualTo("file");
         assertThat(ConversationFileService.sanitizeName("a/b/c.txt")).isEqualTo("c.txt");
+    }
+
+    @Test
+    void fallsBackToOctetStreamWhenContentTypeExceedsColumnWidth() {
+        // content_type 列为 VARCHAR(128)：超长时回退默认类型，避免 MinIO 孤儿对象 + 误导性 503。
+        service.upload(SESSION, "a.bin", "x".repeat(200), new byte[] {1});
+        ArgumentCaptor<String> contentType = ArgumentCaptor.forClass(String.class);
+        verify(storage).upload(anyString(), any(InputStream.class), anyLong(), contentType.capture());
+        assertThat(contentType.getValue()).isEqualTo("application/octet-stream");
     }
 
     @Test
