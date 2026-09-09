@@ -37,8 +37,11 @@ HTTP_TIMEOUT_SECONDS = 20.0
 MAX_TITLE = 200
 MAX_DESCRIPTION = 2000
 MAX_PROMPT = 8000
+MAX_SUBTASKS = 20
+SUBTASK_STATUSES = ("RUNNING", "SUCCEEDED", "FAILED", "CANCELLED")
 
-TOOL_NAMES = ["create_task", "get_task", "get_task_result"]
+TOOL_NAMES = ["create_task", "get_task", "get_task_result",
+              "plan_subtasks", "update_subtask_status"]
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "create_task": {
@@ -111,6 +114,76 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "task_id": {"type": "string", "description": "Task UUID."},
             },
             "required": ["task_id"],
+        },
+    },
+    "plan_subtasks": {
+        "description": (
+            "Break the current task into structured subtasks and register them "
+            "(declarative full sync: re-plan with the latest list to add or "
+            "remove subtasks). Generate a fresh UUID for every new subtaskId. "
+            "After planning, start the first subtask by calling "
+            "update_subtask_status with RUNNING."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Main task UUID (see the platform context block).",
+                },
+                "subtasks": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "subtaskId": {
+                                "type": "string",
+                                "description": "Fresh UUID identifying this subtask.",
+                            },
+                            "title": {"type": "string"},
+                            "sequence": {
+                                "type": "integer",
+                                "description": "1-based execution order.",
+                            },
+                            "dependencyIds": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Subtask UUIDs that must finish first.",
+                            },
+                        },
+                        "required": ["subtaskId", "title", "sequence"],
+                    },
+                },
+            },
+            "required": ["task_id", "subtasks"],
+        },
+    },
+    "update_subtask_status": {
+        "description": (
+            "Advance one subtask's status. status must be RUNNING, SUCCEEDED, "
+            "FAILED, or CANCELLED; pass an optional note explaining the outcome. "
+            "The main task keeps running regardless of subtask outcomes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Main task UUID (see the platform context block).",
+                },
+                "subtaskId": {"type": "string", "description": "Subtask UUID from plan_subtasks."},
+                "status": {
+                    "type": "string",
+                    "enum": ["RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"],
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Optional short explanation, e.g. why it failed.",
+                },
+            },
+            "required": ["task_id", "subtaskId", "status"],
         },
     },
 }
@@ -269,6 +342,12 @@ def _safe_uuid(value: Any, field: str) -> str:
         raise ValueError(f"{field} must be a UUID") from error
 
 
+def _positive_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{field} must be a positive integer")
+    return value
+
+
 def _api_url(config: Config, path: str) -> str:
     return config.control_plane_url + path
 
@@ -350,6 +429,70 @@ def tool_get_task_result(arguments: dict[str, Any]) -> dict[str, Any]:
             "summary": result.get("summary"), "artifacts": artifacts}
 
 
+def tool_plan_subtasks(arguments: dict[str, Any]) -> dict[str, Any]:
+    config = get_config()
+    task_id = _safe_uuid(arguments.get("task_id"), "task_id")
+    subtasks = arguments.get("subtasks")
+    if not isinstance(subtasks, list) or not (1 <= len(subtasks) <= MAX_SUBTASKS):
+        raise ValueError(f"subtasks must be a list of 1 to {MAX_SUBTASKS} items")
+    declared: list[dict[str, Any]] = []
+    for index, spec in enumerate(subtasks, start=1):
+        if not isinstance(spec, dict):
+            raise ValueError(f"subtasks[{index}] must be an object")
+        item: dict[str, Any] = {
+            "subtaskId": _safe_uuid(spec.get("subtaskId"), f"subtasks[{index}].subtaskId"),
+            "title": _clean_text(spec.get("title"), f"subtasks[{index}].title",
+                                 MAX_TITLE, required=True),
+            "sequence": _positive_int(spec.get("sequence"), f"subtasks[{index}].sequence"),
+        }
+        dependencies = spec.get("dependencyIds")
+        if dependencies:
+            if not isinstance(dependencies, list):
+                raise ValueError(f"subtasks[{index}].dependencyIds must be a list")
+            item["dependencyIds"] = [
+                _safe_uuid(dep, f"subtasks[{index}].dependencyIds[{position}]")
+                for position, dep in enumerate(dependencies, start=1)
+            ]
+        declared.append(item)
+    planned = _http_json(
+        "PUT", _api_url(config, f"/api/v1/tasks/{task_id}/subtasks"),
+        token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
+        body={"subtasks": declared},
+    )
+    nodes = planned.get("nodes") or []
+    return {
+        "ok": True,
+        "taskId": task_id,
+        "planned": len(nodes),
+        "note": "Subtasks registered (declarative sync: re-plan with the latest "
+                "list to add or remove). Start with the lowest sequence and "
+                "report progress via update_subtask_status.",
+    }
+
+
+def tool_update_subtask_status(arguments: dict[str, Any]) -> dict[str, Any]:
+    config = get_config()
+    task_id = _safe_uuid(arguments.get("task_id"), "task_id")
+    subtask_id = _safe_uuid(arguments.get("subtaskId"), "subtaskId")
+    status = arguments.get("status")
+    if status not in SUBTASK_STATUSES:
+        # 双层校验公理：不信任调用方，schema enum 之外的工具层再拦一次，不打 API。
+        return {"ok": False,
+                "error": "不支持的状态 " + str(status)
+                         + "：只能 RUNNING/SUCCEEDED/FAILED/CANCELLED"}
+    body: dict[str, Any] = {"status": status}
+    note = _clean_text(arguments.get("note"), "note", MAX_DESCRIPTION, required=False)
+    if note:
+        body["note"] = note
+    _http_json(
+        "PUT", _api_url(config, f"/api/v1/tasks/{task_id}/subtasks/{subtask_id}/status"),
+        token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
+        body=body,
+    )
+    return {"ok": True, "taskId": subtask_id, "status": status,
+            "note": "Subtask status updated; the main task keeps running regardless."}
+
+
 def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "create_task":
         return tool_create_task(arguments)
@@ -357,6 +500,10 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return tool_get_task(arguments)
     if name == "get_task_result":
         return tool_get_task_result(arguments)
+    if name == "plan_subtasks":
+        return tool_plan_subtasks(arguments)
+    if name == "update_subtask_status":
+        return tool_update_subtask_status(arguments)
     return {"ok": False, "error": f"unsupported tool: {name}"}
 
 

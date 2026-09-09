@@ -72,6 +72,28 @@ class ControlPlaneStub(BaseHTTPRequestHandler):
         else:
             self._reply({"error": "not found"}, 404)
 
+    def do_PUT(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        raw = self.rfile.read(length) if length else b"{}"
+        payload = json.loads(raw or b"{}")
+        self.server.requests.append(("PUT", self.path, dict(self.headers), payload))
+        if self.path.endswith("/subtasks"):
+            self.server.subtasks_body = payload
+            nodes = [{"taskId": item["subtaskId"], "parentTaskId": self.server.task_id,
+                      "sequence": item["sequence"], "status": "PENDING",
+                      "dependencyIds": item.get("dependencyIds", []),
+                      "updatedAt": "2026-09-09T00:00:00Z"}
+                     for item in payload.get("subtasks", [])]
+            self._reply({"nodes": nodes})
+        elif "/status" in self.path:
+            self.server.status_body = payload
+            subtask_id = self.path.rstrip("/").rsplit("/", 2)[-2]
+            self._reply({"taskId": subtask_id, "parentTaskId": self.server.task_id,
+                         "sequence": 1, "status": payload.get("status"),
+                         "dependencyIds": [], "updatedAt": "2026-09-09T00:00:00Z"})
+        else:
+            self._reply({"error": "not found"}, 404)
+
 
 class AgentTeamsTaskMcpTest(unittest.TestCase):
     def setUp(self):
@@ -81,6 +103,8 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.server.requests = []
         self.server.create_body = None
         self.server.queue_body = None
+        self.server.subtasks_body = None
+        self.server.status_body = None
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
         self.env = {
@@ -100,7 +124,8 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
 
         tools = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         self.assertEqual([t["name"] for t in tools["result"]["tools"]],
-                         ["create_task", "get_task", "get_task_result"])
+                         ["create_task", "get_task", "get_task_result",
+                          "plan_subtasks", "update_subtask_status"])
 
         self.assertIsNone(MCP.handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 
@@ -177,6 +202,66 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertEqual(payload["summary"], "done")
         self.assertEqual(payload["artifacts"][0]["downloadUrl"], "http://minio/presigned")
 
+    def test_plan_subtasks_posts_declared_list(self):
+        self._use_env(self.env)
+        a1, a2 = str(uuid.uuid4()), str(uuid.uuid4())
+        payload = MCP.call_tool("plan_subtasks", {
+            "task_id": self.server.task_id,
+            "subtasks": [
+                {"subtaskId": a1, "title": "抓取邮件", "sequence": 1},
+                {"subtaskId": a2, "title": "生成摘要", "sequence": 2, "dependencyIds": [a1]},
+            ],
+        })
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["planned"], 2)
+        method, path, headers, body = next(
+            r for r in self.server.requests
+            if r[0] == "PUT" and r[1] == f"/api/v1/tasks/{self.server.task_id}/subtasks")
+        self.assertTrue(headers.get("Idempotency-Key"))
+        self.assertEqual(headers.get("Authorization"), "Bearer static-test-token")
+        self.assertEqual([s["subtaskId"] for s in body["subtasks"]], [a1, a2])
+        self.assertEqual([s["title"] for s in body["subtasks"]], ["抓取邮件", "生成摘要"])
+        self.assertEqual(body["subtasks"][1]["dependencyIds"], [a1])
+
+    def test_plan_subtasks_validates_input_before_calling_api(self):
+        self._use_env(self.env)
+        with self.assertRaises(ValueError):
+            MCP.call_tool("plan_subtasks", {"task_id": "not-a-uuid", "subtasks": []})
+        with self.assertRaises(ValueError):
+            MCP.call_tool("plan_subtasks", {"task_id": self.server.task_id, "subtasks": []})
+        with self.assertRaises(ValueError):
+            MCP.call_tool("plan_subtasks", {
+                "task_id": self.server.task_id,
+                "subtasks": [{"subtaskId": "bad", "title": "t", "sequence": 1}],
+            })
+        self.assertEqual([r for r in self.server.requests if r[0] == "PUT"], [])
+
+    def test_update_subtask_status_rejects_blocked(self):
+        self._use_env(self.env)
+        payload = MCP.call_tool("update_subtask_status", {
+            "task_id": self.server.task_id,
+            "subtaskId": str(uuid.uuid4()),
+            "status": "BLOCKED",
+        })
+        self.assertFalse(payload["ok"], payload)
+        self.assertIn("不支持", payload["error"])
+        self.assertEqual([r for r in self.server.requests if r[0] == "PUT"], [])
+
+    def test_update_subtask_status_posts_typed_status(self):
+        self._use_env(self.env)
+        sid = str(uuid.uuid4())
+        payload = MCP.call_tool("update_subtask_status", {
+            "task_id": self.server.task_id, "subtaskId": sid,
+            "status": "FAILED", "note": "上游超时",
+        })
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["status"], "FAILED")
+        method, path, headers, body = next(
+            r for r in self.server.requests
+            if r[0] == "PUT" and f"/subtasks/{sid}/status" in r[1])
+        self.assertTrue(headers.get("Idempotency-Key"))
+        self.assertEqual(body, {"status": "FAILED", "note": "上游超时"})
+
     def test_input_validation_and_error_mapping(self):
         self._use_env(self.env)
         with self.assertRaises(ValueError):
@@ -237,7 +322,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
             init = ask({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
             self.assertEqual(init["result"]["protocolVersion"], "2024-11-05")
             tools = ask({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-            self.assertEqual(len(tools["result"]["tools"]), 3)
+            self.assertEqual(len(tools["result"]["tools"]), 5)
             created = ask({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
                 "name": "create_task",
                 "arguments": {"title": "500强", "prompt": "生成中国企业500强名单，PDF 格式"}}})
