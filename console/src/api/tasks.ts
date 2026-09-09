@@ -139,9 +139,12 @@ export function getTaskProcessEvents(
   after = 0,
   client: HttpClient = apiClient,
 ) {
-  return client.request<TaskProcessEvent[]>(`/api/v1/tasks/${taskId}/runs/${runId}/process-events`, {
-    query: { after, visibility: 'REQUESTER' },
-  });
+  return client.request<TaskProcessEvent[]>(
+    `/api/v1/tasks/${taskId}/runs/${runId}/process-events`,
+    {
+      query: { after, visibility: 'REQUESTER' },
+    },
+  );
 }
 export function getTaskProgress(taskId: string, runId: string, client: HttpClient = apiClient) {
   return client.request<TaskProgressSnapshot>(`/api/v1/tasks/${taskId}/runs/${runId}/progress`, {

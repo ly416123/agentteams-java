@@ -1120,14 +1120,38 @@ select:focus {
   grid-template-columns: 1fr auto;
   gap: 4px;
 }
-.task-dag__node--running { fill: #dbeafe; stroke: #2563eb; }
-.task-dag__node--pending { fill: #f1f5f9; stroke: #94a3b8; }
-.task-dag__node--succeeded { fill: #dcfce7; stroke: #16a34a; }
-.task-dag__node--failed { fill: #fee2e2; stroke: #dc2626; }
-.task-dag__edge { stroke: #cbd5e1; }
-.task-dag__edge--dependency { stroke-dasharray: 4 3; opacity: 0.6; }
-.task-dag__node-wrapper--selected rect { stroke-width: 2; }
-.task-dag__label { font-size: 12px; fill: #334155; }
+.task-dag__node--running {
+  fill: #dbeafe;
+  stroke: #2563eb;
+}
+.task-dag__node--pending {
+  fill: #f1f5f9;
+  stroke: #94a3b8;
+}
+.task-dag__node--succeeded {
+  fill: #dcfce7;
+  stroke: #16a34a;
+}
+.task-dag__node--failed {
+  fill: #fee2e2;
+  stroke: #dc2626;
+}
+.task-dag__edge {
+  stroke: #cbd5e1;
+}
+.task-dag__edge--dependency {
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+.task-dag__node-wrapper--selected rect {
+  stroke-width: 2;
+}
+.task-dag__label {
+  font-size: 12px;
+  fill: #334155;
+}
 @media (max-width: 1080px) {
-  .detail-layout { grid-template-columns: 1fr; }
+  .detail-layout {
+    grid-template-columns: 1fr;
+  }
 }

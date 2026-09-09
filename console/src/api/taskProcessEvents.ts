@@ -19,7 +19,8 @@ function processEventFromPayload(
     sequence,
     eventType: typeof payload.eventType === 'string' ? payload.eventType : frameType || 'PROCESS',
     visibility: typeof payload.visibility === 'string' ? payload.visibility : 'REQUESTER',
-    occurredAt: typeof payload.occurredAt === 'string' ? payload.occurredAt : new Date().toISOString(),
+    occurredAt:
+      typeof payload.occurredAt === 'string' ? payload.occurredAt : new Date().toISOString(),
     correlationId: typeof payload.correlationId === 'string' ? payload.correlationId : '',
     payload: typeof payload.payload === 'string' ? payload.payload : null,
     payloadRef: typeof payload.payloadRef === 'string' ? payload.payloadRef : null,
@@ -37,7 +38,11 @@ function parseFrame(frame: string): TaskProcessEvent | null {
   });
   if (!data.length) return null;
   try {
-    return processEventFromPayload(JSON.parse(data.join('\n')) as Record<string, unknown>, id, type);
+    return processEventFromPayload(
+      JSON.parse(data.join('\n')) as Record<string, unknown>,
+      id,
+      type,
+    );
   } catch {
     return null;
   }

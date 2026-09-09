@@ -129,7 +129,9 @@ export function TaskExecutionObservability({
             {tree.data.map((node) => (
               <article className="stack-list__item" key={`${node.taskId}-${node.sequence}`}>
                 <div>
-                  <strong>{node.parentTaskId ? '子任务' : '主任务'} · {node.taskId}</strong>
+                  <strong>
+                    {node.parentTaskId ? '子任务' : '主任务'} · {node.taskId}
+                  </strong>
                   <div className="muted-text">
                     {node.parentTaskId ? `父任务 ${node.parentTaskId}` : '根任务'} · 更新于{' '}
                     {new Date(node.updatedAt).toLocaleString('zh-CN')}
@@ -165,8 +167,11 @@ export function TaskExecutionObservability({
                 {decision.evidenceSummary && <div>依据：{decision.evidenceSummary}</div>}
                 {decision.constraintsSummary && <div>约束：{decision.constraintsSummary}</div>}
                 <div className="muted-text">
-                  {decision.confidence == null ? '未提供置信度' : `置信度 ${(decision.confidence * 100).toFixed(0)}%`} ·{' '}
-                  {labelDecision(decision.visibility)} · {new Date(decision.createdAt).toLocaleString('zh-CN')}
+                  {decision.confidence == null
+                    ? '未提供置信度'
+                    : `置信度 ${(decision.confidence * 100).toFixed(0)}%`}{' '}
+                  · {labelDecision(decision.visibility)} ·{' '}
+                  {new Date(decision.createdAt).toLocaleString('zh-CN')}
                 </div>
               </article>
             ))}
@@ -205,15 +210,25 @@ export function TaskExecutionObservability({
                   <tbody>
                     {result.data.artifacts.map((artifact) => (
                       <tr key={`${artifact.name}-${artifact.version}`}>
-                        <td><strong>{artifact.name}</strong></td>
+                        <td>
+                          <strong>{artifact.name}</strong>
+                        </td>
                         <td>{artifact.contentType}</td>
                         <td>{formatBytes(artifact.sizeBytes)}</td>
                         <td>{artifact.stage}</td>
-                        <td><code>{artifact.sha256}</code></td>
+                        <td>
+                          <code>{artifact.sha256}</code>
+                        </td>
                         <td>
                           {artifact.downloadUrl ? (
-                            <a className="button button--ghost" href={artifact.downloadUrl}
-                              target="_blank" rel="noreferrer">下载</a>
+                            <a
+                              className="button button--ghost"
+                              href={artifact.downloadUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              下载
+                            </a>
                           ) : (
                             <span className="muted-text">不可下载</span>
                           )}

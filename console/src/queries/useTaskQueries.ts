@@ -165,7 +165,9 @@ export function useTaskProcessEvents(projectId: string, taskId: string, runId: s
             retryAttempt = 0;
             const byId = new Map(eventsRef.current.map((event) => [event.eventId, event]));
             incoming.forEach((event) => byId.set(event.eventId, event));
-            eventsRef.current = [...byId.values()].sort((left, right) => left.sequence - right.sequence);
+            eventsRef.current = [...byId.values()].sort(
+              (left, right) => left.sequence - right.sequence,
+            );
             cursorRef.current = Math.max(
               cursorRef.current || 0,
               ...incoming.map((event) => event.sequence),
