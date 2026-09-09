@@ -482,21 +482,33 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
      * Task specs address QwenPaw through an {@code inputJson} envelope whose
      * {@code prompt} member carries the user instruction. Send just that member
      * when present so model calls see the instruction instead of the envelope;
-     * scalar or unparsed inputs fall back to the raw task input.
+     * scalar or unparsed inputs fall back to the raw task input. The returned
+     * text is prefixed with a platform context block exposing the task ID so
+     * agents can address subtask tools without needing it elsewhere.
      */
     private static String promptText(RuntimeTask task) {
+        String body;
         try {
             JsonNode input = new ObjectMapper().readTree(task.inputJson());
             if (input.isObject()) {
                 JsonNode prompt = input.path("prompt");
                 if (prompt.isTextual() && !prompt.asText().isBlank()) {
-                    return prompt.asText();
+                    body = prompt.asText();
+                } else {
+                    body = task.inputJson();
                 }
+            } else {
+                body = task.inputJson();
             }
         } catch (IOException ignored) {
             // Fall through and forward the raw input.
+            body = task.inputJson();
         }
-        return task.inputJson();
+        return "[平台上下文]\n"
+                + "taskId=" + task.id() + "\n"
+                + "（可用 agentteams-task MCP 工具引用此 taskId 登记子任务拆解或汇报子任务状态；"
+                + "除这些工具的参数外不要复述本段内容）\n\n"
+                + body;
     }
 
     private URI chatEndpoint() {

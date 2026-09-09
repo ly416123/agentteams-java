@@ -108,8 +108,10 @@ class QwenPawHttpRuntimePortTest {
         assertThat(agentId.get()).isEqualTo("default");
         assertThat(authorization.get()).isEqualTo("Bearer secret");
         assertThat(request.path("input").get(0).path("role").asText()).isEqualTo("user");
-        assertThat(request.path("input").get(0).path("content").get(0).path("text").asText())
-                .isEqualTo(task.inputJson());
+        String plainText = request.path("input").get(0).path("content").get(0).path("text").asText();
+        assertThat(plainText).startsWith("[平台上下文]");
+        assertThat(plainText).contains("taskId=" + task.id());
+        assertThat(plainText).endsWith(task.inputJson());
         assertThat(request.path("session_id").asText()).isEqualTo(task.id().toString());
         assertThat(request.path("user_id").asText()).isEqualTo("agentteams");
         assertThat(request.path("channel").asText()).isEqualTo("console");
@@ -194,8 +196,36 @@ class QwenPawHttpRuntimePortTest {
 
         assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
         JsonNode request = MAPPER.readTree(requestBody.get());
-        assertThat(request.path("input").get(0).path("content").get(0).path("text").asText())
-                .isEqualTo("产出两个交付物");
+        String envelopeText = request.path("input").get(0).path("content").get(0).path("text").asText();
+        assertThat(envelopeText).startsWith("[平台上下文]");
+        assertThat(envelopeText).endsWith("产出两个交付物");
+        assertThat(envelopeText).doesNotContain("tenant");
+        port.stop();
+    }
+
+    @Test
+    void promptCarriesPlatformContextWithTaskId() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"status\":\"completed\",\"output\":\"ack\"}\n\n");
+        });
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch completed = new CountDownLatch(1);
+        RuntimeTask task = new RuntimeTask(
+                UUID.fromString("00000000-0000-0000-0000-0000000000a1"), "chat",
+                "{\"prompt\":\"帮我总结周报\"}", Map.of());
+        port.start(context(), value -> completed.countDown());
+        port.submit(task);
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        JsonNode request = MAPPER.readTree(requestBody.get());
+        String text = request.path("input").get(0).path("content").get(0).path("text").asText();
+        assertThat(text).startsWith("[平台上下文]\ntaskId=00000000-0000-0000-0000-0000000000a1\n");
+        assertThat(text).contains("MCP");
+        assertThat(text).endsWith("帮我总结周报");
         port.stop();
     }
 
