@@ -19,6 +19,7 @@ Authentication (either):
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import sys
 import time
@@ -38,10 +39,11 @@ MAX_TITLE = 200
 MAX_DESCRIPTION = 2000
 MAX_PROMPT = 8000
 MAX_SUBTASKS = 20
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 SUBTASK_STATUSES = ("RUNNING", "SUCCEEDED", "FAILED", "CANCELLED")
 
 TOOL_NAMES = ["create_task", "get_task", "get_task_result",
-              "plan_subtasks", "update_subtask_status"]
+              "plan_subtasks", "update_subtask_status", "upload_file"]
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "create_task": {
@@ -186,6 +188,27 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["task_id", "subtaskId", "status"],
         },
     },
+    "upload_file": {
+        "description": (
+            "Upload a file generated inside the agent workspace (for example a "
+            "PDF under output/) so the user can download it from the "
+            "conversation. session_id comes from the [平台上下文] block. "
+            "Returns a permanent download URL that you MUST reference in your "
+            "reply as a markdown link."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string",
+                               "description": "Current conversation session UUID."},
+                "path": {"type": "string",
+                         "description": "Workspace-relative path of the file."},
+                "filename": {"type": "string",
+                             "description": "Optional display name; defaults to basename."},
+            },
+            "required": ["session_id", "path"],
+        },
+    },
 }
 
 
@@ -200,6 +223,9 @@ class Config:
     oidc_client_id: str
     username: str | None
     password: str | None
+    manager_url: str | None
+    console_public_url: str | None
+    workspace_dir: str
 
 
 DEFAULT_CONFIG_FILE = "/opt/agentteams-mcp/mcp-env.json"
@@ -245,6 +271,9 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         oidc_client_id=source.get("AGENTTEAMS_OIDC_CLIENT_ID") or "agentteams-api",
         username=source.get("AGENTTEAMS_MCP_USERNAME") or None,
         password=source.get("AGENTTEAMS_MCP_PASSWORD") or None,
+        manager_url=(source.get("AGENTTEAMS_MANAGER_URL") or "").rstrip("/") or None,
+        console_public_url=(source.get("AGENTTEAMS_CONSOLE_PUBLIC_URL") or "").rstrip("/") or None,
+        workspace_dir=source.get("AGENTTEAMS_WORKSPACE_DIR") or "/app/working/workspaces/default",
     )
 
 
@@ -494,6 +523,79 @@ def tool_update_subtask_status(arguments: dict[str, Any]) -> dict[str, Any]:
             "note": "Subtask status updated; the main task keeps running regardless."}
 
 
+def _http_multipart(url: str, *, token: str, field: str, filename: str,
+                    content: bytes, content_type: str) -> dict[str, Any]:
+    boundary = "----agentteams" + uuid.uuid4().hex
+    part = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8")
+    body = part + content + f"\r\n--{boundary}--\r\n".encode()
+    headers = {"Accept": "application/json",
+               "Content-Type": f"multipart/form-data; boundary={boundary}"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            payload = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:300]
+        raise RuntimeError(f"HTTP {error.code} from {url}: {detail}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"connection to {url} failed: {error.reason}") from error
+    if not payload:
+        return {}
+    return json.loads(payload)
+
+
+def _resolve_workspace_path(config: Config, raw_path: str) -> str:
+    """Realpath containment: symlink or .. traversal stays inside the workspace."""
+    root = os.path.realpath(config.workspace_dir)
+    candidate = raw_path if os.path.isabs(raw_path) else os.path.join(root, raw_path)
+    resolved = os.path.realpath(candidate)
+    if resolved != root and not resolved.startswith(root + os.sep):
+        raise ValueError("path must be inside the agent workspace")
+    return resolved
+
+
+def tool_upload_file(arguments: dict[str, Any]) -> dict[str, Any]:
+    config = get_config()
+    if not config.manager_url:
+        raise ValueError("AGENTTEAMS_MANAGER_URL is required for upload_file")
+    if not config.console_public_url:
+        raise ValueError("AGENTTEAMS_CONSOLE_PUBLIC_URL is required for upload_file")
+    session_id = _safe_uuid(arguments.get("session_id"), "session_id")
+    raw_path = arguments.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise ValueError("path must be a non-empty string")
+    resolved = _resolve_workspace_path(config, raw_path.strip())
+    if not os.path.isfile(resolved):
+        raise ValueError(f"file not found in workspace: {raw_path}")
+    if os.path.getsize(resolved) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"file exceeds the {MAX_UPLOAD_BYTES} byte upload limit")
+    display = _clean_text(arguments.get("filename"), "filename", 255, required=False)
+    if not display:
+        display = os.path.basename(resolved) or "file"
+    with open(resolved, "rb") as handle:
+        content = handle.read()
+    content_type = mimetypes.guess_type(resolved)[0] or "application/octet-stream"
+    response = _http_multipart(
+        config.manager_url + f"/api/v1/conversations/{session_id}/files",
+        token=_fetch_token(), field="file",
+        filename=display.replace('"', "'"),
+        content=content, content_type=content_type)
+    if not response.get("ok", True):
+        return response
+    absolute_url = config.console_public_url + response.get("url", "")
+    return {"ok": True, "fileId": response.get("fileId"), "url": absolute_url,
+            "name": response.get("name", display),
+            "sizeBytes": response.get("sizeBytes"),
+            "note": ("Uploaded. Include the url in your reply as a markdown link "
+                     "so the user can download the file.")}
+
+
 def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "create_task":
         return tool_create_task(arguments)
@@ -505,6 +607,8 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return tool_plan_subtasks(arguments)
     if name == "update_subtask_status":
         return tool_update_subtask_status(arguments)
+    if name == "upload_file":
+        return tool_upload_file(arguments)
     return {"ok": False, "error": f"unsupported tool: {name}"}
 
 

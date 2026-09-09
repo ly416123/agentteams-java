@@ -1,8 +1,10 @@
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 import uuid
@@ -95,6 +97,30 @@ class ControlPlaneStub(BaseHTTPRequestHandler):
             self._reply({"error": "not found"}, 404)
 
 
+class ManagerStub(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _reply(self, payload, status=200):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        raw = self.rfile.read(length) if length else b""
+        self.server.requests.append(("POST", self.path, dict(self.headers), raw))
+        if "/files" in self.path:
+            self._reply({"fileId": "file-1", "name": "report.pdf",
+                         "contentType": "application/pdf", "sizeBytes": 12,
+                         "url": "/api/v1/conversations/x/files/file-1"})
+        else:
+            self._reply({"error": "not found"}, 404)
+
+
 class AgentTeamsTaskMcpTest(unittest.TestCase):
     def setUp(self):
         MCP.reset_state()
@@ -125,7 +151,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         tools = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         self.assertEqual([t["name"] for t in tools["result"]["tools"]],
                          ["create_task", "get_task", "get_task_result",
-                          "plan_subtasks", "update_subtask_status"])
+                          "plan_subtasks", "update_subtask_status", "upload_file"])
 
         self.assertIsNone(MCP.handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 
@@ -300,6 +326,98 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         finally:
             os.unlink(config_path)
 
+    def _manager_stub(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ManagerStub)
+        server.requests = []
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        return server
+
+    def test_upload_file_posts_multipart_to_manager(self):
+        workspace = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+        with open(os.path.join(workspace, "report.pdf"), "wb") as handle:
+            handle.write(b"%PDF-1.4 body")
+        manager = self._manager_stub()
+        manager_base = f"http://127.0.0.1:{manager.server_address[1]}"
+        MCP._CONFIG = MCP.load_config({
+            "AGENTTEAMS_CONTROL_PLANE_URL": self.base,
+            "AGENTTEAMS_MCP_TOKEN": "static-test-token",
+            "AGENTTEAMS_MANAGER_URL": manager_base,
+            "AGENTTEAMS_CONSOLE_PUBLIC_URL": "http://console.test:30080",
+            "AGENTTEAMS_WORKSPACE_DIR": workspace,
+        })
+        session = str(uuid.uuid4())
+        response = rpc({"jsonrpc": "2.0", "id": 10, "method": "tools/call",
+                        "params": {"name": "upload_file", "arguments": {
+                            "session_id": session, "path": "report.pdf"}}})
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["fileId"], "file-1")
+        self.assertEqual(payload["url"],
+                         "http://console.test:30080/api/v1/conversations/x/files/file-1")
+        self.assertEqual(len(manager.requests), 1)
+        _, path, headers, raw = manager.requests[0]
+        self.assertEqual(path, f"/api/v1/conversations/{session}/files")
+        self.assertEqual(headers.get("Authorization"), "Bearer static-test-token")
+        self.assertIn("multipart/form-data; boundary=", headers.get("Content-Type", ""))
+        self.assertIn(b'filename="report.pdf"', raw)
+        self.assertIn(b"%PDF-1.4 body", raw)
+
+    def test_upload_file_rejects_path_outside_workspace(self):
+        workspace = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+        MCP._CONFIG = MCP.load_config({
+            "AGENTTEAMS_CONTROL_PLANE_URL": self.base,
+            "AGENTTEAMS_MCP_TOKEN": "static-test-token",
+            "AGENTTEAMS_MANAGER_URL": "http://127.0.0.1:1",
+            "AGENTTEAMS_CONSOLE_PUBLIC_URL": "http://console.test",
+            "AGENTTEAMS_WORKSPACE_DIR": workspace,
+        })
+        response = rpc({"jsonrpc": "2.0", "id": 11, "method": "tools/call",
+                        "params": {"name": "upload_file", "arguments": {
+                            "session_id": str(uuid.uuid4()),
+                            "path": "../../etc/passwd"}}})
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn("inside the agent workspace",
+                      response["result"]["content"][0]["text"])
+
+    def test_upload_file_rejects_oversized(self):
+        workspace = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+        with open(os.path.join(workspace, "big.bin"), "wb") as handle:
+            handle.write(b"x" * 9)
+        MCP._CONFIG = MCP.load_config({
+            "AGENTTEAMS_CONTROL_PLANE_URL": self.base,
+            "AGENTTEAMS_MCP_TOKEN": "static-test-token",
+            "AGENTTEAMS_MANAGER_URL": "http://127.0.0.1:1",
+            "AGENTTEAMS_CONSOLE_PUBLIC_URL": "http://console.test",
+            "AGENTTEAMS_WORKSPACE_DIR": workspace,
+        })
+        original = MCP.MAX_UPLOAD_BYTES
+        MCP.MAX_UPLOAD_BYTES = 8
+        try:
+            response = rpc({"jsonrpc": "2.0", "id": 12, "method": "tools/call",
+                            "params": {"name": "upload_file", "arguments": {
+                                "session_id": str(uuid.uuid4()), "path": "big.bin"}}})
+        finally:
+            MCP.MAX_UPLOAD_BYTES = original
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn("exceeds", response["result"]["content"][0]["text"])
+
+    def test_upload_file_requires_manager_url(self):
+        MCP._CONFIG = MCP.load_config({
+            "AGENTTEAMS_CONTROL_PLANE_URL": self.base,
+            "AGENTTEAMS_MCP_TOKEN": "static-test-token",
+        })
+        response = rpc({"jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                        "params": {"name": "upload_file", "arguments": {
+                            "session_id": str(uuid.uuid4()), "path": "a.txt"}}})
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn("AGENTTEAMS_MANAGER_URL",
+                      response["result"]["content"][0]["text"])
+
     def test_deploy_configmap_embeds_current_script(self):
         import yaml
         manifest = yaml.safe_load(
@@ -326,7 +444,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
             init = ask({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
             self.assertEqual(init["result"]["protocolVersion"], "2024-11-05")
             tools = ask({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-            self.assertEqual(len(tools["result"]["tools"]), 5)
+            self.assertEqual(len(tools["result"]["tools"]), 6)
             created = ask({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
                 "name": "create_task",
                 "arguments": {"title": "500强", "prompt": "生成中国企业500强名单，PDF 格式"}}})
