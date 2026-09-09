@@ -317,8 +317,10 @@ def main() -> int:
     require_environment(args.namespace, args.token)
     subject = token_subject(args.token)
     previous_role = ensure_memberships(args.namespace, subject, args.tenant, args.project)
-    # membership 改库后任何后续失败（含 endpoint patch/rollout 等待）都必须走
-    # finally 还原，否则角色被下次运行误记为原始值。
+    # membership 改库后任何后续失败（含 endpoint 读取/patch/rollout 等待）都必须走
+    # finally 还原，否则角色被下次运行误记为原始值。哨兵 None：读取 Worker CR
+    # 失败即从未 patch，跳过恢复（None 守卫），还原链不会因 UnboundLocalError 中断。
+    original_endpoint: str | None = None
     try:
         print(f"memberships ensured for subject={subject} (previous project role: {previous_role!r})")
         original_endpoint = worker_endpoint(args.namespace, args.worker)
@@ -348,7 +350,7 @@ def main() -> int:
         # 吞掉 membership 还原（否则角色被下次运行误记为原始值）。
         if args.keep_worker_endpoint:
             print("keeping the Worker pointed at the conversation mock (--keep-worker-endpoint)")
-        else:
+        elif original_endpoint is not None:
             try:
                 patch_worker_endpoint(args.namespace, args.worker, original_endpoint)
                 wait_for_worker_endpoint(args.namespace, args.worker, original_endpoint)
