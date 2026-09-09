@@ -30,6 +30,19 @@ spec:
 {{- if eq (default "fake" $conversation.runtime) "qwenpaw" }}
         - { protocol: TCP, port: {{ default 8088 $conversation.qwenpawEgressPort }} }
 {{- end }}
+{{- if .Values.storage.enabled }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: minio }
+      ports:
+        - { protocol: TCP, port: 9000 }
+{{- if .Values.networkPolicy.storageEgressCIDR }}
+    - to:
+        - ipBlock: { cidr: {{ .Values.networkPolicy.storageEgressCIDR | quote }} }
+      ports:
+        - { protocol: TCP, port: 9000 }
+{{- end }}
+{{- end }}
     - to:
         - namespaceSelector: {}
       ports:
