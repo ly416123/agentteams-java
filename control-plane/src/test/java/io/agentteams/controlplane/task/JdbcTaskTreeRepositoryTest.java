@@ -88,6 +88,25 @@ class JdbcTaskTreeRepositoryTest {
         assertThat(repository.find(CONTEXT, runId)).hasSize(1);
     }
 
+    @Test
+    void deleteOthersPreservesTheManagerRootProjectionRow() {
+        UUID taskId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID stale = UUID.randomUUID();
+        runs.ensureRun(CONTEXT, taskId, runId, "RUNNING", NOW);
+        // 一期 projectManagerPlan 的单根投影：taskId 自己为根、parent 为空。
+        repository.upsert(CONTEXT, runId,
+                new TaskTreeNode(taskId, null, 0, "PENDING", List.of(), NOW));
+        upsert(stale, taskId, runId, 1);
+
+        int deleted = repository.deleteOthers(CONTEXT, runId, List.of());
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(repository.find(CONTEXT, runId))
+                .extracting(TaskTreeNode::taskId)
+                .containsExactly(taskId);
+    }
+
     private void upsert(UUID subtaskId, UUID taskId, UUID runId, int sequence) {
         repository.upsert(CONTEXT, runId,
                 new TaskTreeNode(subtaskId, taskId, sequence, "PENDING", List.of(), NOW));

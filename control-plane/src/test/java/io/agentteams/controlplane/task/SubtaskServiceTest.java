@@ -160,6 +160,37 @@ class SubtaskServiceTest {
                 .hasMessageContaining("not found");
     }
 
+    @Test
+    void rejectsSelfReferenceAndDuplicateSubtaskIds() {
+        UUID subtaskId = UUID.randomUUID();
+        assertThatThrownBy(() -> service.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(taskId, "自引用", 1, List.of()))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("differ from the main task");
+        assertThatThrownBy(() -> service.updateStatus(taskId, taskId, "RUNNING", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("differ from the main task");
+        assertThatThrownBy(() -> service.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(subtaskId, "重复", 1, List.of()),
+                new SubtaskService.SubtaskSpec(subtaskId, "重复", 2, List.of()))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unique");
+        assertThat(events.all).isEmpty();
+    }
+
+    @Test
+    void planAndStatusRejectTasksWithoutVisibleScope() {
+        when(runs.contextForTask(taskId)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.plan(taskId,
+                List.of(new SubtaskService.SubtaskSpec(UUID.randomUUID(), "t", 1, List.of()))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no visible scope");
+        assertThatThrownBy(() -> service.updateStatus(taskId, UUID.randomUUID(), "RUNNING", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no visible scope");
+        verify(tree, never()).deleteOthers(any(), any(), any());
+    }
+
     /** 测试内最小事件仓库：只记录并按授权条件回放。 */
     private static final class RecordingEventRepository implements TaskProcessEventRepository {
         private final List<TaskProcessEvent> all = new ArrayList<>();

@@ -57,11 +57,13 @@ public class JdbcTaskTreeRepository implements TaskTreeRepository {
 
     @Override
     public int deleteOthers(ExecutionContext context, UUID runId, Collection<UUID> keepTaskIds) {
+        // 豁免根投影行（parent_task_id IS NULL，manager plan 的单根）：声明式清单只管辖子任务。
         if (keepTaskIds.isEmpty()) {
             return jdbc.update("""
                     DELETE FROM task_subtasks subtask
                      USING task_runs run
                      WHERE subtask.run_id = run.id AND subtask.run_id = ?
+                       AND subtask.parent_task_id IS NOT NULL
                        AND run.organization_id = ? AND run.tenant_id = ?
                     """, runId, context.organizationId(), context.tenantId());
         }
@@ -79,6 +81,7 @@ public class JdbcTaskTreeRepository implements TaskTreeRepository {
                  USING task_runs run
                  WHERE subtask.run_id = run.id AND subtask.run_id = ?
                    AND subtask.task_id NOT IN (%s)
+                   AND subtask.parent_task_id IS NOT NULL
                    AND run.organization_id = ? AND run.tenant_id = ?
                 """.formatted(placeholders), params);
     }

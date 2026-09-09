@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 子任务投影与协作语义事件：声明式拆解同步 + 状态推进，双写任务树（task_subtasks）
@@ -24,7 +25,7 @@ import org.springframework.stereotype.Service;
  * 公理二：状态枚举与数量上限在此二次校验，不信任调用方。
  */
 @Service
-public final class SubtaskService {
+public class SubtaskService {
     public static final int MAX_SUBTASKS = 20;
     static final Set<String> UPDATABLE_STATUSES = Set.of("RUNNING", "SUCCEEDED", "FAILED", "CANCELLED");
     /** 状态 → 协作事件类型（RUNNING 状态对应开始事件，与规格决策表一致）。 */
@@ -59,7 +60,10 @@ public final class SubtaskService {
     /**
      * 全量声明式同步：清单内的新子任务以 PENDING 插入并逐条发 subtask.planned；
      * 清单内已存在的子任务保留现状（不重置状态、不重发事件）；清单外历史行被删除。
+     * 事务内执行：nextSequence 的 FOR UPDATE 锁持有到提交，与并发的 runtime 事件
+     * 写入串行化，避免 UNIQUE(run_id, sequence) 冲突静默丢事件。
      */
+    @Transactional
     public List<TaskTreeNode> plan(UUID taskId, List<SubtaskSpec> specs) {
         Objects.requireNonNull(taskId, "taskId");
         if (specs == null || specs.isEmpty() || specs.size() > MAX_SUBTASKS) {
@@ -67,8 +71,15 @@ public final class SubtaskService {
         }
         ExecutionContext context = requireTaskContext(taskId);
         UUID runId = requireLatestRun(taskId);
+        List<UUID> requestedIds = specs.stream().map(SubtaskSpec::subtaskId).toList();
+        if (requestedIds.stream().distinct().count() != specs.size()) {
+            throw new IllegalArgumentException("subtask ids must be unique within one plan");
+        }
+        if (requestedIds.contains(taskId)) {
+            throw new IllegalArgumentException("subtask id must differ from the main task id");
+        }
         Instant at = clock.instant();
-        tree.deleteOthers(context, runId, specs.stream().map(SubtaskSpec::subtaskId).toList());
+        tree.deleteOthers(context, runId, requestedIds);
         Map<UUID, TaskTreeNode> existingById = tree.find(context, runId).stream()
                 .collect(Collectors.toMap(TaskTreeNode::taskId, Function.identity()));
         List<TaskTreeNode> result = new ArrayList<>(specs.size());
@@ -94,9 +105,13 @@ public final class SubtaskService {
      * 推进子任务状态并发出类型化事件（subtask.started/succeeded/failed/cancelled）。
      * 不接受 PENDING/BLOCKED，也不设状态迁移单向约束——agent 自治语义，见规格决策表。
      */
+    @Transactional
     public TaskTreeNode updateStatus(UUID taskId, UUID subtaskId, String status, String note) {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(subtaskId, "subtaskId");
+        if (subtaskId.equals(taskId)) {
+            throw new IllegalArgumentException("subtask id must differ from the main task id");
+        }
         if (status == null || !UPDATABLE_STATUSES.contains(status)) {
             throw new IllegalArgumentException("status must be one of " + UPDATABLE_STATUSES);
         }
