@@ -18,7 +18,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 子任务拆解与状态推进端点：agent 经 agentteams-task MCP 工具或直接 API 调用。
  * 鉴权沿任务生命周期端点模式——先取已存在任务（未知任务 → 404），有 principal 时
  * 以任务 specJson 校验调用方作用域；无鉴权部署（无 principal）时跳过作用域校验，
- * 归属仍由 SubtaskService 内部的 contextForTask 兜底。写操作一律要求幂等键。
+ * 归属仍由 SubtaskService 内部的 contextForTask 兜底。写操作一律要求幂等键；
+ * 注意该头当前仅校验协议存在性，无去重语义——plan 是声明式全量同步天然重放安全，
+ * updateStatus 重复重试可能产生重复的 subtask.* 观测事件但不影响状态正确性。
  */
 @RestController
 @RequestMapping("/api/v1/tasks/{taskId}/subtasks")
