@@ -50,3 +50,6 @@ Thumbs.db
 sdk/typescript/node_modules/
 sdk/typescript/dist/
 sdk/typescript/.vite/
+
+# git worktrees (superpowers workflow)
+.worktrees/
