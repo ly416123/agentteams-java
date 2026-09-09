@@ -86,6 +86,24 @@ spec:
               value: "true"
             - name: AGENTTEAMS_VIRTUAL_THREADS_ENABLED
               value: {{ default "false" $manager.env.AGENTTEAMS_VIRTUAL_THREADS_ENABLED | quote }}
+            - name: AGENTTEAMS_STORAGE_ENABLED
+              value: {{ .Values.storage.enabled | quote }}
+{{- if .Values.storage.enabled }}
+            - name: AGENTTEAMS_STORAGE_ENDPOINT
+              value: {{ .Values.storage.endpoint | quote }}
+            - name: AGENTTEAMS_STORAGE_PRESIGN_ENDPOINT
+              value: {{ .Values.storage.presignEndpoint | quote }}
+            - name: AGENTTEAMS_STORAGE_REGION
+              value: {{ .Values.storage.region | quote }}
+            - name: AGENTTEAMS_STORAGE_BUCKET
+              value: {{ .Values.storage.bucket | quote }}
+            - name: AGENTTEAMS_STORAGE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.storage.existingSecret }}, key: access-key }
+            - name: AGENTTEAMS_STORAGE_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.storage.existingSecret }}, key: secret-key }
+{{- end }}
 {{- range $name, $value := ($manager.env | default dict) }}
 {{- if ne $name "AGENTTEAMS_VIRTUAL_THREADS_ENABLED" }}
             - name: {{ $name }}
