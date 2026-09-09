@@ -132,32 +132,43 @@ def database_password(namespace: str) -> str:
     return base64.b64decode(encoded).decode()
 
 
-def psql(namespace: str, password: str, sql: str) -> str:
+def sql_literal(value: str) -> str:
+    """单引号转义（与 run-kind-memory-scope 同约定）：插值进 SQL 的任何外部输入都经此包装。"""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def psql(namespace: str, password: str, statement: str) -> str:
     return kubectl(namespace, "exec", "statefulset/postgresql", "--",
                    "env", f"PGPASSWORD={password}",
-                   "psql", "-U", "agentteams", "-d", "agentteams", "-At", "-c", sql)
+                   "psql", "-U", "agentteams", "-d", "agentteams",
+                   "-v", "ON_ERROR_STOP=1", "-At", "-c", statement)
 
 
 def ensure_memberships(namespace: str, subject: str, tenant: str, project: str) -> str | None:
     """process-events/tree 需三重 membership（org/tenant/project，与 run-kind-memory-scope
-    同约定）；返回 project membership 原 role 供结束后还原（None=原本不存在）。"""
+    同约定）；返回 project membership 原 role 供结束后还原（None=原本不存在）。
+
+    注意：org/tenant membership 与参照脚本一致被统一覆写为 MEMBER 且不还原——
+    参照脚本的供数是自建 fixture，而这里作用于真实账号，这是验收脚本对
+    开发集群的已知副作用。
+    """
     password = database_password(namespace)
     previous = psql(namespace, password,
                     "SELECT role FROM project_memberships "
-                    f"WHERE subject='{subject}' AND tenant_id='{tenant}' AND project_id="
-                    f"(SELECT id FROM projects WHERE tenant_id='{tenant}' AND name='{project}') LIMIT 1;").strip()
+                    f"WHERE subject={sql_literal(subject)} AND tenant_id={sql_literal(tenant)} AND project_id="
+                    f"(SELECT id FROM projects WHERE tenant_id={sql_literal(tenant)} AND name={sql_literal(project)}) LIMIT 1;").strip()
     psql(namespace, password, f"""
         INSERT INTO organization_memberships(organization_id, subject, role, created_at, updated_at)
-        SELECT organization_id, '{subject}', 'MEMBER', now(), now()
-          FROM legacy_tenant_mappings WHERE legacy_tenant_key = '{tenant}'
+        SELECT organization_id, {sql_literal(subject)}, 'MEMBER', now(), now()
+          FROM legacy_tenant_mappings WHERE legacy_tenant_key = {sql_literal(tenant)}
         ON CONFLICT (organization_id, subject) DO UPDATE SET role = 'MEMBER', updated_at = now();
         INSERT INTO tenant_memberships(organization_id, tenant_id, subject, role, created_at, updated_at)
-        SELECT organization_id, tenant_id, '{subject}', 'MEMBER', now(), now()
-          FROM legacy_tenant_mappings WHERE legacy_tenant_key = '{tenant}'
+        SELECT organization_id, tenant_id, {sql_literal(subject)}, 'MEMBER', now(), now()
+          FROM legacy_tenant_mappings WHERE legacy_tenant_key = {sql_literal(tenant)}
         ON CONFLICT (tenant_id, subject) DO UPDATE SET role = 'MEMBER', updated_at = now();
         INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
-        SELECT '{tenant}', id, '{subject}', 'ADMIN', 'ACTIVE', now(), now(), 0
-          FROM projects WHERE tenant_id = '{tenant}' AND name = '{project}'
+        SELECT {sql_literal(tenant)}, id, {sql_literal(subject)}, 'ADMIN', 'ACTIVE', now(), now(), 0
+          FROM projects WHERE tenant_id = {sql_literal(tenant)} AND name = {sql_literal(project)}
         ON CONFLICT (tenant_id, project_id, subject)
         DO UPDATE SET role = 'ADMIN', status = 'ACTIVE', updated_at = now();
     """)
@@ -169,13 +180,13 @@ def restore_project_membership(namespace: str, subject: str, tenant: str, projec
     password = database_password(namespace)
     if previous:
         psql(namespace, password,
-             f"UPDATE project_memberships SET role='{previous}', updated_at=now() "
-             f"WHERE subject='{subject}' AND tenant_id='{tenant}' AND project_id="
-             f"(SELECT id FROM projects WHERE tenant_id='{tenant}' AND name='{project}');")
+             f"UPDATE project_memberships SET role={sql_literal(previous)}, updated_at=now() "
+             f"WHERE subject={sql_literal(subject)} AND tenant_id={sql_literal(tenant)} AND project_id="
+             f"(SELECT id FROM projects WHERE tenant_id={sql_literal(tenant)} AND name={sql_literal(project)});")
     else:
         psql(namespace, password,
-             f"DELETE FROM project_memberships WHERE subject='{subject}' AND tenant_id='{tenant}' "
-             f"AND project_id=(SELECT id FROM projects WHERE tenant_id='{tenant}' AND name='{project}');")
+             f"DELETE FROM project_memberships WHERE subject={sql_literal(subject)} AND tenant_id={sql_literal(tenant)} "
+             f"AND project_id=(SELECT id FROM projects WHERE tenant_id={sql_literal(tenant)} AND name={sql_literal(project)});")
 
 
 def poll_until(action, description: str, timeout: float = POLL_TIMEOUT_SECONDS):
@@ -306,13 +317,15 @@ def main() -> int:
     require_environment(args.namespace, args.token)
     subject = token_subject(args.token)
     previous_role = ensure_memberships(args.namespace, subject, args.tenant, args.project)
-    print(f"memberships ensured for subject={subject} (previous project role: {previous_role!r})")
-    original_endpoint = worker_endpoint(args.namespace, args.worker)
-    print(f"worker {args.worker} original QWENPAW_ENDPOINT={original_endpoint!r}")
-    patch_worker_endpoint(args.namespace, args.worker, args.mock_endpoint)
-    wait_for_worker_endpoint(args.namespace, args.worker, args.mock_endpoint)
-
+    # membership 改库后任何后续失败（含 endpoint patch/rollout 等待）都必须走
+    # finally 还原，否则角色被下次运行误记为原始值。
     try:
+        print(f"memberships ensured for subject={subject} (previous project role: {previous_role!r})")
+        original_endpoint = worker_endpoint(args.namespace, args.worker)
+        print(f"worker {args.worker} original QWENPAW_ENDPOINT={original_endpoint!r}")
+        patch_worker_endpoint(args.namespace, args.worker, args.mock_endpoint)
+        wait_for_worker_endpoint(args.namespace, args.worker, args.mock_endpoint)
+
         task_id = create_and_queue_task(args.base_url, args.token, args.tenant, args.project, args.team)
         print(f"task created and queued: {task_id}")
         run_id = wait_for_run_id(args.base_url, args.token, task_id)

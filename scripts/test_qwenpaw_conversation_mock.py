@@ -272,10 +272,13 @@ class QwenPawConversationMockTest(unittest.TestCase):
 
     def test_decomposition_without_control_plane_config_still_completes(self):
         task_id = "323e4567-e89b-42d3-a456-426614174000"
-        body = self.read_chat(
-            "session-decomp-noenv",
-            f"[平台上下文]\ntaskId={task_id}\n\nprompt",
-            {"Idempotency-Key": "decomp-noenv-1"})
+        # 与其余拆解用例一样隔离宿主环境：开发者本机若导出了
+        # AGENTTEAMS_CONTROL_PLANE_URL，不加护栏会真实外呼。
+        with mock.patch.dict(os.environ, self.decomposition_env):
+            body = self.read_chat(
+                "session-decomp-noenv",
+                f"[平台上下文]\ntaskId={task_id}\n\nprompt",
+                {"Idempotency-Key": "decomp-noenv-1"})
         self.assertEqual(body.count('"status":"failed"'), 5)
         self.assertIn('"status":"completed"', body)
 
