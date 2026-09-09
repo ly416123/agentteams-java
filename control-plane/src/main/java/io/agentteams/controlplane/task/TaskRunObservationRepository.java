@@ -15,6 +15,9 @@ public interface TaskRunObservationRepository {
 
     long nextSequence(UUID runId);
 
+    /** REST 侧反查：任务最近一次运行的 runId（无 run 返回 empty）。 */
+    Optional<UUID> latestRunId(UUID taskId);
+
     record TaskPlanningSnapshot(String title, String description, String source, String specJson) {
         public TaskPlanningSnapshot {
             requireText(title, "title");

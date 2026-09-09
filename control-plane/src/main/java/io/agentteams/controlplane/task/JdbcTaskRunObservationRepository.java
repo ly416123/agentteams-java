@@ -106,6 +106,14 @@ public class JdbcTaskRunObservationRepository implements TaskRunObservationRepos
         return next == null ? 0 : next;
     }
 
+    @Override
+    public Optional<UUID> latestRunId(UUID taskId) {
+        Objects.requireNonNull(taskId, "taskId");
+        return jdbc.query("""
+                SELECT id FROM task_runs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1
+                """, (rs, row) -> rs.getObject("id", UUID.class), taskId).stream().findFirst();
+    }
+
     private static boolean terminal(String status) {
         return "SUCCEEDED".equals(status) || "FAILED".equals(status) || "CANCELLED".equals(status);
     }

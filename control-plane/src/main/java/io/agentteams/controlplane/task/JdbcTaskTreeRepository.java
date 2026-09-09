@@ -4,6 +4,7 @@ import io.agentteams.controlplane.persistence.JdbcSupport;
 import io.agentteams.controlplane.security.ExecutionContext;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -52,6 +53,34 @@ public class JdbcTaskTreeRepository implements TaskTreeRepository {
                  WHERE run.organization_id = ? AND run.tenant_id = ? AND subtask.run_id = ?
                  ORDER BY subtask.sequence, subtask.task_id
                 """, this::map, context.organizationId(), context.tenantId(), runId);
+    }
+
+    @Override
+    public int deleteOthers(ExecutionContext context, UUID runId, Collection<UUID> keepTaskIds) {
+        if (keepTaskIds.isEmpty()) {
+            return jdbc.update("""
+                    DELETE FROM task_subtasks subtask
+                     USING task_runs run
+                     WHERE subtask.run_id = run.id AND subtask.run_id = ?
+                       AND run.organization_id = ? AND run.tenant_id = ?
+                    """, runId, context.organizationId(), context.tenantId());
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(keepTaskIds.size(), "?"));
+        Object[] params = new Object[keepTaskIds.size() + 3];
+        params[0] = runId;
+        int index = 1;
+        for (UUID id : keepTaskIds) {
+            params[index++] = id;
+        }
+        params[index] = context.organizationId();
+        params[index + 1] = context.tenantId();
+        return jdbc.update("""
+                DELETE FROM task_subtasks subtask
+                 USING task_runs run
+                 WHERE subtask.run_id = run.id AND subtask.run_id = ?
+                   AND subtask.task_id NOT IN (%s)
+                   AND run.organization_id = ? AND run.tenant_id = ?
+                """.formatted(placeholders), params);
     }
 
     private TaskTreeNode map(ResultSet rs, int row) throws SQLException {

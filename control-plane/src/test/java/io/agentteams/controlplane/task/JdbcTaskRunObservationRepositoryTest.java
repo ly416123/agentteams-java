@@ -76,4 +76,16 @@ class JdbcTaskRunObservationRepositoryTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("run scope does not match");
     }
+
+    @Test
+    void latestRunIdReturnsMostRecentRunOrEmpty() {
+        UUID taskId = UUID.randomUUID();
+        UUID olderRun = UUID.randomUUID();
+        UUID newerRun = UUID.randomUUID();
+        repository.ensureRun(CONTEXT, taskId, olderRun, "SUCCEEDED", NOW);
+        repository.ensureRun(CONTEXT, taskId, newerRun, "RUNNING", NOW.plusSeconds(30));
+
+        assertThat(repository.latestRunId(taskId)).contains(newerRun);
+        assertThat(repository.latestRunId(UUID.randomUUID())).isEmpty();
+    }
 }
