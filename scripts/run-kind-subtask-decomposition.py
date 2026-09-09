@@ -331,14 +331,22 @@ def main() -> int:
         print(f"  events={len(events)} (tool.called={tool_called}, tool.finished={tool_finished})")
         return 0
     finally:
+        # 清理步骤互不依赖：任一失败都记录后继续，避免 endpoint 恢复异常
+        # 吞掉 membership 还原（否则角色被下次运行误记为原始值）。
         if args.keep_worker_endpoint:
             print("keeping the Worker pointed at the conversation mock (--keep-worker-endpoint)")
         else:
-            patch_worker_endpoint(args.namespace, args.worker, original_endpoint)
-            wait_for_worker_endpoint(args.namespace, args.worker, original_endpoint)
-            print(f"worker {args.worker} restored to QWENPAW_ENDPOINT={original_endpoint!r}")
-        restore_project_membership(args.namespace, subject, args.tenant, args.project, previous_role)
-        print(f"project membership restored for subject={subject}")
+            try:
+                patch_worker_endpoint(args.namespace, args.worker, original_endpoint)
+                wait_for_worker_endpoint(args.namespace, args.worker, original_endpoint)
+                print(f"worker {args.worker} restored to QWENPAW_ENDPOINT={original_endpoint!r}")
+            except (RuntimeError, urllib.error.URLError) as error:
+                print(f"WARNING: worker endpoint restore failed: {error}", file=sys.stderr)
+        try:
+            restore_project_membership(args.namespace, subject, args.tenant, args.project, previous_role)
+            print(f"project membership restored for subject={subject}")
+        except (RuntimeError, urllib.error.URLError) as error:
+            print(f"WARNING: project membership restore failed: {error}", file=sys.stderr)
 
 if __name__ == "__main__":
     try:
