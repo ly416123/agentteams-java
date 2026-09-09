@@ -67,4 +67,34 @@ class ManagerAuthenticationFilterTest {
         verify(chain, org.mockito.Mockito.never()).doFilter(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
     }
+
+    @Test
+    void allowsAnonymousGetForConversationFileDownload() throws Exception {
+        // GET download is an anonymous capability: the high-entropy fileId carries the
+        // authorization (mirroring the task artifact chain's presigned GET).
+        ManagerIdentityTokenValidator validator = mock(ManagerIdentityTokenValidator.class);
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/api/v1/conversations/00000000-0000-0000-0000-000000000001/files/00000000-0000-0000-0000-000000000002");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        new ManagerAuthenticationFilter(validator).doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void stillRequiresBearerForConversationFileUpload() throws Exception {
+        ManagerIdentityTokenValidator validator = mock(ManagerIdentityTokenValidator.class);
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST",
+                "/api/v1/conversations/00000000-0000-0000-0000-000000000001/files");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        new ManagerAuthenticationFilter(validator).doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        verify(chain, org.mockito.Mockito.never()).doFilter(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
 }

@@ -24,6 +24,12 @@ public final class ManagerAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
+        if ("GET".equalsIgnoreCase(request.getMethod())
+                && path.matches("/api/v1/conversations/[^/]+/files/[^/]+")) {
+            // Anonymous capability download: the high-entropy fileId is the credential,
+            // mirroring the task artifact chain's presigned GET.
+            return true;
+        }
         return !path.startsWith("/api/v1/manager/") && !path.startsWith("/api/v1/conversations");
     }
 
