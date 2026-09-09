@@ -406,6 +406,31 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertTrue(response["result"]["isError"])
         self.assertIn("exceeds", response["result"]["content"][0]["text"])
 
+    def test_upload_file_strips_newlines_from_filename(self):
+        workspace = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+        with open(os.path.join(workspace, "bad.pdf"), "wb") as handle:
+            handle.write(b"%PDF-1.4 body")
+        manager = self._manager_stub()
+        MCP._CONFIG = MCP.load_config({
+            "AGENTTEAMS_CONTROL_PLANE_URL": self.base,
+            "AGENTTEAMS_MCP_TOKEN": "static-test-token",
+            "AGENTTEAMS_MANAGER_URL": f"http://127.0.0.1:{manager.server_address[1]}",
+            "AGENTTEAMS_CONSOLE_PUBLIC_URL": "http://console.test:30080",
+            "AGENTTEAMS_WORKSPACE_DIR": workspace,
+        })
+        response = rpc({"jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                        "params": {"name": "upload_file", "arguments": {
+                            "session_id": str(uuid.uuid4()), "path": "bad.pdf",
+                            "filename": "injected\r\n.pdf"}}})
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"], payload)
+        _, _, _, raw = manager.requests[0]
+        # multipart part 头不可被内嵌换行截断
+        disposition = [line for line in raw.split(b"\r\n") if b"filename=" in line]
+        self.assertEqual(len(disposition), 1, raw[:200])
+        self.assertIn(b'filename="injected .pdf"', raw)
+
     def test_upload_file_requires_manager_url(self):
         MCP._CONFIG = MCP.load_config({
             "AGENTTEAMS_CONTROL_PLANE_URL": self.base,

@@ -584,7 +584,7 @@ def tool_upload_file(arguments: dict[str, Any]) -> dict[str, Any]:
     response = _http_multipart(
         config.manager_url + f"/api/v1/conversations/{session_id}/files",
         token=_fetch_token(), field="file",
-        filename=display.replace('"', "'"),
+        filename=display.replace('"', "'").replace("\n", " ").replace("\r", " "),
         content=content, content_type=content_type)
     if not response.get("ok", True):
         return response
