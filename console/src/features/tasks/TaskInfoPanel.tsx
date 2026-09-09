@@ -123,6 +123,16 @@ export function subtaskWindow(events: TaskProcessEventLite[]): Map<string, strin
   return attribution;
 }
 
+/** 时间线条目：生命周期与过程事件归并后的统一形态。 */
+export type TimelineItem = {
+  id: string;
+  title: string;
+  description?: string;
+  time?: string;
+  tone?: string;
+  subtaskId?: string;
+};
+
 /** 生命周期流与过程事件流按时间归并，供详情页主列时间线渲染。 */
 export function mergeTaskTimelines(
   lifecycle: Array<{
@@ -137,8 +147,9 @@ export function mergeTaskTimelines(
     eventType: string;
     occurredAt: string;
     payload?: string | null;
+    subtaskId?: string;
   }>,
-) {
+): TimelineItem[] {
   const lifecycleItems = lifecycle.map((event) => ({
     id: `lifecycle:${event.id}`,
     title: event.title,
@@ -155,8 +166,8 @@ export function mergeTaskTimelines(
       event.eventType === 'task.failed' || event.eventType === 'subtask.failed'
         ? 'danger'
         : undefined,
-    // subtaskId 由任务 7 在 TaskDetailPage 经 withSubtaskOwnership 预计算注入；先声明类型。
-    subtaskId: (event as { subtaskId?: string }).subtaskId,
+    // subtaskId 由任务 7 在 TaskDetailPage 经 withSubtaskOwnership 预计算注入。
+    subtaskId: event.subtaskId,
   }));
   // ISO 时间戳可能省略尾零（Instant.toString 同秒混合精度），用时间戳数值比较而非字典序。
   return [...lifecycleItems, ...processItems].sort(
