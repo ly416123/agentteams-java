@@ -68,12 +68,14 @@ public class TaskResultVersionService {
             return Optional.empty();
         }
         return persistence.inTransaction(tx -> {
+            // 任务行锁：序列化同任务的结果版本号分配，避免并发提交撞 task_seq_unique；
+            // 同 run 幂等检查必须在锁内复查——并发重复投递时两个事务都能通过锁外检查，
+            // 串行进锁后会各自插入同 run 的两个结果版本（UNIQUE(run_id) 兕底见 V92）
+            tx.tasks().findByIdForUpdate(manifest.taskId())
+                    .orElseThrow(() -> new ResourceNotFoundException("task", manifest.taskId()));
             if (tx.taskResultVersions().findByRun(manifest.runId()).isPresent()) {
                 return Optional.<TaskResultVersionRecord>empty();
             }
-            // 任务行锁：序列化同任务的结果版本号分配，避免并发提交撞 task_seq_unique
-            TaskRecord task = tx.tasks().findByIdForUpdate(manifest.taskId())
-                    .orElseThrow(() -> new ResourceNotFoundException("task", manifest.taskId()));
             int seq = tx.taskResultVersions().latestSeq(manifest.taskId()).orElse(0) + 1;
             Instant now = clock.instant();
             TaskResultVersionRecord record = new TaskResultVersionRecord(UUID.randomUUID(), manifest.taskId(),
@@ -82,7 +84,7 @@ public class TaskResultVersionService {
                     contentJson(manifest.artifacts()), context.subjectId(), now, null, null, null, now, now, 0);
             tx.taskResultVersions().insert(record);
             FoundationPersistenceService.appendEvent(tx, "task", manifest.taskId(), "ResultSubmitted",
-                    resultPayload(record), now, task.version());
+                    resultPayload(record), now, tx.tasks().incrementVersion(manifest.taskId()));
             return Optional.of(record);
         });
     }
@@ -118,6 +120,9 @@ public class TaskResultVersionService {
                 return tx.taskResultVersions().findById(existing.get().resourceId())
                         .orElseThrow(() -> new IllegalStateException("idempotent result review is missing"));
             }
+            // 任务行锁：串行化同任务的评审事件追加（事件 version 递增与 updateReview 写入顺序稳定）
+            tx.tasks().findByIdForUpdate(taskId)
+                    .orElseThrow(() -> new ResourceNotFoundException("task", taskId));
             TaskResultVersionRecord current = tx.taskResultVersions().findById(resultId)
                     .orElseThrow(() -> new ResourceNotFoundException("task_result_version", resultId));
             if (!current.taskId().equals(taskId)) {
@@ -142,7 +147,7 @@ public class TaskResultVersionService {
             TaskResultVersionRecord updated = tx.taskResultVersions().updateReview(resultId, decision, actor,
                     comment, clock.instant(), version);
             FoundationPersistenceService.appendEvent(tx, "task", taskId, "ResultReviewed",
-                    reviewPayload(updated), clock.instant(), updated.version());
+                    reviewPayload(updated), clock.instant(), tx.tasks().incrementVersion(taskId));
             return updated;
         });
     }
@@ -223,9 +228,18 @@ public class TaskResultVersionService {
     }
 
     private static String reviewPayload(TaskResultVersionRecord record) {
-        // resultPayload 已闭合大括号：截掉末尾 "}" 再追加 reviewActor，保持 JSON 合法
-        String base = resultPayload(record);
-        return base.substring(0, base.length() - 1) + ",\"reviewActor\":\"" + record.reviewActor() + "\"}";
+        // reviewActor 来自请求体（用户可控），必须经序列化而非手工拼接，避免引号破坏 JSON
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("taskId", record.taskId().toString());
+        payload.put("resultId", record.id().toString());
+        payload.put("seq", record.seq());
+        payload.put("status", record.status());
+        payload.put("reviewActor", record.reviewActor());
+        try {
+            return JSON.writeValueAsString(payload);
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("result review payload could not be encoded", error);
+        }
     }
 
     private static String defaultActor(String fallback) {

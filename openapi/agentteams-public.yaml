@@ -212,6 +212,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/cancel:
@@ -262,6 +263,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/unarchive:
@@ -287,6 +289,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/subtasks:
@@ -1057,7 +1060,7 @@ components:
     PatchTaskRequest:
       type: object
       additionalProperties: false
-      description: 白名单字段更新；spec 为顶层键浅合并，null 值表示删除该顶层键。
+      description: 白名单字段更新；spec 为顶层键浅合并，null 值表示删除该顶层键。spec.scope/approvalGranted/cancelReason 为平台管理键，PATCH 携带则 400。
       properties:
         title: { type: string, minLength: 1, maxLength: 500 }
         description: { type: string }

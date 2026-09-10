@@ -176,6 +176,18 @@ public final class TaskRepository {
         return findById(id).orElseThrow();
     }
 
+    /** 任务聚合事件游标约定（G02）：每次 append 任务聚合事件前版本递增，返回递增后的版本。
+     *  调用方须已持有任务行锁（findByIdForUpdate）——与 updatePhase/updateArchive 等的递增语义一致。 */
+    public long incrementVersion(UUID id) {
+        Long version = jdbc.queryForObject(
+                "UPDATE tasks SET version = version + 1, updated_at = now() WHERE id = ? RETURNING version",
+                Long.class, id);
+        if (version == null) {
+            throw new IllegalStateException("task version increment returned no value: " + id);
+        }
+        return version;
+    }
+
     /** 归档/取消归档（D6）：独立属性更新，不改 phase；updatedAt 为动作时刻（unarchive 时 archivedAt 为 null）。 */
     public TaskRecord updateArchive(UUID id, String archiveStatus, java.time.Instant archivedAt,
             String archiveActor, long expectedVersion, java.time.Instant updatedAt) {
@@ -226,6 +238,7 @@ public final class TaskRepository {
         args.add(principal.scope().project());
         args.add(principal.scope().project());
         args.add(principal.scope().team());
+        args.add(principal.subject());
         if (!filter.isEmpty()) {
             args.add(archiveStatus.toUpperCase(java.util.Locale.ROOT));
         }
@@ -236,7 +249,11 @@ public final class TaskRepository {
                                              AND (scoped_project.id::text = s.project_id
                                                   OR scoped_project.name = s.project_id)
                  WHERE s.tenant_id = ?
-                   AND (scoped_project.id::text = ? OR scoped_project.name = ?) AND s.team = ?""" + filter + """
+                   AND (scoped_project.id::text = ? OR scoped_project.name = ?) AND s.team = ?
+                   AND EXISTS (SELECT 1 FROM project_memberships m
+                                WHERE m.tenant_id = scoped_project.tenant_id
+                                  AND m.project_id = scoped_project.id
+                                  AND m.subject = ? AND m.status = 'ACTIVE')""" + filter + """
                  GROUP BY t.phase
                 """, rs -> {
             java.util.Map<String, Long> counts = new java.util.LinkedHashMap<>();

@@ -16,6 +16,7 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.task.TaskReviewConflictException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.TaskPhase;
 import io.agentteams.domain.task.TaskTransitionService;
@@ -48,7 +49,7 @@ class TaskServiceLifecycleExtensionsTest {
         when(persistence.findTask(taskId)).thenReturn(java.util.Optional.of(task(taskId, TaskPhase.QUEUED)));
 
         assertThatThrownBy(() -> service.archive(taskId, 0, "archive-key", "alice", "rest"))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(TaskReviewConflictException.class)
                 .hasMessageContaining("terminal");
         verify(persistence, never()).inTransaction(any());
     }
@@ -60,7 +61,7 @@ class TaskServiceLifecycleExtensionsTest {
                 .thenReturn(java.util.Optional.of(archivedTask(taskId, TaskPhase.SUCCEEDED)));
 
         assertThatThrownBy(() -> service.archive(taskId, 0, "archive-key", "alice", "rest"))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(TaskReviewConflictException.class)
                 .hasMessageContaining("already archived");
         verify(persistence, never()).inTransaction(any());
     }
@@ -71,7 +72,7 @@ class TaskServiceLifecycleExtensionsTest {
         when(persistence.findTask(taskId)).thenReturn(java.util.Optional.of(task(taskId, TaskPhase.SUCCEEDED)));
 
         assertThatThrownBy(() -> service.unarchive(taskId, 0, "unarchive-key", "alice", "rest"))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(TaskReviewConflictException.class)
                 .hasMessageContaining("not archived");
         verify(persistence, never()).inTransaction(any());
     }
@@ -112,7 +113,7 @@ class TaskServiceLifecycleExtensionsTest {
         when(persistence.findTask(taskId)).thenReturn(java.util.Optional.of(task(taskId, TaskPhase.QUEUED)));
 
         assertThatThrownBy(() -> service.delete(taskId, "delete-key", "alice"))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(TaskReviewConflictException.class)
                 .hasMessageContaining("only draft");
         verify(persistence, never()).inTransaction(any());
     }

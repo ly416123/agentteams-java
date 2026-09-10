@@ -18,6 +18,7 @@ import io.agentteams.controlplane.security.ResourceAction;
 import io.agentteams.controlplane.security.ResourceAuthorizationService;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.task.TaskReviewConflictException;
 import io.agentteams.domain.task.Task;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.TaskPhase;
@@ -43,6 +44,9 @@ public final class TaskService {
     private static final String APPROVE_TASK = "APPROVE_TASK";
     private static final String REJECT_TASK = "REJECT_TASK";
     private static final ObjectMapper JSON = new ObjectMapper();
+    /** D9 安全边界：spec 顶层键中由平台管理的键（授权锚点与生命周期状态），PATCH 不允许覆盖/删除。 */
+    static final java.util.Set<String> PROTECTED_SPEC_KEYS =
+            java.util.Set.of("scope", "approvalGranted", "cancelReason");
 
     private final FoundationPersistenceService persistence;
     private final IdempotencyService idempotency;
@@ -213,19 +217,25 @@ public final class TaskService {
                     defaultText(actor, "api"), defaultText(source, "rest"), CANCEL_TASK);
         }
         TaskRecord current = get(id);
-        if (!transitions.legal(current.phase(), TaskPhase.CANCELLED)) {
-            throw new IllegalTaskTransitionException(current.phase(), TaskPhase.CANCELLED);
-        }
+        String key = idempotency.requireKey(idempotencyKey);
         String specJson;
         try {
             specJson = JSON.writeValueAsString(cancelReasonSpec(current.specJson(), normalizedReason));
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("task cancel spec could not be encoded", error);
         }
-        String key = idempotency.requireKey(idempotencyKey);
         String requestHash = idempotency.requestHash(id.toString(), TaskPhase.CANCELLED.name(),
                 Long.toString(expectedVersion), defaultText(actor, "api"), defaultText(source, "rest"),
                 normalizedReason);
+        if (!transitions.legal(current.phase(), TaskPhase.CANCELLED)) {
+            // 幂等重放：首调已把任务置为 CANCELLED，转移预检必然失败——先回查幂等键，
+            // 命中即交由 transitionTaskWithSpec 按 key 回放首次结果，未命中才抛状态冲突。
+            if (persistence.findIdempotencyKey(key).isPresent()) {
+                return persistence.transitionTaskWithSpec(id, TaskPhase.CANCELLED, specJson, expectedVersion,
+                        clock.instant(), key, requestHash, CANCEL_TASK, null);
+            }
+            throw new IllegalTaskTransitionException(current.phase(), TaskPhase.CANCELLED);
+        }
         return persistence.transitionTaskWithSpec(id, TaskPhase.CANCELLED, specJson, expectedVersion,
                 clock.instant(), key, requestHash, CANCEL_TASK, null);
     }
@@ -278,10 +288,11 @@ public final class TaskService {
         TaskRecord current = get(id);
         authorizeTask(id, ResourceAction.TASK_OPERATE);
         if (!current.phase().terminal()) {
-            throw new IllegalArgumentException("task archive is only available for terminal tasks");
+            throw new TaskReviewConflictException("TASK_ARCHIVE_NOT_TERMINAL",
+                    "task archive is only available for terminal tasks");
         }
         if (current.archived()) {
-            throw new IllegalArgumentException("task is already archived");
+            throw new TaskReviewConflictException("TASK_ALREADY_ARCHIVED", "task is already archived");
         }
         return transitionArchive(id, "ARCHIVED", clock.instant(), defaultText(actor, "api"),
                 expectedVersion, idempotencyKey, ARCHIVE_TASK);
@@ -291,7 +302,7 @@ public final class TaskService {
         TaskRecord current = get(id);
         authorizeTask(id, ResourceAction.TASK_OPERATE);
         if (!current.archived()) {
-            throw new IllegalArgumentException("task is not archived");
+            throw new TaskReviewConflictException("TASK_NOT_ARCHIVED", "task is not archived");
         }
         return transitionArchive(id, "ACTIVE", null, defaultText(actor, "api"),
                 expectedVersion, idempotencyKey, UNARCHIVE_TASK);
@@ -379,7 +390,7 @@ public final class TaskService {
         TaskRecord current = get(id);
         authorizeTask(id, ResourceAction.TASK_OPERATE);
         if (current.phase() != TaskPhase.DRAFT) {
-            throw new IllegalArgumentException("only draft tasks can be deleted");
+            throw new TaskReviewConflictException("TASK_NOT_DRAFT", "only draft tasks can be deleted");
         }
         persistence.inTransaction(tx -> {
             String key = idempotency.requireKey(idempotencyKey);
@@ -389,16 +400,17 @@ public final class TaskService {
                 return null;
             }
             if (tx.hasTaskRun(id)) {
-                throw new IllegalArgumentException("task with execution history cannot be deleted");
+                throw new TaskReviewConflictException("TASK_HAS_RUNS",
+                        "task with execution history cannot be deleted");
             }
             IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, DELETE_TASK,
                     "delete:" + id, "task", id, "{\"id\":\"" + id + "\"}", clock.instant(), clock.instant(), 0);
             if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
                 return null;
             }
-            FoundationPersistenceService.appendEvent(tx, "task", id, "TaskDeleted",
-                    "{\"taskId\":\"" + id + "\",\"actor\":\"" + defaultText(actor, "api") + "\"}",
-                    clock.instant(), current.version());
+            FoundationPersistenceService.appendEvent(tx, "task", id, "TaskDeleted", deletePayload(id, actor),
+                    // 任务删除是聚合终末事件：行随后删除，version 取既有最大版本 +1，避免与既有事件同号
+                    clock.instant(), current.version() + 1);
             tx.tasks().deleteResourceScope(id);
             tx.tasks().delete(id);
             return null;
@@ -409,6 +421,15 @@ public final class TaskService {
             String operation, String requestHash, String key) {
         if (!operation.equals(existing.operation()) || !requestHash.equals(existing.requestHash())) {
             throw new io.agentteams.controlplane.persistence.IdempotencyConflictException(key, operation);
+        }
+    }
+
+    private static String deletePayload(UUID id, String actor) {
+        try {
+            return JSON.writeValueAsString(java.util.Map.of("taskId", id.toString(),
+                    "actor", defaultText(actor, "api")));
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task delete payload could not be encoded", error);
         }
     }
 
@@ -425,6 +446,11 @@ public final class TaskService {
                     patch.fields();
             while (fields.hasNext()) {
                 var entry = fields.next();
+                if (PROTECTED_SPEC_KEYS.contains(entry.getKey())) {
+                    // spec.scope 是授权锚点（跨租户越权风险）；approvalGranted/cancelReason
+                    // 由 approve/reject 与 cancel API 管理——一律拒绝经 PATCH 改写
+                    throw new IllegalArgumentException("spec key is managed by the platform: " + entry.getKey());
+                }
                 if (entry.getValue().isNull()) {
                     merged.remove(entry.getKey());
                 } else {

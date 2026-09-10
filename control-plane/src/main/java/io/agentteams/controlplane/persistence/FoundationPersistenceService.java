@@ -423,10 +423,11 @@ public final class FoundationPersistenceService {
                 return tx.taskAdjustments().findById(existing.get().resourceId())
                         .orElseThrow(() -> new IllegalStateException("idempotent adjustment is missing"));
             }
-            TaskRecord task = tx.tasks().findById(command.taskId())
+            tx.tasks().findByIdForUpdate(command.taskId())
                     .orElseThrow(() -> new ResourceNotFoundException("task", command.taskId()));
+            // 幂等记录锚定到补充要求自身：重放恢复时按 adjustmentId 回查 task_adjustments
             IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), command.idempotencyKey(),
-                    ADJUST_TASK, command.requestHash(), "task", command.taskId(), idPayload(command.taskId()),
+                    ADJUST_TASK, command.requestHash(), "task_adjustment", command.adjustmentId(), idPayload(command.taskId()),
                     command.createdAt(), command.createdAt(), 0);
             if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
                 IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(command.idempotencyKey())
@@ -440,7 +441,7 @@ public final class FoundationPersistenceService {
                     command.createdAt(), 0);
             tx.taskAdjustments().insert(record);
             appendEvent(tx, "task", command.taskId(), "TaskAdjusted",
-                    adjustmentPayload(command), command.createdAt(), task.version());
+                    adjustmentPayload(command), command.createdAt(), tx.tasks().incrementVersion(command.taskId()));
             return record;
         });
     }

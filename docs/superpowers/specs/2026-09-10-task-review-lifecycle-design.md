@@ -165,3 +165,4 @@ CREATE INDEX task_result_versions_task_idx ON task_result_versions (task_id, seq
 - 子任务产物评审启用（schema 预留，等 G03 方向决策）。
 - 独立处理人/任务归属模型（与 G03 绑定）；`assignedTo` 仅近似映射。
 - manifest/结果版本的历史回填迁移（只对新执行生效）。
+- D5 消费自动接线：`consumePending` 原语与持久化就绪，但执行链路（run 创建时组装上下文）的自动调用未接入，pending 调整暂需消费方显式拉取；接线随执行链路改造独立落地。

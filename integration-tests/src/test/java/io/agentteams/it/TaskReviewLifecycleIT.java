@@ -207,6 +207,17 @@ class TaskReviewLifecycleIT {
         assertEquals(accepted.id(), replayed.id());
         assertEquals(accepted.version(), replayed.version());
         assertEquals("ACCEPTED", replayed.status());
+
+        // 任务聚合事件版本严格递增（游标消费约定）：ResultSubmitted/ResultReviewed 不再与转移事件同号
+        List<Long> eventVersions = jdbc.queryForList("""
+                SELECT aggregate_version FROM domain_events
+                 WHERE aggregate_type = 'task' AND aggregate_id = ?
+                 ORDER BY id
+                """, Long.class, taskId);
+        for (int i = 1; i < eventVersions.size(); i++) {
+            assertTrue(eventVersions.get(i) > eventVersions.get(i - 1),
+                    "aggregate_version must strictly increase: " + eventVersions);
+        }
     }
 
     @Test
@@ -218,11 +229,41 @@ class TaskReviewLifecycleIT {
         assertEquals(1, pending.size());
         assertNull(pending.get(0).consumedRunId());
 
+        // 幂等重放：同 key 两次创建返回同一条记录（锚点此前误存 taskId 导致重放必 500）
+        TaskAdjustmentRecord replayed = adjustments.create(taskId,
+                new TaskAdjustmentService.AdjustmentInput("补充数据源说明", "alice", "corp-agent"), "it-adj-key");
+        assertEquals(pending.get(0).id(), replayed.id());
+
         UUID runId = insertRun(taskId, "RUNNING");
         assertEquals(1, adjustments.consumePending(taskId, runId));
         // 同 run 重放幂等：不再重复消费
         assertEquals(0, adjustments.consumePending(taskId, runId));
         assertEquals(runId, adjustments.list(taskId).get(0).consumedRunId());
+    }
+
+    @Test
+    void cancelWithReasonReplaysIdempotently() {
+        UUID taskId = createQueuedTask("it-cancel-reason-key");
+        long versionBefore = tasks.get(taskId).version();
+        TaskRecord cancelled = tasks.cancel(taskId, versionBefore, "it-cancel-reason-key",
+                "alice", "rest", "需求变更");
+        assertEquals("CANCELLED", cancelled.phase().name());
+        assertTrue(cancelled.specJson().contains("需求变更"));
+
+        // 同 key 重试（同请求体）：任务已 CANCELLED，转移预检失败但幂等回放必须返回首次结果
+        TaskRecord replayed = tasks.cancel(taskId, versionBefore, "it-cancel-reason-key",
+                "alice", "rest", "需求变更");
+        assertEquals(cancelled.id(), replayed.id());
+        assertEquals(cancelled.version(), replayed.version());
+    }
+
+    @Test
+    void archiveRejectsNonTerminalTaskWithConflict() {
+        UUID taskId = createQueuedTask("it-archive-conflict-key");
+        assertThatThrownBy(() -> tasks.archive(taskId, tasks.get(taskId).version(),
+                "it-archive-conflict-op-key", "alice", "rest"))
+                .isInstanceOf(TaskReviewConflictException.class)
+                .hasMessageContaining("terminal");
     }
 
     @Test
@@ -260,6 +301,14 @@ class TaskReviewLifecycleIT {
         assertTrue(spec.path("nested").isMissingNode());
         assertEquals(7, spec.path("b").asInt());
 
+        // D9 安全边界：平台管理键（授权锚点 scope 与生命周期状态）不可经 PATCH 改写
+        assertThatThrownBy(() -> tasks.patch(taskId,
+                new TaskService.TaskPatchCommand(null, null, null,
+                        JSON.readTree("{\"scope\":{\"tenant\":\"tenant-b\",\"project\":\"p\",\"team\":\"t\"}}")),
+                tasks.get(taskId).version(), "it-patch-scope-key", "alice"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("managed by the platform");
+
         // D10：DRAFT 且无执行记录可删
         tasks.delete(taskId, "it-delete-key", "alice");
         assertThatThrownBy(() -> tasks.get(taskId)).isInstanceOf(ResourceNotFoundException.class);
@@ -269,14 +318,14 @@ class TaskReviewLifecycleIT {
                 new TaskService.TaskInput("守卫", "", SCOPED_SPEC, "alice", "rest")).id();
         insertRun(guarded, "FAILED");
         assertThatThrownBy(() -> tasks.delete(guarded, "it-guard-delete-key", "alice"))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(TaskReviewConflictException.class)
                 .hasMessageContaining("execution history");
         assertEquals("DRAFT", tasks.get(guarded).phase().name());
 
         // D10：非 DRAFT 不可删
         UUID queued = createQueuedTask("it-queued-delete-key");
         assertThatThrownBy(() -> tasks.delete(queued, "it-queued-delete-key", "alice"))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(TaskReviewConflictException.class)
                 .hasMessageContaining("only draft");
     }
 

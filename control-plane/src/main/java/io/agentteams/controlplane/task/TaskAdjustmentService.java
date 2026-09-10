@@ -79,7 +79,12 @@ public final class TaskAdjustmentService {
         return persistence.inTransaction(tx -> tx.taskAdjustments().findByTask(taskId, 1000));
     }
 
-    /** 执行上下文组装时调用：把未消费调整并入指定 run 并回填 consumed_run_id。 */
+    /**
+     * 执行上下文组装时调用：把未消费调整并入指定 run 并回填 consumed_run_id。
+     * <p>G02 范围注记：本原语当前仅由存储层与验收链路调用；执行链路（run 创建时
+     * 组装上下文）的自动接线尚未落地，pending 调整暂不会自动并入新 run——需由
+     * 消费方显式调用，自动接线作为独立工作项跟进。
+     */
     public int consumePending(UUID taskId, UUID runId) {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(runId, "runId");
