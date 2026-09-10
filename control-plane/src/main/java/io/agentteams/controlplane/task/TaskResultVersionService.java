@@ -127,8 +127,10 @@ public class TaskResultVersionService {
                 throw new TaskReviewConflictException("RESULT_NOT_SUBMITTED",
                         "only SUBMITTED results can be reviewed");
             }
+            // 幂等记录锚定到结果版本自身：重放恢复时按 resultId 回查 task_result_versions
             IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, REVIEW_RESULT,
-                    requestHash, "task", taskId, resultPayload(current), clock.instant(), clock.instant(), 0);
+                    requestHash, "task_result_version", resultId, resultPayload(current),
+                    clock.instant(), clock.instant(), 0);
             if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
                 IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
                         .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
@@ -221,7 +223,9 @@ public class TaskResultVersionService {
     }
 
     private static String reviewPayload(TaskResultVersionRecord record) {
-        return resultPayload(record) + ",\"reviewActor\":\"" + record.reviewActor() + "\"";
+        // resultPayload 已闭合大括号：截掉末尾 "}" 再追加 reviewActor，保持 JSON 合法
+        String base = resultPayload(record);
+        return base.substring(0, base.length() - 1) + ",\"reviewActor\":\"" + record.reviewActor() + "\"}";
     }
 
     private static String defaultActor(String fallback) {

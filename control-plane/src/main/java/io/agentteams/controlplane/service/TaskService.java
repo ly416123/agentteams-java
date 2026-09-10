@@ -310,7 +310,7 @@ public final class TaskService {
                         .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
             }
             IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, operation,
-                    requestHash, "task", id, id.toString(), clock.instant(), clock.instant(), 0);
+                    requestHash, "task", id, "{\"id\":\"" + id + "\"}", clock.instant(), clock.instant(), 0);
             if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
                 IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
                         .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
@@ -318,7 +318,8 @@ public final class TaskService {
                 return tx.tasks().findById(winner.resourceId())
                         .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
             }
-            TaskRecord updated = tx.tasks().updateArchive(id, targetStatus, archivedAt, actor, expectedVersion);
+            TaskRecord updated = tx.tasks().updateArchive(id, targetStatus, archivedAt, actor, expectedVersion,
+                    clock.instant());
             FoundationPersistenceService.appendEvent(tx, "task", id,
                     operation.equals(ARCHIVE_TASK) ? "TaskArchived" : "TaskUnarchived",
                     "{\"taskId\":\"" + id + "\",\"archiveStatus\":\"" + targetStatus + "\"}",
@@ -357,7 +358,7 @@ public final class TaskService {
                         .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
             }
             IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, PATCH_TASK,
-                    requestHash, "task", id, id.toString(), clock.instant(), clock.instant(), 0);
+                    requestHash, "task", id, "{\"id\":\"" + id + "\"}", clock.instant(), clock.instant(), 0);
             if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
                 IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
                         .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
@@ -391,7 +392,7 @@ public final class TaskService {
                 throw new IllegalArgumentException("task with execution history cannot be deleted");
             }
             IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, DELETE_TASK,
-                    "delete:" + id, "task", id, id.toString(), clock.instant(), clock.instant(), 0);
+                    "delete:" + id, "task", id, "{\"id\":\"" + id + "\"}", clock.instant(), clock.instant(), 0);
             if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
                 return null;
             }

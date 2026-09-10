@@ -79,11 +79,15 @@ public final class JdbcTaskResultVersionRepository {
     }
 
     public Optional<Integer> latestSeq(UUID taskId) {
-        return jdbc.query("SELECT max(seq) AS latest FROM task_result_versions WHERE task_id = ?",
-                (rs, row) -> {
-                    int value = rs.getInt("latest");
-                    return rs.wasNull() ? null : value;
-                }, taskId).stream().findFirst();
+        // max(seq) 对空任务返回一行 NULL：extractor 统一把无行/NULL 归一为 empty，
+        // 避免 stream findFirst 包装 null 元素抛 NPE。
+        return jdbc.query("SELECT max(seq) AS latest FROM task_result_versions WHERE task_id = ?", rs -> {
+            if (!rs.next()) {
+                return Optional.empty();
+            }
+            int value = rs.getInt("latest");
+            return rs.wasNull() ? Optional.empty() : Optional.of(value);
+        }, taskId);
     }
 
     public TaskResultVersionRecord updateReview(UUID id, String status, String reviewActor, String reviewComment,
@@ -104,12 +108,14 @@ public final class JdbcTaskResultVersionRepository {
     }
 
     private TaskResultVersionRecord map(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        // reviewed_at/review_actor/review_comment 在未评审时为 NULL（JdbcSupport.instant 不可接收 null）
+        java.sql.Timestamp reviewedAt = rs.getTimestamp("reviewed_at");
         return new TaskResultVersionRecord(rs.getObject("id", UUID.class), rs.getObject("task_id", UUID.class),
                 rs.getObject("run_id", UUID.class), rs.getObject("manifest_id", UUID.class),
                 rs.getObject("subtask_id", UUID.class), rs.getInt("seq"), rs.getString("status"),
                 rs.getString("summary"), rs.getString("content"), rs.getString("submitted_by"),
                 JdbcSupport.instant(rs, "submitted_at"), rs.getString("review_actor"),
-                rs.getString("review_comment"), JdbcSupport.instant(rs, "reviewed_at"),
+                rs.getString("review_comment"), reviewedAt == null ? null : reviewedAt.toInstant(),
                 JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"),
                 rs.getLong("version"));
     }

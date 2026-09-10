@@ -174,16 +174,16 @@ public final class TaskRepository {
         return findById(id).orElseThrow();
     }
 
-    /** 归档/取消归档（D6）：独立属性更新，不改 phase。 */
+    /** 归档/取消归档（D6）：独立属性更新，不改 phase；updatedAt 为动作时刻（unarchive 时 archivedAt 为 null）。 */
     public TaskRecord updateArchive(UUID id, String archiveStatus, java.time.Instant archivedAt,
-            String archiveActor, long expectedVersion) {
+            String archiveActor, long expectedVersion, java.time.Instant updatedAt) {
         int updated = jdbc.update("""
                 UPDATE tasks
                    SET archive_status = ?, archived_at = ?, archive_actor = ?,
                        updated_at = ?, version = version + 1
                  WHERE id = ? AND version = ?
                 """, archiveStatus, archivedAt == null ? null : JdbcSupport.timestamp(archivedAt),
-                archiveActor, JdbcSupport.timestamp(archivedAt), id, expectedVersion);
+                archiveActor, JdbcSupport.timestamp(updatedAt), id, expectedVersion);
         if (updated == 0) {
             throw new OptimisticLockFailure("task", id, expectedVersion, actualVersion(id));
         }
