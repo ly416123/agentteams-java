@@ -59,45 +59,22 @@ export function AppRouter() {
               }
             />
             <Route
-              path="/settings/identity"
+              path="/settings"
               element={
                 <RequireAuth>
-                  <ManagementIdentityPage />
+                  <ProjectProvider>
+                    <ConsoleLayout />
+                  </ProjectProvider>
                 </RequireAuth>
               }
-            />
-            <Route
-              path="/settings/organizations"
-              element={
-                <RequireAuth>
-                  <ManagementOrganizationPage />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/settings/integrations"
-              element={
-                <RequireAuth>
-                  <ManagementIntegrationPage />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/settings/roles"
-              element={
-                <RequireAuth>
-                  <ManagementRolePage />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/settings/projects"
-              element={
-                <RequireAuth>
-                  <ManagementProjectPage />
-                </RequireAuth>
-              }
-            />
+            >
+              {/* 管理页挂在 ConsoleLayout 下，保证侧边栏在设置空间持续可见；ProjectProvider 供顶栏 ProjectSwitcher 使用。 */}
+              <Route path="identity" element={<ManagementIdentityPage />} />
+              <Route path="organizations" element={<ManagementOrganizationPage />} />
+              <Route path="integrations" element={<ManagementIntegrationPage />} />
+              <Route path="roles" element={<ManagementRolePage />} />
+              <Route path="projects" element={<ManagementProjectPage />} />
+            </Route>
             <Route path="/:projectId/*" element={<ProtectedProjectRoutes />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

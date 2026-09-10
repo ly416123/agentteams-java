@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { ProjectSwitcher } from '../features/projects/ProjectSwitcher';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -54,6 +54,10 @@ const navItems = [
 
 export function ConsoleLayout() {
   const auth = useAuth();
+  const { pathname } = useLocation();
+  // 设置空间（/settings/*）不在 /:projectId 路由段内，概览等项目菜单的相对链接无法解析到项目页，
+  // 统一回退到项目入口页由用户选择项目；侧边栏本身保持可见。
+  const projectNavItemTarget = pathname.startsWith('/settings') ? '/console' : undefined;
   return (
     <div className="console-shell">
       <aside className="sidebar">
@@ -66,7 +70,7 @@ export function ConsoleLayout() {
           {navItems.map((item) => (
             <NavLink
               className={({ isActive }) => (isActive ? 'nav-item nav-item--active' : 'nav-item')}
-              to={item.to}
+              to={projectNavItemTarget ?? item.to}
               key={item.to}
             >
               <span>{item.icon}</span>
