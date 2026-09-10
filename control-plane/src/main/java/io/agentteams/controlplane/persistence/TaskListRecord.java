@@ -9,12 +9,19 @@ import java.util.UUID;
 public record TaskListRecord(UUID id, String title, TaskPhase phase, int priority,
         String tenantId, String projectId, String team, String actor, String source,
         UUID teamId, UUID workerId, Instant createdAt, Instant updatedAt, long version,
-        String taskType) {
+        String taskType, String archiveStatus) {
     public TaskListRecord(UUID id, String title, TaskPhase phase, int priority,
             String tenantId, String projectId, String team, String actor, String source,
             UUID teamId, UUID workerId, Instant createdAt, Instant updatedAt, long version) {
         this(id, title, phase, priority, tenantId, projectId, team, actor, source, teamId, workerId,
-                createdAt, updatedAt, version, "NORMAL");
+                createdAt, updatedAt, version, "NORMAL", "ACTIVE");
+    }
+    public TaskListRecord(UUID id, String title, TaskPhase phase, int priority,
+            String tenantId, String projectId, String team, String actor, String source,
+            UUID teamId, UUID workerId, Instant createdAt, Instant updatedAt, long version,
+            String taskType) {
+        this(id, title, phase, priority, tenantId, projectId, team, actor, source, teamId, workerId,
+                createdAt, updatedAt, version, taskType, "ACTIVE");
     }
     public TaskListRecord {
         Objects.requireNonNull(id, "id");

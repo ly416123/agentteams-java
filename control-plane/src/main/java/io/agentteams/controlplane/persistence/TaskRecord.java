@@ -19,13 +19,24 @@ public record TaskRecord(
         Instant createdAt,
         Instant updatedAt,
         long version,
-        String taskType) {
+        String taskType,
+        String archiveStatus,
+        Instant archivedAt,
+        String archiveActor) {
 
     public TaskRecord(UUID id, String title, String description, TaskPhase phase, int priority,
             String specJson, String actor, String source, String failureCode,
             String redactedFailureMessage, Instant createdAt, Instant updatedAt, long version) {
         this(id, title, description, phase, priority, specJson, actor, source, failureCode,
-                redactedFailureMessage, createdAt, updatedAt, version, "NORMAL");
+                redactedFailureMessage, createdAt, updatedAt, version, "NORMAL", "ACTIVE", null, null);
+    }
+
+    public TaskRecord(UUID id, String title, String description, TaskPhase phase, int priority,
+            String specJson, String actor, String source, String failureCode,
+            String redactedFailureMessage, Instant createdAt, Instant updatedAt, long version,
+            String taskType) {
+        this(id, title, description, phase, priority, specJson, actor, source, failureCode,
+                redactedFailureMessage, createdAt, updatedAt, version, taskType, "ACTIVE", null, null);
     }
 
     public TaskRecord {
@@ -42,6 +53,18 @@ public record TaskRecord(
         if (version < 0) {
             throw new IllegalArgumentException("version must not be negative");
         }
+        if (archiveStatus != null && !"ACTIVE".equals(archiveStatus) && !"ARCHIVED".equals(archiveStatus)) {
+            throw new IllegalArgumentException("archiveStatus must be ACTIVE or ARCHIVED");
+        }
+    }
+
+    /** 归档状态（D6）；本记录可能由旧代码路径构造，空值视为未归档。 */
+    public String archiveStatusOrActive() {
+        return archiveStatus == null ? "ACTIVE" : archiveStatus;
+    }
+
+    public boolean archived() {
+        return "ARCHIVED".equals(archiveStatusOrActive());
     }
 
     private static String requireType(String value) {
@@ -54,7 +77,7 @@ public record TaskRecord(
     public static TaskRecord draft(UUID id, String title, String description,
             String actor, String source, Instant now) {
         return new TaskRecord(id, title, description, TaskPhase.DRAFT, 0, "{}", actor, source,
-                null, null, now, now, 0);
+                null, null, now, now, 0, "NORMAL", "ACTIVE", null, null);
     }
 
     private static void requireText(String value, String field) {

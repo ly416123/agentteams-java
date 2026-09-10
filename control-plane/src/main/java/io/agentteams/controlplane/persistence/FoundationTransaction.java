@@ -21,6 +21,8 @@ public final class FoundationTransaction {
     private final io.agentteams.controlplane.worker.WorkerOperationRepository workerOperations;
     private final io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository recoveryCheckpoints;
     private final io.agentteams.controlplane.task.TaskRecoveryStateRepository recoveryStates;
+    private final io.agentteams.controlplane.task.JdbcTaskAdjustmentRepository taskAdjustments;
+    private final io.agentteams.controlplane.task.JdbcTaskResultVersionRepository taskResultVersions;
 
     FoundationTransaction(org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -42,6 +44,8 @@ public final class FoundationTransaction {
         workerOperations = new io.agentteams.controlplane.worker.WorkerOperationRepository(jdbc);
         recoveryCheckpoints = new io.agentteams.controlplane.task.JdbcTaskRecoveryCheckpointRepository(jdbc);
         recoveryStates = new io.agentteams.controlplane.task.JdbcTaskRecoveryStateRepository(jdbc);
+        taskAdjustments = new io.agentteams.controlplane.task.JdbcTaskAdjustmentRepository(jdbc);
+        taskResultVersions = new io.agentteams.controlplane.task.JdbcTaskResultVersionRepository(jdbc);
     }
 
     public AgentRepository agents() {
@@ -114,6 +118,14 @@ public final class FoundationTransaction {
 
     public io.agentteams.controlplane.task.TaskRecoveryStateRepository recoveryStates() {
         return recoveryStates;
+    }
+
+    public io.agentteams.controlplane.task.JdbcTaskAdjustmentRepository taskAdjustments() {
+        return taskAdjustments;
+    }
+
+    public io.agentteams.controlplane.task.JdbcTaskResultVersionRepository taskResultVersions() {
+        return taskResultVersions;
     }
 
     /** Test and migration helper for resources whose ownership is stored separately from the domain row. */

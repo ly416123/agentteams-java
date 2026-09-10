@@ -32,7 +32,8 @@ public final class TaskRepository {
     public Optional<TaskRecord> findById(UUID id) {
         return jdbc.query("""
                 SELECT id, title, description, phase, priority, spec::text, actor, source,
-                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type
+                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
+                       archive_status, archived_at, archive_actor
                   FROM tasks WHERE id = ?
                 """, this::map, id).stream().findFirst();
     }
@@ -40,7 +41,8 @@ public final class TaskRepository {
     public Optional<TaskRecord> findByIdForUpdate(UUID id) {
         return jdbc.query("""
                 SELECT id, title, description, phase, priority, spec::text, actor, source,
-                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type
+                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
+                       archive_status, archived_at, archive_actor
                   FROM tasks WHERE id = ? FOR UPDATE
                 """, this::map, id).stream().findFirst();
     }
@@ -55,7 +57,7 @@ public final class TaskRepository {
                 ? " AND (t.updated_at, t.id) > (?, ?)" : " AND (t.updated_at, t.id) < (?, ?)";
         StringBuilder sql = new StringBuilder("""
                 SELECT t.id, t.title, t.phase, t.priority, t.actor, t.source, t.task_type,
-                       t.created_at, t.updated_at, t.version,
+                       t.created_at, t.updated_at, t.version, t.archive_status,
                        s.tenant_id, s.project_id, s.team,
                        team_ref.team_id, worker_ref.agent_id
                   FROM tasks t JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id
@@ -161,18 +163,53 @@ public final class TaskRepository {
         return findById(id).orElseThrow();
     }
 
+    /** 归档/取消归档（D6）：独立属性更新，不改 phase。 */
+    public TaskRecord updateArchive(UUID id, String archiveStatus, java.time.Instant archivedAt,
+            String archiveActor, long expectedVersion) {
+        int updated = jdbc.update("""
+                UPDATE tasks
+                   SET archive_status = ?, archived_at = ?, archive_actor = ?,
+                       updated_at = ?, version = version + 1
+                 WHERE id = ? AND version = ?
+                """, archiveStatus, archivedAt == null ? null : JdbcSupport.timestamp(archivedAt),
+                archiveActor, JdbcSupport.timestamp(archivedAt), id, expectedVersion);
+        if (updated == 0) {
+            throw new OptimisticLockFailure("task", id, expectedVersion, actualVersion(id));
+        }
+        return findById(id).orElseThrow();
+    }
+
+    /** 元数据更新（D9）：白名单字段与 spec 顶层键合并结果，由 Service 层算好后传入。 */
+    public TaskRecord updateMetadata(UUID id, String title, String description, int priority,
+            String specJson, long expectedVersion, java.time.Instant updatedAt) {
+        int updated = jdbc.update("""
+                UPDATE tasks
+                   SET title = ?, description = ?, priority = ?, spec = ?,
+                       updated_at = ?, version = version + 1
+                 WHERE id = ? AND version = ?
+                """, title, description, priority, JdbcSupport.json(specJson),
+                JdbcSupport.timestamp(updatedAt), id, expectedVersion);
+        if (updated == 0) {
+            throw new OptimisticLockFailure("task", id, expectedVersion, actualVersion(id));
+        }
+        return findById(id).orElseThrow();
+    }
+
     private long actualVersion(UUID id) {
         return jdbc.query("SELECT version FROM tasks WHERE id = ?", (rs, row) -> rs.getLong(1), id)
                 .stream().findFirst().orElse(-1L);
     }
 
     private TaskRecord map(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        java.sql.Timestamp archivedAt = rs.getTimestamp("archived_at");
         return new TaskRecord(rs.getObject("id", UUID.class), rs.getString("title"),
                 rs.getString("description"), TaskPhase.valueOf(rs.getString("phase")),
                 rs.getInt("priority"), rs.getString("spec"), rs.getString("actor"),
                 rs.getString("source"), rs.getString("failure_code"),
                 rs.getString("redacted_failure_message"), JdbcSupport.instant(rs, "created_at"),
-                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"), rs.getString("task_type"));
+                JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"), rs.getString("task_type"),
+                rs.getString("archive_status"),
+                archivedAt == null ? null : archivedAt.toInstant(), rs.getString("archive_actor"));
     }
 
     private TaskListRecord mapListItem(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
@@ -181,6 +218,6 @@ public final class TaskRepository {
                 rs.getString("project_id"), rs.getString("team"), rs.getString("actor"), rs.getString("source"),
                 rs.getObject("team_id", UUID.class), rs.getObject("agent_id", UUID.class),
                 JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"),
-                rs.getString("task_type"));
+                rs.getString("task_type"), rs.getString("archive_status"));
     }
 }
