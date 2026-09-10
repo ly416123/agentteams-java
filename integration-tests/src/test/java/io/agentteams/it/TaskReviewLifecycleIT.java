@@ -62,6 +62,9 @@ class TaskReviewLifecycleIT {
     private static final String PROJECT_REF = PROJECT.toString();
     private static final String SCOPED_SPEC = "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\""
             + PROJECT_REF + "\",\"team\":\"team-a\"}}";
+    // kind token claims 形态：scope.project 用项目名而非 id
+    private static final String NAME_SCOPED_SPEC =
+            "{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}";
     private static final Principal PRINCIPAL = new Principal("alice",
             new AuthorizationService.Scope("tenant-a", PROJECT_REF, "team-a"), Set.of());
     private static final ExecutionContext CONTEXT =
@@ -275,6 +278,31 @@ class TaskReviewLifecycleIT {
         assertThatThrownBy(() -> tasks.delete(queued, "it-queued-delete-key", "alice"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("only draft");
+    }
+
+    @Test
+    void projectScopedListingAcceptsPrincipalByProjectName() {
+        // 复现 kind token claims 形态（scope.project 为项目名）：创建、findPage、countByPhase 均兼容
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        UUID taskId;
+        try {
+            TaskRecord created = tasks.create("it-name-create-key",
+                    new TaskService.TaskInput("名字 scope 任务", "G02 IT", NAME_SCOPED_SPEC, "alice", "rest"));
+            tasks.queue(created.id(), created.version(), "it-name-scope-key:queue", "alice");
+            taskId = created.id();
+        } finally {
+            PrincipalContext.set(PRINCIPAL);
+        }
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            CursorPageRequest request = new CursorPageRequest(null, 50, null, null);
+            assertTrue(contains(tasks.list(request, activeFilter()), taskId));
+            assertTrue(tasks.stats("ACTIVE").getOrDefault("QUEUED", 0L) >= 1);
+        } finally {
+            PrincipalContext.set(PRINCIPAL);
+        }
     }
 
     @Test

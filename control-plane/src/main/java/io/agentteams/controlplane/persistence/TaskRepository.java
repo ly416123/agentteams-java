@@ -71,14 +71,16 @@ public final class TaskRepository {
                   LEFT JOIN LATERAL (SELECT ta.agent_id FROM task_assignments ta
                                       WHERE ta.task_id = t.id ORDER BY ta.created_at, ta.id LIMIT 1) worker_ref
                     ON TRUE
-                 WHERE s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?
+                 WHERE s.tenant_id = ?
+                   AND (scoped_project.id::text = ? OR scoped_project.name = ?) AND s.team = ?
                    AND EXISTS (SELECT 1 FROM project_memberships m
                                 WHERE m.tenant_id = scoped_project.tenant_id
                                   AND m.project_id = scoped_project.id
                                   AND m.subject = ? AND m.status = 'ACTIVE')
                 """);
+        // principal scope.project 兼容项目名与 id 两种形态（kind token claims 用项目名）
         List<Object> args = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),
-                principal.scope().team(), principal.subject()));
+                principal.scope().project(), principal.scope().team(), principal.subject()));
         if (phase != null) { sql.append(" AND t.phase = ?"); args.add(phase.name()); }
         if (statuses != null && !statuses.isEmpty()) {
             sql.append(" AND t.phase IN (")
@@ -222,6 +224,7 @@ public final class TaskRepository {
         List<Object> args = new java.util.ArrayList<>();
         args.add(principal.scope().tenant());
         args.add(principal.scope().project());
+        args.add(principal.scope().project());
         args.add(principal.scope().team());
         if (!filter.isEmpty()) {
             args.add(archiveStatus.toUpperCase(java.util.Locale.ROOT));
@@ -232,7 +235,8 @@ public final class TaskRepository {
                   JOIN projects scoped_project ON scoped_project.tenant_id = s.tenant_id
                                              AND (scoped_project.id::text = s.project_id
                                                   OR scoped_project.name = s.project_id)
-                 WHERE s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?""" + filter + """
+                 WHERE s.tenant_id = ?
+                   AND (scoped_project.id::text = ? OR scoped_project.name = ?) AND s.team = ?""" + filter + """
                  GROUP BY t.phase
                 """, rs -> {
             java.util.Map<String, Long> counts = new java.util.LinkedHashMap<>();
