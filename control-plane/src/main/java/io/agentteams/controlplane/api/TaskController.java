@@ -7,11 +7,14 @@ import io.agentteams.controlplane.persistence.TaskListRecord;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskService;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import io.agentteams.domain.task.TaskPhase;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,6 +46,12 @@ public final class TaskController {
         return ResponseEntity.status(201).body(TaskResponse.from(task));
     }
 
+    /** 团队维度任务统计（G02）：按 principal scope 聚合，archiveStatus 默认 ACTIVE。字面路径先于 /{id} 注册。 */
+    @GetMapping("/stats")
+    public java.util.Map<String, Long> stats(@RequestParam(required = false) String archiveStatus) {
+        return service.stats(archiveStatus);
+    }
+
     @GetMapping("/{id}")
     public TaskResponse get(@PathVariable UUID id) {
         TaskRecord task = service.get(id);
@@ -54,11 +63,16 @@ public final class TaskController {
     public CursorPage<TaskListResponse> list(@RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer pageSize, @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction, @RequestParam(required = false) TaskPhase phase,
+            @RequestParam(required = false) List<TaskPhase> statuses,
             @RequestParam(required = false) UUID teamId, @RequestParam(required = false) UUID workerId,
-            @RequestParam(required = false) String actor, @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to, @RequestParam(required = false, name = "q") String query) {
-        TaskService.TaskListFilter filter = new TaskService.TaskListFilter(phase, teamId, workerId, actor, from, to,
-                query);
+            @RequestParam(required = false) String actor, @RequestParam(required = false) String assignedTo,
+            @RequestParam(required = false) Instant from, @RequestParam(required = false) Instant to,
+            @RequestParam(required = false, name = "q") String query,
+            @RequestParam(required = false) String archiveStatus) {
+        // G02 D8：assignedTo 近似映射 actor（自研无独立指派归属，取任务操作者），优先于显式 actor。
+        String owner = assignedTo != null && !assignedTo.isBlank() ? assignedTo : actor;
+        TaskService.TaskListFilter filter = new TaskService.TaskListFilter(phase, statuses, teamId, workerId,
+                owner, from, to, query, archiveStatus);
         return service.list(new CursorPageRequest(cursor, pageSize, sort, direction), filter)
                 .map(TaskListResponse::from);
     }
@@ -140,6 +154,59 @@ public final class TaskController {
         return TaskResponse.from(rejected);
     }
 
+    /** 归档（G02 D6）：仅终态；不改 phase。 */
+    @PostMapping("/{id}/archive")
+    public TaskResponse archive(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody(required = false) TaskLifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        TaskLifecycleRequest input = request == null ? new TaskLifecycleRequest(null, null, null) : request;
+        requireExistingTaskScope(id);
+        TaskRecord archived = service.archive(id, expectedVersion(input), idempotencyKey,
+                PrincipalContext.actorOr(input.actor()), input.source());
+        return TaskResponse.from(archived);
+    }
+
+    /** 取消归档（G02 D6）：仅已归档任务。 */
+    @PostMapping("/{id}/unarchive")
+    public TaskResponse unarchive(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody(required = false) TaskLifecycleRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        TaskLifecycleRequest input = request == null ? new TaskLifecycleRequest(null, null, null) : request;
+        requireExistingTaskScope(id);
+        TaskRecord unarchived = service.unarchive(id, expectedVersion(input), idempotencyKey,
+                PrincipalContext.actorOr(input.actor()), input.source());
+        return TaskResponse.from(unarchived);
+    }
+
+    /** 元数据更新（G02 D9）：白名单字段 + spec 顶层键浅合并。 */
+    @PatchMapping("/{id}")
+    public TaskResponse patch(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestBody PatchTaskRequest request) {
+        requireIdempotencyKey(idempotencyKey);
+        if (request == null) {
+            throw new IllegalArgumentException("request body is required");
+        }
+        requireExistingTaskScope(id);
+        long expectedVersion = request.expectedVersion() == null ? 0 : request.expectedVersion();
+        TaskRecord patched = service.patch(id, request.toCommand(), expectedVersion, idempotencyKey,
+                PrincipalContext.actorOr(request.actor()));
+        return TaskResponse.from(patched);
+    }
+
+    /** 受限删除（G02 D10）：仅 DRAFT 且无任何执行记录。 */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable UUID id,
+            @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
+            @RequestParam(required = false) String actor) {
+        requireIdempotencyKey(idempotencyKey);
+        requireExistingTaskScope(id);
+        service.delete(id, idempotencyKey, PrincipalContext.actorOr(actor));
+        return ResponseEntity.noContent().build();
+    }
+
     public record CreateTaskRequest(String title, String description, JsonNode spec,
             String actor, String source, String taskType) {
 
@@ -170,6 +237,14 @@ public final class TaskController {
     }
 
     public record TaskLifecycleRequest(Long expectedVersion, String actor, String source) {
+    }
+
+    public record PatchTaskRequest(String title, String description, Integer priority, JsonNode spec,
+            Long expectedVersion, String actor) {
+
+        TaskService.TaskPatchCommand toCommand() {
+            return new TaskService.TaskPatchCommand(title, description, priority, spec);
+        }
     }
 
     private static final ObjectMapper JSON = new ObjectMapper();

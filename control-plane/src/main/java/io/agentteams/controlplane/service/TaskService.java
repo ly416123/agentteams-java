@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.controlplane.persistence.CreateTaskCommand;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
+import io.agentteams.controlplane.persistence.IdempotencyKeyRecord;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.persistence.DomainEventRecord;
 import io.agentteams.controlplane.api.CursorPage;
@@ -127,10 +128,24 @@ public final class TaskService {
                 .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
                         "authentication required"));
         java.util.List<TaskListRecord> rows = persistence.inTransaction(tx -> tx.tasks().findPage(principal,
-                request.position(), request.pageSize() + 1, request.direction(), filter.phase(), filter.teamId(),
-                filter.workerId(), filter.actor(), filter.from(), filter.to(), filter.query()));
+                request.position(), request.pageSize() + 1, request.direction(), filter.phase(), filter.statuses(),
+                filter.teamId(), filter.workerId(), filter.actor(), filter.from(), filter.to(), filter.query(),
+                filter.archiveStatus()));
         return CursorPage.fromRows(rows, request.pageSize(),
                 task -> new CursorPageRequest.Position(task.updatedAt(), task.id()), clock.instant());
+    }
+
+    /** 团队维度任务统计（G02）：按 principal scope 聚合，archiveStatus 默认 ACTIVE。 */
+    public java.util.Map<String, Long> stats(String archiveStatus) {
+        String normalized = archiveStatus == null || archiveStatus.isBlank()
+                ? "ACTIVE" : archiveStatus.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!"ACTIVE".equals(normalized) && !"ARCHIVED".equals(normalized) && !"ALL".equals(normalized)) {
+            throw new IllegalArgumentException("archiveStatus must be ACTIVE, ARCHIVED or ALL");
+        }
+        io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
+                .orElseThrow(() -> new io.agentteams.controlplane.security.AuthorizationException(
+                        "authentication required"));
+        return persistence.inTransaction(tx -> tx.tasks().countByPhase(principal, normalized));
     }
 
     public List<DomainEventRecord> events(UUID id, long after) {
@@ -142,13 +157,27 @@ public final class TaskService {
         return persistence.inTransaction(tx -> tx.domainEvents().findTaskEvents(principal, task.id(), after, 1000));
     }
 
-    public record TaskListFilter(TaskPhase phase, UUID teamId, UUID workerId, String actor, Instant from, Instant to,
-            String query) {
+    public record TaskListFilter(TaskPhase phase, java.util.Collection<TaskPhase> statuses, UUID teamId,
+            UUID workerId, String actor, Instant from, Instant to, String query, String archiveStatus) {
+
+        private static final String DEFAULT_ARCHIVE_STATUS = "ACTIVE";
+
+        public TaskListFilter(TaskPhase phase, UUID teamId, UUID workerId, String actor, Instant from, Instant to,
+                String query) {
+            this(phase, null, teamId, workerId, actor, from, to, query, DEFAULT_ARCHIVE_STATUS);
+        }
+
         public TaskListFilter {
             if (from != null && to != null && !from.isBefore(to)) {
                 throw new IllegalArgumentException("from must be before to");
             }
             query = query == null ? null : query.trim();
+            archiveStatus = archiveStatus == null || archiveStatus.isBlank()
+                    ? DEFAULT_ARCHIVE_STATUS : archiveStatus.trim().toUpperCase(java.util.Locale.ROOT);
+            if (!"ACTIVE".equals(archiveStatus) && !"ARCHIVED".equals(archiveStatus)
+                    && !"ALL".equals(archiveStatus)) {
+                throw new IllegalArgumentException("archiveStatus must be ACTIVE, ARCHIVED or ALL");
+            }
         }
     }
 
@@ -206,6 +235,174 @@ public final class TaskService {
         authorizeTask(id, ResourceAction.TASK_APPROVE);
         return updateApproval(id, expectedVersion, idempotencyKey,
                 defaultText(actor, "api"), defaultText(source, "rest"), false, REJECT_TASK);
+    }
+
+    private static final String ARCHIVE_TASK = "ARCHIVE_TASK";
+    private static final String UNARCHIVE_TASK = "UNARCHIVE_TASK";
+    private static final String PATCH_TASK = "PATCH_TASK";
+    private static final String DELETE_TASK = "DELETE_TASK";
+
+    /** 归档（G02 D6）：仅终态；不改 phase，只切换独立属性。 */
+    public TaskRecord archive(UUID id, long expectedVersion, String idempotencyKey, String actor, String source) {
+        TaskRecord current = get(id);
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
+        if (!current.phase().terminal()) {
+            throw new IllegalArgumentException("task archive is only available for terminal tasks");
+        }
+        if (current.archived()) {
+            throw new IllegalArgumentException("task is already archived");
+        }
+        return transitionArchive(id, "ARCHIVED", clock.instant(), defaultText(actor, "api"),
+                expectedVersion, idempotencyKey, ARCHIVE_TASK);
+    }
+
+    public TaskRecord unarchive(UUID id, long expectedVersion, String idempotencyKey, String actor, String source) {
+        TaskRecord current = get(id);
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
+        if (!current.archived()) {
+            throw new IllegalArgumentException("task is not archived");
+        }
+        return transitionArchive(id, "ACTIVE", null, defaultText(actor, "api"),
+                expectedVersion, idempotencyKey, UNARCHIVE_TASK);
+    }
+
+    private TaskRecord transitionArchive(UUID id, String targetStatus, java.time.Instant archivedAt,
+            String actor, long expectedVersion, String idempotencyKey, String operation) {
+        String requestHash = idempotency.requestHash(id.toString(), operation,
+                Long.toString(expectedVersion), actor);
+        return persistence.inTransaction(tx -> {
+            String key = idempotency.requireKey(idempotencyKey);
+            var existing = tx.idempotencyKeys().findByKey(key);
+            if (existing.isPresent()) {
+                assertIdempotentOperation(existing.get(), operation, requestHash, key);
+                return tx.tasks().findById(existing.get().resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
+            }
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, operation,
+                    requestHash, "task", id, id.toString(), clock.instant(), clock.instant(), 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotentOperation(winner, operation, requestHash, key);
+                return tx.tasks().findById(winner.resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
+            }
+            TaskRecord updated = tx.tasks().updateArchive(id, targetStatus, archivedAt, actor, expectedVersion);
+            FoundationPersistenceService.appendEvent(tx, "task", id,
+                    operation.equals(ARCHIVE_TASK) ? "TaskArchived" : "TaskUnarchived",
+                    "{\"taskId\":\"" + id + "\",\"archiveStatus\":\"" + targetStatus + "\"}",
+                    clock.instant(), updated.version());
+            return updated;
+        });
+    }
+
+    public record TaskPatchCommand(String title, String description, Integer priority,
+            com.fasterxml.jackson.databind.JsonNode spec) {
+    }
+
+    /** 元数据更新（G02 D9）：白名单字段 + spec 顶层键浅合并。 */
+    public TaskRecord patch(UUID id, TaskPatchCommand command, long expectedVersion, String idempotencyKey,
+            String actor) {
+        Objects.requireNonNull(command, "command");
+        TaskRecord current = get(id);
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
+        if (command.title() == null && command.description() == null && command.priority() == null
+                && command.spec() == null) {
+            throw new IllegalArgumentException("at least one updatable field is required");
+        }
+        String title = command.title() == null ? current.title() : required(command.title(), "title");
+        String description = command.description() == null ? current.description() : command.description();
+        int priority = command.priority() == null ? current.priority() : command.priority();
+        String specJson = command.spec() == null ? current.specJson()
+                : mergeSpecTopLevel(current.specJson(), command.spec());
+        String requestHash = idempotency.requestHash(id.toString(), PATCH_TASK, Long.toString(expectedVersion),
+                title, description, Integer.toString(priority), specJson);
+        return persistence.inTransaction(tx -> {
+            String key = idempotency.requireKey(idempotencyKey);
+            var existing = tx.idempotencyKeys().findByKey(key);
+            if (existing.isPresent()) {
+                assertIdempotentOperation(existing.get(), PATCH_TASK, requestHash, key);
+                return tx.tasks().findById(existing.get().resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
+            }
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, PATCH_TASK,
+                    requestHash, "task", id, id.toString(), clock.instant(), clock.instant(), 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key)
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotentOperation(winner, PATCH_TASK, requestHash, key);
+                return tx.tasks().findById(winner.resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent task is missing"));
+            }
+            TaskRecord updated = tx.tasks().updateMetadata(id, title, description, priority, specJson,
+                    expectedVersion, clock.instant());
+            FoundationPersistenceService.appendEvent(tx, "task", id, "TaskMetadataUpdated",
+                    "{\"taskId\":\"" + id + "\"}", clock.instant(), updated.version());
+            return updated;
+        });
+    }
+
+    /** 受限删除（G02 D10）：仅 DRAFT 且无任何执行记录。 */
+    public void delete(UUID id, String idempotencyKey, String actor) {
+        TaskRecord current = get(id);
+        authorizeTask(id, ResourceAction.TASK_OPERATE);
+        if (current.phase() != TaskPhase.DRAFT) {
+            throw new IllegalArgumentException("only draft tasks can be deleted");
+        }
+        persistence.inTransaction(tx -> {
+            String key = idempotency.requireKey(idempotencyKey);
+            var existing = tx.idempotencyKeys().findByKey(key);
+            if (existing.isPresent()) {
+                assertIdempotentOperation(existing.get(), DELETE_TASK, "delete:" + id, key);
+                return null;
+            }
+            if (tx.hasTaskRun(id)) {
+                throw new IllegalArgumentException("task with execution history cannot be deleted");
+            }
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key, DELETE_TASK,
+                    "delete:" + id, "task", id, id.toString(), clock.instant(), clock.instant(), 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                return null;
+            }
+            FoundationPersistenceService.appendEvent(tx, "task", id, "TaskDeleted",
+                    "{\"taskId\":\"" + id + "\",\"actor\":\"" + defaultText(actor, "api") + "\"}",
+                    clock.instant(), current.version());
+            tx.tasks().deleteResourceScope(id);
+            tx.tasks().delete(id);
+            return null;
+        });
+    }
+
+    private static void assertIdempotentOperation(io.agentteams.controlplane.persistence.IdempotencyKeyRecord existing,
+            String operation, String requestHash, String key) {
+        if (!operation.equals(existing.operation()) || !requestHash.equals(existing.requestHash())) {
+            throw new io.agentteams.controlplane.persistence.IdempotencyConflictException(key, operation);
+        }
+    }
+
+    /** D9：spec 顶层键浅合并——顶层键整体覆盖，null 值表示删除该键；package-private 供测试直接验证。 */
+    static String mergeSpecTopLevel(String currentSpecJson, com.fasterxml.jackson.databind.JsonNode patch) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode current = JSON.readTree(currentSpecJson == null ? "{}"
+                    : currentSpecJson);
+            if (current == null || !current.isObject() || patch == null || !patch.isObject()) {
+                throw new IllegalArgumentException("task spec must be a JSON object");
+            }
+            com.fasterxml.jackson.databind.node.ObjectNode merged = (com.fasterxml.jackson.databind.node.ObjectNode) current;
+            java.util.Iterator<java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> fields =
+                    patch.fields();
+            while (fields.hasNext()) {
+                var entry = fields.next();
+                if (entry.getValue().isNull()) {
+                    merged.remove(entry.getKey());
+                } else {
+                    merged.set(entry.getKey(), entry.getValue());
+                }
+            }
+            return merged.toString();
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task spec is invalid JSON", error);
+        }
     }
 
     public record TaskInput(String title, String description, String specJson, String actor, String source,

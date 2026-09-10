@@ -275,6 +275,14 @@ public final class FoundationTransaction {
         return pending == null ? 0 : pending;
     }
 
+    /** G02 D10：任务是否存在任何 run 执行记录（受限删除的准入依据）。 */
+    public boolean hasTaskRun(java.util.UUID taskId) {
+        java.util.Objects.requireNonNull(taskId, "taskId");
+        Long count = jdbc.queryForObject("SELECT count(*) FROM task_runs WHERE task_id = ?",
+                Long.class, taskId);
+        return count != null && count > 0;
+    }
+
     /** Outcome of a {@link #reclaimAttempt}; carries identity for follow-up cleanup. */
     public record ReclaimOutcome(boolean reclaimed, java.util.UUID attemptId, java.util.UUID taskId) {
         public static ReclaimOutcome noop() {

@@ -48,8 +48,9 @@ public final class TaskRepository {
     }
 
     public List<TaskListRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
-            CursorPageRequest.Direction direction, TaskPhase phase, UUID teamId, UUID workerId, String actor,
-            Instant from, Instant to, String query) {
+            CursorPageRequest.Direction direction, TaskPhase phase, java.util.Collection<TaskPhase> statuses,
+            UUID teamId, UUID workerId, String actor, Instant from, Instant to, String query,
+            String archiveStatus) {
         String order = direction == CursorPageRequest.Direction.ASC
                 ? " ORDER BY t.updated_at ASC, t.id ASC LIMIT ?"
                 : " ORDER BY t.updated_at DESC, t.id DESC LIMIT ?";
@@ -79,6 +80,16 @@ public final class TaskRepository {
         List<Object> args = new java.util.ArrayList<>(List.of(principal.scope().tenant(), principal.scope().project(),
                 principal.scope().team(), principal.subject()));
         if (phase != null) { sql.append(" AND t.phase = ?"); args.add(phase.name()); }
+        if (statuses != null && !statuses.isEmpty()) {
+            sql.append(" AND t.phase IN (")
+                    .append(String.join(",", java.util.Collections.nCopies(statuses.size(), "?")))
+                    .append(')');
+            statuses.forEach(item -> args.add(item.name()));
+        }
+        if (archiveStatus != null && !"ALL".equalsIgnoreCase(archiveStatus)) {
+            sql.append(" AND t.archive_status = ?");
+            args.add(archiveStatus.toUpperCase(java.util.Locale.ROOT));
+        }
         if (teamId != null) {
             sql.append(" AND EXISTS (SELECT 1 FROM team_tasks tt WHERE tt.task_id = t.id AND tt.team_id = ?)");
             args.add(teamId);
@@ -193,6 +204,43 @@ public final class TaskRepository {
             throw new OptimisticLockFailure("task", id, expectedVersion, actualVersion(id));
         }
         return findById(id).orElseThrow();
+    }
+
+    /** 受限删除（G02 D10）：仅 DRAFT 且无执行记录；由 Service 层准入后调用。 */
+    public int delete(UUID id) {
+        return jdbc.update("DELETE FROM tasks WHERE id = ?", id);
+    }
+
+    /** 删除任务的独立资源归属行（tasks 无级联约束）。 */
+    public int deleteResourceScope(UUID id) {
+        return jdbc.update("DELETE FROM resource_scopes WHERE resource_type = 'TASK' AND resource_id = ?", id);
+    }
+
+    public java.util.Map<String, Long> countByPhase(Principal principal, String archiveStatus) {
+        String filter = archiveStatus == null || "ALL".equalsIgnoreCase(archiveStatus) ? ""
+                : " AND t.archive_status = ?";
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(principal.scope().tenant());
+        args.add(principal.scope().project());
+        args.add(principal.scope().team());
+        if (!filter.isEmpty()) {
+            args.add(archiveStatus.toUpperCase(java.util.Locale.ROOT));
+        }
+        return jdbc.query("""
+                SELECT t.phase, count(*) AS total
+                  FROM tasks t JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id
+                  JOIN projects scoped_project ON scoped_project.tenant_id = s.tenant_id
+                                             AND (scoped_project.id::text = s.project_id
+                                                  OR scoped_project.name = s.project_id)
+                 WHERE s.tenant_id = ? AND scoped_project.id::text = ? AND s.team = ?""" + filter + """
+                 GROUP BY t.phase
+                """, rs -> {
+            java.util.Map<String, Long> counts = new java.util.LinkedHashMap<>();
+            while (rs.next()) {
+                counts.put(rs.getString("phase"), rs.getLong("total"));
+            }
+            return counts;
+        }, args.toArray());
     }
 
     private long actualVersion(UUID id) {
