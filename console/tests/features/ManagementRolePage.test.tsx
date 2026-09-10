@@ -38,7 +38,7 @@ describe('Management role page', () => {
     expect(listProjectRolePermissions).toHaveBeenCalledWith('p-1');
 
     await userEvent.selectOptions(screen.getByLabelText('alice 的角色'), 'OPERATOR');
-    await userEvent.click(screen.getByRole('button', { name: '保存 alice 的角色' }));
+    await userEvent.click(screen.getByRole('button', { name: '保存角色' }));
 
     const { changeProjectMemberRole } = await import('../../src/api/projects');
     expect(changeProjectMemberRole).toHaveBeenCalledWith('p-1', 'alice', {

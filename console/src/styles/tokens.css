@@ -4,9 +4,18 @@
   --line: rgb(154 185 204 / 14%);
   --panel: rgb(16 31 46 / 86%);
   --panel-soft: rgb(20 39 57 / 70%);
+  --surface: #0d1c2b;
   --accent: #8de0cf;
   --info: #79b9ee;
   --warning: #f4c978;
   --danger: #f18f8f;
   --success: #8de0cf;
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-base: 14px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+  --font-2xl: 24px;
+  --font-3xl: 30px;
 }

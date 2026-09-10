@@ -128,7 +128,7 @@ export function ManagementRolePage() {
                     disabled={!editable || role === member.role || roleMutation.isPending}
                     onClick={() => roleMutation.mutate({ member, role })}
                   >
-                    保存 {member.subject} 的角色
+                    保存角色
                   </button>
                 </div>
               );
@@ -147,9 +147,9 @@ export function ManagementRolePage() {
             {(permissions.data as ProjectRolePermissions[] | undefined)?.map((item) => (
               <article className="panel" key={item.role}>
                 <h3>{labelRole(item.role)}</h3>
-                <div className="stack-list">
+                <div className="chip-row">
                   {item.permissions.map((permission) => (
-                    <span className="muted-text" key={permission}>
+                    <span className="chip" key={permission}>
                       {permission}
                     </span>
                   ))}

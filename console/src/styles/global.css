@@ -22,6 +22,17 @@ body {
   margin: 0;
   min-width: 320px;
   background: #08121d;
+  color: #e8f0f7;
+  font-size: var(--font-base);
+  line-height: 1.55;
+}
+h2 {
+  font-size: var(--font-xl);
+  letter-spacing: -0.01em;
+}
+h3 {
+  font-size: var(--font-lg);
+  letter-spacing: -0.01em;
 }
 a {
   color: inherit;
@@ -55,7 +66,7 @@ a {
   border-radius: 10px;
   background: #8de0cf;
   color: #09211e;
-  font-size: 16px;
+  font-size: var(--font-lg);
 }
 .public-main {
   display: grid;
@@ -74,7 +85,7 @@ a {
 .eyebrow {
   margin: 0 0 18px;
   color: #8de0cf;
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 700;
   letter-spacing: 0.18em;
 }
@@ -89,7 +100,7 @@ h1 {
   max-width: 540px;
   margin: 26px 0 32px;
   color: #a8b9c8;
-  font-size: 18px;
+  font-size: var(--font-lg);
   line-height: 1.7;
 }
 .button {
@@ -100,7 +111,7 @@ h1 {
   padding: 0 18px;
   border: 1px solid transparent;
   border-radius: 10px;
-  font-size: 14px;
+  font-size: var(--font-base);
   font-weight: 700;
   transition:
     transform 150ms ease,
@@ -131,7 +142,7 @@ h1 {
 .button--small {
   min-height: 32px;
   padding: 0 11px;
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .button--wide {
   width: 100%;
@@ -156,7 +167,7 @@ h1 {
 .sidebar-caption {
   margin: 0 10px 12px;
   color: #536b7d;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: 0.16em;
 }
@@ -171,7 +182,7 @@ h1 {
   padding: 12px;
   border-radius: 10px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--font-base);
   font-weight: 600;
 }
 .nav-item span {
@@ -196,7 +207,7 @@ h1 {
   padding: 12px 10px 0;
   border-top: 1px solid var(--line);
   color: #668093;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .status-dot--online {
   background: var(--success) !important;
@@ -220,7 +231,7 @@ h1 {
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 700;
 }
 .project-switcher select {
@@ -228,7 +239,7 @@ h1 {
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--font-base);
   font-weight: 700;
 }
 .user-menu {
@@ -236,7 +247,7 @@ h1 {
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .avatar {
   display: grid;
@@ -270,8 +281,8 @@ h1 {
 .page-heading h1,
 .detail-heading h1 {
   margin: 0;
-  font-size: clamp(32px, 5vw, 52px);
-  letter-spacing: -0.05em;
+  font-size: clamp(24px, 3vw, 30px);
+  letter-spacing: -0.02em;
 }
 .page-heading p:not(.eyebrow),
 .detail-heading p:not(.eyebrow) {
@@ -283,7 +294,7 @@ h1 {
   margin: 18px 0 28px;
 }
 .detail-heading h1 {
-  font-size: clamp(30px, 4vw, 44px);
+  font-size: clamp(22px, 2.4vw, 26px);
 }
 .detail-actions {
   display: flex;
@@ -293,7 +304,7 @@ h1 {
 .eyebrow {
   margin: 0 0 12px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: 0.18em;
 }
@@ -318,11 +329,11 @@ h1 {
 .metric-label,
 .metric-detail {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .metric-value {
-  font-size: 42px;
-  letter-spacing: -0.06em;
+  font-size: var(--font-3xl);
+  letter-spacing: -0.02em;
 }
 .metric-detail--success {
   color: var(--success);
@@ -350,13 +361,67 @@ h1 {
 }
 .usage-summary span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .usage-summary strong {
-  font-size: 19px;
+  font-size: var(--font-xl);
 }
 .panel {
   padding: 24px;
+}
+/* 列表行布局：此前 stack-list/muted-text 被多个页面引用但从未定义，导致内联 span 挤压粘连。 */
+.stack-list {
+  display: grid;
+  gap: 10px;
+}
+.stack-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+.stack-list__item > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.stack-list__item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stack-list__item select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 132px;
+}
+.stack-list__item .button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.muted-text {
+  color: var(--muted);
+  font-size: var(--font-md);
+}
+/* 权限等枚举值展示：等宽字体 chip 化，可换行不粘连。 */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  display: inline-flex;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgb(143 165 183 / 8%);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--font-sm);
 }
 .conversation-transcript {
   display: flex;
@@ -382,7 +447,7 @@ h1 {
 }
 .conversation-message .eyebrow {
   margin-bottom: 8px;
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 .conversation-message p {
   margin: 0;
@@ -393,8 +458,7 @@ h1 {
 .panel h2,
 .form-panel h2 {
   margin: 0;
-  font-size: 19px;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.01em;
 }
 .section-heading {
   align-items: center;
@@ -434,14 +498,14 @@ h1 {
 .alert-row time,
 .member-row small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .distribution-row > div:first-child {
   display: flex;
   justify-content: space-between;
   margin-bottom: 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .distribution-row strong {
   color: var(--ink);
@@ -469,11 +533,11 @@ h1 {
 }
 .progress-summary strong {
   color: var(--accent);
-  font-size: 30px;
+  font-size: var(--font-2xl);
 }
 .progress-summary span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .progress-track {
   height: 10px;
@@ -536,7 +600,7 @@ select:focus {
 .resource-table th {
   padding: 14px 16px;
   color: #6f8798;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-align: left;
@@ -546,7 +610,7 @@ select:focus {
   padding: 16px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .resource-link {
   display: grid;
@@ -555,7 +619,7 @@ select:focus {
 }
 .resource-link small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .status-badge {
   display: inline-flex;
@@ -564,7 +628,7 @@ select:focus {
   width: fit-content;
   padding: 5px 8px;
   border-radius: 99px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 .status-badge--success {
@@ -607,11 +671,11 @@ select:focus {
 .state-card h3 {
   margin: 0 0 5px;
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--font-lg);
 }
 .state-card p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .state-card button {
   margin-left: auto;
@@ -674,7 +738,7 @@ select:focus {
   display: inline-flex;
   margin-bottom: 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .back-link:hover {
   color: var(--accent);
@@ -689,11 +753,11 @@ select:focus {
   display: grid;
   gap: 7px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .detail-list strong {
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .tag-list {
   display: flex;
@@ -707,14 +771,14 @@ select:focus {
   border-radius: 6px;
   background: rgb(121 185 238 / 10%);
   color: var(--info);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .version-pill {
   padding: 6px 9px;
   border: 1px solid var(--line);
   border-radius: 99px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .stepper {
   display: grid;
@@ -727,7 +791,7 @@ select:focus {
   align-items: center;
   gap: 8px;
   color: #61798b;
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .step span {
   display: grid;
@@ -753,7 +817,7 @@ select:focus {
   display: grid;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 700;
 }
 .checkbox {
@@ -771,7 +835,7 @@ select:focus {
   border-radius: 10px;
   background: rgb(121 185 238 / 8%);
   color: var(--info);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .form-actions {
   display: flex;
@@ -793,7 +857,7 @@ select:focus {
 }
 .success-text {
   color: var(--success);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .task-board {
   display: grid;
@@ -820,7 +884,7 @@ select:focus {
 }
 .board-column-heading > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .task-card {
   display: grid;
@@ -838,7 +902,7 @@ select:focus {
   overflow: hidden;
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -881,16 +945,16 @@ select:focus {
   background: var(--danger);
 }
 .timeline-item strong {
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .timeline-item p {
   margin: 4px 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .timeline-item time {
   color: #61798b;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .login-page {
   display: grid;
@@ -912,11 +976,11 @@ select:focus {
   align-items: center;
   gap: 10px;
   margin-bottom: 54px;
-  font-size: 18px;
+  font-size: var(--font-lg);
 }
 .login-card h1 {
   margin: 0;
-  font-size: 38px;
+  font-size: var(--font-3xl);
 }
 .login-card > p:not(.eyebrow) {
   margin: 12px 0 28px;
@@ -927,7 +991,7 @@ select:focus {
   display: block;
   margin-top: 18px;
   color: #6f8798;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.6;
 }
 .loading-screen {
@@ -973,7 +1037,7 @@ select:focus {
   border-radius: 9px;
   background: rgb(141 224 207 / 10%);
   color: var(--success);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 .pagination {
   display: flex;
@@ -993,7 +1057,7 @@ select:focus {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 .rollout-form textarea {
   min-height: 76px;
@@ -1002,7 +1066,7 @@ select:focus {
 .error-text {
   margin: 12px 0 0;
   color: var(--danger);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 @media (max-width: 1000px) {
   .sidebar {
@@ -1024,7 +1088,7 @@ select:focus {
     justify-content: center;
   }
   .nav-item span {
-    font-size: 16px;
+    font-size: var(--font-lg);
   }
   .sidebar-footer {
     justify-content: center;
@@ -1147,7 +1211,7 @@ select:focus {
   stroke-width: 2;
 }
 .task-dag__label {
-  font-size: 12px;
+  font-size: var(--font-sm);
   fill: #334155;
 }
 @media (max-width: 1080px) {
