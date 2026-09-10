@@ -409,6 +409,53 @@ public final class FoundationPersistenceService {
         });
     }
 
+    private static final String ADJUST_TASK = "ADJUST_TASK";
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** 补充要求创建（G02 D5）：幂等键 + TaskAdjusted 事件在同一事务内落库。 */
+    public TaskAdjustmentRecord createTaskAdjustment(CreateTaskAdjustmentCommand command) {
+        Objects.requireNonNull(command, "command");
+        return inTransaction(tx -> {
+            var existing = tx.idempotencyKeys().findByKey(command.idempotencyKey());
+            if (existing.isPresent()) {
+                assertIdempotency(existing.get(), ADJUST_TASK, command.requestHash(), command.idempotencyKey());
+                return tx.taskAdjustments().findById(existing.get().resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent adjustment is missing"));
+            }
+            TaskRecord task = tx.tasks().findById(command.taskId())
+                    .orElseThrow(() -> new ResourceNotFoundException("task", command.taskId()));
+            IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), command.idempotencyKey(),
+                    ADJUST_TASK, command.requestHash(), "task", command.taskId(), idPayload(command.taskId()),
+                    command.createdAt(), command.createdAt(), 0);
+            if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(command.idempotencyKey())
+                        .orElseThrow(() -> new IllegalStateException("idempotency key disappeared"));
+                assertIdempotency(winner, ADJUST_TASK, command.requestHash(), command.idempotencyKey());
+                return tx.taskAdjustments().findById(winner.resourceId())
+                        .orElseThrow(() -> new IllegalStateException("idempotent adjustment is missing"));
+            }
+            TaskAdjustmentRecord record = new TaskAdjustmentRecord(command.adjustmentId(), command.taskId(),
+                    command.contentJson(), command.actor(), command.source(), null, command.createdAt(),
+                    command.createdAt(), 0);
+            tx.taskAdjustments().insert(record);
+            appendEvent(tx, "task", command.taskId(), "TaskAdjusted",
+                    adjustmentPayload(command), command.createdAt(), task.version());
+            return record;
+        });
+    }
+
+    private static String adjustmentPayload(CreateTaskAdjustmentCommand command) {
+        try {
+            return JSON_MAPPER.writeValueAsString(java.util.Map.of(
+                    "taskId", command.taskId().toString(),
+                    "adjustmentId", command.adjustmentId().toString(),
+                    "content", JSON_MAPPER.readTree(command.contentJson())));
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("adjustment content is not valid JSON", error);
+        }
+    }
+
     public TaskRecord transitionTask(UUID id, TaskPhase phase, long expectedVersion, Instant at,
             String idempotencyKey, String requestHash, String operation) {
         Objects.requireNonNull(id, "id");
