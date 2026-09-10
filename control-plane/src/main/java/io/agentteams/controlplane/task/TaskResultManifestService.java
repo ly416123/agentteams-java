@@ -15,9 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class TaskResultManifestService {
     private static final Set<String> TERMINAL_STATUSES = Set.of("SUCCEEDED", "FAILED", "CANCELLED");
     private final TaskResultManifestRepository repository;
+    private final TaskResultVersionService resultVersions;
 
-    public TaskResultManifestService(TaskResultManifestRepository repository) {
+    public TaskResultManifestService(TaskResultManifestRepository repository,
+            TaskResultVersionService resultVersions) {
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.resultVersions = Objects.requireNonNull(resultVersions, "resultVersions");
     }
 
     @Transactional
@@ -28,6 +31,8 @@ public class TaskResultManifestService {
             throw new IllegalArgumentException("result manifest status must be terminal");
         }
         repository.upsert(context, manifest);
+        // G02 D2：SUCCEEDED 交付物同事务联动提交业务结果版本（供结果评审）；同 run 重放幂等跳过。
+        resultVersions.onManifestPublished(context, manifest);
         return manifest;
     }
 

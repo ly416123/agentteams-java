@@ -19,7 +19,8 @@ class TaskResultManifestServiceTest {
     @Test
     void publishesFinalManifestAndFiltersArtifactsByVisibility() {
         InMemoryManifestRepository repository = new InMemoryManifestRepository();
-        TaskResultManifestService service = new TaskResultManifestService(repository);
+        TaskResultManifestService service = new TaskResultManifestService(repository,
+                org.mockito.Mockito.mock(TaskResultVersionService.class));
         TaskResultManifest manifest = new TaskResultManifest(TASK_ID, RUN_ID, "SUCCEEDED", "done", List.of(
                 artifact("final.txt", "FINAL", TaskEventVisibility.REQUESTER),
                 artifact("debug.json", "INTERMEDIATE", TaskEventVisibility.INTERNAL_ONLY)));
@@ -31,7 +32,8 @@ class TaskResultManifestServiceTest {
 
     @Test
     void rejectsNonTerminalStatusAndCrossTenantRead() {
-        TaskResultManifestService service = new TaskResultManifestService(new InMemoryManifestRepository());
+        TaskResultManifestService service = new TaskResultManifestService(new InMemoryManifestRepository(),
+                org.mockito.Mockito.mock(TaskResultVersionService.class));
         TaskResultManifest running = new TaskResultManifest(TASK_ID, RUN_ID, "RUNNING", "not final", List.of());
         ExecutionContext other = new ExecutionContext("org-2", "tenant-2", "project-2", "team-2", "user-2");
 

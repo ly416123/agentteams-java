@@ -68,6 +68,16 @@ public final class JdbcTaskResultVersionRepository {
                 """, this::map, manifestId).stream().findFirst();
     }
 
+    /** D2 幂等锚点：同一 run 只提交一个业务结果版本。 */
+    public Optional<TaskResultVersionRecord> findByRun(UUID runId) {
+        return jdbc.query("""
+                SELECT id, task_id, run_id, manifest_id, subtask_id, seq, status, summary, content::text,
+                       submitted_by, submitted_at, review_actor, review_comment, reviewed_at,
+                       created_at, updated_at, version
+                  FROM task_result_versions WHERE run_id = ?
+                """, this::map, runId).stream().findFirst();
+    }
+
     public Optional<Integer> latestSeq(UUID taskId) {
         return jdbc.query("SELECT max(seq) AS latest FROM task_result_versions WHERE task_id = ?",
                 (rs, row) -> {

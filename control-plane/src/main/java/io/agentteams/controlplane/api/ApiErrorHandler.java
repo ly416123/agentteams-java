@@ -11,6 +11,7 @@ import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.quota.QuotaExceededException;
 import io.agentteams.controlplane.dashboard.DashboardAlertRuleConflictException;
 import io.agentteams.controlplane.artifact.ArtifactRetentionPolicyConflictException;
+import io.agentteams.controlplane.task.TaskReviewConflictException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import org.springframework.dao.DataAccessException;
@@ -59,6 +60,11 @@ public final class ApiErrorHandler {
     @ExceptionHandler({OptimisticLockFailure.class, StaleTaskVersionException.class})
     ResponseEntity<ApiError> optimisticConflict(Exception ignored) {
         return error(HttpStatus.CONFLICT, "CONFLICT", "resource version does not match");
+    }
+
+    @ExceptionHandler(TaskReviewConflictException.class)
+    ResponseEntity<ApiError> taskReviewConflict(TaskReviewConflictException error) {
+        return error(HttpStatus.CONFLICT, error.code(), "result review conflicts with current state");
     }
 
     @ExceptionHandler(WorkerLifecycleConflictException.class)
