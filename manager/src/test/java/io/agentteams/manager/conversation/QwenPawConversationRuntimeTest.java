@@ -106,6 +106,31 @@ class QwenPawConversationRuntimeTest {
     }
 
     @Test
+    void prefixesEveryMessageWithPlatformContextContainingSessionId() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"id\":\"response-1\",\"status\":\"completed\","
+                            + "\"object\":\"response\",\"output\":[{\"type\":\"message\","
+                            + "\"role\":\"assistant\",\"content\":[{\"text\":\"done\"}]}]}\n\n");
+        });
+        server.start();
+
+        QwenPawConversationRuntime runtime = runtime("secret", 8192);
+        runtime.start(CONTEXT);
+        runtime.send(new ConversationRuntimePort.Message(SESSION_ID, "message-1", "hello"));
+
+        awaitEvents(runtime, 2);
+        JsonNode request = MAPPER.readTree(requestBody.get());
+        String text = request.path("input").get(0).path("content").get(0).path("text").asText();
+        assertThat(text).startsWith("[平台上下文]");
+        assertThat(text).contains("sessionId=" + SESSION_ID);
+        assertThat(text).contains("upload_file");
+        assertThat(text).endsWith("hello");
+        runtime.close();
+    }
+
+    @Test
     void sendsOfficialRequestAndPublishesDeltaAndCompletedEvents() throws Exception {
         server.createContext("/api/console/chat", exchange -> {
                     captureRequest(exchange);
@@ -140,7 +165,7 @@ class QwenPawConversationRuntimeTest {
         JsonNode request = MAPPER.readTree(requestBody.get());
         assertThat(request.path("session_id").asText()).isEqualTo(SESSION_ID.toString());
         assertThat(request.path("input").get(0).path("content").get(0).path("text").asText())
-                .isEqualTo("private prompt");
+                .endsWith("private prompt");
         assertThat(request.path("project").asText()).isEqualTo("project-a");
         runtime.close();
     }

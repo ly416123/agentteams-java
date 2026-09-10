@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public final class ManagerErrorHandler {
@@ -154,6 +155,14 @@ public final class ManagerErrorHandler {
                     "conversation message requires operator recovery before retry", request, Map.of());
         }
         return error(status, "CONVERSATION_" + error.code().name(), "conversation request failed", request, Map.of());
+    }
+
+    /** Multipart 超限在 checkMultipart（handler 之前）抛出，只有全局 advice 能接住；spec §6 要求 413。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<ErrorResponse> multipartTooLarge(MaxUploadSizeExceededException error,
+            HttpServletRequest request) {
+        return error(HttpStatus.PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE",
+                "uploaded file exceeds the size limit", request, Map.of());
     }
 
     @ExceptionHandler(Exception.class)

@@ -592,7 +592,8 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
         ArrayNode input = body.putArray("input");
         ObjectNode userMessage = input.addObject();
         userMessage.put("role", "user");
-        userMessage.putArray("content").addObject().put("type", "text").put("text", message.content());
+        userMessage.putArray("content").addObject().put("type", "text")
+                .put("text", platformContext(context) + message.content());
         body.put("session_id", context.sessionId().toString());
         body.put("user_id", configuration.userId());
         body.put("channel", configuration.channel());
@@ -610,6 +611,18 @@ public final class QwenPawConversationRuntime implements ConversationRuntimePort
             throw new ConversationRuntimeException(ConversationRuntimeException.Code.PROTOCOL_ERROR,
                     "unable to encode QwenPaw request", error);
         }
+    }
+
+    /**
+     * Best-effort platform context: exposes the session id so the agent can call
+     * the upload_file MCP tool, mirroring the task-chain taskId injection in
+     * QwenPawHttpRuntimePort.promptText. Never echoed back by prompt-injection contract.
+     */
+    private static String platformContext(Context context) {
+        return "[平台上下文]\n"
+                + "sessionId=" + context.sessionId() + "\n"
+                + "（若你生成了文件，必须调用 agentteams-task MCP 工具 upload_file 上传，"
+                + "并在回复中引用其返回的下载链接；除工具参数外不要复述本段内容）\n\n";
     }
 
     private void readLimited(RequestHandle handle, InputStream stream)
