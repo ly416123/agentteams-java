@@ -156,7 +156,10 @@ public final class TaskTransitionService {
                     || (to == TaskPhase.CANCELLED && cancellationPolicy.allows(from));
             case ACCEPTED -> to == TaskPhase.RUNNING;
             case RUNNING -> to == TaskPhase.SUCCEEDED || to == TaskPhase.FAILED;
-            case SUCCEEDED, CANCELLED, REJECTED -> false;
+            // G02 D4：结果评审打回后的重新交付走显式 retry，允许 SUCCEEDED → QUEUED；
+            // CANCELLED/REJECTED 仍为真终态，不可重排队。
+            case SUCCEEDED -> to == TaskPhase.QUEUED;
+            case CANCELLED, REJECTED -> false;
             case FAILED -> to == TaskPhase.QUEUED;
         };
     }

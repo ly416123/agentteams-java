@@ -1,6 +1,7 @@
 package io.agentteams.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -301,6 +302,30 @@ class TaskTransitionServiceTest {
                 TaskPhase.SUCCEEDED, running.attempt().id(), running.attempt().leaseId(), at(8), null,
                 "agent-1", "agent", FailureInfo.redacted("NOT_USED", "should not be stored"));
         assertThrows(IllegalArgumentException.class, () -> service.transition(running, accidentalFailure));
+    }
+
+    @Test
+    void allowsRetryingASucceededTaskAfterReviewRejection() {
+        // G02 D4：结果评审打回后的重新交付 = SUCCEEDED → QUEUED（唯一新增转移边）
+        Task task = runningTask();
+        Task succeeded = apply(task, execution(task, TaskPhase.SUCCEEDED, at(5)));
+
+        Task requeued = apply(succeeded, TaskTransitionCommand.simple(UUID.randomUUID(),
+                succeeded.version(), TaskPhase.QUEUED, at(6), "reviewer-1", "rest"));
+
+        assertEquals(TaskPhase.QUEUED, requeued.phase());
+        assertNull(requeued.attempt());
+    }
+
+    @Test
+    void stillRejectsRetryingCancelledOrRejectedTasks() {
+        // 真终态不变：CANCELLED/REJECTED 不可重排队
+        Task task = queuedTask();
+        Task cancelled = apply(task, TaskTransitionCommand.simple(UUID.randomUUID(), task.version(),
+                TaskPhase.CANCELLED, at(2), "user-1", "rest"));
+        assertThrows(IllegalTaskTransitionException.class, () -> service.transition(cancelled,
+                TaskTransitionCommand.simple(UUID.randomUUID(), cancelled.version(), TaskPhase.QUEUED,
+                        at(3), "user-1", "rest")));
     }
 
     @Test
