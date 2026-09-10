@@ -143,7 +143,8 @@ public final class TaskTransitionService {
         }
     }
 
-    private boolean legal(TaskPhase from, TaskPhase to) {
+    /** 转移合法性判定；G02 cancel(reason) 需在 Service 层预检，故对外可见。 */
+    public boolean legal(TaskPhase from, TaskPhase to) {
         return switch (from) {
             case DRAFT -> to == TaskPhase.QUEUED || to == TaskPhase.PAUSED || to == TaskPhase.REJECTED
                     || to == TaskPhase.CANCELLED;

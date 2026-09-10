@@ -134,6 +134,25 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/stats:
+    parameters: *signedHeaders
+    get:
+      operationId: getTaskStats
+      tags: [Tasks]
+      parameters:
+        - name: archiveStatus
+          in: query
+          schema: { type: string, enum: [ACTIVE, ARCHIVED, ALL], default: ACTIVE }
+      responses:
+        '200':
+          description: 当前 scope 内按 phase 聚合的任务数量
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskStatsResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}:
     parameters: *signedHeaders
     get:
@@ -151,6 +170,48 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    patch:
+      operationId: updateTask
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchTaskRequest' }
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    delete:
+      operationId: deleteTask
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: actor
+          in: query
+          schema: { type: string }
+      responses:
+        '204':
+          description: Deleted task
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/cancel:
@@ -176,6 +237,56 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/archive:
+    parameters: *signedHeaders
+    post:
+      operationId: archiveTask
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleRequest' }
+      responses:
+        '200':
+          description: Archived task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/unarchive:
+    parameters: *signedHeaders
+    post:
+      operationId: unarchiveTask
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleRequest' }
+      responses:
+        '200':
+          description: Unarchived task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/subtasks:
@@ -337,6 +448,124 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/adjustments:
+    parameters: *signedHeaders
+    post:
+      operationId: createTaskAdjustment
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskAdjustmentRequest' }
+      responses:
+        '201':
+          description: Created adjustment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdjustmentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    get:
+      operationId: listTaskAdjustments
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Adjustment history (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AdjustmentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/results:
+    parameters: *signedHeaders
+    get:
+      operationId: listTaskResults
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Result versions (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TaskResultVersionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/results/{resultId}:
+    parameters: *signedHeaders
+    get:
+      operationId: getTaskResultVersion
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: resultId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Result version detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskResultVersionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/results/{resultId}/review:
+    parameters: *signedHeaders
+    post:
+      operationId: reviewTaskResult
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: resultId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewTaskResultRequest' }
+      responses:
+        '200':
+          description: Reviewed result version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskResultVersionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Result is not in SUBMITTED state (e.g. RESULT_NOT_SUBMITTED)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/scheduled-tasks:
     parameters: *signedHeaders
@@ -721,6 +950,15 @@ components:
           properties:
             conversationId: { type: string }
             messageId: { type: [string, 'null'] }
+        archiveStatus:
+          type: string
+          enum: [ACTIVE, ARCHIVED]
+          description: 归档状态（G02 D6）；独立于 phase，仅终态任务可归档。
+        latestResultSeq:
+          type: [integer, 'null']
+          nullable: true
+          minimum: 1
+          description: 最新业务结果版本号（getTask 返回）；尚无结果版本时为空。
     CreateScheduledTaskRequest:
       type: object
       required: [name, organizationId, tenantId, projectId, cronExpression, timeZone, title]
@@ -812,6 +1050,90 @@ components:
         expectedVersion: { type: integer, format: int64, minimum: 0 }
         actor: { type: string }
         source: { type: string }
+        reason:
+          type: string
+          maxLength: 2000
+          description: 取消原因（仅 cancelTask 使用）；写入 spec 顶层 cancelReason。
+    PatchTaskRequest:
+      type: object
+      additionalProperties: false
+      description: 白名单字段更新；spec 为顶层键浅合并，null 值表示删除该顶层键。
+      properties:
+        title: { type: string, minLength: 1, maxLength: 500 }
+        description: { type: string }
+        priority: { type: integer }
+        spec: { type: object, additionalProperties: true }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        actor: { type: string }
+    TaskStatsResponse:
+      type: object
+      additionalProperties:
+        type: integer
+        format: int64
+        minimum: 0
+      description: phase 名称到任务数量的映射（scope 内，按 archiveStatus 过滤）。
+    CreateTaskAdjustmentRequest:
+      type: object
+      required: [content]
+      additionalProperties: false
+      properties:
+        content:
+          type: object
+          required: [requirement]
+          additionalProperties: true
+          properties:
+            requirement: { type: string, minLength: 1, maxLength: 20000 }
+        actor: { type: string }
+        source: { type: string }
+    AdjustmentResponse:
+      type: object
+      required: [id, taskId, content, actor, source, createdAt, updatedAt, version]
+      properties:
+        id: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+        content: { type: object, additionalProperties: true }
+        actor: { type: string }
+        source: { type: string }
+        consumedRunId:
+          type: [string, 'null']
+          format: uuid
+          nullable: true
+          description: 消费该调整的 run；best-effort 推送未发生前为空。
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        version: { type: integer, format: int64, minimum: 0 }
+    TaskResultVersionResponse:
+      type: object
+      required: [id, taskId, seq, status, submittedAt, version]
+      properties:
+        id: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+        runId: { type: [string, 'null'], format: uuid, nullable: true }
+        manifestId: { type: [string, 'null'], format: uuid, nullable: true }
+        subtaskId: { type: [string, 'null'], format: uuid, nullable: true }
+        seq: { type: integer, minimum: 1 }
+        status: { type: string, enum: [SUBMITTED, ACCEPTED, REVISION_REQUIRED] }
+        summary: { type: string }
+        content:
+          type: [object, 'null']
+          nullable: true
+          additionalProperties: true
+        submittedBy: { type: string }
+        submittedAt: { type: string, format: date-time }
+        reviewActor: { type: [string, 'null'], nullable: true }
+        reviewComment: { type: [string, 'null'], nullable: true }
+        reviewedAt: { type: [string, 'null'], format: date-time, nullable: true }
+        version: { type: integer, format: int64, minimum: 0 }
+    ReviewTaskResultRequest:
+      type: object
+      additionalProperties: false
+      description: status/decision 二选一（兼容上游 corp-agent 的 status 小写枚举）；REVISION_REQUIRED 时 comment 必填。
+      properties:
+        status: { type: string, enum: [accepted, revision_required] }
+        decision: { type: string, enum: [ACCEPTED, REVISION_REQUIRED] }
+        comment: { type: string, maxLength: 2000 }
+        actor: { type: string }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
     TaskProgressSnapshot:
       type: object
       required: [phase, completed, total, progress, waitingReason]

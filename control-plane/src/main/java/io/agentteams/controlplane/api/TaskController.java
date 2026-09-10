@@ -56,7 +56,7 @@ public final class TaskController {
     public TaskResponse get(@PathVariable UUID id) {
         TaskRecord task = service.get(id);
         PrincipalContext.requireScope(task.specJson());
-        return TaskResponse.from(task);
+        return TaskResponse.from(task, service.latestResultSeq(id));
     }
 
     @GetMapping
@@ -83,11 +83,11 @@ public final class TaskController {
             @RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
             @RequestBody(required = false) CancelTaskRequest request) {
         requireIdempotencyKey(idempotencyKey);
-        CancelTaskRequest input = request == null ? new CancelTaskRequest(null, null, null) : request;
+        CancelTaskRequest input = request == null ? new CancelTaskRequest(null, null, null, null) : request;
         requireExistingTaskScope(id);
         long expectedVersion = input.expectedVersion() == null ? 0 : input.expectedVersion();
         TaskRecord task = service.cancel(id, expectedVersion, idempotencyKey,
-                PrincipalContext.actorOr(input.actor()), input.source());
+                PrincipalContext.actorOr(input.actor()), input.source(), input.reason());
         return TaskResponse.from(task);
     }
 
@@ -230,7 +230,7 @@ public final class TaskController {
         }
     }
 
-    public record CancelTaskRequest(Long expectedVersion, String actor, String source) {
+    public record CancelTaskRequest(Long expectedVersion, String actor, String source, String reason) {
     }
 
     public record QueueTaskRequest(Long expectedVersion) {
@@ -251,16 +251,20 @@ public final class TaskController {
 
     public record TaskResponse(UUID id, String title, String description, String phase,
             int priority, String taskType, Instant createdAt, Instant updatedAt, long version,
-            SourceRef source) {
+            SourceRef source, String archiveStatus, Integer latestResultSeq) {
 
         /** 来源会话回链；仅暴露标识符，不暴露会话内容。 */
         public record SourceRef(String conversationId, String messageId) {
         }
 
         static TaskResponse from(TaskRecord task) {
+            return from(task, null);
+        }
+
+        static TaskResponse from(TaskRecord task, Integer latestResultSeq) {
             return new TaskResponse(task.id(), task.title(), task.description(), task.phase().name(),
                     task.priority(), task.taskType(), task.createdAt(), task.updatedAt(), task.version(),
-                    sourceOf(task));
+                    sourceOf(task), task.archiveStatusOrActive(), latestResultSeq);
         }
 
         private static SourceRef sourceOf(TaskRecord task) {
@@ -280,11 +284,13 @@ public final class TaskController {
 
     public record TaskListResponse(UUID id, String title, String phase, int priority, String taskType,
             String tenantId, String projectId, String team, String actor, String source,
-            UUID teamId, UUID workerId, Instant createdAt, Instant updatedAt, long version) {
+            UUID teamId, UUID workerId, Instant createdAt, Instant updatedAt, long version,
+            String archiveStatus) {
         static TaskListResponse from(TaskListRecord task) {
             return new TaskListResponse(task.id(), task.title(), task.phase().name(), task.priority(), task.taskType(),
                     task.tenantId(), task.projectId(), task.team(), task.actor(), task.source(), task.teamId(),
-                    task.workerId(), task.createdAt(), task.updatedAt(), task.version());
+                    task.workerId(), task.createdAt(), task.updatedAt(), task.version(),
+                    task.archiveStatus() == null ? "ACTIVE" : task.archiveStatus());
         }
     }
 

@@ -148,6 +148,12 @@ public final class TaskService {
         return persistence.inTransaction(tx -> tx.tasks().countByPhase(principal, normalized));
     }
 
+    /** D1：任务最新结果版本号；尚无结果版本时为空。 */
+    public Integer latestResultSeq(UUID id) {
+        get(id);
+        return persistence.inTransaction(tx -> tx.taskResultVersions().latestSeq(id)).orElse(null);
+    }
+
     public List<DomainEventRecord> events(UUID id, long after) {
         if (after < 0) throw new IllegalArgumentException("after cursor must not be negative");
         TaskRecord task = get(id);
@@ -194,9 +200,34 @@ public final class TaskService {
 
     public TaskRecord cancel(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source) {
+        return cancel(id, expectedVersion, idempotencyKey, actor, source, null);
+    }
+
+    /** 取消（G02）：可选 reason 写入 spec 顶层 cancelReason，随任务透出取消原因。 */
+    public TaskRecord cancel(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source, String reason) {
         authorizeTask(id, ResourceAction.TASK_OPERATE);
-        return transition(id, TaskPhase.CANCELLED, expectedVersion, idempotencyKey,
-                defaultText(actor, "api"), defaultText(source, "rest"), CANCEL_TASK);
+        String normalizedReason = reason == null || reason.isBlank() ? null : reason.trim();
+        if (normalizedReason == null) {
+            return transition(id, TaskPhase.CANCELLED, expectedVersion, idempotencyKey,
+                    defaultText(actor, "api"), defaultText(source, "rest"), CANCEL_TASK);
+        }
+        TaskRecord current = get(id);
+        if (!transitions.legal(current.phase(), TaskPhase.CANCELLED)) {
+            throw new IllegalTaskTransitionException(current.phase(), TaskPhase.CANCELLED);
+        }
+        String specJson;
+        try {
+            specJson = JSON.writeValueAsString(cancelReasonSpec(current.specJson(), normalizedReason));
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task cancel spec could not be encoded", error);
+        }
+        String key = idempotency.requireKey(idempotencyKey);
+        String requestHash = idempotency.requestHash(id.toString(), TaskPhase.CANCELLED.name(),
+                Long.toString(expectedVersion), defaultText(actor, "api"), defaultText(source, "rest"),
+                normalizedReason);
+        return persistence.transitionTaskWithSpec(id, TaskPhase.CANCELLED, specJson, expectedVersion,
+                clock.instant(), key, requestHash, CANCEL_TASK, null);
     }
 
     /** Schedule controller has already checked the schedule scope and run identity. */
@@ -483,6 +514,20 @@ public final class TaskService {
             }
             ObjectNode object = (ObjectNode) root;
             object.put("approvalGranted", granted);
+            return object;
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task spec is invalid JSON", error);
+        }
+    }
+
+    private static ObjectNode cancelReasonSpec(String specJson, String reason) {
+        try {
+            JsonNode root = JSON.readTree(specJson == null ? "{}" : specJson);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("task spec must be a JSON object");
+            }
+            ObjectNode object = (ObjectNode) root;
+            object.put("cancelReason", reason);
             return object;
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("task spec is invalid JSON", error);

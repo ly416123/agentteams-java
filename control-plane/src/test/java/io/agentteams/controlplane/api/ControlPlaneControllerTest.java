@@ -337,7 +337,7 @@ class ControlPlaneControllerTest {
     @Test
     void reportsIllegalCancellationWithAStableErrorCode() throws Exception {
         UUID id = UUID.randomUUID();
-        when(tasks.cancel(eq(id), eq(0L), eq("cancel-key"), any(), any()))
+        when(tasks.cancel(eq(id), eq(0L), eq("cancel-key"), any(), any(), any()))
                 .thenThrow(new IllegalTaskTransitionException(TaskPhase.DRAFT, TaskPhase.CANCELLED));
 
         mockMvc.perform(post("/api/v1/tasks/{id}/cancel", id)
@@ -400,7 +400,7 @@ class ControlPlaneControllerTest {
     @Test
     void reportsOptimisticConflictWithoutInternalDetails() throws Exception {
         UUID id = UUID.randomUUID();
-        when(tasks.cancel(eq(id), eq(0L), eq("cancel-key"), any(), any()))
+        when(tasks.cancel(eq(id), eq(0L), eq("cancel-key"), any(), any(), any()))
                 .thenThrow(new OptimisticLockFailure("task", id, 0, 1));
 
         mockMvc.perform(post("/api/v1/tasks/{id}/cancel", id)

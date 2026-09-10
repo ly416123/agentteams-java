@@ -3,6 +3,9 @@ package io.agentteams.controlplane.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +16,7 @@ import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.domain.task.IllegalTaskTransitionException;
 import io.agentteams.domain.task.TaskPhase;
 import io.agentteams.domain.task.TaskTransitionService;
 import java.time.Clock;
@@ -142,6 +146,42 @@ class TaskServiceLifecycleExtensionsTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ACTIVE, ARCHIVED or ALL");
         verify(persistence, never()).inTransaction(any());
+    }
+
+    @Test
+    void cancelWithReasonWritesSpecAndSkipsPlainTransition() {
+        UUID taskId = UUID.randomUUID();
+        when(persistence.findTask(taskId)).thenReturn(java.util.Optional.of(task(taskId, TaskPhase.QUEUED)));
+
+        service.cancel(taskId, 0, "cancel-key", "alice", "rest", " 需求变更 ");
+
+        verify(persistence).transitionTaskWithSpec(eq(taskId), eq(TaskPhase.CANCELLED),
+                contains("cancelReason"), eq(0L), any(), eq("cancel-key"), any(), eq("CANCEL_TASK"), isNull());
+        verify(persistence, never()).transitionTask(any(), any(), any(Long.class), any(), any(), any(), any());
+    }
+
+    @Test
+    void cancelWithReasonRejectsIllegalPhase() {
+        UUID taskId = UUID.randomUUID();
+        when(persistence.findTask(taskId)).thenReturn(java.util.Optional.of(task(taskId, TaskPhase.PAUSED)));
+
+        assertThatThrownBy(() -> service.cancel(taskId, 0, "cancel-key", "alice", "rest", "需求变更"))
+                .isInstanceOf(IllegalTaskTransitionException.class);
+        verify(persistence, never()).transitionTaskWithSpec(any(), any(), any(), any(Long.class), any(),
+                any(), any(), any(), any());
+    }
+
+    @Test
+    void cancelWithoutReasonKeepsPlainTransition() {
+        UUID taskId = UUID.randomUUID();
+        when(persistence.findTask(taskId)).thenReturn(java.util.Optional.of(task(taskId, TaskPhase.QUEUED)));
+
+        service.cancel(taskId, 0, "cancel-key", "alice", "rest", "   ");
+
+        verify(persistence).transitionTask(eq(taskId), eq(TaskPhase.CANCELLED), any(Long.class), any(),
+                any(), any(), any());
+        verify(persistence, never()).transitionTaskWithSpec(any(), any(), any(), any(Long.class), any(),
+                any(), any(), any(), any());
     }
 
     // 事务内逻辑（归档幂等重放、乐观锁、TaskDeleted 事件先于行删除、hasTaskRun 检查）
