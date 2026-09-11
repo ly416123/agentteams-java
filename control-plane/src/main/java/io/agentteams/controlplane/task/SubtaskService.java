@@ -22,7 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 子任务投影与协作语义事件：声明式拆解同步 + 状态推进，双写任务树（task_subtasks）
  * 与过程事件（task_process_events，subtask.* 类型，经 {@code nextSequence} 与 runtime
- * 事件同表同序）。公理一：本服务是 best-effort 观测投影，绝不改变主任务终态；
+ * 事件同表同序）。公理一：本服务只写观测投影与事件，真实任务行（G03 一等实体）的
+ * 创建/终态由 {@link SubtaskDelegationService} 与平台执行链路驱动；
  * 公理二：状态枚举与数量上限在此二次校验，不信任调用方。
  */
 @Service
@@ -37,30 +38,40 @@ public class SubtaskService {
             "CANCELLED", "subtask.cancelled");
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    private final SubtaskDelegationService delegation;
     private final TaskTreeRepository tree;
     private final TaskRunObservationRepository runs;
     private final TaskProcessEventService processEvents;
     private final Clock clock;
 
-    public SubtaskService(TaskTreeRepository tree, TaskRunObservationRepository runs,
-            TaskProcessEventService processEvents, Clock clock) {
+    public SubtaskService(SubtaskDelegationService delegation, TaskTreeRepository tree,
+            TaskRunObservationRepository runs, TaskProcessEventService processEvents, Clock clock) {
+        this.delegation = Objects.requireNonNull(delegation, "delegation");
         this.tree = Objects.requireNonNull(tree, "tree");
         this.runs = Objects.requireNonNull(runs, "runs");
         this.processEvents = Objects.requireNonNull(processEvents, "processEvents");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
-    public record SubtaskSpec(UUID subtaskId, String title, int sequence, List<UUID> dependencyIds) {
+    public record SubtaskSpec(UUID subtaskId, String title, int sequence, List<UUID> dependencyIds,
+            List<String> requiredCapabilities) {
         public SubtaskSpec {
             Objects.requireNonNull(subtaskId, "subtaskId");
             if (title == null || title.isBlank()) throw new IllegalArgumentException("title must not be blank");
             Objects.requireNonNull(dependencyIds, "dependencyIds");
+            requiredCapabilities = requiredCapabilities == null ? List.of() : List.copyOf(requiredCapabilities);
+        }
+
+        /** 二期 4 参兼容：无能力要求。 */
+        public SubtaskSpec(UUID subtaskId, String title, int sequence, List<UUID> dependencyIds) {
+            this(subtaskId, title, sequence, dependencyIds, List.of());
         }
     }
 
     /**
-     * 全量声明式同步：清单内的新子任务以 PENDING 插入并逐条发 subtask.planned；
-     * 清单内已存在的子任务保留现状（不重置状态、不重发事件）；清单外历史行被删除。
+     * 全量声明式同步：真实任务行的创建/取消/保留由 {@link SubtaskDelegationService#plan}
+     * 完成（规格 §4.1 表）；本方法随后收敛投影——清单内 upsert 并对新增发 subtask.planned，
+     * 清单外行（含被平台置 CANCELLED 的）保留投影不删，仅清理无真实任务行的孤儿投影。
      * 事务内执行：nextSequence 的 FOR UPDATE 锁持有到提交，与并发的 runtime 事件
      * 写入串行化，避免 UNIQUE(run_id, sequence) 冲突静默丢事件。
      */
@@ -72,30 +83,17 @@ public class SubtaskService {
         }
         ExecutionContext context = requireTaskContext(taskId);
         UUID runId = requireLatestRun(taskId);
-        List<UUID> requestedIds = specs.stream().map(SubtaskSpec::subtaskId).toList();
-        if (requestedIds.stream().distinct().count() != specs.size()) {
-            throw new IllegalArgumentException("subtask ids must be unique within one plan");
-        }
-        if (requestedIds.contains(taskId)) {
-            throw new IllegalArgumentException("subtask id must differ from the main task id");
-        }
-        Set<UUID> requestedSet = new HashSet<>(requestedIds);
-        for (SubtaskSpec spec : specs) {
-            if (!requestedSet.containsAll(spec.dependencyIds())) {
-                throw new IllegalArgumentException(
-                        "dependencyIds must reference subtasks within the same plan");
-            }
-        }
-        Instant at = clock.instant();
-        tree.deleteOthers(context, runId, requestedIds);
+        SubtaskDelegationService.PlanOutcome outcome = delegation.plan(taskId, specs);
+        tree.deleteOthers(context, runId, outcome.projectionKeepIds());
         Map<UUID, TaskTreeNode> existingById = tree.find(context, runId).stream()
                 .collect(Collectors.toMap(TaskTreeNode::taskId, Function.identity()));
         List<TaskTreeNode> result = new ArrayList<>(specs.size());
-        for (SubtaskSpec spec : specs) {
+        for (int index = 0; index < specs.size(); index++) {
+            SubtaskSpec spec = specs.get(index);
             TaskTreeNode existing = existingById.get(spec.subtaskId());
             TaskTreeNode node = existing != null ? existing
                     : new TaskTreeNode(spec.subtaskId(), taskId, spec.sequence(), "PENDING",
-                            List.copyOf(spec.dependencyIds()), at);
+                            List.copyOf(spec.dependencyIds()), clock.instant());
             tree.upsert(context, runId, node);
             if (existing == null) {
                 ObjectNode payload = JSON.createObjectNode()

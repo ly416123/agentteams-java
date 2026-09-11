@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import io.agentteams.application.api.TaskEventVisibility;
 import io.agentteams.application.api.TaskProcessEvent;
 import io.agentteams.controlplane.security.ExecutionContext;
+import io.agentteams.domain.task.TaskPhase;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -31,6 +32,7 @@ class SubtaskServiceTest {
     private final RecordingEventRepository events = new RecordingEventRepository();
     private final UUID taskId = UUID.randomUUID();
     private final UUID runId = UUID.randomUUID();
+    private SubtaskDelegationService delegation;
     private SubtaskService service;
 
     @BeforeEach
@@ -39,7 +41,21 @@ class SubtaskServiceTest {
         when(runs.latestRunId(taskId)).thenReturn(Optional.of(runId));
         when(runs.nextSequence(runId)).thenReturn(7L, 8L, 9L, 10L, 11L);
         when(tree.find(CONTEXT, runId)).thenReturn(List.of());
-        service = new SubtaskService(tree, runs,
+        // G03：真实任务行的创建/取消由 SubtaskDelegationService 负责；
+        // 本测试聚焦投影层，用真实语义的 stub 模拟 plan 结果（keep = 清单内）。
+        delegation = mock(SubtaskDelegationService.class);
+        when(delegation.plan(any(UUID.class), any(List.class))).thenAnswer(invocation -> {
+            List<SubtaskService.SubtaskSpec> specs = invocation.getArgument(1);
+            List<SubtaskDelegationService.PlannedSubtask> planned = new ArrayList<>(specs.size());
+            List<UUID> keep = new ArrayList<>(specs.size());
+            for (SubtaskService.SubtaskSpec spec : specs) {
+                planned.add(new SubtaskDelegationService.PlannedSubtask(spec.subtaskId(), spec.title(),
+                        spec.sequence(), spec.dependencyIds(), spec.requiredCapabilities(), TaskPhase.DRAFT));
+                keep.add(spec.subtaskId());
+            }
+            return new SubtaskDelegationService.PlanOutcome(planned, keep);
+        });
+        service = new SubtaskService(delegation, tree, runs,
                 new TaskProcessEventService(events), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -161,15 +177,18 @@ class SubtaskServiceTest {
     }
 
     @Test
-    void rejectsSelfReferenceAndDuplicateSubtaskIds() {
-        UUID subtaskId = UUID.randomUUID();
-        assertThatThrownBy(() -> service.plan(taskId, List.of(
-                new SubtaskService.SubtaskSpec(taskId, "自引用", 1, List.of()))))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("differ from the main task");
+    void updateStatusRejectsSelfReference() {
         assertThatThrownBy(() -> service.updateStatus(taskId, taskId, "RUNNING", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("differ from the main task");
+    }
+
+    @Test
+    void rejectsSelfReferenceAndDuplicateSubtaskIds() {
+        UUID subtaskId = UUID.randomUUID();
+        // G03 起校验下沉至 SubtaskDelegationService（见其同名测试）；此处验证传播。
+        when(delegation.plan(any(UUID.class), any(List.class))).thenThrow(
+                new IllegalArgumentException("subtask ids must be unique within one plan"));
         assertThatThrownBy(() -> service.plan(taskId, List.of(
                 new SubtaskService.SubtaskSpec(subtaskId, "重复", 1, List.of()),
                 new SubtaskService.SubtaskSpec(subtaskId, "重复", 2, List.of()))))
@@ -180,10 +199,11 @@ class SubtaskServiceTest {
 
     @Test
     void planRejectsDependencyOutsideThePlan() {
-        // 设计文档：dependencyIds 必须引用同一清单内存在的子任务 id，悬空引用不应持久化。
-        UUID outsider = UUID.randomUUID();
+        // G03 起校验下沉至 SubtaskDelegationService（见其同名测试）；此处验证传播与不写事件。
+        when(delegation.plan(any(UUID.class), any(List.class))).thenThrow(
+                new IllegalArgumentException("dependencyIds must reference subtasks within the same plan"));
         assertThatThrownBy(() -> service.plan(taskId, List.of(
-                new SubtaskService.SubtaskSpec(UUID.randomUUID(), "抓取邮件", 1, List.of(outsider)))))
+                new SubtaskService.SubtaskSpec(UUID.randomUUID(), "抓取邮件", 1, List.of()))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("within the same plan");
         assertThat(events.all).isEmpty();
