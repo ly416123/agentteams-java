@@ -280,11 +280,15 @@ public final class TaskRepository {
         return count == null ? 0 : count;
     }
 
-    /** G03 gate：存在 DRAFT 子任务的 parent（调度器 tick 扫描入口）。 */
+    /** G03 gate：存在 DRAFT 子任务且 parent 未进入不可恢复终态的扫描入口。
+     * 排除 CANCELLED/REJECTED parent——级联取消未达的残留 DRAFT 子任务不再放行
+     * （否则凭空消耗 worker 配额且产物无汇总去处）；FAILED parent 保留（可 retry）。 */
     public List<UUID> findParentIdsWithDraftChildren(int limit) {
         return jdbc.queryForList("""
-                SELECT DISTINCT parent_task_id FROM tasks
-                 WHERE parent_task_id IS NOT NULL AND kind = 'SUBTASK' AND phase = 'DRAFT'
+                SELECT DISTINCT c.parent_task_id FROM tasks c
+                 JOIN tasks p ON p.id = c.parent_task_id
+                 WHERE c.parent_task_id IS NOT NULL AND c.kind = 'SUBTASK' AND c.phase = 'DRAFT'
+                   AND p.phase NOT IN ('CANCELLED', 'REJECTED')
                  LIMIT ?
                 """, UUID.class, limit);
     }

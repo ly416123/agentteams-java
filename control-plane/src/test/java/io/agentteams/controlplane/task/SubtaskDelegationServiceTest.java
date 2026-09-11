@@ -86,6 +86,29 @@ class SubtaskDelegationServiceTest {
     }
 
     @Test
+    void planReturnsPersistedValuesForKeptSubtasks() {
+        UUID taskId = createMainTask("{}");
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(a, "旧标题", 1, List.of(), List.of("web"))));
+        // 二次 plan：同 id 保留行，声明值故意变更（新标题/新依赖/清空能力）——
+        // 响应回读库内真值（声明值仅首次生效），保证 plan 响应与 gate 读取
+        // 的 specJson 一致；依赖变更需取消后以新 id 重新 plan。
+        List<SubtaskDelegationService.PlannedSubtask> nodes = delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(a, "新标题", 1, List.of(b), List.of()),
+                new SubtaskService.SubtaskSpec(b, "B", 2, List.of(), List.of()))).planned();
+
+        SubtaskDelegationService.PlannedSubtask kept = nodes.stream()
+                .filter(node -> node.subtaskId().equals(a)).findFirst().orElseThrow();
+        assertThat(kept.title()).isEqualTo("旧标题");
+        assertThat(kept.dependencyIds()).isEmpty();
+        assertThat(kept.requiredCapabilities()).containsExactly("web");
+        assertThat(kept.phase()).isEqualTo(TaskPhase.DRAFT);
+        assertThat(persistence.findTask(a).orElseThrow().title()).isEqualTo("旧标题");
+    }
+
+    @Test
     void planBindsChildResourceScopeFromParent() {
         UUID taskId = createMainTask("{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}");
         // 模拟 REST 创建主任务时的可见性绑定（TaskService.create → bindIfAuthenticated）

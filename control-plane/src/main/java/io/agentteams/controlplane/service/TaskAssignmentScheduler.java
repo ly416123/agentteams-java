@@ -53,8 +53,17 @@ public final class TaskAssignmentScheduler {
         Instant now = clock.instant();
         return schedulerLease.run("task-assignment", owner, now, leaseDuration, () -> {
             int recovered = assignments.recoverExpiredLeases(now);
-            // G03：出队前先过子任务 gate——放行依赖就绪的 DRAFT 子任务、触发可汇总的 parent
-            int gated = gate.tick(batchSize);
+            // G03：出队前先过子任务 gate——放行依赖就绪的 DRAFT 子任务、触发可汇总的 parent。
+            // gate 与并发 plan/cancel 的乐观锁冲突不应拖垮同 tick 的任务分配：
+            // 下个 tick 自愈，先告警留痕。
+            int gated;
+            try {
+                gated = gate.tick(batchSize);
+            } catch (RuntimeException gateFailure) {
+                gated = 0;
+                LOGGER.warn("Subtask gate tick failed; assignment continues without it",
+                        gateFailure);
+            }
             int assigned = 0;
             int unavailable = 0;
             for (UUID taskId : assignments.queuedTaskIds(batchSize, now)) {

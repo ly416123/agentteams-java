@@ -121,10 +121,42 @@ class SubtaskGateServiceTest {
         // 汇总轮跑完：主任务再次回到 SUCCEEDED（子任务仍全 SUCCEEDED）——
         // 触发条件在数值上依然成立，但自动聚合每个子任务代只发生一次，
         // 否则调度 tick 将无限重排汇总轮（kind 验收实测 1s/run 循环）。
+        // 并发兜底链条（本测试为顺序重放，未覆盖真并发）：leader lease 串行
+        // 化 tick + updatePhase 乐观锁（version 冲突抛 OptimisticLockFailure
+        // 整体回滚、含事件 append）——双连接并发触发时只有一方能推进 version。
         setPhase(taskId, TaskPhase.SUCCEEDED);
         assertThat(gate.releaseParentForAggregation(taskId)).isFalse();
         assertThat(persistence.findTask(taskId).orElseThrow().phase())
                 .isEqualTo(TaskPhase.SUCCEEDED);
+    }
+
+    @Test
+    void skipsDraftChildrenUnderCancelledParent() {
+        UUID taskId = createMainTask();
+        UUID a = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(a, "A", 1, List.of())));
+        // 模拟 cancel 级联未达的残留（如级联事务失败）：parent 已终态（CANCELLED
+        // 不可恢复），DRAFT 子任务仍在——gate 不再放行，否则子任务凭空消耗
+        // worker 配额且产物无汇总去处。
+        setPhase(taskId, TaskPhase.CANCELLED);
+        assertThat(gate.tick(16)).isZero();
+        assertThat(persistence.findTask(a).orElseThrow().phase()).isEqualTo(TaskPhase.DRAFT);
+    }
+
+    @Test
+    void failsDraftChildrenWhoseDependencyIsDeadTerminal() {
+        UUID taskId = createMainTask();
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(a, "A", 1, List.of()),
+                new SubtaskService.SubtaskSpec(b, "B", 2, List.of(a))));
+        // A 进入不可恢复终态（CANCELLED）：B 的依赖条件永远无法满足——置 FAILED
+        // （G02 retry 边可恢复、失败可见）而非永久 DRAFT 滞留。
+        setPhase(a, TaskPhase.CANCELLED);
+        assertThat(gate.releaseReadyChildren(taskId)).isEqualTo(1);
+        assertThat(persistence.findTask(b).orElseThrow().phase()).isEqualTo(TaskPhase.FAILED);
     }
 
     @Test

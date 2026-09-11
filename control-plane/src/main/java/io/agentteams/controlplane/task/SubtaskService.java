@@ -84,8 +84,9 @@ public class SubtaskService {
         ExecutionContext context = requireTaskContext(taskId);
         SubtaskDelegationService.PlanOutcome outcome = delegation.plan(taskId, specs);
         // G03：DRAFT 主任务允许入队前预拆解（无 run 可投影）——真实子任务行已由
-        // delegation.plan 建立；投影树与观测事件留给入队后的下一次 plan 同步补齐
-        // （与 listProjection 的「无 run 返回空表」容忍一致，真实状态以 tasks 行为准）。
+        // delegation.plan 建立；投影树与观测事件跳过（正常链路的拆解都发生在
+        // run 1 会话中，此路径仅入队前直接 plan 的特殊场景）。读取端不受影响：
+        // GET /subtasks 以 tasks 行真值 ORPHANED 兕底展示，真实状态以 tasks 行为准。
         var latestRun = runs.latestRunId(taskId);
         if (latestRun.isEmpty()) {
             return outcome.planned().stream()

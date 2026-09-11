@@ -397,10 +397,11 @@ def main() -> int:
                                           args.project, args.team, title, prompt)
         print(f"main task created and queued: {main_task}")
 
-        subtasks = poll_until(
-            lambda: (list_subtasks(base_url, token_source, main_task)
-                     if len(list_subtasks(base_url, token_source, main_task)) == 3 else None),
-            "the mock to plan 3 subtasks")
+        def three_planned():
+            snapshot = list_subtasks(base_url, token_source, main_task)
+            return snapshot if len(snapshot) == 3 else None
+
+        subtasks = poll_until(three_planned, "the mock to plan 3 subtasks")
         titles = tuple(sorted(item.get("title") or "" for item in subtasks))
         if titles != tuple(sorted(EXPECTED_SUBTASK_TITLES)):
             fail(f"planned subtask titles {titles} do not match {EXPECTED_SUBTASK_TITLES}")

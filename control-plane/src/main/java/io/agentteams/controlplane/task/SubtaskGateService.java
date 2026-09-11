@@ -50,7 +50,10 @@ public class SubtaskGateService {
         return actions;
     }
 
-    /** 放行依赖已满足的 DRAFT 子任务（依赖 id 取自子任务 specJson 顶层），返回本 tick 放行数。 */
+    /** 放行依赖已满足的 DRAFT 子任务（依赖 id 取自子任务 specJson 顶层），返回本 tick 动作数。
+     * 依赖已进入不可恢复终态（CANCELLED/REJECTED）的 DRAFT 子任务直接置 FAILED——
+     * 永久 DRAFT 滞留会使依赖硬约束空转且汇总永不触发；FAILED 可经 G02 retry 边
+     * 恢复，失败对请求方可见。 */
     @Transactional
     public int releaseReadyChildren(UUID parentId) {
         return persistence.inTransaction(tx -> {
@@ -66,7 +69,17 @@ public class SubtaskGateService {
                 if (child.phase() != TaskPhase.DRAFT) {
                     continue;
                 }
-                boolean ready = dependencyIds(child.specJson()).stream()
+                List<UUID> dependencies = dependencyIds(child.specJson());
+                if (dependencies.stream().map(phaseById::get).anyMatch(
+                        phase -> phase == TaskPhase.CANCELLED || phase == TaskPhase.REJECTED)) {
+                    TaskRecord failed = tx.tasks().updatePhase(child.id(), TaskPhase.FAILED,
+                            child.version(), at);
+                    FoundationPersistenceService.appendEvent(tx, "task", child.id(), "TaskPhaseChanged",
+                            idPayload(child.id()), at, failed.version());
+                    released++;
+                    continue;
+                }
+                boolean ready = dependencies.stream()
                         .allMatch(id -> phaseById.get(id) == TaskPhase.SUCCEEDED);
                 if (!ready) {
                     continue;

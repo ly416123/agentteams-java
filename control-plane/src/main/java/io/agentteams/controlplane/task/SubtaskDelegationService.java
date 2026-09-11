@@ -85,7 +85,7 @@ public class SubtaskDelegationService {
             Map<UUID, TaskRecord> existing = new LinkedHashMap<>();
             tx.tasks().findByParent(taskId).forEach(child -> existing.put(child.id(), child));
             List<PlannedSubtask> planned = new ArrayList<>(specs.size());
-            List<UUID> keepIds = new ArrayList<>(requestedIds);
+            List<UUID> keepIds = new ArrayList<>();
             for (SubtaskService.SubtaskSpec spec : specs) {
                 TaskRecord old = existing.get(spec.subtaskId());
                 TaskRecord child;
@@ -103,12 +103,19 @@ public class SubtaskDelegationService {
                             tx.insertResourceScope("TASK", child.id(), scope.tenantId(),
                                     scope.projectId(), scope.team(), at));
                 } else {
-                    // 规格 §4.1：清单内保留现状（终态/未终态均不重置、不重跑）
+                    // 规格 §4.1：清单内保留现状（终态/未终态均不重置、不重跑）；声明值
+                    // （title/依赖/能力）仅首次创建生效，响应回读库内真值以保证与
+                    // gate 读取的 specJson 一致——依赖变更需取消后以新 id 重新 plan。
                     child = old;
                 }
                 keepIds.add(child.id());
-                planned.add(new PlannedSubtask(child.id(), spec.title(), spec.sequence(),
-                        List.copyOf(spec.dependencyIds()), List.copyOf(spec.requiredCapabilities()),
+                planned.add(new PlannedSubtask(child.id(),
+                        old == null ? spec.title() : old.title(),
+                        spec.sequence(),
+                        old == null ? List.copyOf(spec.dependencyIds())
+                                : dependencyIdsOf(old.specJson()),
+                        old == null ? List.copyOf(spec.requiredCapabilities())
+                                : capabilitiesOf(old.specJson()),
                         child.phase()));
             }
             for (TaskRecord stale : existing.values()) {
@@ -213,6 +220,31 @@ public class SubtaskDelegationService {
     }
 
     private static String idPayload(UUID id) {
-        return "{\"id\":\"" + id + "\"}";
+        // 与 SubtaskGateService/TaskService 的 TaskPhaseChanged payload 键一致
+        return "{\"taskId\":\"" + id + "\"}";
+    }
+
+    /** 读取子任务 specJson 顶层 dependencyIds（gate 同源）；解析失败返回空表。 */
+    private static List<UUID> dependencyIdsOf(String specJson) {
+        try {
+            List<UUID> ids = new ArrayList<>();
+            JSON.readTree(specJson).path("dependencyIds")
+                    .forEach(entry -> ids.add(UUID.fromString(entry.asText())));
+            return ids;
+        } catch (Exception error) {
+            return List.of();
+        }
+    }
+
+    /** 读取子任务 specJson 的 requiredCapabilities；解析失败返回空表。 */
+    private static List<String> capabilitiesOf(String specJson) {
+        try {
+            List<String> capabilities = new ArrayList<>();
+            JSON.readTree(specJson).path("requiredCapabilities")
+                    .forEach(entry -> capabilities.add(entry.asText()));
+            return capabilities;
+        } catch (Exception error) {
+            return List.of();
+        }
     }
 }
