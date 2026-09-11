@@ -99,6 +99,7 @@ import io.agentteams.controlplane.service.ModelPriceSyncPort;
 import io.agentteams.controlplane.service.ModelPriceSyncProperties;
 import io.agentteams.controlplane.service.ModelPriceSyncScheduler;
 import io.agentteams.controlplane.service.ModelPriceSyncService;
+import io.agentteams.controlplane.task.SubtaskGateService;
 import io.agentteams.controlplane.task.TaskStateConsistencyChecker;
 import io.agentteams.controlplane.task.TaskStateConsistencyJob;
 import io.agentteams.controlplane.task.TaskStateConsistencyRepository;
@@ -348,11 +349,12 @@ public class ControlPlaneConfiguration {
     @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
             name = "agentteams.scheduler.enabled", havingValue = "true", matchIfMissing = true)
     TaskAssignmentScheduler taskAssignmentScheduler(TaskAssignmentService assignments,
+            SubtaskGateService subtaskGate,
             SchedulerLeaseService schedulerLease, Clock clock,
             @Value("${POD_NAME:}") String podName,
             @Value("${agentteams.scheduler.lease-duration:30s}") java.time.Duration leaseDuration,
             @Value("${agentteams.scheduler.batch-size:16}") int batchSize) {
-        return new TaskAssignmentScheduler(assignments, schedulerLease, clock,
+        return new TaskAssignmentScheduler(assignments, subtaskGate, schedulerLease, clock,
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
     }
 

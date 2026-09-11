@@ -491,6 +491,43 @@ class FoundationRepositoryIT {
     }
 
     @Test
+    void publishSkipsResultVersionWhileSubtasksNotAllSucceeded() {
+        // G03 D3 硬约束：MAIN 存在非 SUCCEEDED 子任务 → publish 跳过结果版本；全 SUCCEEDED 后放行。
+        Instant now = Instant.parse("2026-09-11T00:00:00Z");
+        UUID parentId = UUID.randomUUID();
+        UUID childId = UUID.randomUUID();
+        TaskRecord parent = new TaskRecord(parentId, "parent", "description", TaskPhase.RUNNING, 0,
+                "{}", "actor", "test", null, null, now, now, 0,
+                "NORMAL", "ACTIVE", null, null, null, "MAIN");
+        TaskRecord child = new TaskRecord(childId, "child", "description", TaskPhase.QUEUED, 0,
+                "{}", "actor", "test", null, null, now, now, 0,
+                "NORMAL", "ACTIVE", null, null, parentId, "SUBTASK");
+        persistence.inTransaction(tx -> {
+            tx.tasks().insert(parent);
+            tx.tasks().insert(child);
+            return null;
+        });
+        var authorizationProvider = org.mockito.Mockito.mock(
+                org.springframework.beans.factory.ObjectProvider.class);
+        org.mockito.Mockito.when(authorizationProvider.getIfAvailable()).thenReturn(null);
+        var versions = new io.agentteams.controlplane.task.TaskResultVersionService(persistence,
+                org.mockito.Mockito.mock(io.agentteams.controlplane.service.IdempotencyService.class),
+                authorizationProvider);
+        io.agentteams.controlplane.security.ExecutionContext context =
+                new io.agentteams.controlplane.security.ExecutionContext(
+                        "org-1", "tenant-1", "project-1", "team-1", "worker-1");
+        io.agentteams.application.api.TaskResultManifest manifest =
+                new io.agentteams.application.api.TaskResultManifest(
+                        parentId, UUID.randomUUID(), "SUCCEEDED", "summary", java.util.List.of());
+
+        assertThat(versions.onManifestPublished(context, manifest)).isEmpty();
+
+        persistence.inTransaction(tx -> tx.tasks().updatePhase(
+                childId, TaskPhase.SUCCEEDED, child.version(), now.plusSeconds(1)));
+        assertThat(versions.onManifestPublished(context, manifest)).isPresent();
+    }
+
+    @Test
     void resourceApplyResultsAreFencedToTheCurrentBindingRevision() {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         UUID agentId = UUID.randomUUID();

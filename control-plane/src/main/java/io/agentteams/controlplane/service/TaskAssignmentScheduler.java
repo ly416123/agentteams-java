@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.service;
 
 import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
+import io.agentteams.controlplane.task.SubtaskGateService;
 import java.net.InetAddress;
 import java.time.Clock;
 import java.time.Duration;
@@ -16,15 +17,18 @@ public final class TaskAssignmentScheduler {
     private static final Logger LOGGER = LoggerFactory.getLogger(TaskAssignmentScheduler.class);
 
     private final TaskAssignmentService assignments;
+    private final SubtaskGateService gate;
     private final SchedulerLeaseService schedulerLease;
     private final Clock clock;
     private final String owner;
     private final Duration leaseDuration;
     private final int batchSize;
 
-    public TaskAssignmentScheduler(TaskAssignmentService assignments, SchedulerLeaseService schedulerLease,
+    public TaskAssignmentScheduler(TaskAssignmentService assignments, SubtaskGateService gate,
+            SchedulerLeaseService schedulerLease,
             Clock clock, String owner, Duration leaseDuration, int batchSize) {
         this.assignments = Objects.requireNonNull(assignments, "assignments");
+        this.gate = Objects.requireNonNull(gate, "gate");
         this.schedulerLease = Objects.requireNonNull(schedulerLease, "schedulerLease");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.owner = requireText(owner, "owner");
@@ -49,6 +53,8 @@ public final class TaskAssignmentScheduler {
         Instant now = clock.instant();
         return schedulerLease.run("task-assignment", owner, now, leaseDuration, () -> {
             int recovered = assignments.recoverExpiredLeases(now);
+            // G03：出队前先过子任务 gate——放行依赖就绪的 DRAFT 子任务、触发可汇总的 parent
+            int gated = gate.tick(batchSize);
             int assigned = 0;
             int unavailable = 0;
             for (UUID taskId : assignments.queuedTaskIds(batchSize, now)) {
@@ -64,15 +70,16 @@ public final class TaskAssignmentScheduler {
                             invalidTask);
                 }
             }
-            return new RunResult(recovered, assigned, unavailable);
-        }).valueOr(new RunResult(0, 0, 0));
+            return new RunResult(recovered, assigned, unavailable, gated);
+        }).valueOr(new RunResult(0, 0, 0, 0));
     }
 
     public String owner() { return owner; }
 
-    public record RunResult(int recoveredLeases, int assignedTasks, int unavailableTasks) {
+    public record RunResult(int recoveredLeases, int assignedTasks, int unavailableTasks,
+            int gatedSubtasks) {
         public RunResult {
-            if (recoveredLeases < 0 || assignedTasks < 0 || unavailableTasks < 0) {
+            if (recoveredLeases < 0 || assignedTasks < 0 || unavailableTasks < 0 || gatedSubtasks < 0) {
                 throw new IllegalArgumentException("scheduler counts must not be negative");
             }
         }

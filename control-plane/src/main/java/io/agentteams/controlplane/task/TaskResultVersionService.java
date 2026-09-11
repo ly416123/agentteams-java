@@ -14,6 +14,7 @@ import io.agentteams.controlplane.security.ResourceAction;
 import io.agentteams.controlplane.security.ResourceAuthorizationService;
 import io.agentteams.controlplane.service.IdempotencyService;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
+import io.agentteams.domain.task.TaskPhase;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -22,6 +23,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -34,6 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class TaskResultVersionService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(TaskResultVersionService.class);
 
     private static final String SUBMIT_RESULT = "SUBMIT_RESULT";
     private static final String REVIEW_RESULT = "REVIEW_RESULT";
@@ -74,6 +79,14 @@ public class TaskResultVersionService {
             tx.tasks().findByIdForUpdate(manifest.taskId())
                     .orElseThrow(() -> new ResourceNotFoundException("task", manifest.taskId()));
             if (tx.taskResultVersions().findByRun(manifest.runId()).isPresent()) {
+                return Optional.<TaskResultVersionRecord>empty();
+            }
+            // G03 D3 硬约束：MAIN 任务存在非 SUCCEEDED 子任务时跳过结果版本
+            // （拆解轮 run 正常结束但不产生结果版本；汇总轮 publish 时子任务已全 SUCCEEDED。
+            //  countByParentNotPhase 对无子任务的任务恒为 0，G02 既有行为不变）。
+            if (tx.tasks().countByParentNotPhase(manifest.taskId(), TaskPhase.SUCCEEDED) > 0) {
+                LOGGER.warn("result version skipped, subtasks not all SUCCEEDED taskId={}",
+                        manifest.taskId());
                 return Optional.<TaskResultVersionRecord>empty();
             }
             int seq = tx.taskResultVersions().latestSeq(manifest.taskId()).orElse(0) + 1;
