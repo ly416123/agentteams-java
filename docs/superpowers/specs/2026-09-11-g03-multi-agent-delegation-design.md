@@ -56,7 +56,7 @@ D6 否决的替代方案：方案 B（独立 `task_subtask_executions` 表——
   └─ plan_subtasks（声明式，MCP）→ 子任务行(kind=SUBTASK, DRAFT)
        ├─ 无依赖 → gate 立即 QUEUED → 能力匹配 → worker 并行执行
        └─ 有依赖 → 前置 SUCCEEDED 后 gate 转 QUEUED
-  ← run#1 结束（存在未终态子任务 → publish 被拒 409，不产生结果版本）
+  ← run#1 结束（存在非 SUCCEEDED 子任务 → publish 跳过，不产生结果版本）
 子任务 run manifest → 子任务交付物（G05 模型，无评审）
 全部 SUCCEEDED → 平台自动 QUEUED 主任务（幂等防重）
   → 主 agent run#2（汇总）→ publish → G02 结果版本 → 评审 → 归档
@@ -81,7 +81,7 @@ D6 否决的替代方案：方案 B（独立 `task_subtask_executions` 表——
 
 ### 4.2 终态硬约束落点
 
-- `onManifestPublished` 对 kind=MAIN 且存在未终态子任务的任务拒绝提交结果版本（409，`TaskReviewConflictException` code `CHILDREN_NOT_TERMINAL`）。拆解轮 run 本身仍 SUCCEEDED（会话正常结束），只是不产生结果版本。
+- `onManifestPublished` 对 kind=MAIN 且存在非 SUCCEEDED 子任务的任务**跳过结果版本提交**（返回 empty，WARN 日志）。D3 硬约束在平台内部实施：结果提交无手动 API，唯一入口就是 manifest publish 联动，无需对外 409。拆解轮 run 本身仍 SUCCEEDED（会话正常结束），只是不产生结果版本。
 - 子任务（kind=SUBTASK）publish 不适用主任务约束（子任务无下级）、不建结果版本评审链，交付物直接挂 run/result。
 - 主任务自动 QUEUED 的系统转移以幂等键防护：同轮子任务完成事件并发到达时只转移一次。
 
