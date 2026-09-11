@@ -97,6 +97,11 @@ public class SubtaskDelegationService {
                     tx.tasks().insert(child);
                     FoundationPersistenceService.appendEvent(tx, "task", child.id(), "TaskCreated",
                             childPayload(child, taskId, spec).toString(), at, child.version());
+                    // 可见性绑定随主任务（resource_scopes 缺失会让 GET /runs 等端点 403）；
+                    // 取父任务存量绑定而非调用者 principal——子任务永远与主任务同 scope。
+                    tx.findResourceScope("TASK", taskId).ifPresent(scope ->
+                            tx.insertResourceScope("TASK", child.id(), scope.tenantId(),
+                                    scope.projectId(), scope.team(), at));
                 } else {
                     // 规格 §4.1：清单内保留现状（终态/未终态均不重置、不重跑）
                     child = old;
@@ -162,13 +167,17 @@ public class SubtaskDelegationService {
         }
     }
 
-    /** 子任务 spec：继承主任务顶层 scope/taskType，覆盖 requiredCapabilities；生命周期键不继承。 */
+    /** 子任务 spec：继承主任务顶层 scope/taskType，覆盖 requiredCapabilities；生命周期键
+     * 不继承；inputJson 也不继承——子任务执行意图只有 title（父任务 prompt 泄漏进子任务
+     * 会话会让子任务 agent 重做整个父任务）。 */
     private static String childSpecJson(String parentSpecJson, UUID parentTaskId,
             SubtaskService.SubtaskSpec spec) {
         try {
             ObjectNode root = (ObjectNode) JSON.readTree(parentSpecJson);
             root.remove("approvalGranted");
             root.remove("cancelReason");
+            root.remove("inputJson");
+            root.putObject("inputJson").put("prompt", spec.title());
             if (spec.requiredCapabilities().isEmpty()) {
                 root.remove("requiredCapabilities");
             } else {

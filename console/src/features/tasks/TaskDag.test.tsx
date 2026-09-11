@@ -115,4 +115,41 @@ describe('TaskDag', () => {
     expect(selected).toHaveLength(1);
     expect(selected[0].getAttribute('data-status')).toBe('PENDING');
   });
+
+  it('提供 subtaskPhases 时节点下方渲染平台 phase 徽章，未提供的节点不渲染', () => {
+    render(
+      <TaskDag
+        nodes={nodes}
+        rootTaskId={ROOT}
+        subtaskPhases={new Map([[A1, 'RUNNING']])}
+      />,
+    );
+    const phases = screen.getAllByTestId('task-dag-phase');
+    expect(phases).toHaveLength(1);
+    expect(phases[0].textContent).toBe('RUNNING');
+  });
+
+  it('点击「打开 →」调用 onOpenTask 且不冒泡触发 onSelectSubtask', () => {
+    const onOpen = vi.fn();
+    const onSelect = vi.fn();
+    const { container } = render(
+      <TaskDag
+        nodes={nodes}
+        rootTaskId={ROOT}
+        titles={new Map([[A1, '抓取邮件']])}
+        onOpenTask={onOpen}
+        onSelectSubtask={onSelect}
+      />,
+    );
+    const opens = container.querySelectorAll('text.task-dag-open');
+    expect(opens).toHaveLength(2); // A1、A2 两个子任务节点各一个，根任务无
+    fireEvent.click(opens[0]);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('未传 onOpenTask 时节点不渲染「打开 →」链接', () => {
+    const { container } = render(<TaskDag nodes={nodes} rootTaskId={ROOT} />);
+    expect(container.querySelectorAll('text.task-dag-open')).toHaveLength(0);
+  });
 });

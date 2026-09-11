@@ -1214,6 +1214,15 @@ select:focus {
   font-size: var(--font-sm);
   fill: #334155;
 }
+.task-dag__phase {
+  font-size: 9px;
+  fill: #64748b;
+  text-transform: lowercase;
+}
+.task-dag-open {
+  font-size: 10px;
+  fill: #2563eb;
+}
 @media (max-width: 1080px) {
   .detail-layout {
     grid-template-columns: 1fr;

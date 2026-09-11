@@ -107,6 +107,27 @@ class SubtaskGateServiceTest {
     }
 
     @Test
+    void aggregationIsTriggeredOnlyOncePerSubtaskGeneration() {
+        UUID taskId = createMainTask();
+        UUID a = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(a, "A", 1, List.of())));
+        setPhase(a, TaskPhase.QUEUED);
+        setPhase(a, TaskPhase.SUCCEEDED);
+        setPhase(taskId, TaskPhase.SUCCEEDED);
+
+        // 拆解轮完成 → 子任务全 SUCCEEDED → 首次聚合放行
+        assertThat(gate.releaseParentForAggregation(taskId)).isTrue();
+        // 汇总轮跑完：主任务再次回到 SUCCEEDED（子任务仍全 SUCCEEDED）——
+        // 触发条件在数值上依然成立，但自动聚合每个子任务代只发生一次，
+        // 否则调度 tick 将无限重排汇总轮（kind 验收实测 1s/run 循环）。
+        setPhase(taskId, TaskPhase.SUCCEEDED);
+        assertThat(gate.releaseParentForAggregation(taskId)).isFalse();
+        assertThat(persistence.findTask(taskId).orElseThrow().phase())
+                .isEqualTo(TaskPhase.SUCCEEDED);
+    }
+
+    @Test
     void aggregateIsSkippedWhenParentStillRunning() {
         UUID taskId = createMainTask();
         delegation.plan(taskId, List.of(

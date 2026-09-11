@@ -139,6 +139,20 @@ public final class FoundationTransaction {
                 JdbcSupport.timestamp(at), JdbcSupport.timestamp(at));
     }
 
+    /** Stored ownership for a resource; empty when the resource was never bound. */
+    public java.util.Optional<ResourceScope> findResourceScope(String resourceType, java.util.UUID resourceId) {
+        return jdbc.query("""
+                SELECT tenant_id, project_id, team
+                  FROM resource_scopes
+                 WHERE resource_type = ? AND resource_id = ?
+                """, (rs, row) -> new ResourceScope(rs.getString(1), rs.getString(2), rs.getString(3)),
+                resourceType, resourceId).stream().findFirst();
+    }
+
+    /** Ownership tuple stored in {@code resource_scopes} for scope-checked resources. */
+    public record ResourceScope(String tenantId, String projectId, String team) {
+    }
+
     public java.util.List<java.util.UUID> expiredActiveLeaseIds(java.time.Instant now) {
         return jdbc.query("""
                 SELECT id

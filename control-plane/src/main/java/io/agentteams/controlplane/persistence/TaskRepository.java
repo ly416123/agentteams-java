@@ -289,13 +289,18 @@ public final class TaskRepository {
                 """, UUID.class, limit);
     }
 
-    /** G03 汇总轮：MAIN 已 SUCCEEDED 且存在子任务且全部子任务 SUCCEEDED 的 parent。 */
+    /** G03 汇总轮：MAIN 已 SUCCEEDED 且存在子任务且全部子任务 SUCCEEDED 的 parent。
+     * 已聚合过的 parent（存在 TaskChildrenCompleted）排除在外——否则调度 tick 会把
+     * 汇总轮完成后重新 SUCCEEDED 的主任务无限重排（kind 验收实测 1s/run 循环）。 */
     public List<UUID> findParentIdsAllChildrenSucceeded(int limit) {
         return jdbc.queryForList("""
                 SELECT p.id FROM tasks p
                  WHERE p.kind = 'MAIN' AND p.phase = 'SUCCEEDED'
                    AND EXISTS (SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id)
                    AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id AND c.phase <> 'SUCCEEDED')
+                   AND NOT EXISTS (SELECT 1 FROM domain_events e
+                                    WHERE e.aggregate_type = 'task' AND e.aggregate_id = p.id
+                                      AND e.event_type = 'TaskChildrenCompleted')
                  LIMIT ?
                 """, UUID.class, limit);
     }

@@ -71,6 +71,32 @@ class StubControlPlane(BaseHTTPRequestHandler):
         else:
             self._json(200, {"nodes": []})
 
+    def do_GET(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+        StubControlPlane.calls.append({
+            "kind": "get",
+            "path": self.path,
+            "authorization": self.headers.get("Authorization"),
+        })
+        if StubControlPlane.status_code != 200:
+            self._json(StubControlPlane.status_code, {"error": "boom"})
+            return
+        path = self.path
+        if path.endswith("/subtasks"):
+            self._json(200, [
+                {"subtaskId": "st-1", "title": "抓取邮件", "sequence": 1,
+                 "status": "SUCCEEDED", "phase": "SUCCEEDED", "dependencyIds": []},
+                {"subtaskId": "st-2", "title": "生成摘要", "sequence": 2,
+                 "status": "SUCCEEDED", "phase": "SUCCEEDED", "dependencyIds": []},
+            ])
+        elif path.endswith("/result"):
+            self._json(200, {"status": "SUCCEEDED", "summary": "子任务产物",
+                             "artifacts": []})
+        elif "/runs" in path:
+            self._json(200, [{"id": "run-1", "createdAt": "2026-09-11T00:00:00Z",
+                              "status": "SUCCEEDED"}])
+        else:
+            self._json(404, {"error": "not found"})
+
 
 class QwenPawConversationMockTest(unittest.TestCase):
     def setUp(self):
@@ -215,10 +241,10 @@ class QwenPawConversationMockTest(unittest.TestCase):
                     AGENTTEAMS_CONTROL_PLANE_URL=self.cp_base_url,
                     AGENTTEAMS_OIDC_TOKEN_URL=f"{self.cp_base_url}/realms/agentteams/protocol/openid-connect/token")
 
-    def test_decomposition_script_plans_and_advances_subtasks_via_rest(self):
+    def test_decomposition_script_plans_subtasks_via_rest_then_aggregation_round(self):
         task_id = "123e4567-e89b-42d3-a456-426614174000"
         prompt = (f"[平台上下文]\ntaskId={task_id}\n（可用 agentteams-task MCP 工具引用此 taskId）\n\n"
-                  "整理邮件摘要报告")
+                  + MOCK.DECOMPOSITION_MARKER + "\n整理邮件摘要报告")
         with mock.patch.dict(os.environ, self.control_plane_env()):
             body = self.read_chat("session-decomp", prompt, {"Idempotency-Key": "decomp-1"})
 
@@ -228,29 +254,24 @@ class QwenPawConversationMockTest(unittest.TestCase):
         self.assertEqual(token_calls[0]["body"]["grant_type"], "password")
         self.assertEqual(token_calls[0]["body"]["username"], "alice")
 
+        # 拆解轮：仅 plan（3 子任务，C 依赖 A+B），状态推进交给平台真调度。
         plan = puts[0]
         self.assertEqual(plan["path"], f"/api/v1/tasks/{task_id}/subtasks")
         specs = plan["body"]["subtasks"]
-        self.assertEqual([spec["title"] for spec in specs], ["抓取邮件", "生成摘要"])
-        self.assertEqual([spec["sequence"] for spec in specs], [1, 2])
+        self.assertEqual([spec["title"] for spec in specs],
+                         ["抓取邮件", "生成摘要", f"汇总产物 {MOCK.FAIL_FIRST_MARKER}"])
+        self.assertEqual([spec["sequence"] for spec in specs], [1, 2, 3])
         self.assertEqual(specs[0]["dependencyIds"], [])
-        self.assertEqual(specs[1]["dependencyIds"], [specs[0]["subtaskId"]])
-
-        self.assertEqual([call["path"] for call in puts[1:]], [
-            f"/api/v1/tasks/{task_id}/subtasks/{specs[0]['subtaskId']}/status",
-            f"/api/v1/tasks/{task_id}/subtasks/{specs[0]['subtaskId']}/status",
-            f"/api/v1/tasks/{task_id}/subtasks/{specs[1]['subtaskId']}/status",
-            f"/api/v1/tasks/{task_id}/subtasks/{specs[1]['subtaskId']}/status",
-        ])
-        self.assertEqual([call["body"]["status"] for call in puts[1:]],
-                         ["RUNNING", "SUCCEEDED", "RUNNING", "FAILED"])
+        self.assertEqual(specs[1]["dependencyIds"], [])
+        self.assertEqual(specs[2]["dependencyIds"],
+                         [specs[0]["subtaskId"], specs[1]["subtaskId"]])
+        self.assertTrue(all(spec["requiredCapabilities"] == ["qwenpaw"] for spec in specs))
+        self.assertEqual(len(puts), 1)
         self.assertTrue(all(call["authorization"].startswith("Bearer ") for call in puts))
         self.assertTrue(all(call["idempotency_key"] for call in puts))
 
-        self.assertEqual(body.count('"type":"tool.started"'), 5)
-        self.assertEqual(body.count('"type":"plugin_call_output"'), 5)
-        self.assertEqual(body.count('"tool":"plan_subtasks"'), 2)
-        self.assertEqual(body.count('"tool":"update_subtask_status"'), 8)
+        self.assertEqual(body.count('"type":"tool.started"'), 1)
+        self.assertEqual(body.count('"type":"plugin_call_output"'), 1)
         self.assertIn('"tool":"plan_subtasks","status":"success"', body.replace(" ", "")
                       if " " in body else body)
         self.assertIn("SUBTASK_DECOMPOSITION_SUMMARY", body)
@@ -258,15 +279,55 @@ class QwenPawConversationMockTest(unittest.TestCase):
         cursors = [int(value) for value in re.findall(r'"cursor":(\d+)', body)]
         self.assertEqual(cursors, sorted(set(cursors)))
 
+        # 汇总轮（第 2 个会话）：list_subtasks → 每个 SUCCEEDED 子任务取 result。
+        with mock.patch.dict(os.environ, self.control_plane_env()):
+            aggregate = self.read_chat("session-aggregate", prompt,
+                                       {"Idempotency-Key": "decomp-2"})
+        self.assertIn("SUBTASK_AGGREGATION_SUMMARY", aggregate)
+        self.assertNotIn("SUBTASK_DECOMPOSITION_SUMMARY", aggregate)
+        gets = [call for call in StubControlPlane.calls if call["kind"] == "get"]
+        self.assertIn(f"/api/v1/tasks/{task_id}/subtasks", [call["path"] for call in gets])
+        self.assertEqual(
+            [call["path"] for call in gets if call["path"].endswith("/result")],
+            ["/api/v1/tasks/st-1/runs/run-1/result", "/api/v1/tasks/st-2/runs/run-1/result"])
+        # GET 无写语义：不带幂等键。
+        self.assertTrue(all("idempotency" not in call for call in gets))
+
+    def test_fail_first_subtask_fails_then_recovers_via_standard_script(self):
+        """G03 失败注入：注册进 FAIL_FIRST 的子任务首个会话发 failed 终态，
+        retry 后的第 2 个会话走标准剧本成功（无拆解动作、无聚合动作）。"""
+        task_id = "323e4567-e89b-42d3-a456-426614174000"
+        prompt = (f"[平台上下文]\ntaskId={task_id}\n（可用 agentteams-task MCP 工具引用此 taskId）\n\n"
+                  + MOCK.DECOMPOSITION_MARKER + "\n拆解")
+        with mock.patch.dict(os.environ, self.control_plane_env()):
+            self.read_chat("session-fail-plan", prompt, {"Idempotency-Key": "fail-plan-1"})
+        subtask_id = StubControlPlane.calls[1]["body"]["subtasks"][2]["subtaskId"]
+        subtask_prompt = (f"[平台上下文]\ntaskId={subtask_id}\n（可用 agentteams-task MCP 工具引用此 taskId）\n\n"
+                          f"汇总产物 {MOCK.FAIL_FIRST_MARKER}")
+
+        failed = self.read_chat("session-c-first", subtask_prompt,
+                                {"Idempotency-Key": "c-first"})
+        self.assertIn('"status":"failed"', failed)
+        self.assertIn(MOCK.FAIL_FIRST_MARKER, failed)
+        self.assertNotIn('"status":"completed"', failed)
+
+        recovered = self.read_chat("session-c-retry", subtask_prompt,
+                                   {"Idempotency-Key": "c-retry"})
+        self.assertIn('"status":"completed"', recovered)
+        self.assertIn("CONVERSATION_MOCK_OK", recovered)
+        self.assertNotIn('"status":"failed"', recovered)
+        # 失败/标准剧本不产生任何 control-plane REST 动作。
+        self.assertEqual(len(StubControlPlane.calls), 2)
+
     def test_decomposition_rest_failure_degrades_without_threatening_terminal(self):
         StubControlPlane.status_code = 500
         task_id = "223e4567-e89b-42d3-a456-426614174000"
         with mock.patch.dict(os.environ, self.control_plane_env()):
             body = self.read_chat(
                 "session-decomp-fail",
-                f"[平台上下文]\ntaskId={task_id}\n\nprompt",
+                f"[平台上下文]\ntaskId={task_id}\n\n" + MOCK.DECOMPOSITION_MARKER + "\nprompt",
                 {"Idempotency-Key": "decomp-fail-1"})
-        self.assertEqual(body.count('"status":"failed"'), 5)
+        self.assertEqual(body.count('"status":"failed"'), 1)
         self.assertIn("SUBTASK_DECOMPOSITION_SUMMARY", body)
         self.assertIn('"status":"completed"', body)
 
@@ -277,10 +338,20 @@ class QwenPawConversationMockTest(unittest.TestCase):
         with mock.patch.dict(os.environ, self.decomposition_env):
             body = self.read_chat(
                 "session-decomp-noenv",
-                f"[平台上下文]\ntaskId={task_id}\n\nprompt",
+                f"[平台上下文]\ntaskId={task_id}\n\n" + MOCK.DECOMPOSITION_MARKER + "\nprompt",
                 {"Idempotency-Key": "decomp-noenv-1"})
-        self.assertEqual(body.count('"status":"failed"'), 5)
+        self.assertEqual(body.count('"status":"failed"'), 1)
         self.assertIn('"status":"completed"', body)
+
+    def test_subtask_session_without_marker_keeps_standard_script(self):
+        # 子任务会话同样携带 taskId 注入但无拆解标记——走标准剧本，
+        # 不触发委派动作（避免子任务递归拆解）。
+        task_id = "423e4567-e89b-42d3-a456-426614174000"
+        body = self.read_chat(
+            "session-subtask",
+            f"[平台上下文]\ntaskId={task_id}\n\n子任务执行提示")
+        self.assertNotIn('"type":"tool.started"', body)
+        self.assertIn("CONVERSATION_MOCK_OK", body)
 
     def test_plain_prompt_keeps_existing_script_without_tool_events(self):
         body = self.read_chat("session-plain", "hello without platform context")

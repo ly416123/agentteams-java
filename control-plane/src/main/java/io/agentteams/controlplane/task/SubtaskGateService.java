@@ -96,6 +96,13 @@ public class SubtaskGateService {
             if (tx.tasks().countByParentNotPhase(parentId, TaskPhase.SUCCEEDED) > 0) {
                 return false;
             }
+            // 防重入（行锁内复查）：TaskChildrenCompleted 已存在说明该子任务代的
+            // 自动聚合已发生过——汇总轮完成后主任务重新 SUCCEEDED 时触发条件
+            // 在数值上依然成立，缺此闸门调度 tick 会无限重排汇总轮。后续重排
+            // 由评审 retry 等显式动作驱动，不经由本 gate。
+            if (tx.domainEvents().existsByAggregateAndType("task", parentId, "TaskChildrenCompleted")) {
+                return false;
+            }
             Instant at = clock.instant();
             TaskRecord queued = tx.tasks().updatePhase(parentId, TaskPhase.QUEUED, parent.version(), at);
             FoundationPersistenceService.appendEvent(tx, "task", parentId, "TaskChildrenCompleted",

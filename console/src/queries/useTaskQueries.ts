@@ -11,6 +11,7 @@ import {
   getTaskRecovery,
   getTaskResult,
   getTaskTree,
+  listTaskSubtasks,
   listTasks,
   streamTaskProcessEvents,
   streamTaskEvents,
@@ -86,6 +87,16 @@ export function useTaskTree(projectId: string, taskId: string, runId: string) {
     queryKey: ['task-tree', projectId, taskId, runId],
     queryFn: () => getTaskTree(taskId, runId),
     enabled: Boolean(projectId && taskId && runId),
+    refetchInterval: 5_000,
+  });
+}
+
+/** G03：子任务清单（phase 为平台执行真值，供 DAG 徽章与跳转）。 */
+export function useTaskSubtasks(projectId: string, taskId: string) {
+  return useQuery({
+    queryKey: ['task-subtasks', projectId, taskId],
+    queryFn: () => listTaskSubtasks(taskId),
+    enabled: Boolean(projectId && taskId),
     refetchInterval: 5_000,
   });
 }

@@ -2,6 +2,7 @@ import { apiClient, type HttpClient } from './httpClient';
 import {
   normalizeCursorPage,
   type CursorPage,
+  type SubtaskSummary,
   type Task,
   type TaskDecisionRecord,
   type TaskPhase,
@@ -153,6 +154,11 @@ export function getTaskProgress(taskId: string, runId: string, client: HttpClien
 }
 export function getTaskTree(taskId: string, runId: string, client: HttpClient = apiClient) {
   return client.request<TaskTreeNode[]>(`/api/v1/tasks/${taskId}/runs/${runId}/tree`);
+}
+
+/** G03：子任务清单（投影序，phase 为平台执行真值）。 */
+export function listTaskSubtasks(taskId: string, client: HttpClient = apiClient) {
+  return client.request<SubtaskSummary[]>(`/api/v1/tasks/${taskId}/subtasks`);
 }
 export function getTaskDecisions(taskId: string, runId: string, client: HttpClient = apiClient) {
   return client.request<TaskDecisionRecord[]>(`/api/v1/tasks/${taskId}/runs/${runId}/decisions`, {

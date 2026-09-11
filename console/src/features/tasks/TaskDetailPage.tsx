@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/httpClient';
 import {
   useTask,
@@ -10,6 +10,7 @@ import {
   useTaskRuns,
   useTaskCheckpoints,
   useTaskRecovery,
+  useTaskSubtasks,
 } from '../../queries/useTaskQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -50,9 +51,16 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const runs = useTaskRuns(projectId, taskId);
   const recovery = useTaskRecovery(projectId, taskId);
   const action = useTaskAction(projectId, taskId);
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const runId = searchParams.get('runId') || runs.data?.[0]?.id || '';
   const processEvents = useTaskProcessEvents(projectId, taskId, runId);
+  // G03：子任务清单（phase 为平台执行真值）供 DAG 徽章与跳转。
+  const subtasks = useTaskSubtasks(projectId, taskId);
+  const subtaskPhases = useMemo(
+    () => new Map((subtasks.data || []).map((item) => [item.subtaskId, item.phase])),
+    [subtasks.data],
+  );
   // 下钻状态：选中子任务后主列时间线只剩该子任务相关条目（DAG 点击 → 过滤）。
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
   // 跨 run 切换时旧 run 的子任务不再存在，重置下钻避免空时间线误导。
@@ -218,6 +226,8 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
             selectedSubtaskId={selectedSubtaskId}
             onSelectSubtask={setSelectedSubtaskId}
             subtaskTitles={subtaskTitles}
+            subtaskPhases={subtaskPhases}
+            onOpenTask={(subtaskId) => navigate(`/${projectId}/tasks/${subtaskId}`)}
           />
         </aside>
       </div>

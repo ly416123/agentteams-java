@@ -82,8 +82,18 @@ public class SubtaskService {
             throw new IllegalArgumentException("subtasks size must be between 1 and " + MAX_SUBTASKS);
         }
         ExecutionContext context = requireTaskContext(taskId);
-        UUID runId = requireLatestRun(taskId);
         SubtaskDelegationService.PlanOutcome outcome = delegation.plan(taskId, specs);
+        // G03：DRAFT 主任务允许入队前预拆解（无 run 可投影）——真实子任务行已由
+        // delegation.plan 建立；投影树与观测事件留给入队后的下一次 plan 同步补齐
+        // （与 listProjection 的「无 run 返回空表」容忍一致，真实状态以 tasks 行为准）。
+        var latestRun = runs.latestRunId(taskId);
+        if (latestRun.isEmpty()) {
+            return outcome.planned().stream()
+                    .map(planned -> new TaskTreeNode(planned.subtaskId(), taskId, planned.sequence(),
+                            "PENDING", List.copyOf(planned.dependencyIds()), clock.instant()))
+                    .toList();
+        }
+        UUID runId = latestRun.get();
         tree.deleteOthers(context, runId, outcome.projectionKeepIds());
         Map<UUID, TaskTreeNode> existingById = tree.find(context, runId).stream()
                 .collect(Collectors.toMap(TaskTreeNode::taskId, Function.identity()));

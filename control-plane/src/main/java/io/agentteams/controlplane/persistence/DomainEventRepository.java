@@ -25,6 +25,15 @@ public final class DomainEventRepository {
                 JdbcSupport.timestamp(event.updatedAt()), event.version());
     }
 
+    /** 聚合级事件存在性检查：用于一次性语义的幂等闸门（如 G03 自动聚合标记）。 */
+    public boolean existsByAggregateAndType(String aggregateType, UUID aggregateId, String eventType) {
+        Boolean exists = jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM domain_events
+                 WHERE aggregate_type = ? AND aggregate_id = ? AND event_type = ?)
+                """, Boolean.class, aggregateType, aggregateId, eventType);
+        return Boolean.TRUE.equals(exists);
+    }
+
     public Optional<DomainEventRecord> findByEventId(UUID eventId) {
         return jdbc.query("""
                 SELECT id, event_id, aggregate_type, aggregate_id, event_type, payload::text,

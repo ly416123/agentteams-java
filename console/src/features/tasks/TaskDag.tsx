@@ -51,6 +51,10 @@ type TaskDagProps = {
   selectedSubtaskId?: string | null;
   /** 点击子任务节点回调；不传则节点不可点击。 */
   onSelectSubtask?: (subtaskId: string) => void;
+  /** subtaskId → 平台执行真值 phase（GET /tasks/{id}/subtasks）；提供时节点下方渲染徽章。 */
+  subtaskPhases?: Map<string, string>;
+  /** 打开子任务详情页回调；提供时子任务节点渲染「打开 →」链接（不冒泡，不影响下钻）。 */
+  onOpenTask?: (subtaskId: string) => void;
 };
 
 export function TaskDag({
@@ -59,6 +63,8 @@ export function TaskDag({
   titles,
   selectedSubtaskId,
   onSelectSubtask,
+  subtaskPhases,
+  onOpenTask,
 }: TaskDagProps) {
   if (!nodes.length) {
     return <p className="muted-text">当前运行暂无任务分解。</p>;
@@ -68,7 +74,9 @@ export function TaskDag({
     return <p className="muted-text">当前运行暂无任务分解。</p>;
   }
   const width = Math.max(...positioned.map((p) => p.x + NODE_WIDTH)) + 8;
-  const height = Math.max(...positioned.map((p) => p.y + NODE_HEIGHT)) + 8;
+  // 节点下方徽章与「打开 →」链接各占约 12/26px，提供任一时扩大 viewBox 高度避免截断。
+  const footerHeight = subtaskPhases?.size || onOpenTask ? NODE_HEIGHT + 34 : NODE_HEIGHT;
+  const height = Math.max(...positioned.map((p) => p.y + footerHeight)) + 8;
   const byId = new Map(positioned.map((p) => [p.node.taskId, p]));
   // 依赖边：dependencyIds 指向同 run 内的其它子任务（不指向根，根边已由 parent 关系绘制）；Set 去重防数据异常时重复渲染。
   const deps: Array<{ from: Positioned; to: Positioned }> = [];
@@ -116,6 +124,9 @@ export function TaskDag({
               : titles?.get(node.taskId) || node.taskId.slice(0, 8);
           const selected = node.taskId === selectedSubtaskId;
           const clickable = node.taskId !== rootTaskId && Boolean(onSelectSubtask);
+          // G03：phase 来自 tasks 行真值（非投影 status），仅子任务节点渲染。
+          const phase = node.taskId === rootTaskId ? undefined : subtaskPhases?.get(node.taskId);
+          const openable = node.taskId !== rootTaskId && Boolean(onOpenTask);
           return (
             <g
               key={node.taskId}
@@ -150,6 +161,34 @@ export function TaskDag({
               >
                 {label.length > 12 ? `${label.slice(0, 11)}…` : label}
               </text>
+              {phase && (
+                <text
+                  x={NODE_WIDTH / 2}
+                  y={NODE_HEIGHT + 12}
+                  textAnchor="middle"
+                  className="task-dag__phase"
+                  data-testid="task-dag-phase"
+                >
+                  {phase}
+                </text>
+              )}
+              {openable && (
+                <text
+                  x={NODE_WIDTH / 2}
+                  y={NODE_HEIGHT + 28}
+                  textAnchor="middle"
+                  className="task-dag-open"
+                  role="button"
+                  aria-label={`打开子任务 ${label}`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenTask?.(node.taskId);
+                  }}
+                >
+                  打开 →
+                </text>
+              )}
             </g>
           );
         })}

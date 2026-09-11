@@ -202,6 +202,8 @@ export function TaskInfoPanel({
   selectedSubtaskId,
   onSelectSubtask,
   subtaskTitles,
+  subtaskPhases,
+  onOpenTask,
 }: {
   projectId: string;
   taskId: string;
@@ -212,6 +214,10 @@ export function TaskInfoPanel({
   selectedSubtaskId?: string | null;
   onSelectSubtask?: (subtaskId: string) => void;
   subtaskTitles?: Map<string, string>;
+  /** subtaskId → 平台执行真值 phase（G03，TaskDetailPage 从子任务清单拉取）。 */
+  subtaskPhases?: Map<string, string>;
+  /** 打开子任务详情页（G03 跳转，TaskDag 节点「打开 →」）。 */
+  onOpenTask?: (subtaskId: string) => void;
 }) {
   const [tab, setTab] = useState<TabName>('events');
   const tree = useTaskTree(projectId, taskId, runId);
@@ -229,6 +235,8 @@ export function TaskInfoPanel({
           titles={subtaskTitles}
           selectedSubtaskId={selectedSubtaskId}
           onSelectSubtask={onSelectSubtask}
+          subtaskPhases={subtaskPhases}
+          onOpenTask={onOpenTask}
         />
       </section>
       <section className="panel">

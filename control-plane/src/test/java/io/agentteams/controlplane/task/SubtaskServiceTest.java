@@ -114,6 +114,26 @@ class SubtaskServiceTest {
     }
 
     @Test
+    void planWithoutRunStillReturnsPlannedNodesWithoutProjection() {
+        // G03 负路径：DRAFT 主任务（未入队、无 run）允许入队前预拆解——真实子任务行
+        // 由 delegation.plan 建立，投影树留给入队后的下一次 plan 同步补齐。
+        when(runs.latestRunId(taskId)).thenReturn(Optional.empty());
+        UUID a1 = UUID.randomUUID();
+        UUID a2 = UUID.randomUUID();
+
+        List<TaskTreeNode> nodes = service.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(a1, "抓取邮件", 1, List.of()),
+                new SubtaskService.SubtaskSpec(a2, "生成摘要", 2, List.of(a1))));
+
+        assertThat(nodes).containsExactly(
+                new TaskTreeNode(a1, taskId, 1, "PENDING", List.of(), NOW),
+                new TaskTreeNode(a2, taskId, 2, "PENDING", List.of(a1), NOW));
+        verify(tree, never()).deleteOthers(any(), any(), any());
+        verify(tree, never()).upsert(any(), any(), any());
+        assertThat(events.all).isEmpty();
+    }
+
+    @Test
     void updateStatusRejectsPendingAndBlocked() {
         UUID subtaskId = UUID.randomUUID();
         when(tree.find(CONTEXT, runId)).thenReturn(List.of(
@@ -161,11 +181,8 @@ class SubtaskServiceTest {
         }
         assertThatThrownBy(() -> service.plan(taskId, oversized))
                 .isInstanceOf(IllegalArgumentException.class);
-        when(runs.latestRunId(taskId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.plan(taskId,
-                List.of(new SubtaskService.SubtaskSpec(UUID.randomUUID(), "t", 1, List.of()))))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("no run");
+        // 无 run 的 plan 不再拒绝（G03 负路径：DRAFT 预拆解），见
+        // planWithoutRunStillReturnsPlannedNodesWithoutProjection。
     }
 
     @Test

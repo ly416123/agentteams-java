@@ -221,6 +221,18 @@ export type TaskTreeNode = {
   updatedAt: string;
 };
 
+/** GET /api/v1/tasks/{taskId}/subtasks：投影序合并 tasks 行真实 phase。 */
+export type SubtaskSummary = {
+  subtaskId: string;
+  title: string;
+  sequence: number;
+  /** 拆解投影状态（可能滞后）。 */
+  status: string;
+  /** 平台执行真值。 */
+  phase: string;
+  dependencyIds: string[];
+};
+
 export type TaskDecisionRecord = {
   id: string;
   taskId: string;

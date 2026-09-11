@@ -23,12 +23,24 @@ CONFIG_LOCK = threading.Lock()
 DELAY_SECONDS = DEFAULT_DELAY_SECONDS
 DISCONNECT_AFTER = DEFAULT_DISCONNECT_AFTER
 SESSIONS: dict[str, dict[str, Any]] = {}
+# G03：taskId → 已分配委派剧本的会话数（1=拆解轮，2+=汇总轮）。
+DECOMPOSITION_ROUNDS: dict[str, int] = {}
+# G03 确定性失败注入：失败子任务 id 集合 + 会话计数（首会话 failed 终态，
+# retry 后的第 2+ 会话走标准剧本成功）。
+FAIL_FIRST: set[str] = set()
+FAIL_FIRST_ROUNDS: dict[str, int] = {}
 AUDIT: list[str] = []
 
-# 拆解剧本（二期任务 8）：runtime 在 prompt 前注入平台上下文块，其中的 taskId
-# 行是拆解剧本的激活信号。未携带 taskId 的会话沿用下面的标准剧本。
+# 拆解剧本（二期任务 8，G03 改造为两段）：runtime 在 prompt 前注入平台上下文块，
+# 其中的 taskId 行加拆解标记（SUBTASK_DECOMPOSITION_PROMPT）是委派剧本的激活信号。
+# 子任务 spec 的 inputJson 由控制面重写为 {"prompt": title}（不继承父任务 prompt），
+# 天然无拆解标记——走标准剧本产出普通文本产物，保证子任务 run SUCCEEDED
+# 自动触发 manifest publish。携带 FAIL_FIRST_MARKER 的子任务例外：首个会话
+# 发 failed 终态事件（retry 恢复链与硬约束断言的确定性 fixture）。
 TASK_ID_PATTERN = re.compile(
     r"taskId=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
+DECOMPOSITION_MARKER = "SUBTASK_DECOMPOSITION_PROMPT"
+FAIL_FIRST_MARKER = "CONVERSATION_MOCK_FAIL_FIRST"
 REST_TIMEOUT_SECONDS = 5.0
 _TOKEN_CACHE: dict[str, tuple[float, str]] = {}
 
@@ -46,11 +58,18 @@ STANDARD_DEFINITIONS: tuple[tuple[str, dict[str, Any]], ...] = (
 )
 
 
-def decomposition_task_id(request: dict[str, Any]) -> str | None:
-    """提取 runtime 平台上下文注入的 taskId；无标记返回 None 走标准剧本。"""
+def delegation_context(request: dict[str, Any]) -> tuple[str | None, bool]:
+    """提取 runtime 平台上下文注入的 taskId 与拆解标记。
+
+    主任务与子任务会话都携带 taskId；拆解标记仅主任务 prompt 有
+    （子任务 inputJson 由控制面重写为 {"prompt": title}），
+    失败注入子任务则靠 plan 时注册的 FAIL_FIRST 集合路由。
+    """
     input_items = request.get("input")
     if not isinstance(input_items, list):
-        return None
+        return None, False
+    task_id = None
+    marked = False
     for item in input_items:
         if not isinstance(item, dict):
             continue
@@ -62,8 +81,10 @@ def decomposition_task_id(request: dict[str, Any]) -> str | None:
             if isinstance(text, str):
                 match = TASK_ID_PATTERN.search(text)
                 if match:
-                    return match.group(1)
-    return None
+                    task_id = match.group(1)
+                if DECOMPOSITION_MARKER in text:
+                    marked = True
+    return task_id, marked
 
 
 def control_plane_config() -> dict[str, str] | None:
@@ -134,12 +155,31 @@ def _perform_rest(tool: str, method: str, path: str, body: dict[str, Any]) -> bo
         return False
 
 
-def decomposition_definitions(task_id: str) -> list[tuple[str, dict[str, Any]]]:
-    """拆解剧本：plan → A1 RUNNING/SUCCEEDED → A2 RUNNING/FAILED → 总结。
+def _perform_get(tool: str, path: str) -> Any:
+    """汇总轮只读动作（GET 无幂等键）：失败降级为 None，不中断 SSE 流。"""
+    config = control_plane_config()
+    if config is None:
+        return None
+    try:
+        request = urllib.request.Request(
+            config["base"] + path, method="GET",
+            headers={"Accept": "application/json",
+                     "Authorization": f"Bearer {_bearer_token(config)}"})
+        with urllib.request.urlopen(request, timeout=REST_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read() or b"[]")
+    except Exception as error:  # noqa: BLE001 - best-effort：所有异常降级为 failed 输出
+        print(f"conversation mock aggregation {tool} failed: {error}",
+              file=sys.stderr, flush=True)
+        return None
 
-    子任务清单与 SubtaskServiceTest 一致（抓取邮件 seq1 → 生成摘要 seq2 依赖 A1）。
-    每个动作包裹 tool.started/plugin_call_output 事件对（runtime 白名单映射为
-    tool.called/tool.finished）；事件形态与真实 QwenPaw SSE 中间事件一致。
+
+def decomposition_definitions(task_id: str) -> list[tuple[str, dict[str, Any]]]:
+    """G03 拆解剧本（第 1 会话）：plan 3 子任务后即完成，不再代跑状态推进。
+
+    A/B 无依赖、C 依赖 A+B；requiredCapabilities 引导 worker 配额准入。
+    子任务由平台真调度（gate→QUEUED→worker→SUCCEEDED），每个子任务自身
+    的会话 prompt 为其 title，走标准剧本产出普通文本产物。C 的 title 携带
+    失败标记并注册进 FAIL_FIRST：首个会话确定性失败，retry 后成功。
     """
     definitions: list[tuple[str, dict[str, Any]]] = [
         ("conversation.started", {"status": "created", "object": "response"}),
@@ -149,43 +189,108 @@ def decomposition_definitions(task_id: str) -> list[tuple[str, dict[str, Any]]]:
         }),
     ]
 
-    subtasks: list[dict[str, Any]] = []
-    previous_id = None
-    for title, sequence in (("抓取邮件", 1), ("生成摘要", 2)):
-        subtask_id = str(uuid.uuid4())
-        subtasks.append({
-            "subtaskId": subtask_id,
-            "title": title,
-            "sequence": sequence,
+    first_id = str(uuid.uuid4())
+    second_id = str(uuid.uuid4())
+    third_id = str(uuid.uuid4())
+    subtasks: list[dict[str, Any]] = [
+        {
+            "subtaskId": first_id,
+            "title": "抓取邮件",
+            "sequence": 1,
             # 服务端 SubtaskSpec 契约要求 dependencyIds 键必须存在（null 被拒）。
-            "dependencyIds": [previous_id] if previous_id else [],
-        })
-        previous_id = subtask_id
+            "dependencyIds": [],
+            "requiredCapabilities": ["qwenpaw"],
+        },
+        {
+            "subtaskId": second_id,
+            "title": "生成摘要",
+            "sequence": 2,
+            "dependencyIds": [],
+            "requiredCapabilities": ["qwenpaw"],
+        },
+        {
+            "subtaskId": third_id,
+            # title 随 inputJson.prompt 进入 C 的会话 prompt：首会话命中失败标记。
+            "title": f"汇总产物 {FAIL_FIRST_MARKER}",
+            "sequence": 3,
+            "dependencyIds": [first_id, second_id],
+            "requiredCapabilities": ["qwenpaw"],
+        },
+    ]
+    with CONFIG_LOCK:
+        FAIL_FIRST.add(third_id)
 
-    def tool_pair(tool: str, path: str, body: dict[str, Any]) -> None:
-        definitions.append(("tool.started", {"type": "tool.started", "tool": tool}))
-        ok = _perform_rest(tool, "PUT", path, body)
-        definitions.append(("plugin_call_output", {
-            "type": "plugin_call_output", "tool": tool,
-            "status": "success" if ok else "failed",
-        }))
-
-    tool_pair("plan_subtasks", f"/api/v1/tasks/{task_id}/subtasks",
-              {"subtasks": subtasks})
-    for subtask_id, status in (
-        (subtasks[0]["subtaskId"], "RUNNING"),
-        (subtasks[0]["subtaskId"], "SUCCEEDED"),
-        (subtasks[1]["subtaskId"], "RUNNING"),
-        (subtasks[1]["subtaskId"], "FAILED"),
-    ):
-        tool_pair("update_subtask_status",
-                  f"/api/v1/tasks/{task_id}/subtasks/{subtask_id}/status",
-                  {"status": status})
+    definitions.append(("tool.started", {"type": "tool.started", "tool": "plan_subtasks"}))
+    ok = _perform_rest("plan_subtasks", "PUT", f"/api/v1/tasks/{task_id}/subtasks",
+                       {"subtasks": subtasks})
+    definitions.append(("plugin_call_output", {
+        "type": "plugin_call_output", "tool": "plan_subtasks",
+        "status": "success" if ok else "failed",
+    }))
 
     definitions.append(("message.completed", {
         "status": "completed", "object": "response",
         "output": [{"type": "message", "role": "assistant",
                      "content": [{"text": "SUBTASK_DECOMPOSITION_SUMMARY"}]}],
+    }))
+    return definitions
+
+
+def failure_definitions() -> list[tuple[str, dict[str, Any]]]:
+    """G03 失败注入剧本：以 failed 终态事件收尾，worker 走 publishFailure
+    （任务 FAILED）；相比截断流无解析歧义，retry 后的第 2+ 会话走标准剧本。"""
+    return [
+        ("conversation.started", {"status": "created", "object": "response"}),
+        ("message.delta", {
+            "status": "in_progress", "type": "message", "delta": True,
+            "role": "assistant", "content": [{"text": "SUBTASK_DECOMPOSITION_DELTA"}],
+        }),
+        ("message.failed", {"status": "failed", "object": "response",
+                             "error": FAIL_FIRST_MARKER}),
+    ]
+
+
+def aggregation_definitions(task_id: str) -> list[tuple[str, dict[str, Any]]]:
+    """G03 汇总剧本（第 2+ 会话，主任务 retry 边后）：list_subtasks →
+    对每个 SUCCEEDED 子任务取最新 run result → 总结。
+
+    只读 GET 无幂等键；子任务产物与摘要由 get_task_result 事件对透传。
+    """
+    definitions: list[tuple[str, dict[str, Any]]] = [
+        ("conversation.started", {"status": "created", "object": "response"}),
+        ("message.delta", {
+            "status": "in_progress", "type": "message", "delta": True,
+            "role": "assistant", "content": [{"text": "SUBTASK_AGGREGATION_DELTA"}],
+        }),
+    ]
+
+    def read_pair(tool: str, path: str) -> Any:
+        definitions.append(("tool.started", {"type": "tool.started", "tool": tool}))
+        payload = _perform_get(tool, path)
+        definitions.append(("plugin_call_output", {
+            "type": "plugin_call_output", "tool": tool,
+            "status": "success" if payload is not None else "failed",
+        }))
+        return payload
+
+    subtasks = read_pair("list_subtasks", f"/api/v1/tasks/{task_id}/subtasks")
+    for item in subtasks if isinstance(subtasks, list) else []:
+        if not isinstance(item, dict) or item.get("phase") != "SUCCEEDED":
+            continue
+        subtask_id = item.get("subtaskId")
+        if not subtask_id:
+            continue
+        runs = read_pair("get_task_result", f"/api/v1/tasks/{subtask_id}/runs")
+        latest = (max(runs, key=lambda run: str(run.get("createdAt", "")))
+                  if isinstance(runs, list) and runs else None)
+        if isinstance(latest, dict) and latest.get("id"):
+            read_pair("get_task_result",
+                      f"/api/v1/tasks/{subtask_id}/runs/{latest['id']}/result")
+
+    definitions.append(("message.completed", {
+        "status": "completed", "object": "response",
+        "output": [{"type": "message", "role": "assistant",
+                     "content": [{"text": "SUBTASK_AGGREGATION_SUMMARY"}]}],
     }))
     return definitions
 
@@ -196,6 +301,9 @@ def reset_state() -> None:
         DELAY_SECONDS = DEFAULT_DELAY_SECONDS
         DISCONNECT_AFTER = DEFAULT_DISCONNECT_AFTER
         SESSIONS.clear()
+        DECOMPOSITION_ROUNDS.clear()
+        FAIL_FIRST.clear()
+        FAIL_FIRST_ROUNDS.clear()
         AUDIT.clear()
 
 
@@ -359,8 +467,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "999999")
         self.end_headers()
 
-        task_id = decomposition_task_id(request)
-        events = self.session_events(session_id, new_request, task_id)
+        task_id, marked = delegation_context(request)
+        events = self.session_events(session_id, new_request, task_id, marked)
         query = parse_qs(urlsplit(self.path).query)
         after_values = [query.get("after", ["0"])[0], self.headers.get("Last-Event-ID", "0")]
         try:
@@ -393,13 +501,31 @@ class Handler(BaseHTTPRequestHandler):
             self.flush_stream()
 
     def session_events(self, session_id: str, is_new_request: bool,
-                       decomposition_task_id: str | None = None
+                       delegation_task_id: str | None = None,
+                       decomposition_marked: bool = False
                        ) -> list[tuple[int, str, dict[str, Any]]]:
         # 拆解动作的 REST 调用在 CONFIG_LOCK 之外执行，避免阻塞其他会话。
         # 并发首请求可能重复执行动作——验收场景单 worker 单请求，可容忍。
         definitions = None
-        if decomposition_task_id and not self._session_has_events(session_id):
-            definitions = decomposition_definitions(decomposition_task_id)
+        if delegation_task_id and not self._session_has_events(session_id):
+            if delegation_task_id in FAIL_FIRST:
+                # 失败注入子任务：第 1 个会话确定性失败，retry 后的第 2+
+                # 个会话走标准剧本成功（G03 retry 恢复链断言）。
+                with CONFIG_LOCK:
+                    fail_round = FAIL_FIRST_ROUNDS.get(delegation_task_id, 0) + 1
+                    FAIL_FIRST_ROUNDS[delegation_task_id] = fail_round
+                if fail_round == 1:
+                    definitions = failure_definitions()
+            elif decomposition_marked:
+                # 同一 taskId 第 1 个会话走拆解剧本，第 2+ 个（主任务 retry 边后
+                # 的汇总轮）走汇总剧本；计数只对主任务会话递增。
+                with CONFIG_LOCK:
+                    round_no = DECOMPOSITION_ROUNDS.get(delegation_task_id, 0) + 1
+                    DECOMPOSITION_ROUNDS[delegation_task_id] = round_no
+                if round_no == 1:
+                    definitions = decomposition_definitions(delegation_task_id)
+                else:
+                    definitions = aggregation_definitions(delegation_task_id)
         with CONFIG_LOCK:
             state = SESSIONS.setdefault(
                 session_id, {"cursor": 0, "cancelled": False, "events": [], "requests": {}}

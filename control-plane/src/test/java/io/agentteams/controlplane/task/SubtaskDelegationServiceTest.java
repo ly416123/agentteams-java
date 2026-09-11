@@ -3,6 +3,7 @@ package io.agentteams.controlplane.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.persistence.CreateTaskCommand;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
@@ -57,8 +58,9 @@ class SubtaskDelegationServiceTest {
     }
 
     @Test
-    void planCreatesFirstClassSubtaskRows() {
-        UUID taskId = createMainTask("{\"scope\":\"tenant-a\"}");
+    void planCreatesFirstClassSubtaskRows() throws Exception {
+        UUID taskId = createMainTask(
+                "{\"scope\":\"tenant-a\",\"inputJson\":{\"prompt\":\"PARENT_PROMPT_MARKER\"}}");
         List<SubtaskDelegationService.PlannedSubtask> nodes = delegation.plan(taskId, List.of(
                 new SubtaskService.SubtaskSpec(UUID.randomUUID(), "抓取", 1, List.of(), List.of("web")),
                 new SubtaskService.SubtaskSpec(UUID.randomUUID(), "摘要", 2, List.of(), List.of()))).planned();
@@ -75,6 +77,33 @@ class SubtaskDelegationServiceTest {
         // 无能力要求的子任务不写 requiredCapabilities 键
         assertThat(persistence.findTask(nodes.get(1).subtaskId()).orElseThrow().specJson())
                 .doesNotContain("requiredCapabilities");
+        // inputJson 不继承：子任务执行意图只有 title（父任务拆解 prompt 泄漏进子任务
+        // 会话会让子任务 agent 重做整个父任务——kind 验收 G03 排障结论）
+        assertThat(new ObjectMapper()
+                .readTree(child.specJson()).path("inputJson").path("prompt").asText())
+                .isEqualTo("抓取");
+        assertThat(child.specJson()).doesNotContain("PARENT_PROMPT_MARKER");
+    }
+
+    @Test
+    void planBindsChildResourceScopeFromParent() {
+        UUID taskId = createMainTask("{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}");
+        // 模拟 REST 创建主任务时的可见性绑定（TaskService.create → bindIfAuthenticated）
+        persistence.inTransaction(tx -> {
+            tx.insertResourceScope("TASK", taskId, "tenant-a", "project-a", "team-a", Instant.now());
+            return Boolean.TRUE;
+        });
+
+        List<SubtaskDelegationService.PlannedSubtask> nodes = delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(UUID.randomUUID(), "抓取", 1, List.of(), List.of()))).planned();
+
+        // 子任务与主任务同 scope（resource_scopes 缺失会让 GET /runs 等端点 403——kind 验收结论）
+        var scope = persistence.inTransaction(tx ->
+                tx.findResourceScope("TASK", nodes.get(0).subtaskId()));
+        assertThat(scope).isPresent();
+        assertThat(scope.get().tenantId()).isEqualTo("tenant-a");
+        assertThat(scope.get().projectId()).isEqualTo("project-a");
+        assertThat(scope.get().team()).isEqualTo("team-a");
     }
 
     @Test
