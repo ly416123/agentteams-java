@@ -420,6 +420,77 @@ class FoundationRepositoryIT {
     }
 
     @Test
+    void persistsSubtaskLineageAndQueriesByParentForDelegation() {
+        // G03 D6：子任务是一等任务行（parent_task_id 自引用 + kind=SUBTASK），gate 与汇总轮按 parent 查询。
+        Instant now = Instant.parse("2026-09-11T00:00:00Z");
+        UUID parentId = UUID.randomUUID();
+        UUID childA = UUID.randomUUID();
+        UUID childB = UUID.randomUUID();
+        TaskRecord parent = new TaskRecord(parentId, "parent", "description", TaskPhase.SUCCEEDED, 0,
+                "{}", "actor", "test", null, null, now, now, 0,
+                "NORMAL", "ACTIVE", null, null, null, "MAIN");
+        TaskRecord first = new TaskRecord(childA, "child-a", "description", TaskPhase.DRAFT, 0,
+                "{}", "actor", "test", null, null, now, now, 0,
+                "NORMAL", "ACTIVE", null, null, parentId, "SUBTASK");
+        TaskRecord second = new TaskRecord(childB, "child-b", "description", TaskPhase.SUCCEEDED, 0,
+                "{}", "actor", "test", null, null, now.plusSeconds(1), now.plusSeconds(1), 0,
+                "NORMAL", "ACTIVE", null, null, parentId, "SUBTASK");
+
+        persistence.inTransaction(tx -> {
+            tx.tasks().insert(parent);
+            tx.tasks().insert(first);
+            tx.tasks().insert(second);
+            return null;
+        });
+
+        persistence.inTransaction(tx -> {
+            assertThat(tx.tasks().findById(parentId)).get().satisfies(reloaded -> {
+                assertThat(reloaded.isSubtask()).isFalse();
+                assertThat(reloaded.parentTaskId()).isNull();
+                assertThat(reloaded.kind()).isEqualTo("MAIN");
+            });
+            assertThat(tx.tasks().findByParent(parentId))
+                    .extracting(TaskRecord::id)
+                    .containsExactly(childA, childB);
+            assertThat(tx.tasks().findByParent(parentId)).allSatisfy(child -> {
+                assertThat(child.isSubtask()).isTrue();
+                assertThat(child.parentTaskId()).isEqualTo(parentId);
+            });
+            // 硬约束计数：非 SUCCEEDED 子任务数（second 已 SUCCEEDED，first 仍是 DRAFT）。
+            assertThat(tx.tasks().countByParentNotPhase(parentId, TaskPhase.SUCCEEDED)).isEqualTo(1);
+            // gate 扫描：存在 DRAFT 子任务的 parent。
+            assertThat(tx.tasks().findParentIdsWithDraftChildren(10)).contains(parentId);
+            // 汇总轮扫描：存在非 SUCCEEDED 子任务时不进入。
+            assertThat(tx.tasks().findParentIdsAllChildrenSucceeded(10)).doesNotContain(parentId);
+            return null;
+        });
+
+        // first 释放为 SUCCEEDED 后：硬约束清零，parent 进入汇总轮扫描。
+        persistence.inTransaction(tx -> tx.tasks().updatePhase(childA, TaskPhase.SUCCEEDED, 0, now.plusSeconds(1)));
+        persistence.inTransaction(tx -> {
+            assertThat(tx.tasks().countByParentNotPhase(parentId, TaskPhase.SUCCEEDED)).isZero();
+            assertThat(tx.tasks().findParentIdsAllChildrenSucceeded(10)).contains(parentId);
+            return null;
+        });
+    }
+
+    @Test
+    void rejectsKindInvariantsOnTaskRecord() {
+        Instant now = Instant.parse("2026-09-11T00:00:00Z");
+        UUID parentId = UUID.randomUUID();
+        assertThatThrownBy(() -> new TaskRecord(UUID.randomUUID(), "child", "description", TaskPhase.DRAFT, 0,
+                "{}", "actor", "test", null, null, now, now, 0,
+                "NORMAL", "ACTIVE", null, null, null, "SUBTASK"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("subtask requires parentTaskId");
+        assertThatThrownBy(() -> new TaskRecord(UUID.randomUUID(), "main", "description", TaskPhase.DRAFT, 0,
+                "{}", "actor", "test", null, null, now, now, 0,
+                "NORMAL", "ACTIVE", null, null, parentId, "MAIN"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("MAIN task must not carry parentTaskId");
+    }
+
+    @Test
     void resourceApplyResultsAreFencedToTheCurrentBindingRevision() {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         UUID agentId = UUID.randomUUID();

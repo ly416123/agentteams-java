@@ -22,7 +22,9 @@ public record TaskRecord(
         String taskType,
         String archiveStatus,
         Instant archivedAt,
-        String archiveActor) {
+        String archiveActor,
+        UUID parentTaskId,
+        String kind) {
 
     public TaskRecord(UUID id, String title, String description, TaskPhase phase, int priority,
             String specJson, String actor, String source, String failureCode,
@@ -31,12 +33,23 @@ public record TaskRecord(
                 redactedFailureMessage, createdAt, updatedAt, version, "NORMAL", "ACTIVE", null, null);
     }
 
+    /** G02 前 14 参兼容构造器：archive 三列缺省未归档。 */
     public TaskRecord(UUID id, String title, String description, TaskPhase phase, int priority,
             String specJson, String actor, String source, String failureCode,
             String redactedFailureMessage, Instant createdAt, Instant updatedAt, long version,
             String taskType) {
         this(id, title, description, phase, priority, specJson, actor, source, failureCode,
                 redactedFailureMessage, createdAt, updatedAt, version, taskType, "ACTIVE", null, null);
+    }
+
+    /** G02 时代 17 参兼容构造器：G03 新列缺省为无父任务（MAIN），既有调用点零改动。 */
+    public TaskRecord(UUID id, String title, String description, TaskPhase phase, int priority,
+            String specJson, String actor, String source, String failureCode,
+            String redactedFailureMessage, Instant createdAt, Instant updatedAt, long version,
+            String taskType, String archiveStatus, Instant archivedAt, String archiveActor) {
+        this(id, title, description, phase, priority, specJson, actor, source, failureCode,
+                redactedFailureMessage, createdAt, updatedAt, version, taskType, archiveStatus,
+                archivedAt, archiveActor, null, "MAIN");
     }
 
     public TaskRecord {
@@ -56,6 +69,18 @@ public record TaskRecord(
         if (archiveStatus != null && !"ACTIVE".equals(archiveStatus) && !"ARCHIVED".equals(archiveStatus)) {
             throw new IllegalArgumentException("archiveStatus must be ACTIVE or ARCHIVED");
         }
+        if (kind == null || kind.isBlank()) {
+            kind = "MAIN";
+        }
+        if (!"MAIN".equals(kind) && !"SUBTASK".equals(kind)) {
+            throw new IllegalArgumentException("kind must be MAIN or SUBTASK");
+        }
+        if ("SUBTASK".equals(kind) && parentTaskId == null) {
+            throw new IllegalArgumentException("subtask requires parentTaskId");
+        }
+        if ("MAIN".equals(kind) && parentTaskId != null) {
+            throw new IllegalArgumentException("MAIN task must not carry parentTaskId");
+        }
     }
 
     /** 归档状态（D6）；本记录可能由旧代码路径构造，空值视为未归档。 */
@@ -65,6 +90,11 @@ public record TaskRecord(
 
     public boolean archived() {
         return "ARCHIVED".equals(archiveStatusOrActive());
+    }
+
+    /** G03 D6：子任务判定（kind=SUBTASK，必有 parentTaskId）。 */
+    public boolean isSubtask() {
+        return "SUBTASK".equals(kind);
     }
 
     private static String requireType(String value) {

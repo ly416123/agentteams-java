@@ -11,6 +11,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 public final class TaskRepository {
 
+    /** 单一列清单：所有行级 SELECT 共用，G03 新列只在此处追加（消除列清单漂移）。 */
+    private static final String TASK_COLUMNS = """
+            id, title, description, phase, priority, spec::text, actor, source,
+            failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
+            archive_status, archived_at, archive_actor, parent_task_id, kind
+            """;
+
     private final JdbcTemplate jdbc;
 
     TaskRepository(JdbcTemplate jdbc) {
@@ -21,30 +28,25 @@ public final class TaskRepository {
         jdbc.update("""
                 INSERT INTO tasks
                     (id, title, description, phase, priority, spec, actor, source,
-                     failure_code, redacted_failure_message, created_at, updated_at, version, task_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
+                     archive_status, archived_at, archive_actor, parent_task_id, kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, task.id(), task.title(), task.description(), task.phase().name(), task.priority(),
                 JdbcSupport.json(task.specJson()), task.actor(), task.source(), task.failureCode(),
                 JdbcSupport.failureMessage(task.redactedFailureMessage()), JdbcSupport.timestamp(task.createdAt()),
-                JdbcSupport.timestamp(task.updatedAt()), task.version(), task.taskType());
+                JdbcSupport.timestamp(task.updatedAt()), task.version(), task.taskType(),
+                task.archiveStatus(), task.archivedAt() == null ? null : JdbcSupport.timestamp(task.archivedAt()),
+                task.archiveActor(), task.parentTaskId(), task.kind());
     }
 
     public Optional<TaskRecord> findById(UUID id) {
-        return jdbc.query("""
-                SELECT id, title, description, phase, priority, spec::text, actor, source,
-                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
-                       archive_status, archived_at, archive_actor
-                  FROM tasks WHERE id = ?
-                """, this::map, id).stream().findFirst();
+        return jdbc.query("SELECT " + TASK_COLUMNS + " FROM tasks WHERE id = ?",
+                this::map, id).stream().findFirst();
     }
 
     public Optional<TaskRecord> findByIdForUpdate(UUID id) {
-        return jdbc.query("""
-                SELECT id, title, description, phase, priority, spec::text, actor, source,
-                       failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
-                       archive_status, archived_at, archive_actor
-                  FROM tasks WHERE id = ? FOR UPDATE
-                """, this::map, id).stream().findFirst();
+        return jdbc.query("SELECT " + TASK_COLUMNS + " FROM tasks WHERE id = ? FOR UPDATE",
+                this::map, id).stream().findFirst();
     }
 
     public List<TaskListRecord> findPage(Principal principal, CursorPageRequest.Position after, int limit,
@@ -264,6 +266,40 @@ public final class TaskRepository {
         }, args.toArray());
     }
 
+    /** G03：按 parent 读取子任务（创建序稳定，供 gate 与级联取消）。 */
+    public List<TaskRecord> findByParent(UUID parentId) {
+        return jdbc.query("SELECT " + TASK_COLUMNS + " FROM tasks WHERE parent_task_id = ? ORDER BY created_at, id",
+                this::map, parentId);
+    }
+
+    /** G03 D3 硬约束：parent 下 phase != expected 的子任务数（无子任务恒 0）。 */
+    public long countByParentNotPhase(UUID parentId, TaskPhase phase) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM tasks WHERE parent_task_id = ? AND phase <> ?",
+                Long.class, parentId, phase.name());
+        return count == null ? 0 : count;
+    }
+
+    /** G03 gate：存在 DRAFT 子任务的 parent（调度器 tick 扫描入口）。 */
+    public List<UUID> findParentIdsWithDraftChildren(int limit) {
+        return jdbc.queryForList("""
+                SELECT DISTINCT parent_task_id FROM tasks
+                 WHERE parent_task_id IS NOT NULL AND kind = 'SUBTASK' AND phase = 'DRAFT'
+                 LIMIT ?
+                """, UUID.class, limit);
+    }
+
+    /** G03 汇总轮：MAIN 已 SUCCEEDED 且存在子任务且全部子任务 SUCCEEDED 的 parent。 */
+    public List<UUID> findParentIdsAllChildrenSucceeded(int limit) {
+        return jdbc.queryForList("""
+                SELECT p.id FROM tasks p
+                 WHERE p.kind = 'MAIN' AND p.phase = 'SUCCEEDED'
+                   AND EXISTS (SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id)
+                   AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id AND c.phase <> 'SUCCEEDED')
+                 LIMIT ?
+                """, UUID.class, limit);
+    }
+
     private long actualVersion(UUID id) {
         return jdbc.query("SELECT version FROM tasks WHERE id = ?", (rs, row) -> rs.getLong(1), id)
                 .stream().findFirst().orElse(-1L);
@@ -278,7 +314,8 @@ public final class TaskRepository {
                 rs.getString("redacted_failure_message"), JdbcSupport.instant(rs, "created_at"),
                 JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"), rs.getString("task_type"),
                 rs.getString("archive_status"),
-                archivedAt == null ? null : archivedAt.toInstant(), rs.getString("archive_actor"));
+                archivedAt == null ? null : archivedAt.toInstant(), rs.getString("archive_actor"),
+                rs.getObject("parent_task_id", UUID.class), rs.getString("kind"));
     }
 
     private TaskListRecord mapListItem(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
