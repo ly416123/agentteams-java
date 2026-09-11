@@ -146,6 +146,19 @@ public class SubtaskService {
                 payload.toString(), null));
     }
 
+    /**
+     * 投影读取（G03 GET 列表用）：无 run/无 scope 的任务返回空表（真实状态以 tasks 行 phase 为准）。
+     */
+    public List<TaskTreeNode> listProjection(UUID taskId) {
+        Objects.requireNonNull(taskId, "taskId");
+        var runId = runs.latestRunId(taskId);
+        var context = runs.contextForTask(taskId);
+        if (runId.isEmpty() || context.isEmpty()) {
+            return List.of();
+        }
+        return tree.find(context.get(), runId.get());
+    }
+
     private ExecutionContext requireTaskContext(UUID taskId) {
         return runs.contextForTask(taskId).orElseThrow(() ->
                 new IllegalArgumentException("task has no visible scope: " + taskId));

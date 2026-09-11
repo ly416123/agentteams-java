@@ -66,6 +66,13 @@ class ControlPlaneStub(BaseHTTPRequestHandler):
             self._reply({"id": self.server.task_id, "phase": "SUCCEEDED", "title": "t"})
         elif self.path == f"/api/v1/tasks/{self.server.task_id}/runs":
             self._reply([{"id": "run-1", "createdAt": "2026-09-08T00:00:00Z", "status": "SUCCEEDED"}])
+        elif self.path == f"/api/v1/tasks/{self.server.task_id}/subtasks":
+            self._reply([
+                {"subtaskId": "st-1", "title": "抓取邮件", "sequence": 1,
+                 "status": "SUCCEEDED", "phase": "SUCCEEDED", "dependencyIds": []},
+                {"subtaskId": "st-2", "title": "生成摘要", "sequence": 2,
+                 "status": "RUNNING", "phase": "RUNNING", "dependencyIds": ["st-1"]},
+            ])
         elif "/runs/run-1/result" in self.path:
             self._reply({"status": "SUCCEEDED", "summary": "done", "artifacts": [
                 {"name": "output.md", "storageRef": "tasks/x/artifacts/output.md",
@@ -151,7 +158,8 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         tools = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         self.assertEqual([t["name"] for t in tools["result"]["tools"]],
                          ["create_task", "get_task", "get_task_result",
-                          "plan_subtasks", "update_subtask_status", "upload_file"])
+                          "list_subtasks", "plan_subtasks", "update_subtask_status",
+                          "upload_file"])
 
         self.assertIsNone(MCP.handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 
@@ -227,6 +235,21 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertEqual(payload["status"], "SUCCEEDED")
         self.assertEqual(payload["summary"], "done")
         self.assertEqual(payload["artifacts"][0]["downloadUrl"], "http://minio/presigned")
+
+    def test_list_subtasks_maps_platform_phase_and_skips_idempotency_key(self):
+        self._use_env(self.env)
+        payload = MCP.call_tool("list_subtasks", {"task_id": self.server.task_id})
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["taskId"], self.server.task_id)
+        self.assertEqual(
+            [(s["subtaskId"], s["phase"], s["status"]) for s in payload["subtasks"]],
+            [("st-1", "SUCCEEDED", "SUCCEEDED"), ("st-2", "RUNNING", "RUNNING")])
+        self.assertIn("get_task_result", payload["note"])
+        # GET 无写语义：不带 Idempotency-Key。
+        method, path, headers, _ = next(
+            r for r in self.server.requests
+            if r[0] == "GET" and r[1] == f"/api/v1/tasks/{self.server.task_id}/subtasks")
+        self.assertIsNone(headers.get("Idempotency-Key"))
 
     def test_plan_subtasks_posts_declared_list(self):
         self._use_env(self.env)
@@ -469,7 +492,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
             init = ask({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
             self.assertEqual(init["result"]["protocolVersion"], "2024-11-05")
             tools = ask({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-            self.assertEqual(len(tools["result"]["tools"]), 6)
+            self.assertEqual(len(tools["result"]["tools"]), 7)
             created = ask({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
                 "name": "create_task",
                 "arguments": {"title": "500强", "prompt": "生成中国企业500强名单，PDF 格式"}}})

@@ -207,15 +207,25 @@ public final class TaskService {
         return cancel(id, expectedVersion, idempotencyKey, actor, source, null);
     }
 
-    /** 取消（G02）：可选 reason 写入 spec 顶层 cancelReason，随任务透出取消原因。 */
+    /** 取消（G02）：可选 reason 写入 spec 顶层 cancelReason；G03 级联取消未出队子任务。 */
     public TaskRecord cancel(UUID id, long expectedVersion, String idempotencyKey,
             String actor, String source, String reason) {
         authorizeTask(id, ResourceAction.TASK_OPERATE);
         String normalizedReason = reason == null || reason.isBlank() ? null : reason.trim();
+        TaskRecord result;
         if (normalizedReason == null) {
-            return transition(id, TaskPhase.CANCELLED, expectedVersion, idempotencyKey,
+            result = transition(id, TaskPhase.CANCELLED, expectedVersion, idempotencyKey,
                     defaultText(actor, "api"), defaultText(source, "rest"), CANCEL_TASK);
+        } else {
+            result = cancelWithReason(id, expectedVersion, idempotencyKey, actor, source, normalizedReason);
         }
+        // G03 D3：主任务取消后级联取消未出队子任务；已出队的等待自然终态
+        cascadeCancelChildren(id);
+        return result;
+    }
+
+    private TaskRecord cancelWithReason(UUID id, long expectedVersion, String idempotencyKey,
+            String actor, String source, String normalizedReason) {
         TaskRecord current = get(id);
         String key = idempotency.requireKey(idempotencyKey);
         String specJson;
@@ -238,6 +248,40 @@ public final class TaskService {
         }
         return persistence.transitionTaskWithSpec(id, TaskPhase.CANCELLED, specJson, expectedVersion,
                 clock.instant(), key, requestHash, CANCEL_TASK, null);
+    }
+
+    /**
+     * G03 D3：主任务取消时级联取消未出队子任务（DRAFT/QUEUED/PAUSED，规格 §4.1 表）；
+     * RUNNING/终态子任务不动。存储层直写与 SubtaskDelegationService re-plan 同模式
+     * （PAUSED→CANCELLED 非 domain 合法边，规格显式要求级联不造 PAUSED 孤儿）；
+     * 幂等键保证级联与 cancel 幂等重放时单次取消。
+     */
+    private void cascadeCancelChildren(UUID parentId) {
+        Instant at = clock.instant();
+        persistence.inTransaction(tx -> {
+            for (TaskRecord child : tx.tasks().findByParent(parentId)) {
+                if (child.phase() != TaskPhase.DRAFT && child.phase() != TaskPhase.QUEUED
+                        && child.phase() != TaskPhase.PAUSED) {
+                    continue;
+                }
+                String key = "cascade-cancel-" + child.id();
+                if (tx.idempotencyKeys().findByKey(key).isPresent()) {
+                    continue;
+                }
+                IdempotencyKeyRecord keyRecord = new IdempotencyKeyRecord(UUID.randomUUID(), key,
+                        CANCEL_TASK, idempotency.requestHash(parentId.toString(), child.id().toString(),
+                                child.phase().name()), "task", child.id(),
+                        "{\"id\":\"" + child.id() + "\"}", at, at, 0);
+                if (!tx.idempotencyKeys().insertIfAbsent(keyRecord)) {
+                    continue;
+                }
+                TaskRecord cancelled = tx.tasks().updatePhase(child.id(), TaskPhase.CANCELLED,
+                        child.version(), at);
+                FoundationPersistenceService.appendEvent(tx, "task", child.id(), "TaskPhaseChanged",
+                        "{\"taskId\":\"" + child.id() + "\"}", at, cancelled.version());
+            }
+            return null;
+        });
     }
 
     /** Schedule controller has already checked the schedule scope and run identity. */

@@ -1,12 +1,18 @@
 package io.agentteams.controlplane.api;
 
+import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.task.SubtaskService;
 import io.agentteams.controlplane.task.TaskTreeNode;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,10 +36,13 @@ public final class SubtaskController {
 
     private final TaskService tasks;
     private final SubtaskService subtasks;
+    private final FoundationPersistenceService persistence;
 
-    public SubtaskController(TaskService tasks, SubtaskService subtasks) {
+    public SubtaskController(TaskService tasks, SubtaskService subtasks,
+            FoundationPersistenceService persistence) {
         this.tasks = tasks;
         this.subtasks = subtasks;
+        this.persistence = persistence;
     }
 
     @PutMapping
@@ -58,6 +67,34 @@ public final class SubtaskController {
             throw new IllegalArgumentException("status is required");
         }
         return subtasks.updateStatus(taskId, subtaskId, request.status(), request.note());
+    }
+
+    /**
+     * G03 汇总轮输入：列出子任务（投影 title/sequence/依赖/状态 + tasks 行真实 phase）。
+     * 投影序（sequence）为准；投影缺失但有真实行的以 ORPHANED 兜底展示。
+     */
+    @GetMapping
+    public List<SubtaskSummary> list(@PathVariable UUID taskId) {
+        requireExistingTaskScope(taskId);
+        Map<UUID, TaskRecord> byId = persistence.inTransaction(
+                tx -> tx.tasks().findByParent(taskId)).stream()
+                .collect(Collectors.toMap(TaskRecord::id, Function.identity()));
+        List<SubtaskSummary> merged = new ArrayList<>();
+        for (TaskTreeNode node : subtasks.listProjection(taskId)) {
+            TaskRecord child = byId.remove(node.taskId());
+            if (child == null) {
+                continue;
+            }
+            merged.add(new SubtaskSummary(child.id(), child.title(), node.sequence(),
+                    node.status(), child.phase().name(), node.dependencyIds()));
+        }
+        byId.values().forEach(child -> merged.add(new SubtaskSummary(child.id(), child.title(),
+                0, "ORPHANED", child.phase().name(), List.of())));
+        return List.copyOf(merged);
+    }
+
+    public record SubtaskSummary(UUID subtaskId, String title, long sequence, String status,
+            String phase, List<UUID> dependencyIds) {
     }
 
     public record PlanRequest(List<SubtaskService.SubtaskSpec> subtasks) {

@@ -43,7 +43,8 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 SUBTASK_STATUSES = ("RUNNING", "SUCCEEDED", "FAILED", "CANCELLED")
 
 TOOL_NAMES = ["create_task", "get_task", "get_task_result",
-              "plan_subtasks", "update_subtask_status", "upload_file"]
+              "list_subtasks", "plan_subtasks", "update_subtask_status",
+              "upload_file"]
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "create_task": {
@@ -114,6 +115,25 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 "task_id": {"type": "string", "description": "Task UUID."},
+            },
+            "required": ["task_id"],
+        },
+    },
+    "list_subtasks": {
+        "description": (
+            "List the subtasks of a main task with their platform execution "
+            "phase (DRAFT, QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED). "
+            "Use this in the aggregation round: fetch every SUCCEEDED subtask's "
+            "deliverables with get_task_result using the subtaskId as task_id, "
+            "then publish the combined result on the main task."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Main task UUID (see the platform context block).",
+                },
             },
             "required": ["task_id"],
         },
@@ -458,6 +478,33 @@ def tool_get_task_result(arguments: dict[str, Any]) -> dict[str, Any]:
             "summary": result.get("summary"), "artifacts": artifacts}
 
 
+def tool_list_subtasks(arguments: dict[str, Any]) -> dict[str, Any]:
+    config = get_config()
+    task_id = _safe_uuid(arguments.get("task_id"), "task_id")
+    subtasks = _http_json(
+        "GET", _api_url(config, f"/api/v1/tasks/{task_id}/subtasks"),
+        token=_fetch_token(),
+    )
+    listed = [
+        {
+            "subtaskId": item.get("subtaskId"),
+            "title": item.get("title"),
+            "sequence": item.get("sequence"),
+            "phase": item.get("phase"),
+            "status": item.get("status"),
+        }
+        for item in subtasks or []
+    ]
+    return {
+        "ok": True,
+        "taskId": task_id,
+        "subtasks": listed,
+        "note": "phase is the platform execution truth. For each SUCCEEDED "
+                "subtask, fetch its deliverables with get_task_result using "
+                "the subtaskId as task_id.",
+    }
+
+
 def tool_plan_subtasks(arguments: dict[str, Any]) -> dict[str, Any]:
     config = get_config()
     task_id = _safe_uuid(arguments.get("task_id"), "task_id")
@@ -603,6 +650,8 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return tool_get_task(arguments)
     if name == "get_task_result":
         return tool_get_task_result(arguments)
+    if name == "list_subtasks":
+        return tool_list_subtasks(arguments)
     if name == "plan_subtasks":
         return tool_plan_subtasks(arguments)
     if name == "update_subtask_status":

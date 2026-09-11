@@ -5,11 +5,13 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
@@ -38,12 +40,15 @@ class SubtaskControllerTest {
 
     private final TaskService tasks = mock(TaskService.class);
     private final SubtaskService subtasks = mock(SubtaskService.class);
+    private final FoundationPersistenceService persistence = mock(FoundationPersistenceService.class);
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         when(tasks.get(TASK_ID)).thenReturn(taskRecord());
-        mvc = standaloneSetup(new SubtaskController(tasks, subtasks))
+        when(persistence.inTransaction(any())).thenReturn(List.of());
+        when(subtasks.listProjection(TASK_ID)).thenReturn(List.of());
+        mvc = standaloneSetup(new SubtaskController(tasks, subtasks, persistence))
                 .setControllerAdvice(new ApiErrorHandler()).build();
     }
 
@@ -138,6 +143,39 @@ class SubtaskControllerTest {
                         .content("{\"subtasks\":[{\"subtaskId\":\"" + UUID.randomUUID()
                                 + "\",\"title\":\"t\",\"sequence\":1,\"dependencyIds\":[]}]}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void listMergesProjectionWithRealPhaseAndOrphanFallback() throws Exception {
+        UUID projected = UUID.randomUUID();
+        UUID orphan = UUID.randomUUID();
+        when(subtasks.listProjection(TASK_ID)).thenReturn(List.of(
+                new TaskTreeNode(projected, TASK_ID, 1, "RUNNING", List.of(), NOW)));
+        when(persistence.inTransaction(any())).thenReturn(List.of(
+                childRecord(projected, TaskPhase.RUNNING), childRecord(orphan, TaskPhase.CANCELLED)));
+
+        mvc.perform(get("/api/v1/tasks/{taskId}/subtasks", TASK_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].subtaskId").value(projected.toString()))
+                .andExpect(jsonPath("$[0].status").value("RUNNING"))
+                .andExpect(jsonPath("$[0].phase").value("RUNNING"))
+                .andExpect(jsonPath("$[1].subtaskId").value(orphan.toString()))
+                .andExpect(jsonPath("$[1].status").value("ORPHANED"))
+                .andExpect(jsonPath("$[1].phase").value("CANCELLED"));
+    }
+
+    @Test
+    void listReturns404ForUnknownTask() throws Exception {
+        UUID unknown = UUID.randomUUID();
+        when(tasks.get(unknown)).thenThrow(new ResourceNotFoundException("task", unknown));
+        mvc.perform(get("/api/v1/tasks/{taskId}/subtasks", unknown))
+                .andExpect(status().isNotFound());
+    }
+
+    private static TaskRecord childRecord(UUID id, TaskPhase phase) {
+        return new TaskRecord(id, "child", "描述", phase, 0, SPEC_JSON,
+                "alice", "test", null, null, NOW, NOW, 0,
+                "NORMAL", "ACTIVE", null, null, TASK_ID, "SUBTASK");
     }
 
     private static TaskRecord taskRecord() {

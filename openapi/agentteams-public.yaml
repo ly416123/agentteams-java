@@ -317,6 +317,26 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
+    get:
+      operationId: listTaskSubtasks
+      tags: [Tasks]
+      summary: 列出任务子任务（G03 真调度：phase 为平台执行真值）
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 子任务清单（投影序；status 为拆解投影，phase 为平台执行真值）
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SubtaskSummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/tasks/{taskId}/subtasks/{subtaskId}/status:
     parameters: *signedHeaders
     put:
@@ -1199,6 +1219,22 @@ components:
           type: [string, 'null']
           nullable: true
           description: 随状态事件透出的备注；不能提供时事件不含 note。
+    SubtaskSummary:
+      type: object
+      required: [subtaskId, title, sequence, status, phase, dependencyIds]
+      properties:
+        subtaskId: { type: string, format: uuid }
+        title: { type: string }
+        sequence: { type: integer }
+        status:
+          type: string
+          description: 拆解时声明的投影状态，可能滞后于实际执行。
+        phase:
+          type: string
+          description: 平台执行真值（DRAFT/QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELLED），供汇总轮判断产物可用性。
+        dependencyIds:
+          type: array
+          items: { type: string, format: uuid }
     TaskTreeNode:
       type: object
       required: [taskId, parentTaskId, sequence, status, dependencyIds, updatedAt]
