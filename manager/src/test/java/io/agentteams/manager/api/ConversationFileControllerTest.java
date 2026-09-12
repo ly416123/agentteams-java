@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -17,6 +18,7 @@ import io.agentteams.manager.conversation.ConversationService;
 import io.agentteams.manager.security.ConversationScopeAuthorizer;
 import io.agentteams.manager.security.ManagerPrincipal;
 import io.agentteams.manager.security.ManagerRequestContext;
+import java.io.ByteArrayInputStream;
 import java.net.URL;
 import java.time.Instant;
 import java.util.Set;
@@ -40,7 +42,7 @@ class ConversationFileControllerTest {
         mvc = MockMvcBuilders.standaloneSetup(
                         new ConversationFileController(files, conversations,
                                 ConversationScopeAuthorizer.legacy()))
-                .build();
+                .setControllerAdvice(new ManagerErrorHandler()).build();
         ManagerRequestContext.set(new ManagerPrincipal("user-1", "tenant-a", "project-a", "team-a", Set.of()));
         when(conversations.get(SESSION)).thenReturn(new ConversationService.Conversation(
                 SESSION, new ConversationRuntimePort.Context("project-a", "team-a", "qwenpaw", null, SESSION),
@@ -92,5 +94,34 @@ class ConversationFileControllerTest {
         mvc.perform(multipart("/api/v1/conversations/{sessionId}/files", SESSION)
                         .file(new MockMultipartFile("file", "a.txt", MediaType.TEXT_PLAIN_VALUE, "hi".getBytes())))
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void contentEndpointStreamsForTokenedCallers() throws Exception {
+        UUID fileId = UUID.randomUUID();
+        when(files.downloadContent(SESSION, fileId)).thenReturn(
+                new ConversationFileService.DownloadContent("a.pdf", "application/pdf",
+                        new ByteArrayInputStream("pdf".getBytes())));
+        mvc.perform(get("/api/v1/conversations/{sessionId}/files/{fileId}/content", SESSION, fileId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/pdf"));
+    }
+
+    @Test
+    void contentEndpointReturns404WhenMissing() throws Exception {
+        when(files.downloadContent(any(), any())).thenReturn(null);
+        mvc.perform(get("/api/v1/conversations/{sessionId}/files/{fileId}/content", SESSION, UUID.randomUUID()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void contentEndpointRejectsOutOfScopePrincipal() throws Exception {
+        UUID foreign = UUID.randomUUID();
+        when(conversations.get(foreign)).thenReturn(new ConversationService.Conversation(
+                foreign, new ConversationRuntimePort.Context("other-project", "other-team", "qwenpaw", null, foreign),
+                ConversationService.Status.ACTIVE));
+        mvc.perform(get("/api/v1/conversations/{sessionId}/files/{fileId}/content", foreign,
+                        UUID.randomUUID()))
+                .andExpect(status().isForbidden());
     }
 }

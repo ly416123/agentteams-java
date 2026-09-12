@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.agentteams.storage.ObjectStorage;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URL;
 import java.time.Duration;
@@ -57,6 +58,27 @@ class ConversationFileServiceTest {
         assertThatThrownBy(() -> service.upload(SESSION, "big.bin", "application/octet-stream", big))
                 .isInstanceOf(ConversationFileService.FileTooLargeException.class);
         verify(storage, never()).upload(anyString(), any(InputStream.class), anyLong(), anyString());
+    }
+
+    @Test
+    void downloadContentStreamsStoredObject() throws Exception {
+        UUID fileId = UUID.randomUUID();
+        when(repository.find(SESSION, fileId)).thenReturn(new ConversationFile(fileId, SESSION,
+                "a.pdf", "application/pdf", 3, "conversations/" + SESSION + "/files/" + fileId + "/a.pdf",
+                Instant.EPOCH));
+        when(storage.download("conversations/" + SESSION + "/files/" + fileId + "/a.pdf"))
+                .thenReturn(new ByteArrayInputStream(new byte[] {1, 2, 3}));
+
+        ConversationFileService.DownloadContent content = service.downloadContent(SESSION, fileId);
+
+        assertThat(content.name()).isEqualTo("a.pdf");
+        assertThat(content.contentType()).isEqualTo("application/pdf");
+        assertThat(content.content().readAllBytes()).isEqualTo(new byte[] {1, 2, 3});
+    }
+
+    @Test
+    void downloadContentReturnsNullWhenMissing() {
+        assertThat(service.downloadContent(SESSION, UUID.randomUUID())).isNull();
     }
 
     @Test

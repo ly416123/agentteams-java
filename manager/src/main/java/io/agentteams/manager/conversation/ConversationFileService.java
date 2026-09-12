@@ -2,6 +2,7 @@ package io.agentteams.manager.conversation;
 
 import io.agentteams.storage.ObjectStorage;
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
@@ -82,4 +83,16 @@ public final class ConversationFileService {
         }
         return storage.presignGet(file.storageKey(), expiry);
     }
+
+    /** Streams the stored object for cluster-internal consumers (MCP input download). */
+    public DownloadContent downloadContent(UUID sessionId, UUID fileId) {
+        ObjectStorage storage = requireStorage();
+        ConversationFile file = repository.find(sessionId, fileId);
+        if (file == null) {
+            return null;
+        }
+        return new DownloadContent(file.name(), file.contentType(), storage.download(file.storageKey()));
+    }
+
+    public record DownloadContent(String name, String contentType, InputStream content) { }
 }

@@ -9,7 +9,10 @@ import io.agentteams.manager.security.ManagerRequestContext;
 import java.net.URL;
 import java.time.Duration;
 import java.util.UUID;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,10 +25,12 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Uploads files produced by the conversation agent and serves presigned downloads.
- * POST requires an authenticated principal with conversation scope; GET is
- * intentionally anonymous (high-entropy fileId is the capability, mirroring the
- * anonymous presigned GET of the task artifact chain).
+ * Uploads files produced by the conversation agent and serves downloads.
+ * POST and the cluster-internal /content stream require an authenticated
+ * principal with conversation scope (MCP tool identity acts on behalf of the
+ * user); the presigned 302 GET is intentionally anonymous (high-entropy fileId
+ * is the capability, mirroring the anonymous presigned GET of the task
+ * artifact chain).
  */
 @RestController
 @RequestMapping("/api/v1/conversations")
@@ -65,6 +70,34 @@ public final class ConversationFileController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.status(HttpStatus.FOUND).location(presigned.toURI()).build();
+    }
+
+    /** Cluster-internal streaming download (tokened callers, e.g. MCP download_task_file).
+     * 规格要求 token 鉴权不匿名：除 filter 层 token 外，scope 须可达（服务身份代表用户，同 upload）。 */
+    @GetMapping("/{sessionId}/files/{fileId}/content")
+    public ResponseEntity<org.springframework.core.io.InputStreamResource> downloadContent(
+            @PathVariable UUID sessionId, @PathVariable UUID fileId) {
+        ManagerPrincipal principal = ManagerRequestContext.require();
+        var conversation = conversations.get(sessionId);
+        scopeAuthorizer.requireAccessible(conversation.context().project(),
+                conversation.context().team(), principal);
+        ConversationFileService.DownloadContent content = files.downloadContent(sessionId, fileId);
+        if (content == null) {
+            return ResponseEntity.notFound().build();
+        }
+        String contentType = content.contentType() == null || content.contentType().isBlank()
+                ? MediaType.APPLICATION_OCTET_STREAM_VALUE : content.contentType();
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(contentType);
+        } catch (InvalidMediaTypeException error) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\""
+                        + content.name().replace("\"", "'") + "\"")
+                .contentType(mediaType)
+                .body(new org.springframework.core.io.InputStreamResource(content.content()));
     }
 
     /** Storage disabled (or misconfigured) degrades to an explicit 503, not a stack trace. */
