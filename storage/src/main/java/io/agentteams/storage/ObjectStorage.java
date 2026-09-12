@@ -18,4 +18,13 @@ public interface ObjectStorage {
     URL presignGet(String objectKey, Duration expiry);
 
     URL presignPut(String objectKey, String contentType, Duration expiry);
+
+    /** Existence probe for reconciliation; the default probes via download for in-memory fakes. */
+    default boolean exists(String objectKey) {
+        try (InputStream ignored = download(objectKey)) {
+            return true;
+        } catch (Exception error) {
+            return false;
+        }
+    }
 }

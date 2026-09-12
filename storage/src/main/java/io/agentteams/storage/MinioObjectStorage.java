@@ -5,6 +5,8 @@ import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
+import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
 import java.io.InputStream;
 import java.net.MalformedURLException;
@@ -82,6 +84,22 @@ public final class MinioObjectStorage implements ObjectStorage {
                     .build());
         } catch (Exception error) {
             throw failure("delete", key, error);
+        }
+    }
+
+    @Override
+    public boolean exists(String objectKey) {
+        String key = requireObjectKey(objectKey);
+        try {
+            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build());
+            return true;
+        } catch (ErrorResponseException error) {
+            if ("NoSuchKey".equals(error.errorResponse().code())) {
+                return false;
+            }
+            throw failure("stat", key, error);
+        } catch (Exception error) {
+            throw failure("stat", key, error);
         }
     }
 
