@@ -12,7 +12,7 @@ import org.springframework.stereotype.Repository;
 
 /** Thin JDBC ledger for G05 task files; SQL semantics covered by kind/L5 acceptance. */
 @Repository
-public final class JdbcTaskFileRepository {
+public class JdbcTaskFileRepository {
 
     private final JdbcTemplate jdbc;
 
