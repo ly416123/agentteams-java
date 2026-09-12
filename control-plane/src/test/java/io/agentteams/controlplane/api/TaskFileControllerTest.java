@@ -142,4 +142,14 @@ class TaskFileControllerTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void attachmentsRegistrationRejectsMissingRequiredFields() throws Exception {
+        mvc.perform(post("/api/v1/tasks/{taskId}/attachments", TASK)
+                        .header("Idempotency-Key", "k-3")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"attachments\":[{\"sessionId\":\"" + UUID.randomUUID()
+                                + "\",\"name\":\"a.pdf\",\"sizeBytes\":3}]}"))
+                .andExpect(status().isBadRequest());
+    }
 }

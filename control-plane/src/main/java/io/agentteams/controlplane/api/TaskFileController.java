@@ -67,8 +67,13 @@ public final class TaskFileController {
             throw new IllegalArgumentException("attachments is required");
         }
         List<TaskFileResponse> registered = request.attachments().stream()
-                .map(item -> TaskFileResponse.from(files.registerInput(taskId, item.sessionId(),
-                        item.fileId(), item.name(), item.sizeBytes())))
+                .map(item -> {
+                    if (item.sessionId() == null || item.fileId() == null || item.name() == null) {
+                        throw new IllegalArgumentException("sessionId, fileId and name are required");
+                    }
+                    return TaskFileResponse.from(files.registerInput(taskId, item.sessionId(),
+                            item.fileId(), item.name(), item.sizeBytes()));
+                })
                 .toList();
         return ResponseEntity.status(HttpStatus.CREATED).body(new AttachmentListResponse(registered));
     }
@@ -89,8 +94,11 @@ public final class TaskFileController {
         if (record.isInput()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
-        InputStream stream = files.outputContent(record);
-        StreamingResponseBody body = output -> stream.transferTo(output);
+        StreamingResponseBody body = output -> {
+            try (InputStream in = files.outputContent(record)) {
+                in.transferTo(output);
+            }
+        };
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM).body(body);
     }

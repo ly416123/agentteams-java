@@ -21,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -34,6 +35,13 @@ public final class ApiErrorHandler {
             MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class})
     ResponseEntity<ApiError> validation(Exception ignored) {
         return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "request validation failed");
+    }
+
+    /** Multipart 超限在 checkMultipart（handler 之前）抛出，只有全局 advice 能接住；spec §4.1 要求 413。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<ApiError> multipartTooLarge(MaxUploadSizeExceededException ignored) {
+        return error(HttpStatus.PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE",
+                "uploaded file exceeds the size limit");
     }
 
     @ExceptionHandler(QuotaExceededException.class)
