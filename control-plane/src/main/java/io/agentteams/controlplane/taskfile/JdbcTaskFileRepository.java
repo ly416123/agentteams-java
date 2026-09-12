@@ -81,6 +81,6 @@ public class JdbcTaskFileRepository {
                 rs.getString("content_type"), rs.getLong("size_bytes"), rs.getString("sha256"),
                 rs.getString("storage_key"), rs.getObject("source_session_id", UUID.class),
                 rs.getObject("source_file_id", UUID.class), rs.getString("status"),
-                rs.getObject("created_at", Instant.class), rs.getObject("updated_at", Instant.class));
+                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
     }
 }
