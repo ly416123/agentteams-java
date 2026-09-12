@@ -2,6 +2,7 @@ package io.agentteams.controlplane.taskfile;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -30,7 +31,8 @@ public class JdbcTaskFileRepository {
                 record.id(), record.taskId(), record.attemptId(), record.role(), record.name(),
                 record.contentType(), record.sizeBytes(), record.sha256(), record.storageKey(),
                 record.sourceSessionId(), record.sourceFileId(), record.status(),
-                record.createdAt(), record.updatedAt()) == 1;
+                // PG JDBC 无法推断 Instant 的 SQL 类型，全库惯例是显式包 Timestamp。
+                Timestamp.from(record.createdAt()), Timestamp.from(record.updatedAt())) == 1;
     }
 
     public Optional<TaskFileRecord> findById(UUID id) {
@@ -63,7 +65,8 @@ public class JdbcTaskFileRepository {
     }
 
     public boolean markMissing(UUID id, Instant at) {
-        return jdbc.update("UPDATE task_files SET status = 'MISSING', updated_at = ? WHERE id = ?", at, id) == 1;
+        return jdbc.update("UPDATE task_files SET status = 'MISSING', updated_at = ? WHERE id = ?",
+                Timestamp.from(at), id) == 1;
     }
 
     /** Exposed for the unit test; production callers use the query methods above. */
