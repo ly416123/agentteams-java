@@ -17,6 +17,7 @@ import io.agentteams.controlplane.task.TaskDecisionRecord;
 import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
+import io.agentteams.controlplane.taskfile.TaskFileService;
 import java.time.Duration;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -48,11 +49,13 @@ public final class TaskProcessController {
     private final TaskDecisionRecordService decisions;
     private final ExecutionContextResolver contextResolver;
     private final ObjectProvider<ArtifactService> artifactService;
+    private final TaskFileService taskFiles;
 
     @Autowired
     public TaskProcessController(TaskProcessEventService events, TaskProgressService progress,
             TaskResultManifestService results, TaskTreeService tree, TaskDecisionRecordService decisions,
-            ExecutionContextResolver contextResolver, ObjectProvider<ArtifactService> artifactService) {
+            ExecutionContextResolver contextResolver, ObjectProvider<ArtifactService> artifactService,
+            TaskFileService taskFiles) {
         this.events = Objects.requireNonNull(events, "events");
         this.progress = Objects.requireNonNull(progress, "progress");
         this.results = Objects.requireNonNull(results, "results");
@@ -60,6 +63,7 @@ public final class TaskProcessController {
         this.decisions = Objects.requireNonNull(decisions, "decisions");
         this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver");
         this.artifactService = Objects.requireNonNull(artifactService, "artifactService");
+        this.taskFiles = Objects.requireNonNull(taskFiles, "taskFiles");
     }
 
     /** Compatibility constructor for callers that only consume the original three read projections. */
@@ -73,6 +77,7 @@ public final class TaskProcessController {
         this.decisions = null;
         this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver");
         this.artifactService = Objects.requireNonNull(artifactService, "artifactService");
+        this.taskFiles = null;
     }
 
     @GetMapping("/{taskId}/runs/{runId}/process-events")
@@ -111,13 +116,19 @@ public final class TaskProcessController {
         TaskEventVisibility requested = visibleLevel(visibility);
         TaskResultManifest manifest = results.get(context(), taskId, runId, Set.of(requested))
                 .orElseThrow(() -> new ResourceNotFoundException("task result", runId));
+        List<TaskFileSummary> taskFileSummaries = taskFiles == null ? List.of()
+                : taskFiles.list(taskId, null).stream()
+                        .map(record -> new TaskFileSummary(record.id(), record.role(), record.name(),
+                                record.contentType(), record.sizeBytes(), record.status(),
+                                record.sourceSessionId(), record.sourceFileId()))
+                        .toList();
         return new TaskResultResponse(manifest.taskId().toString(), manifest.runId().toString(),
                 manifest.status(), manifest.summary(), manifest.artifacts().stream()
                         .map(artifact -> new ResultArtifact(artifact.name(),
                                 artifact.storageRef(), artifact.contentType(), artifact.sizeBytes(), artifact.sha256(),
                                 artifact.version(), artifact.stage(), artifact.visibility().name(),
                                 downloadUrlFor(artifact)))
-                        .toList());
+                        .toList(), taskFileSummaries);
     }
 
     /** Presigns a short-lived download for durable references; memory-only artifacts have none. */
@@ -135,7 +146,12 @@ public final class TaskProcessController {
 
     /** Result response with per-artifact presigned download links where storage backs them. */
     public record TaskResultResponse(String taskId, String runId, String status, String summary,
-            List<ResultArtifact> artifacts) {
+            List<ResultArtifact> artifacts, List<TaskFileSummary> taskFiles) {
+    }
+
+    /** G05 任务文件账本聚合项（result 响应内嵌，与清单端点同源）。 */
+    public record TaskFileSummary(UUID fileId, String role, String name, String contentType,
+            long sizeBytes, String status, UUID sessionId, UUID sourceFileId) {
     }
 
     public record ResultArtifact(String name, String storageRef, String contentType, long sizeBytes,

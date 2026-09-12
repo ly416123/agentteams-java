@@ -18,6 +18,7 @@ import io.agentteams.controlplane.task.TaskResultManifestService;
 import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
+import io.agentteams.controlplane.taskfile.TaskFileService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -104,7 +105,7 @@ class TaskProcessControllerTest {
         when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
 
         MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, tree, decisions,
-                resolver, noArtifactService())).build();
+                resolver, noArtifactService(), Mockito.mock(TaskFileService.class))).build();
 
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/tree", TASK_ID, RUN_ID)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/decisions", TASK_ID, RUN_ID)).andExpect(status().isOk());
