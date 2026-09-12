@@ -411,6 +411,65 @@ class QwenPawHttpRuntimePortTest {
                 .hasMessageContaining("started");
     }
 
+    @Test
+    void promptInjectsAttachmentBlockAndUploadGuidance() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"status\":\"completed\",\"output\":\"ack\"}\n\n");
+        });
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch completed = new CountDownLatch(1);
+        RuntimeTask task = new RuntimeTask(
+                UUID.fromString("00000000-0000-0000-0000-0000000000b2"), "chat",
+                "{\"prompt\":\"分析这份报告\",\"attachments\":[{"
+                        + "\"sessionId\":\"00000000-0000-0000-0000-0000000000b3\"," 
+                        + "\"fileId\":\"00000000-0000-0000-0000-0000000000b4\"," 
+                        + "\"name\":\"报告.pdf\",\"sizeBytes\":12345}]}", Map.of());
+        port.start(context(), value -> completed.countDown());
+        port.submit(task);
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        JsonNode request = MAPPER.readTree(requestBody.get());
+        String text = request.path("input").get(0).path("content").get(0).path("text").asText();
+        assertThat(text).contains("[输入附件]");
+        assertThat(text).contains(
+                "- name=报告.pdf file_id=00000000-0000-0000-0000-0000000000b4"
+                        + " session_id=00000000-0000-0000-0000-0000000000b3 size=12345");
+        assertThat(text).contains("download_task_file");
+        assertThat(text).contains("upload_task_file");
+        assertThat(text).endsWith("分析这份报告");
+        port.stop();
+    }
+
+    @Test
+    void promptKeepsUploadGuidanceWithoutAttachments() throws Exception {
+        server.createContext("/api/console/chat", exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, "text/event-stream",
+                    "data: {\"status\":\"completed\",\"output\":\"ack\"}\n\n");
+        });
+        server.start();
+
+        QwenPawHttpRuntimePort port = port();
+        CountDownLatch completed = new CountDownLatch(1);
+        RuntimeTask task = new RuntimeTask(
+                UUID.fromString("00000000-0000-0000-0000-0000000000b5"), "chat",
+                "{\"prompt\":\"帮我总结周报\"}", Map.of());
+        port.start(context(), value -> completed.countDown());
+        port.submit(task);
+
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        JsonNode request = MAPPER.readTree(requestBody.get());
+        String text = request.path("input").get(0).path("content").get(0).path("text").asText();
+        assertThat(text).doesNotContain("[输入附件]");
+        assertThat(text).contains("upload_task_file");
+        assertThat(text).endsWith("帮我总结周报");
+        port.stop();
+    }
+
     private QwenPawHttpRuntimePort port() {
         return new QwenPawHttpRuntimePort(
                 new QwenPawHttpRuntimeConfiguration(

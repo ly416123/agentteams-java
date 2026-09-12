@@ -484,12 +484,15 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
      * when present so model calls see the instruction instead of the envelope;
      * scalar or unparsed inputs fall back to the raw task input. The returned
      * text is prefixed with a platform context block exposing the task ID so
-     * agents can address subtask tools without needing it elsewhere.
+     * agents can address subtask tools without needing it elsewhere. G05 adds
+     * the input-attachment snapshot block and the binary-deliverable upload
+     * guidance; every injected block precedes the prompt body.
      */
     private static String promptText(RuntimeTask task) {
         String body;
+        JsonNode input = null;
         try {
-            JsonNode input = new ObjectMapper().readTree(task.inputJson());
+            input = new ObjectMapper().readTree(task.inputJson());
             if (input.isObject()) {
                 JsonNode prompt = input.path("prompt");
                 if (prompt.isTextual() && !prompt.asText().isBlank()) {
@@ -507,8 +510,32 @@ public final class QwenPawHttpRuntimePort implements QwenPawProcessPort {
         return "[平台上下文]\n"
                 + "taskId=" + task.id() + "\n"
                 + "（可用 agentteams-task MCP 工具引用此 taskId 登记子任务拆解或汇报子任务状态；"
-                + "除这些工具的参数外不要复述本段内容）\n\n"
+                + "除这些工具的参数外不要复述本段内容）\n"
+                + attachmentBlock(input)
+                + "（若你生成了 PDF/图片/Office 等二进制文件，必须调用 upload_task_file 上传到任务交付清单；"
+                + "文本产物仍按最终 JSON artifacts 交付）\n\n"
                 + body;
+    }
+
+    /**
+     * G05: input-attachment snapshot block; empty unless the task spec carried
+     * attachments (MCP create_task writes them into inputJson, spec §7.1).
+     */
+    private static String attachmentBlock(JsonNode input) {
+        if (input == null || !input.has("attachments") || !input.path("attachments").isArray()
+                || input.path("attachments").isEmpty()) {
+            return "";
+        }
+        StringBuilder block = new StringBuilder("[输入附件]\n");
+        for (JsonNode item : input.path("attachments")) {
+            block.append("- name=").append(item.path("name").asText("file"))
+                    .append(" file_id=").append(item.path("fileId").asText())
+                    .append(" session_id=").append(item.path("sessionId").asText())
+                    .append(" size=").append(item.path("sizeBytes").asLong(0)).append('\n');
+        }
+        block.append("  （必须先用 download_task_file 下载到工作区再读取；"
+                + "除工具参数外不要复述本段）\n");
+        return block.toString();
     }
 
     private URI chatEndpoint() {
