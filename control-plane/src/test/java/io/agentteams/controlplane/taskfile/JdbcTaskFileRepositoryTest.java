@@ -33,6 +33,19 @@ class JdbcTaskFileRepositoryTest {
                 TaskFileRecord.OUTPUT, "报告.pdf", "application/pdf", 3, "ab".repeat(32),
                 "tasks/t/files/f/报告.pdf", null, null, TaskFileRecord.AVAILABLE, now, now);
         assertThat(repository.insert(record)).isTrue();
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(sql.capture(), args.capture());
+        assertThat(sql.getValue()).contains(
+                "task_id", "role", "name", "content_type", "size_bytes", "sha256",
+                "storage_key", "source_session_id", "source_file_id", "status",
+                "created_at", "updated_at");
+        // 14 列全绑定；时间列必须显式包 Timestamp（PG JDBC 无法推断 Instant，
+        // 回退为直接传 Instant 仅在真实 DB 运行时炸——kind 验收缺陷 23d96fe）。
+        Object[] bound = args.getValue();
+        assertThat(bound).hasSize(14);
+        assertThat(bound[12]).isEqualTo(java.sql.Timestamp.from(now));
+        assertThat(bound[13]).isEqualTo(java.sql.Timestamp.from(now));
     }
 
     @Test
@@ -63,6 +76,8 @@ class JdbcTaskFileRepositoryTest {
                 .mapRow(recordFixtureResultSet(), 0);
         assertThat(record).isNotNull();
         assertThat(record.role()).isEqualTo(TaskFileRecord.OUTPUT);
+        assertThat(record.attemptId()).isNull();
+        assertThat(record.createdAt()).isEqualTo(Instant.EPOCH);
     }
 
     private java.sql.ResultSet recordFixtureResultSet() throws java.sql.SQLException {

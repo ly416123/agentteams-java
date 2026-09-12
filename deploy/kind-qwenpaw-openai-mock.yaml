@@ -643,7 +643,7 @@ data:
             if delegation_task_id and not self._session_has_events(session_id):
                 if task_file_marked:
                     # 任务文件上传剧本：无 round 计数（验收场景单会话单次上传，
-                    # control-plane 按 (taskId, role, sha256) 幂等去重兜底）。
+                    # control-plane 按 (taskId, role, name, sha256) 幂等去重兜底）。
                     definitions = task_file_definitions(delegation_task_id)
                 elif delegation_task_id in FAIL_FIRST:
                     # 失败注入子任务：第 1 个会话确定性失败，retry 后的第 2+

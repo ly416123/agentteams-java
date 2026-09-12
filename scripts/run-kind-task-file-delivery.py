@@ -381,7 +381,7 @@ def main() -> int:
         print(f"project membership ensured (previous role: {previous_role!r})")
         # manager 无需 port-forward：本链全部调 control-plane（INPUT 假引用不校验
         # 跨域存在性，规格 §4.1；mock 剧本直传的也是 control-plane）。
-        token = tokens.get()
+        # 各调用点每次经 tokens.get() 取 token，保持过期前刷新语义。
 
         # 1) 建任务并排队；prompt 携带 marker → mock 剧本代表 agent 直传一份 OUTPUT。
         task_id = create_and_queue_task(base_url, tokens, args.tenant, args.project,
@@ -394,32 +394,32 @@ def main() -> int:
                      {"attachments": [{"sessionId": str(uuid.uuid4()),
                                        "fileId": str(uuid.uuid4()),
                                        "name": "输入.txt", "sizeBytes": 12}]},
-                     token, str(uuid.uuid4()))
-        _, manifest = request_json(f"{base_url}/api/v1/tasks/{task_id}/files", token=token)
+                     tokens.get(), str(uuid.uuid4()))
+        _, manifest = request_json(f"{base_url}/api/v1/tasks/{task_id}/files", token=tokens.get())
         manifest = manifest or []
         check("INPUT 登记入清单", any(f["role"] == "INPUT" for f in manifest))
         input_id = next(f["fileId"] for f in manifest if f["role"] == "INPUT")
 
         # 3) OUTPUT 上传：服务端直传 + 服务端 SHA-256。
-        created = upload_multipart(f"{base_url}/api/v1/tasks/{task_id}/files", token,
+        created = upload_multipart(f"{base_url}/api/v1/tasks/{task_id}/files", tokens.get(),
                                    "top10.pdf", PDF_BYTES, "application/pdf")
         check("上传返回 sha256 与本地一致",
               created.get("sha256") == sha256_hex(PDF_BYTES), str(created))
         file_id = created["fileId"]
 
         # 4) 集群内代理流回读一致。
-        echoed = request_bytes(f"{base_url}/api/v1/tasks/{task_id}/files/{file_id}/content", token)
+        echoed = request_bytes(f"{base_url}/api/v1/tasks/{task_id}/files/{file_id}/content", tokens.get())
         check("content 回读一致", echoed == PDF_BYTES)
 
         # 5) 幂等重传去重（验收总表第 2 条：不产生失控重复）。mock 剧本直传
         # 与 worker 会话并发进行，OUTPUT 恰 2 条用轮询吸收时序：提前断言会
         # 在 mock 上传落库前抽检失败（本轮时序已在验收中实际观察到）。
-        again = upload_multipart(f"{base_url}/api/v1/tasks/{task_id}/files", token,
+        again = upload_multipart(f"{base_url}/api/v1/tasks/{task_id}/files", tokens.get(),
                                  "top10.pdf", PDF_BYTES, "application/pdf")
         check("重传返回既有记录", again.get("fileId") == file_id, str(again))
 
         def outputs_settled():
-            _, current = request_json(f"{base_url}/api/v1/tasks/{task_id}/files", token=token)
+            _, current = request_json(f"{base_url}/api/v1/tasks/{task_id}/files", token=tokens.get())
             current_outputs = [f for f in (current or []) if f["role"] == "OUTPUT"]
             return current_outputs if len(current_outputs) >= 2 else None
 
@@ -429,32 +429,32 @@ def main() -> int:
 
         # 6) 50MB 超限 413；INPUT content 409。
         try:
-            upload_multipart(f"{base_url}/api/v1/tasks/{task_id}/files", token,
+            upload_multipart(f"{base_url}/api/v1/tasks/{task_id}/files", tokens.get(),
                              "big.bin", OVER_LIMIT_BYTES, "application/octet-stream")
             check("50MB 超限 413", False)
         except ApiError as error:
             check("50MB 超限 413", error.status == 413, str(error))
         try:
-            request_bytes(f"{base_url}/api/v1/tasks/{task_id}/files/{input_id}/content", token)
+            request_bytes(f"{base_url}/api/v1/tasks/{task_id}/files/{input_id}/content", tokens.get())
             check("INPUT content 409", False)
         except ApiError as error:
             check("INPUT content 409", error.status == 409, str(error))
 
         # 7) 浏览器 302 出口（presignEndpoint 受众）。
         location = request_location(
-            f"{base_url}/api/v1/tasks/{task_id}/files/{file_id}/download", token)
+            f"{base_url}/api/v1/tasks/{task_id}/files/{file_id}/download", tokens.get())
         check("302 Location 是 presigned URL",
               location is not None and ("X-Amz" in location or "presign" in location.lower()),
               str(location))
 
         # 8) run 终态 + result 聚合 taskFiles（含 mock 剧本直传的那条 → MCP 调用链闭环）。
         wait_for_terminal_phase(base_url, tokens, task_id)
-        _, runs = request_json(f"{base_url}/api/v1/tasks/{task_id}/runs", token=token)
+        _, runs = request_json(f"{base_url}/api/v1/tasks/{task_id}/runs", token=tokens.get())
         if not runs:
             fail("no runs recorded after terminal phase")
         latest = max(runs, key=lambda run: run.get("createdAt", ""))
         _, result = request_json(
-            f"{base_url}/api/v1/tasks/{task_id}/runs/{latest['id']}/result", token=token)
+            f"{base_url}/api/v1/tasks/{task_id}/runs/{latest['id']}/result", token=tokens.get())
         task_files = result.get("taskFiles") or []
         check("result 聚合 taskFiles 含 OUTPUT 且 AVAILABLE",
               any(f["fileId"] == file_id and f["status"] == "AVAILABLE" for f in task_files),
@@ -469,9 +469,9 @@ def main() -> int:
             try:
                 return request_bytes(
                     f"{base_url}/api/v1/tasks/{task_id}/files/{file_id}/content",
-                    token) == PDF_BYTES or None
-            except ApiError:
-                return None  # 轮询窗口内的瞬时错误按未就绪处理
+                    tokens.get()) == PDF_BYTES or None
+            except (ApiError, urllib.error.URLError):
+                return None  # 轮询窗口内的瞬时错误（含 port-forward 抖动）按未就绪处理
 
         poll_until(content_survives,
                    "content to stay downloadable after workers are deleted")
