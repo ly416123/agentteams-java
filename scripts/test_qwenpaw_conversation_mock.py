@@ -358,6 +358,28 @@ class QwenPawConversationMockTest(unittest.TestCase):
         self.assertNotIn('"type":"tool.started"', body)
         self.assertIn("CONVERSATION_MOCK_OK", body)
 
+    def test_task_file_marker_triggers_upload_definitions(self):
+        task_id = "00000000-0000-0000-0000-0000000000c1"
+        request = {"input": [{"role": "user", "content": [
+            {"type": "text", "text": f"taskId={task_id} {MOCK.TASK_FILE_MARKER}"}]}]}
+        self.assertTrue(MOCK.has_task_file_marker(request))
+        # 与拆解用例一样隔离宿主环境：config 缺失时动作降级为 failed 输出，
+        # 开发者本机导出 AGENTTEAMS_CONTROL_PLANE_URL 也不能真实外呼。
+        with mock.patch.dict(os.environ, self.decomposition_env):
+            definitions = MOCK.task_file_definitions(task_id)
+        names = [name for name, _ in definitions]
+        self.assertEqual(names[0], "tool.started")
+        self.assertIn("plugin_call_output", names)
+        self.assertEqual(names[-1], "message.completed")
+        tools = [payload.get("tool") for _, payload in definitions
+                 if payload.get("type") in ("tool.started", "plugin_call_output")]
+        self.assertEqual(tools, ["upload_task_file", "upload_task_file"])
+
+    def test_has_task_file_marker_false_for_plain_prompt(self):
+        request = {"input": [{"role": "user", "content": [
+            {"type": "text", "text": "普通任务"}]}]}
+        self.assertFalse(MOCK.has_task_file_marker(request))
+
     def test_native_model_endpoints_accept_worker_bootstrap(self):
         # Worker 启动时用 native model config 做 bootstrap：active 提供者必须可读，
         # 两个配置 PUT 必须成功，否则 WorkerRuntimeRouter.start 直接 crash。

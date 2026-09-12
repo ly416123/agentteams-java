@@ -112,6 +112,10 @@ data:
         r"taskId=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
     DECOMPOSITION_MARKER = "SUBTASK_DECOMPOSITION_PROMPT"
     FAIL_FIRST_MARKER = "CONVERSATION_MOCK_FAIL_FIRST"
+    # G05 任务文件上传剧本：prompt 携带该标记即触发 mock 直传 control-plane
+    # multipart（模拟 agent 的 upload_task_file 效果，交付 mock-deliverable.pdf）。
+    TASK_FILE_MARKER = "TASK_FILE_UPLOAD_PROMPT"
+    MOCK_PDF_BYTES = b"%PDF-1.4\n%conversation-mock-deliverable\n%%EOF\n"
     REST_TIMEOUT_SECONDS = 5.0
     _TOKEN_CACHE: dict[str, tuple[float, str]] = {}
 
@@ -244,6 +248,25 @@ data:
             return None
 
 
+    def _rest_upload_ok(config: dict[str, str], task_id: str) -> bool:
+        """Mock 无 workspace，直传 multipart 模拟 agent 的 upload_task_file 效果。"""
+        boundary = "----conversationmock" + uuid.uuid4().hex
+        part = (f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="file"; filename="mock-deliverable.pdf"\r\n'
+                f"Content-Type: application/pdf\r\n\r\n").encode()
+        body = part + MOCK_PDF_BYTES + f"\r\n--{boundary}--\r\n".encode()
+        request = urllib.request.Request(
+            config["base"] + f"/api/v1/tasks/{task_id}/files", data=body, method="POST",
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {_bearer_token(config)}",
+                "Idempotency-Key": str(uuid.uuid4()),
+            })
+        with urllib.request.urlopen(request, timeout=REST_TIMEOUT_SECONDS) as response:
+            return 200 <= response.status < 300
+
+
     def decomposition_definitions(task_id: str) -> list[tuple[str, dict[str, Any]]]:
         """G03 拆解剧本（第 1 会话）：plan 3 子任务后即完成，不再代跑状态推进。
 
@@ -364,6 +387,42 @@ data:
                          "content": [{"text": "SUBTASK_AGGREGATION_SUMMARY"}]}],
         }))
         return definitions
+
+
+    def task_file_definitions(task_id: str) -> list[tuple[str, dict[str, Any]]]:
+        """G05 任务文件上传剧本：tool.started → 直传 multipart → plugin_call_output。
+
+        与拆解动作同款 best-effort：config 缺失或上传失败只降级 output 状态，
+        不中断 SSE 流；尾部接标准剧本收尾（completed 终态）。
+        """
+        definitions: list[tuple[str, dict[str, Any]]] = [
+            ("tool.started", {"type": "tool.started", "tool": "upload_task_file"})]
+        ok = False
+        config = control_plane_config()
+        if config is not None:
+            try:
+                ok = _rest_upload_ok(config, task_id)
+            except Exception as error:  # noqa: BLE001 - best-effort：降级不中断 SSE 流
+                print(f"conversation mock task-file upload failed: {error}",
+                      file=sys.stderr, flush=True)
+        definitions.append((
+            "plugin_call_output",
+            {"type": "plugin_call_output", "tool": "upload_task_file",
+             "status": "success" if ok else "failed"}))
+        definitions.extend(STANDARD_DEFINITIONS)
+        return definitions
+
+
+    def has_task_file_marker(request: dict[str, Any]) -> bool:
+        """delegation_context 同款文本扫描：仅检测任务文件上传标记，不改既有签名。"""
+        for item in request.get("input") or []:
+            if not isinstance(item, dict):
+                continue
+            for content in item.get("content") or []:
+                text = content.get("text") if isinstance(content, dict) else None
+                if isinstance(text, str) and TASK_FILE_MARKER in text:
+                    return True
+        return False
 
 
     def reset_state() -> None:
@@ -539,7 +598,9 @@ data:
             self.end_headers()
 
             task_id, marked = delegation_context(request)
-            events = self.session_events(session_id, new_request, task_id, marked)
+            task_file_marked = has_task_file_marker(request)
+            events = self.session_events(session_id, new_request, task_id, marked,
+                                         task_file_marked)
             query = parse_qs(urlsplit(self.path).query)
             after_values = [query.get("after", ["0"])[0], self.headers.get("Last-Event-ID", "0")]
             try:
@@ -573,13 +634,18 @@ data:
 
         def session_events(self, session_id: str, is_new_request: bool,
                            delegation_task_id: str | None = None,
-                           decomposition_marked: bool = False
+                           decomposition_marked: bool = False,
+                           task_file_marked: bool = False
                            ) -> list[tuple[int, str, dict[str, Any]]]:
             # 拆解动作的 REST 调用在 CONFIG_LOCK 之外执行，避免阻塞其他会话。
             # 并发首请求可能重复执行动作——验收场景单 worker 单请求，可容忍。
             definitions = None
             if delegation_task_id and not self._session_has_events(session_id):
-                if delegation_task_id in FAIL_FIRST:
+                if task_file_marked:
+                    # 任务文件上传剧本：无 round 计数（验收场景单会话单次上传，
+                    # control-plane 按 (taskId, role, sha256) 幂等去重兜底）。
+                    definitions = task_file_definitions(delegation_task_id)
+                elif delegation_task_id in FAIL_FIRST:
                     # 失败注入子任务：第 1 个会话确定性失败，retry 后的第 2+
                     # 个会话走标准剧本成功（G03 retry 恢复链断言）。
                     with CONFIG_LOCK:
