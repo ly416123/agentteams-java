@@ -49,6 +49,16 @@ class ControlPlaneStub(BaseHTTPRequestHandler):
             self.server.requests.append(("POST", self.path, dict(self.headers), None))
             self._reply({"access_token": "granted-token", "expires_in": 300})
             return
+        if self.path.endswith("/files"):
+            # multipart raw is not JSON; record it verbatim before any json.loads.
+            self.server.requests.append(("POST", self.path, dict(self.headers), raw))
+            if getattr(self.server, "fail_uploads", False):
+                self._reply({"error": "storage unavailable"}, status=503)
+                return
+            self.server.task_upload_body = raw
+            self._reply({"fileId": str(uuid.uuid4()), "name": "报告.pdf",
+                         "sizeBytes": len(raw), "sha256": "ab" * 32}, status=201)
+            return
         payload = json.loads(raw or b"{}")
         self.server.requests.append(("POST", self.path, dict(self.headers), payload))
         if self.path == "/api/v1/tasks":
@@ -57,6 +67,12 @@ class ControlPlaneStub(BaseHTTPRequestHandler):
         elif "/queue" in self.path:
             self.server.queue_body = payload
             self._reply({"id": self.server.task_id, "phase": "QUEUED", "version": 1})
+        elif self.path.endswith("/attachments"):
+            self._reply({"files": [
+                {"fileId": str(uuid.uuid4()), "role": "INPUT", "name": item.get("name"),
+                 "sizeBytes": item.get("sizeBytes"), "status": "AVAILABLE"}
+                for item in payload.get("attachments", [])
+            ]}, status=201)
         else:
             self._reply({"error": "not found"}, 404)
 
@@ -77,7 +93,19 @@ class ControlPlaneStub(BaseHTTPRequestHandler):
             self._reply({"status": "SUCCEEDED", "summary": "done", "artifacts": [
                 {"name": "output.md", "storageRef": "tasks/x/artifacts/output.md",
                  "contentType": "text/markdown", "sizeBytes": 12,
-                 "downloadUrl": "http://minio/presigned"}]})
+                 "downloadUrl": "http://minio/presigned"}],
+                "taskFiles": [{"fileId": self.server.file_id, "role": "OUTPUT",
+                               "name": "top10.pdf", "contentType": "application/pdf",
+                               "sizeBytes": 8, "status": "AVAILABLE"}]})
+        elif self.path.endswith("/files"):
+            self._reply(list(getattr(self.server, "task_files", [])))
+        elif "/content" in self.path:
+            body = getattr(self.server, "content_bytes", b"PDFBYTES")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self._reply({"error": "not found"}, 404)
 
@@ -127,12 +155,27 @@ class ManagerStub(BaseHTTPRequestHandler):
         else:
             self._reply({"error": "not found"}, 404)
 
+    def do_GET(self):
+        self.server.requests.append(("GET", self.path, dict(self.headers), None))
+        if "/content" in self.path:
+            body = b"INPUT-PDF"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self._reply({"error": "not found"}, 404)
+
 
 class AgentTeamsTaskMcpTest(unittest.TestCase):
     def setUp(self):
         MCP.reset_state()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), ControlPlaneStub)
         self.server.task_id = str(uuid.uuid4())
+        self.server.file_id = str(uuid.uuid4())
+        self.server.task_files = []
+        self.server.fail_uploads = False
         self.server.requests = []
         self.server.create_body = None
         self.server.queue_body = None
@@ -140,15 +183,18 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.server.status_body = None
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.workspace = tempfile.mkdtemp()
         self.env = {
             "AGENTTEAMS_CONTROL_PLANE_URL": self.base,
             "AGENTTEAMS_MCP_SCOPE": '{"tenant":"tenant-a","project":"project-a","team":"team-a"}',
             "AGENTTEAMS_MCP_TOKEN": "static-test-token",
+            "AGENTTEAMS_WORKSPACE_DIR": self.workspace,
         }
 
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
+        shutil.rmtree(self.workspace, ignore_errors=True)
 
     def test_protocol_initialize_tools_list_and_unknown_method(self):
         init = rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
@@ -159,7 +205,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertEqual([t["name"] for t in tools["result"]["tools"]],
                          ["create_task", "get_task", "get_task_result",
                           "list_subtasks", "plan_subtasks", "update_subtask_status",
-                          "upload_file"])
+                          "upload_file", "upload_task_file", "download_task_file"])
 
         self.assertIsNone(MCP.handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 
@@ -466,6 +512,102 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertIn("AGENTTEAMS_MANAGER_URL",
                       response["result"]["content"][0]["text"])
 
+    def test_upload_task_file_queues_on_failure_and_flushes_on_next_call(self):
+        self._use_env(self.env)
+        source = Path(self.workspace) / "报告.pdf"
+        source.write_bytes(b"%PDF-1.4 fake")
+        self.server.fail_uploads = True
+        response = rpc({"jsonrpc": "2.0", "id": 20, "method": "tools/call", "params": {
+            "name": "upload_task_file",
+            "arguments": {"task_id": self.server.task_id, "path": "报告.pdf"}}})
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn('"queued": true', response["result"]["content"][0]["text"])
+        queue_path = Path(self.workspace) / ".task-upload-queue.json"
+        queue = json.loads(queue_path.read_text())
+        self.assertEqual(queue[0]["status"], "PENDING")
+        self.assertEqual(queue[0]["taskId"], self.server.task_id)
+
+        self.server.fail_uploads = False
+        response = rpc({"jsonrpc": "2.0", "id": 21, "method": "tools/call", "params": {
+            "name": "upload_task_file",
+            "arguments": {"task_id": self.server.task_id, "path": "报告.pdf"}}})
+        self.assertFalse(response["result"]["isError"])
+        self.assertIn('"fileId"', response["result"]["content"][0]["text"])
+        self.assertFalse(queue_path.exists())
+
+    def test_download_task_file_output_streams_to_workspace(self):
+        self._use_env(self.env)
+        self.server.task_files = [{"fileId": self.server.file_id, "role": "OUTPUT",
+                                   "name": "top10.pdf", "contentType": "application/pdf",
+                                   "sizeBytes": 8, "status": "AVAILABLE"}]
+        response = rpc({"jsonrpc": "2.0", "id": 22, "method": "tools/call", "params": {
+            "name": "download_task_file",
+            "arguments": {"task_id": self.server.task_id, "file_id": self.server.file_id}}})
+        self.assertFalse(response["result"]["isError"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        downloaded = Path(payload["path"])
+        # resolve 双方：macOS /var/folders 为 symlink，join 路径与 mkdtemp 字面量前缀不同。
+        self.assertTrue(str(downloaded.resolve()).startswith(
+            str(Path(self.workspace).resolve())))
+        self.assertEqual(downloaded.read_bytes(), b"PDFBYTES")
+
+    def test_download_task_file_input_uses_manager_content(self):
+        manager = ThreadingHTTPServer(("127.0.0.1", 0), ManagerStub)
+        manager.requests = []
+        threading.Thread(target=manager.serve_forever, daemon=True).start()
+        self.addCleanup(manager.shutdown)
+        self.addCleanup(manager.server_close)
+        self._use_env({**self.env,
+                       "AGENTTEAMS_MANAGER_URL": f"http://127.0.0.1:{manager.server_address[1]}"})
+        session_id = str(uuid.uuid4())
+        self.server.task_files = [{"fileId": self.server.file_id, "role": "INPUT",
+                                   "name": "输入.pdf", "sessionId": session_id,
+                                   "sourceFileId": str(uuid.uuid4()), "sizeBytes": 9,
+                                   "status": "AVAILABLE"}]
+        response = rpc({"jsonrpc": "2.0", "id": 23, "method": "tools/call", "params": {
+            "name": "download_task_file",
+            "arguments": {"task_id": self.server.task_id, "file_id": self.server.file_id}}})
+        self.assertFalse(response["result"]["isError"])
+        gets = [path for method, path, *_ in manager.requests if method == "GET"]
+        self.assertTrue(any("/api/v1/conversations/" + session_id in path for path in gets))
+        self.assertTrue(any("/files" in path and "content" in path for path in gets))
+
+    def test_create_task_with_attachments_projects_into_input_json(self):
+        self._use_env(self.env)
+        session_id = str(uuid.uuid4())
+        source_file_id = str(uuid.uuid4())
+        response = rpc({"jsonrpc": "2.0", "id": 24, "method": "tools/call", "params": {
+            "name": "create_task",
+            "arguments": {"title": "分析报告", "prompt": "读取附件并汇总",
+                          "attachments": [{"sessionId": session_id, "fileId": source_file_id,
+                                           "name": "输入.pdf", "sizeBytes": 123}]}}})
+        self.assertFalse(response["result"]["isError"])
+        create = self.server.create_body
+        self.assertEqual(create["spec"]["inputJson"]["attachments"],
+                         [{"sessionId": session_id, "fileId": source_file_id,
+                           "name": "输入.pdf", "sizeBytes": 123}])
+        ledger_posts = [body for method, path, headers, body in self.server.requests
+                        if method == "POST" and path.endswith("/attachments")]
+        self.assertEqual(len(ledger_posts), 1)
+        self.assertIn("Idempotency-Key",
+                      [headers for method, path, headers, _ in self.server.requests
+                       if method == "POST" and path.endswith("/attachments")][0])
+
+    def test_get_task_result_includes_task_files(self):
+        self._use_env(self.env)
+        response = rpc({"jsonrpc": "2.0", "id": 25, "method": "tools/call", "params": {
+            "name": "get_task_result", "arguments": {"task_id": self.server.task_id}}})
+        self.assertIn('"taskFiles"', response["result"]["content"][0]["text"])
+        self.assertIn("top10.pdf", response["result"]["content"][0]["text"])
+
+    def test_upload_task_file_rejects_workspace_escape(self):
+        self._use_env(self.env)
+        response = rpc({"jsonrpc": "2.0", "id": 26, "method": "tools/call", "params": {
+            "name": "upload_task_file",
+            "arguments": {"task_id": self.server.task_id, "path": "../escape.pdf"}}})
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn("workspace", response["result"]["content"][0]["text"])
+
     def test_deploy_configmap_embeds_current_script(self):
         import yaml
         manifest = yaml.safe_load(
@@ -492,7 +634,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
             init = ask({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
             self.assertEqual(init["result"]["protocolVersion"], "2024-11-05")
             tools = ask({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-            self.assertEqual(len(tools["result"]["tools"]), 7)
+            self.assertEqual(len(tools["result"]["tools"]), 9)
             created = ask({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
                 "name": "create_task",
                 "arguments": {"title": "500强", "prompt": "生成中国企业500强名单，PDF 格式"}}})

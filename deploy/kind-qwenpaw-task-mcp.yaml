@@ -43,11 +43,13 @@ data:
     MAX_PROMPT = 8000
     MAX_SUBTASKS = 20
     MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+    TASK_FILE_MAX_BYTES = MAX_UPLOAD_BYTES
+    UPLOAD_RETRIES = 2
     SUBTASK_STATUSES = ("RUNNING", "SUCCEEDED", "FAILED", "CANCELLED")
 
     TOOL_NAMES = ["create_task", "get_task", "get_task_result",
                   "list_subtasks", "plan_subtasks", "update_subtask_status",
-                  "upload_file"]
+                  "upload_file", "upload_task_file", "download_task_file"]
 
     TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "create_task": {
@@ -230,6 +232,42 @@ data:
                                  "description": "Optional display name; defaults to basename."},
                 },
                 "required": ["session_id", "path"],
+            },
+        },
+        "upload_task_file": {
+            "description": (
+                "Upload a binary deliverable (PDF/image/Office) generated inside "
+                "the agent workspace into the task deliverables ledger so it "
+                "remains downloadable after the worker is gone. task_id comes "
+                "from the [平台上下文] block. Text deliverables still go through "
+                "the final JSON artifacts channel."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task UUID."},
+                    "path": {"type": "string",
+                             "description": "Workspace-relative path of the file."},
+                    "filename": {"type": "string",
+                                 "description": "Optional display name; defaults to basename."},
+                },
+                "required": ["task_id", "path"],
+            },
+        },
+        "download_task_file": {
+            "description": (
+                "Download one task file into the agent workspace: input "
+                "attachments (referenced conversation files) and binary "
+                "deliverables alike. Returns the workspace path to read."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task UUID."},
+                    "file_id": {"type": "string",
+                                "description": "Task file UUID from get_task_result taskFiles."},
+                },
+                "required": ["task_id", "file_id"],
             },
         },
     }
@@ -419,6 +457,22 @@ data:
             if message_id:
                 origin["messageId"] = message_id
             input_json["source"] = origin
+        attachments = arguments.get("attachments") or []
+        if not isinstance(attachments, list):
+            raise ValueError("attachments must be a list")
+        declared: list[dict[str, Any]] = []
+        for index, item in enumerate(attachments, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"attachments[{index}] must be an object")
+            declared.append({
+                "sessionId": _safe_uuid(item.get("sessionId"), f"attachments[{index}].sessionId"),
+                "fileId": _safe_uuid(item.get("fileId"), f"attachments[{index}].fileId"),
+                "name": _clean_text(item.get("name"), f"attachments[{index}].name", 255,
+                                    required=True),
+                "sizeBytes": _positive_int(item.get("sizeBytes"), f"attachments[{index}].sizeBytes"),
+            })
+        if declared:
+            input_json["attachments"] = declared
         spec = {
             "scope": {"tenant": config.tenant, "project": config.project, "team": config.team},
             "taskType": "qwenpaw",
@@ -438,6 +492,14 @@ data:
             token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
             body={"expectedVersion": 0},
         )
+        if declared:
+            # 账本登记（task_files role=INPUT）。inputJson.attachments 投影已随任务下发；
+            # 登记失败抛错让 agent 感知（任务已建，凭 taskId 可重试，服务端幂等去重）。
+            _http_json(
+                "POST", _api_url(config, f"/api/v1/tasks/{task_id}/attachments"),
+                token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
+                body={"attachments": declared},
+            )
         return {
             "ok": True,
             "taskId": task_id,
@@ -477,8 +539,18 @@ data:
                 "sizeBytes": artifact.get("sizeBytes"),
                 "downloadUrl": artifact.get("downloadUrl"),
             })
+        task_files = [
+            {"fileId": item.get("fileId"), "role": item.get("role"),
+             "name": item.get("name"), "contentType": item.get("contentType"),
+             "sizeBytes": item.get("sizeBytes"), "status": item.get("status")}
+            for item in result.get("taskFiles") or []
+        ]
         return {"ok": True, "taskId": task_id, "status": result.get("status"),
-                "summary": result.get("summary"), "artifacts": artifacts}
+                "summary": result.get("summary"), "artifacts": artifacts,
+                "taskFiles": task_files,
+                "note": "artifacts are text/result deliverables from the run manifest; "
+                        "taskFiles are input attachments and binary deliverables. "
+                        "Use download_task_file to fetch taskFiles into the workspace."}
 
 
     def tool_list_subtasks(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -574,7 +646,8 @@ data:
 
 
     def _http_multipart(url: str, *, token: str, field: str, filename: str,
-                        content: bytes, content_type: str) -> dict[str, Any]:
+                        content: bytes, content_type: str,
+                        idempotency_key: str | None = None) -> dict[str, Any]:
         boundary = "----agentteams" + uuid.uuid4().hex
         part = (
             f"--{boundary}\r\n"
@@ -586,6 +659,8 @@ data:
                    "Content-Type": f"multipart/form-data; boundary={boundary}"}
         if token:
             headers["Authorization"] = "Bearer " + token
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
         request = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
@@ -598,6 +673,90 @@ data:
         if not payload:
             return {}
         return json.loads(payload)
+
+
+    def _http_download(url: str, *, token: str, destination: str) -> None:
+        request = urllib.request.Request(
+            url, headers={"Accept": "*/*", "Authorization": "Bearer " + token})
+        try:
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+                payload = response.read()
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:300]
+            raise RuntimeError(f"HTTP {error.code} from {url}: {detail}") from error
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"connection to {url} failed: {error.reason}") from error
+        with open(destination, "wb") as handle:
+            handle.write(payload)
+
+
+    def _queue_path(config: Config) -> str:
+        return os.path.join(config.workspace_dir, ".task-upload-queue.json")
+
+
+    def _load_queue(config: Config) -> list[dict[str, Any]]:
+        path = _queue_path(config)
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, encoding="utf-8") as handle:
+                entries = json.load(handle)
+            return entries if isinstance(entries, list) else []
+        except (OSError, json.JSONDecodeError):
+            return []
+
+
+    def _save_queue(config: Config, entries: list[dict[str, Any]]) -> None:
+        path = _queue_path(config)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(entries, handle, ensure_ascii=False)
+
+
+    def _flush_upload_queue(config: Config) -> int:
+        """Opportunistic retry before each upload_task_file call.
+
+        Sources that vanished are marked DROPPED: the queue shares the workspace
+        lifecycle, so a missing source can never deliver and must not hang forever.
+        An emptied queue removes the file so callers observe a clean workspace.
+        """
+        entries = _load_queue(config)
+        if not entries:
+            return 0
+        remaining: list[dict[str, Any]] = []
+        delivered = 0
+        for entry in entries:
+            source = entry.get("filePath") or ""
+            if not os.path.isfile(source):
+                entry["status"] = "DROPPED"
+                continue
+            try:
+                with open(source, "rb") as handle:
+                    content = handle.read()
+                _http_multipart(
+                    _api_url(config, f"/api/v1/tasks/{entry['taskId']}/files"),
+                    token=_fetch_token(), field="file", filename=entry["name"],
+                    content=content,
+                    content_type=entry.get("contentType") or "application/octet-stream",
+                    idempotency_key=str(uuid.uuid4()))
+                delivered += 1
+            except RuntimeError:
+                remaining.append(entry)
+        if remaining:
+            _save_queue(config, remaining)
+        elif os.path.exists(_queue_path(config)):
+            os.remove(_queue_path(config))
+        return delivered
+
+
+    def _enqueue_failed_upload(config: Config, task_id: str, source: str, name: str,
+                               content_type: str, size_bytes: int) -> None:
+        entries = _load_queue(config)
+        entries.append({"taskId": task_id, "filePath": source, "name": name,
+                        "contentType": content_type, "sizeBytes": size_bytes,
+                        "attempts": UPLOAD_RETRIES + 1, "status": "PENDING",
+                        "enqueuedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        _save_queue(config, entries)
 
 
     def _resolve_workspace_path(config: Config, raw_path: str) -> str:
@@ -646,6 +805,79 @@ data:
                          "so the user can download the file.")}
 
 
+    def tool_upload_task_file(arguments: dict[str, Any]) -> dict[str, Any]:
+        config = get_config()
+        task_id = _safe_uuid(arguments.get("task_id"), "task_id")
+        raw_path = arguments.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ValueError("path must be a non-empty string")
+        resolved = _resolve_workspace_path(config, raw_path.strip())
+        if not os.path.isfile(resolved):
+            raise ValueError(f"file not found in workspace: {raw_path}")
+        if os.path.getsize(resolved) > TASK_FILE_MAX_BYTES:
+            raise ValueError(f"file exceeds the {TASK_FILE_MAX_BYTES} byte task upload limit")
+        _flush_upload_queue(config)
+        name = _clean_text(arguments.get("filename"), "filename", 255, required=False) \
+            or os.path.basename(resolved) or "file"
+        with open(resolved, "rb") as handle:
+            content = handle.read()
+        content_type = mimetypes.guess_type(resolved)[0] or "application/octet-stream"
+        error: RuntimeError | None = None
+        for _ in range(UPLOAD_RETRIES + 1):
+            try:
+                response = _http_multipart(
+                    _api_url(config, f"/api/v1/tasks/{task_id}/files"),
+                    token=_fetch_token(), field="file",
+                    filename=name.replace('"', "'").replace("\n", " ").replace("\r", " "),
+                    content=content, content_type=content_type,
+                    idempotency_key=str(uuid.uuid4()))
+                if not response.get("fileId"):
+                    raise RuntimeError(f"upload returned no fileId: {response}")
+                return {"ok": True, "taskId": task_id, "fileId": response.get("fileId"),
+                        "name": response.get("name", name),
+                        "sizeBytes": response.get("sizeBytes", len(content)),
+                        "sha256": response.get("sha256"),
+                        "note": ("Delivered to the task deliverables ledger (task_files); "
+                                 "it stays downloadable after the worker is gone.")}
+            except RuntimeError as failure:
+                error = failure
+        _enqueue_failed_upload(config, task_id, resolved, name, content_type, len(content))
+        return {"ok": False, "error": str(error), "queued": True,
+                "note": ("Upload failed after retries and was queued in "
+                         ".task-upload-queue.json; call upload_task_file again to "
+                         "retry delivery (the queue flushes opportunistically).")}
+
+
+    def tool_download_task_file(arguments: dict[str, Any]) -> dict[str, Any]:
+        config = get_config()
+        task_id = _safe_uuid(arguments.get("task_id"), "task_id")
+        file_id = _safe_uuid(arguments.get("file_id"), "file_id")
+        manifest = _http_json("GET", _api_url(config, f"/api/v1/tasks/{task_id}/files"),
+                              token=_fetch_token())
+        record = next((item for item in manifest if item.get("fileId") == file_id), None)
+        if record is None:
+            return {"ok": False, "error": f"file {file_id} is not on task {task_id}"}
+        if record.get("role") == "INPUT":
+            if not config.manager_url:
+                raise ValueError("AGENTTEAMS_MANAGER_URL is required for input attachments")
+            session_id = record.get("sessionId")
+            source_file_id = record.get("sourceFileId")
+            if not session_id or not source_file_id:
+                return {"ok": False,
+                        "error": "input attachment record lacks the session snapshot"}
+            url = (config.manager_url + f"/api/v1/conversations/{session_id}"
+                   + f"/files/{source_file_id}/content")
+        else:
+            url = _api_url(config, f"/api/v1/tasks/{task_id}/files/{file_id}/content")
+        target_dir = os.path.join(config.workspace_dir, "task-files", task_id)
+        os.makedirs(target_dir, exist_ok=True)
+        target = os.path.join(target_dir, record.get("name") or file_id)
+        _http_download(url, token=_fetch_token(), destination=target)
+        return {"ok": True, "taskId": task_id, "fileId": file_id,
+                "role": record.get("role"), "path": target,
+                "note": "Downloaded into the agent workspace; read it with file tools."}
+
+
     def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "create_task":
             return tool_create_task(arguments)
@@ -661,6 +893,10 @@ data:
             return tool_update_subtask_status(arguments)
         if name == "upload_file":
             return tool_upload_file(arguments)
+        if name == "upload_task_file":
+            return tool_upload_task_file(arguments)
+        if name == "download_task_file":
+            return tool_download_task_file(arguments)
         return {"ok": False, "error": f"unsupported tool: {name}"}
 
 
