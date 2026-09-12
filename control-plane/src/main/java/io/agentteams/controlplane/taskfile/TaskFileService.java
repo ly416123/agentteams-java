@@ -22,7 +22,9 @@ import org.springframework.stereotype.Service;
 /**
  * G05 任务文件账本业务：OUTPUT 服务端直传（先 storage 后落库，与 ConversationFileService
  * 同序）、INPUT 元数据快照登记、清单查询、MISSING 对账。run 终态不因交付失败改变
- * （过程 best-effort 公理）；去重按 (task, role, name, sha256) 返回既有记录。
+ * （过程 best-effort 公理）；去重命中 AVAILABLE 返回既有记录（规格 §5.1），命中 MISSING
+ * 走重传恢复——重写对象并翻回 AVAILABLE，否则 UNIQUE 约束使该 (name, sha256) 永远
+ * 无法重新交付。
  */
 @Service
 public final class TaskFileService {
@@ -58,13 +60,26 @@ public final class TaskFileService {
         }
         String name = TaskFileNames.sanitize(originalName);
         String sha256 = sha256(content);
-        var existing = repository.findDedup(taskId, TaskFileRecord.OUTPUT, name, sha256);
-        if (existing.isPresent()) {
-            return existing.get();
-        }
-        UUID fileId = UUID.randomUUID();
         String safeContentType = contentType == null || contentType.isBlank()
                 ? "application/octet-stream" : contentType;
+        var existing = repository.findDedup(taskId, TaskFileRecord.OUTPUT, name, sha256);
+        if (existing.isPresent()) {
+            TaskFileRecord record = existing.get();
+            if (TaskFileRecord.MISSING.equals(record.status())) {
+                // 对账标 MISSING 后同内容重传：恢复而非假成功。直接 INSERT 会撞
+                // UNIQUE (task_id, role, name, sha256)，交付从此永久卡死。
+                storage.upload(record.storageKey(), new ByteArrayInputStream(content),
+                        content.length, safeContentType);
+                Instant now = clock.instant();
+                repository.restoreAvailable(record.id(), now);
+                return new TaskFileRecord(record.id(), record.taskId(), record.attemptId(),
+                        record.role(), record.name(), record.contentType(), record.sizeBytes(),
+                        record.sha256(), record.storageKey(), record.sourceSessionId(),
+                        record.sourceFileId(), TaskFileRecord.AVAILABLE, record.createdAt(), now);
+            }
+            return record;
+        }
+        UUID fileId = UUID.randomUUID();
         String storageKey = "tasks/" + taskId + "/files/" + fileId + "/" + name;
         storage.upload(storageKey, new ByteArrayInputStream(content), content.length, safeContentType);
         Instant now = clock.instant();

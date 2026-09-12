@@ -144,6 +144,35 @@ class TaskFileControllerTest {
     }
 
     @Test
+    void attachmentsRegistrationRejectsMoreThan20Items() throws Exception {
+        StringBuilder items = new StringBuilder();
+        for (int i = 0; i < 21; i++) {
+            if (i > 0) {
+                items.append(",");
+            }
+            items.append("{\"sessionId\":\"").append(UUID.randomUUID())
+                    .append("\",\"fileId\":\"").append(UUID.randomUUID())
+                    .append("\",\"name\":\"a.pdf\",\"sizeBytes\":3}");
+        }
+        mvc.perform(post("/api/v1/tasks/{taskId}/attachments", TASK)
+                        .header("Idempotency-Key", "k-4")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"attachments\":[" + items + "]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void attachmentsRegistrationRejectsNonPositiveSize() throws Exception {
+        mvc.perform(post("/api/v1/tasks/{taskId}/attachments", TASK)
+                        .header("Idempotency-Key", "k-5")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"attachments\":[{\"sessionId\":\"" + UUID.randomUUID()
+                                + "\",\"fileId\":\"" + UUID.randomUUID()
+                                + "\",\"name\":\"a.pdf\",\"sizeBytes\":0}]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void attachmentsRegistrationRejectsMissingRequiredFields() throws Exception {
         mvc.perform(post("/api/v1/tasks/{taskId}/attachments", TASK)
                         .header("Idempotency-Key", "k-3")

@@ -66,10 +66,16 @@ public final class TaskFileController {
         if (request == null || request.attachments() == null) {
             throw new IllegalArgumentException("attachments is required");
         }
+        if (request.attachments().size() > 20) {
+            throw new IllegalArgumentException("at most 20 attachments per request");
+        }
         List<TaskFileResponse> registered = request.attachments().stream()
                 .map(item -> {
                     if (item.sessionId() == null || item.fileId() == null || item.name() == null) {
                         throw new IllegalArgumentException("sessionId, fileId and name are required");
+                    }
+                    if (item.sizeBytes() < 1) {
+                        throw new IllegalArgumentException("sizeBytes must be at least 1");
                     }
                     return TaskFileResponse.from(files.registerInput(taskId, item.sessionId(),
                             item.fileId(), item.name(), item.sizeBytes()));

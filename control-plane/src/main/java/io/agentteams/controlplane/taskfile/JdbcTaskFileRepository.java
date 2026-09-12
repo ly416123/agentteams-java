@@ -69,6 +69,12 @@ public class JdbcTaskFileRepository {
                 Timestamp.from(at), id) == 1;
     }
 
+    /** MISSING → AVAILABLE 恢复（同内容重传，规格 §5.1）；markMissing 的逆操作。 */
+    public boolean restoreAvailable(UUID id, Instant at) {
+        return jdbc.update("UPDATE task_files SET status = 'AVAILABLE', updated_at = ? WHERE id = ?",
+                Timestamp.from(at), id) == 1;
+    }
+
     /** Exposed for the unit test; production callers use the query methods above. */
     RowMapper<TaskFileRecord> recordMapper() {
         return mapper();

@@ -569,6 +569,34 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
                     self.assertNotIn(b"\n", line, line)
         self.assertTrue(any(b'filename="bad\' name.pdf"' in raw for raw in raws))
 
+    def test_flush_drops_entries_beyond_attempt_limit(self):
+        self._use_env(self.env)
+        source = Path(self.workspace) / "poison.pdf"
+        source.write_bytes(b"%PDF-1.4 fake")
+        self.server.fail_uploads = True
+        response = rpc({"jsonrpc": "2.0", "id": 30, "method": "tools/call", "params": {
+            "name": "upload_task_file",
+            "arguments": {"task_id": self.server.task_id, "path": "poison.pdf"}}})
+        self.assertTrue(response["result"]["isError"])
+        queue_path = Path(self.workspace) / ".task-upload-queue.json"
+        # 直传重试已耗尽：入队 attempts=UPLOAD_RETRIES+1=3。预置到 flush 上限，
+        # 下一次 flush 失败即应超限 DROPPED（服务端永久 4xx 不能无限占位重试）。
+        queue = json.loads(queue_path.read_text())
+        queue[0]["attempts"] = 5
+        queue_path.write_text(json.dumps(queue, ensure_ascii=False))
+
+        response = rpc({"jsonrpc": "2.0", "id": 31, "method": "tools/call", "params": {
+            "name": "upload_task_file",
+            "arguments": {"task_id": self.server.task_id, "path": "poison.pdf"}}})
+        self.assertTrue(response["result"]["isError"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertIn("dropped", payload.get("note", ""))
+        # 超限条目被移除，仅剩本次直传失败新入队的条目（仍 PENDING）。
+        queue = json.loads(queue_path.read_text())
+        self.assertEqual(len(queue), 1)
+        self.assertEqual(queue[0]["status"], "PENDING")
+        self.assertEqual(queue[0]["name"], "poison.pdf")
+
     def test_download_task_file_output_streams_to_workspace(self):
         self._use_env(self.env)
         self.server.task_files = [{"fileId": self.server.file_id, "role": "OUTPUT",

@@ -44,6 +44,9 @@ MAX_SUBTASKS = 20
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 TASK_FILE_MAX_BYTES = MAX_UPLOAD_BYTES
 UPLOAD_RETRIES = 2
+# 队列条目 flush 重试上限：超过即 DROPPED。服务端永久 4xx（源文件膨胀超限、
+# 任务已删等）与无限退避的重试不同——不封顶会成为永久毒丸条目。
+MAX_FLUSH_ATTEMPTS = 5
 SUBTASK_STATUSES = ("RUNNING", "SUCCEEDED", "FAILED", "CANCELLED")
 
 TOOL_NAMES = ["create_task", "get_task", "get_task_result",
@@ -731,8 +734,11 @@ def _flush_upload_queue(config: Config) -> tuple[int, int]:
 
     Sources that vanished are marked DROPPED: the queue shares the workspace
     lifecycle, so a missing source can never deliver and must not hang forever.
-    Returns (delivered, dropped) so the caller can surface the dropped count.
-    An emptied queue removes the file so callers observe a clean workspace.
+    Entries failing beyond MAX_FLUSH_ATTEMPTS flushes are also DROPPED: server
+    4xx (oversized source, deleted task) is permanent and would otherwise be a
+    poison-pill entry retried forever. Returns (delivered, dropped) so the
+    caller can surface the dropped count. An emptied queue removes the file so
+    callers observe a clean workspace.
     """
     with _queue_lock(config):
         entries = _load_queue(config)
@@ -761,6 +767,11 @@ def _flush_upload_queue(config: Config) -> tuple[int, int]:
                     idempotency_key=str(uuid.uuid4()))
                 delivered += 1
             except RuntimeError:
+                entry["attempts"] = int(entry.get("attempts") or 0) + 1
+                if entry["attempts"] > MAX_FLUSH_ATTEMPTS:
+                    entry["status"] = "DROPPED"
+                    dropped += 1
+                    continue
                 remaining.append(entry)
         if remaining:
             _save_queue(config, remaining)
@@ -840,7 +851,7 @@ def tool_upload_task_file(arguments: dict[str, Any]) -> dict[str, Any]:
     _, dropped = _flush_upload_queue(config)
     # DROPPED 交付不可恢复，必须在响应 note 中可见（规格 §5.2）。
     dropped_note = (f" Note: {dropped} queued upload(s) dropped "
-                    "(source file vanished)." if dropped else "")
+                    "(source file vanished or retries exhausted)." if dropped else "")
     name = _clean_text(arguments.get("filename"), "filename", 255, required=False) \
         or os.path.basename(resolved) or "file"
     with open(resolved, "rb") as handle:

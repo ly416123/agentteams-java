@@ -386,6 +386,7 @@ paths:
             application/octet-stream: { schema: { type: string, format: binary } }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: INPUT record (object lives in the conversation domain) }
+        '503': { description: Object storage is not enabled }
   /api/v1/tasks/{taskId}/files/{fileId}/download:
     parameters: *signedHeaders
     get:
@@ -404,6 +405,8 @@ paths:
           headers:
             Location: { schema: { type: string, format: uri } }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: INPUT record (object lives in the conversation domain) }
+        '503': { description: Object storage is not enabled }
   /api/v1/tasks/{taskId}/subtasks:
     parameters: *signedHeaders
     put:

@@ -86,6 +86,28 @@ class TaskFileServiceTest {
     }
 
     @Test
+    void uploadRestoresMissingRecordAndRewritesObject() throws Exception {
+        byte[] content = "retried".getBytes();
+        TaskFileRecord missing = new TaskFileRecord(UUID.randomUUID(), TASK, ATTEMPT,
+                TaskFileRecord.OUTPUT, "a.pdf", "application/pdf", content.length,
+                sha256Of(content), "tasks/" + TASK + "/files/f/a.pdf",
+                null, null, TaskFileRecord.MISSING, NOW.minusSeconds(60), NOW.minusSeconds(60));
+        when(repository.findDedup(TASK, TaskFileRecord.OUTPUT, "a.pdf", sha256Of(content)))
+                .thenReturn(Optional.of(missing));
+
+        TaskFileRecord restored = service.upload(TASK, "a.pdf", "application/pdf", content);
+
+        // 对账标 MISSING 后同内容重传：重写既有 storageKey 对象并翻回 AVAILABLE
+        // （规格 §5.1 恢复路径）；INSERT 不得发生（会撞 UNIQUE）。
+        verify(storage).upload(eq(missing.storageKey()), any(InputStream.class),
+                eq((long) content.length), eq("application/pdf"));
+        verify(repository).restoreAvailable(missing.id(), NOW);
+        assertThat(restored.status()).isEqualTo(TaskFileRecord.AVAILABLE);
+        assertThat(restored.updatedAt()).isEqualTo(NOW);
+        verify(repository, never()).insert(any(TaskFileRecord.class));
+    }
+
+    @Test
     void uploadRejectsOversizeAndMissingTask() {
         byte[] big = new byte[(int) TaskFileService.MAX_FILE_BYTES + 1];
         assertThatThrownBy(() -> service.upload(TASK, "big.bin", "application/octet-stream", big))
