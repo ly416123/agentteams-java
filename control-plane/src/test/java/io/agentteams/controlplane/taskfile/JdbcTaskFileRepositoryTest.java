@@ -80,8 +80,8 @@ class JdbcTaskFileRepositoryTest {
         when(rs.getObject("source_session_id", UUID.class)).thenReturn(null);
         when(rs.getObject("source_file_id", UUID.class)).thenReturn(null);
         when(rs.getString("status")).thenReturn("AVAILABLE");
-        when(rs.getObject("created_at", Instant.class)).thenReturn(Instant.EPOCH);
-        when(rs.getObject("updated_at", Instant.class)).thenReturn(Instant.EPOCH);
+        when(rs.getTimestamp("created_at")).thenReturn(java.sql.Timestamp.from(Instant.EPOCH));
+        when(rs.getTimestamp("updated_at")).thenReturn(java.sql.Timestamp.from(Instant.EPOCH));
         return rs;
     }
 }
