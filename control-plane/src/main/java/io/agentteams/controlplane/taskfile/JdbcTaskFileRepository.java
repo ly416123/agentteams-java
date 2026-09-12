@@ -52,11 +52,13 @@ public final class JdbcTaskFileRepository {
                 mapper(), taskId, role, name, sha256).stream().findFirst();
     }
 
-    /** Reconciliation scan: AVAILABLE OUTPUT rows in insertion order, bounded. */
+    /** Reconciliation scan: AVAILABLE OUTPUT rows in a random window, bounded.
+     *  概率轮转：固定 ORDER BY created_at 会让 AVAILABLE 总量超过批大小时较新
+     *  记录永远得不到探测（账本无清理路径，审查发现的饥饿缺陷）。 */
     public List<TaskFileRecord> findAvailableOutputs(int limit) {
         return jdbc.query("""
                 SELECT * FROM task_files WHERE role = 'OUTPUT' AND status = 'AVAILABLE'
-                ORDER BY created_at, id LIMIT ?
+                ORDER BY random() LIMIT ?
                 """, mapper(), limit);
     }
 

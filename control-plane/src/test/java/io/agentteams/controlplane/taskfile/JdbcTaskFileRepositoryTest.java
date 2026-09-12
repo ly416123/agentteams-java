@@ -46,6 +46,18 @@ class JdbcTaskFileRepositoryTest {
     }
 
     @Test
+    void findAvailableOutputsScansRandomWindow() {
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.<TaskFileRecord>of());
+        repository.findAvailableOutputs(200);
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        // 概率轮转窗口：固定 ORDER BY created_at 会让 AVAILABLE 总量超过批大小时
+        // 较新记录永远得不到探测（固定窗口饥饿）。
+        assertThat(sql.getValue()).contains("role = 'OUTPUT'", "status = 'AVAILABLE'", "random()", "LIMIT ?");
+    }
+
+    @Test
     void findByIdReturnsRecordViaMapper() throws java.sql.SQLException {
         TaskFileRecord record = repository.recordMapper()
                 .mapRow(recordFixtureResultSet(), 0);
