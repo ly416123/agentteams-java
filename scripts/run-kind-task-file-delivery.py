@@ -411,12 +411,20 @@ def main() -> int:
         echoed = request_bytes(f"{base_url}/api/v1/tasks/{task_id}/files/{file_id}/content", token)
         check("content 回读一致", echoed == PDF_BYTES)
 
-        # 5) 幂等重传去重（验收总表第 2 条：不产生失控重复）。
+        # 5) 幂等重传去重（验收总表第 2 条：不产生失控重复）。mock 剧本直传
+        # 与 worker 会话并发进行，OUTPUT 恰 2 条用轮询吸收时序：提前断言会
+        # 在 mock 上传落库前抽检失败（本轮时序已在验收中实际观察到）。
         again = upload_multipart(f"{base_url}/api/v1/tasks/{task_id}/files", token,
                                  "top10.pdf", PDF_BYTES, "application/pdf")
         check("重传返回既有记录", again.get("fileId") == file_id, str(again))
-        _, manifest = request_json(f"{base_url}/api/v1/tasks/{task_id}/files", token=token)
-        outputs = [f for f in (manifest or []) if f["role"] == "OUTPUT"]
+
+        def outputs_settled():
+            _, current = request_json(f"{base_url}/api/v1/tasks/{task_id}/files", token=token)
+            current_outputs = [f for f in (current or []) if f["role"] == "OUTPUT"]
+            return current_outputs if len(current_outputs) >= 2 else None
+
+        outputs = poll_until(outputs_settled,
+                             "the mock deliverable upload to land as the 2nd OUTPUT")
         check("OUTPUT 无重复（本脚本 1 条 + mock 剧本 1 条）", len(outputs) == 2, str(len(outputs)))
 
         # 6) 50MB 超限 413；INPUT content 409。
