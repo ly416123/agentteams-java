@@ -91,6 +91,10 @@ agentteams:
     legal-hold: false
     batch-size: 100
     cleanup-interval-ms: 300000
+  task-file:
+    reconciliation-interval-ms: 300000
+    reconciliation-batch-size: 200
+    lease-duration: 30s
   task-state-consistency:
     enabled: true
     reconcile-interval-ms: 60000

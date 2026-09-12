@@ -3,6 +3,7 @@ package io.agentteams.controlplane.taskfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -120,6 +121,26 @@ class TaskFileServiceTest {
 
         verify(repository).markMissing(gone.id(), NOW);
         verify(repository, never()).markMissing(eq(ok.id()), any());
+    }
+
+    @Test
+    void reconcileBatchMarksMissingAcrossTasksAndCounts() {
+        TaskFileRecord gone = record(TaskFileRecord.OUTPUT, "gone.pdf", "bb");
+        when(repository.findAvailableOutputs(100)).thenReturn(List.of(gone));
+        when(storage.exists(gone.storageKey())).thenReturn(false);
+        when(repository.markMissing(gone.id(), NOW)).thenReturn(true);
+
+        int marked = service.reconcileBatch(100);
+
+        assertThat(marked).isEqualTo(1);
+    }
+
+    @Test
+    void reconcileBatchIsNoopWithoutStorage() {
+        when(storageProvider.getIfAvailable()).thenReturn(null);
+
+        assertThat(service.reconcileBatch(100)).isZero();
+        verify(repository, never()).findAvailableOutputs(anyInt());
     }
 
     private FoundationPersistenceService.TaskExecutionRecord execution(UUID attemptId, Instant createdAt) {

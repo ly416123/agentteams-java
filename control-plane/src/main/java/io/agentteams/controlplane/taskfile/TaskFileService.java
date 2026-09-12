@@ -130,13 +130,40 @@ public final class TaskFileService {
         }
         Instant now = clock.instant();
         for (TaskFileRecord record : files) {
-            if (record.isInput() || TaskFileRecord.MISSING.equals(record.status())) {
-                continue;
-            }
-            if (!storage.exists(record.storageKey())) {
-                repository.markMissing(record.id(), now);
+            markMissingIfGone(storage, record, now);
+        }
+    }
+
+    /** 全表批处理对账（TaskFileReconciliationJob 用）；返回标记 MISSING 的数量。 */
+    public int reconcileBatch(int limit) {
+        // storage 未启用时直接跳过，不做无谓 DB 查询。
+        ObjectStorage storage = storageProvider.getIfAvailable();
+        if (storage == null) {
+            return 0;
+        }
+        List<TaskFileRecord> outputs = repository.findAvailableOutputs(limit);
+        if (outputs.isEmpty()) {
+            return 0;
+        }
+        Instant now = clock.instant();
+        int marked = 0;
+        for (TaskFileRecord record : outputs) {
+            if (markMissingIfGone(storage, record, now)) {
+                marked++;
             }
         }
+        return marked;
+    }
+
+    /** 探测单条记录；真正标记了 MISSING（OUTPUT）才返回 true。 */
+    private boolean markMissingIfGone(ObjectStorage storage, TaskFileRecord record, Instant now) {
+        if (record.isInput() || TaskFileRecord.MISSING.equals(record.status())) {
+            return false;
+        }
+        if (!storage.exists(record.storageKey())) {
+            return repository.markMissing(record.id(), now);
+        }
+        return false;
     }
 
     private void requireExistingTask(UUID taskId) {

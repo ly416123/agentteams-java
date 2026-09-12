@@ -38,6 +38,8 @@ import io.agentteams.controlplane.persistence.SchedulerLeaseRepository;
 import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.agentteams.controlplane.service.TaskAssignmentScheduler;
 import io.agentteams.controlplane.service.TaskAssignmentService;
+import io.agentteams.controlplane.taskfile.TaskFileReconciliationJob;
+import io.agentteams.controlplane.taskfile.TaskFileService;
 import io.agentteams.controlplane.worker.WorkerOperationRecoveryScheduler;
 import io.agentteams.controlplane.worker.WorkerCrdProvisioner;
 import io.agentteams.controlplane.worker.KubernetesWorkerCrdProvisioner;
@@ -602,6 +604,18 @@ public class ControlPlaneConfiguration {
                 temporaryRetention, legalHold);
         return new ArtifactRetentionCleanupJob(retention, lease, clock,
                 TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, fallback, batchSize);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean({TaskFileService.class,
+            SchedulerLeaseService.class})
+    TaskFileReconciliationJob taskFileReconciliationJob(TaskFileService taskFiles,
+            SchedulerLeaseService lease, Clock clock,
+            @Value("${POD_NAME:}") String podName,
+            @Value("${agentteams.task-file.lease-duration:30s}") java.time.Duration leaseDuration,
+            @Value("${agentteams.task-file.reconciliation-batch-size:200}") int batchSize) {
+        return new TaskFileReconciliationJob(taskFiles, lease, clock,
+                TaskAssignmentScheduler.defaultOwner(podName), leaseDuration, batchSize);
     }
 
     @Bean

@@ -292,6 +292,118 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
+  /api/v1/tasks/{taskId}/files:
+    parameters: *signedHeaders
+    post:
+      operationId: uploadTaskFile
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Task-file ledger record (OUTPUT, server-side SHA-256)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskFile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { description: File exceeds the 50MB multipart limit }
+        '503': { description: Object storage is not enabled }
+    get:
+      operationId: listTaskFiles
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: role
+          in: query
+          schema: { type: string, enum: [INPUT, OUTPUT] }
+      responses:
+        '200':
+          description: Task-file ledger listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TaskFile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/tasks/{taskId}/attachments:
+    parameters: *signedHeaders
+    post:
+      operationId: registerTaskAttachments
+      tags: [Tasks]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskAttachmentsRequest' }
+      responses:
+        '201':
+          description: Registered INPUT snapshots
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [files]
+                properties:
+                  files:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskFile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/tasks/{taskId}/files/{fileId}/content:
+    parameters: *signedHeaders
+    get:
+      operationId: downloadTaskFileContent
+      tags: [Tasks]
+      description: Cluster-internal streaming download (OUTPUT only; INPUT yields 409).
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: fileId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Object byte stream
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: INPUT record (object lives in the conversation domain) }
+  /api/v1/tasks/{taskId}/files/{fileId}/download:
+    parameters: *signedHeaders
+    get:
+      operationId: downloadTaskFile
+      tags: [Tasks]
+      description: Browser-audience 302 presigned GET (presignEndpoint).
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: fileId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '302':
+          description: Redirect to the presigned URL
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/tasks/{taskId}/subtasks:
     parameters: *signedHeaders
     put:
@@ -1250,6 +1362,34 @@ components:
           type: array
           items: { type: string, format: uuid }
         updatedAt: { type: string, format: date-time }
+    TaskFile:
+      type: object
+      required: [fileId, role, name, sizeBytes, status]
+      properties:
+        fileId: { type: string, format: uuid }
+        role: { type: string, enum: [INPUT, OUTPUT] }
+        name: { type: string }
+        contentType: { type: string, nullable: true }
+        sizeBytes: { type: integer, format: int64, minimum: 0 }
+        sha256: { type: string, nullable: true }
+        status: { type: string, enum: [AVAILABLE, MISSING] }
+        sessionId: { type: string, format: uuid, nullable: true }
+        sourceFileId: { type: string, format: uuid, nullable: true }
+    TaskAttachmentsRequest:
+      type: object
+      required: [attachments]
+      properties:
+        attachments:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [sessionId, fileId, name, sizeBytes]
+            properties:
+              sessionId: { type: string, format: uuid }
+              fileId: { type: string, format: uuid }
+              name: { type: string }
+              sizeBytes: { type: integer, format: int64, minimum: 1 }
     TaskResultManifest:
       type: object
       required: [taskId, runId, status, summary, artifacts]
@@ -1261,6 +1401,21 @@ components:
         artifacts:
           type: array
           items: { $ref: '#/components/schemas/TaskArtifactMetadata' }
+        taskFiles:
+          type: array
+          description: G05 input attachments and binary deliverables (ledger, not manifest).
+          items:
+            type: object
+            required: [fileId, role, name, sizeBytes, status]
+            properties:
+              fileId: { type: string, format: uuid }
+              role: { type: string, enum: [INPUT, OUTPUT] }
+              name: { type: string }
+              contentType: { type: string, nullable: true }
+              sizeBytes: { type: integer, format: int64, minimum: 0 }
+              status: { type: string, enum: [AVAILABLE, MISSING] }
+              sessionId: { type: string, format: uuid, nullable: true }
+              sourceFileId: { type: string, format: uuid, nullable: true }
     TaskArtifactMetadata:
       type: object
       required: [name, storageRef, contentType, sizeBytes, sha256, version, stage, visibility]

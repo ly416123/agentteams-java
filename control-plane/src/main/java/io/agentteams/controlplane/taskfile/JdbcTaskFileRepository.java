@@ -52,6 +52,14 @@ public final class JdbcTaskFileRepository {
                 mapper(), taskId, role, name, sha256).stream().findFirst();
     }
 
+    /** Reconciliation scan: AVAILABLE OUTPUT rows in insertion order, bounded. */
+    public List<TaskFileRecord> findAvailableOutputs(int limit) {
+        return jdbc.query("""
+                SELECT * FROM task_files WHERE role = 'OUTPUT' AND status = 'AVAILABLE'
+                ORDER BY created_at, id LIMIT ?
+                """, mapper(), limit);
+    }
+
     public boolean markMissing(UUID id, Instant at) {
         return jdbc.update("UPDATE task_files SET status = 'MISSING', updated_at = ? WHERE id = ?", at, id) == 1;
     }
