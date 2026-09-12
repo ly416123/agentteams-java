@@ -535,6 +535,40 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertIn('"fileId"', response["result"]["content"][0]["text"])
         self.assertFalse(queue_path.exists())
 
+    def test_flush_retry_sanitizes_queued_filename(self):
+        self._use_env(self.env)
+        source = Path(self.workspace) / "bad.pdf"
+        source.write_bytes(b"%PDF-1.4 fake")
+        self.server.fail_uploads = True
+        response = rpc({"jsonrpc": "2.0", "id": 25, "method": "tools/call", "params": {
+            "name": "upload_task_file",
+            "arguments": {"task_id": self.server.task_id, "path": "bad.pdf",
+                          "filename": 'bad"\nname.pdf'}}})
+        self.assertTrue(response["result"]["isError"])
+        # _clean_text 保留引号与中间换行：入队条目携带原始畸形名（毒丸来源）。
+        queue_path = Path(self.workspace) / ".task-upload-queue.json"
+        queue = json.loads(queue_path.read_text())
+        self.assertEqual(queue[0]["name"], 'bad"\nname.pdf')
+
+        self.server.fail_uploads = False
+        response = rpc({"jsonrpc": "2.0", "id": 26, "method": "tools/call", "params": {
+            "name": "upload_task_file",
+            "arguments": {"task_id": self.server.task_id, "path": "bad.pdf"}}})
+        self.assertFalse(response["result"]["isError"], response)
+        self.assertFalse(queue_path.exists())
+        raws = [r[3] for r in self.server.requests
+                if r[0] == "POST" and r[1].endswith("/files") and isinstance(r[3], bytes)]
+        # 3 次直传重试失败 + 1 次 flush 重试 + 1 次本次直传。
+        self.assertEqual(len(raws), 5, raws)
+        # flush 重试路径必须与直传路径同样消毒：引号→单引号、换行→空格。
+        # 否则畸形名每次 flush 都被服务端 4xx 拒收，成为永久毒丸条目。
+        for raw in raws:
+            self.assertNotIn(b'bad"\nname.pdf', raw)
+            for line in raw.split(b"\r\n"):
+                if b"filename=" in line:
+                    self.assertNotIn(b"\n", line, line)
+        self.assertTrue(any(b'filename="bad\' name.pdf"' in raw for raw in raws))
+
     def test_download_task_file_output_streams_to_workspace(self):
         self._use_env(self.env)
         self.server.task_files = [{"fileId": self.server.file_id, "role": "OUTPUT",

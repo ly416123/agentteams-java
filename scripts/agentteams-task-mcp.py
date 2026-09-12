@@ -18,6 +18,7 @@ Authentication (either):
 
 from __future__ import annotations
 
+import fcntl
 import json
 import mimetypes
 import os
@@ -27,6 +28,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -491,7 +493,8 @@ def tool_create_task(arguments: dict[str, Any]) -> dict[str, Any]:
     )
     if declared:
         # 账本登记（task_files role=INPUT）。inputJson.attachments 投影已随任务下发；
-        # 登记失败抛错让 agent 感知（任务已建，凭 taskId 可重试，服务端幂等去重）。
+        # 登记失败抛错让 agent 感知（此时任务已创建，但本脚本无独立重试登记的
+        # 工具入口，恢复途径是重建任务或改用 upload_task_file 直传同内容）。
         _http_json(
             "POST", _api_url(config, f"/api/v1/tasks/{task_id}/attachments"),
             token=_fetch_token(), idempotency_key=str(uuid.uuid4()),
@@ -710,50 +713,71 @@ def _save_queue(config: Config, entries: list[dict[str, Any]]) -> None:
         json.dump(entries, handle, ensure_ascii=False)
 
 
-def _flush_upload_queue(config: Config) -> int:
+@contextmanager
+def _queue_lock(config: Config):
+    """Serialize queue read-modify-write across concurrent MCP client processes."""
+    path = _queue_path(config) + ".lock"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _flush_upload_queue(config: Config) -> tuple[int, int]:
     """Opportunistic retry before each upload_task_file call.
 
     Sources that vanished are marked DROPPED: the queue shares the workspace
     lifecycle, so a missing source can never deliver and must not hang forever.
+    Returns (delivered, dropped) so the caller can surface the dropped count.
     An emptied queue removes the file so callers observe a clean workspace.
     """
-    entries = _load_queue(config)
-    if not entries:
-        return 0
-    remaining: list[dict[str, Any]] = []
-    delivered = 0
-    for entry in entries:
-        source = entry.get("filePath") or ""
-        if not os.path.isfile(source):
-            entry["status"] = "DROPPED"
-            continue
-        try:
-            with open(source, "rb") as handle:
-                content = handle.read()
-            _http_multipart(
-                _api_url(config, f"/api/v1/tasks/{entry['taskId']}/files"),
-                token=_fetch_token(), field="file", filename=entry["name"],
-                content=content,
-                content_type=entry.get("contentType") or "application/octet-stream",
-                idempotency_key=str(uuid.uuid4()))
-            delivered += 1
-        except RuntimeError:
-            remaining.append(entry)
-    if remaining:
-        _save_queue(config, remaining)
-    elif os.path.exists(_queue_path(config)):
-        os.remove(_queue_path(config))
-    return delivered
+    with _queue_lock(config):
+        entries = _load_queue(config)
+        if not entries:
+            return 0, 0
+        remaining: list[dict[str, Any]] = []
+        delivered = dropped = 0
+        for entry in entries:
+            source = entry.get("filePath") or ""
+            if not os.path.isfile(source):
+                entry["status"] = "DROPPED"
+                dropped += 1
+                continue
+            try:
+                with open(source, "rb") as handle:
+                    content = handle.read()
+                # 与直传路径同规则消毒：引号→单引号、换行→空格。否则畸形名
+                # 每次重试都被服务端 4xx 拒收，成为永久毒丸条目。
+                safe_name = str(entry.get("name") or "file").replace('"', "'") \
+                    .replace("\n", " ").replace("\r", " ")
+                _http_multipart(
+                    _api_url(config, f"/api/v1/tasks/{entry['taskId']}/files"),
+                    token=_fetch_token(), field="file", filename=safe_name,
+                    content=content,
+                    content_type=entry.get("contentType") or "application/octet-stream",
+                    idempotency_key=str(uuid.uuid4()))
+                delivered += 1
+            except RuntimeError:
+                remaining.append(entry)
+        if remaining:
+            _save_queue(config, remaining)
+        elif os.path.exists(_queue_path(config)):
+            os.remove(_queue_path(config))
+        return delivered, dropped
 
 
 def _enqueue_failed_upload(config: Config, task_id: str, source: str, name: str,
                            content_type: str, size_bytes: int) -> None:
-    entries = _load_queue(config)
-    entries.append({"taskId": task_id, "filePath": source, "name": name,
-                    "contentType": content_type, "sizeBytes": size_bytes,
-                    "attempts": UPLOAD_RETRIES + 1, "status": "PENDING",
-                    "enqueuedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    _save_queue(config, entries)
+    with _queue_lock(config):
+        entries = _load_queue(config)
+        entries.append({"taskId": task_id, "filePath": source, "name": name,
+                        "contentType": content_type, "sizeBytes": size_bytes,
+                        "attempts": UPLOAD_RETRIES + 1, "status": "PENDING",
+                        "enqueuedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        _save_queue(config, entries)
 
 
 def _resolve_workspace_path(config: Config, raw_path: str) -> str:
@@ -813,7 +837,10 @@ def tool_upload_task_file(arguments: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"file not found in workspace: {raw_path}")
     if os.path.getsize(resolved) > TASK_FILE_MAX_BYTES:
         raise ValueError(f"file exceeds the {TASK_FILE_MAX_BYTES} byte task upload limit")
-    _flush_upload_queue(config)
+    _, dropped = _flush_upload_queue(config)
+    # DROPPED 交付不可恢复，必须在响应 note 中可见（规格 §5.2）。
+    dropped_note = (f" Note: {dropped} queued upload(s) dropped "
+                    "(source file vanished)." if dropped else "")
     name = _clean_text(arguments.get("filename"), "filename", 255, required=False) \
         or os.path.basename(resolved) or "file"
     with open(resolved, "rb") as handle:
@@ -835,14 +862,16 @@ def tool_upload_task_file(arguments: dict[str, Any]) -> dict[str, Any]:
                     "sizeBytes": response.get("sizeBytes", len(content)),
                     "sha256": response.get("sha256"),
                     "note": ("Delivered to the task deliverables ledger (task_files); "
-                             "it stays downloadable after the worker is gone.")}
+                             "it stays downloadable after the worker is gone.")
+                            + dropped_note}
         except RuntimeError as failure:
             error = failure
     _enqueue_failed_upload(config, task_id, resolved, name, content_type, len(content))
     return {"ok": False, "error": str(error), "queued": True,
             "note": ("Upload failed after retries and was queued in "
                      ".task-upload-queue.json; call upload_task_file again to "
-                     "retry delivery (the queue flushes opportunistically).")}
+                     "retry delivery (the queue flushes opportunistically).")
+                    + dropped_note}
 
 
 def tool_download_task_file(arguments: dict[str, Any]) -> dict[str, Any]:
