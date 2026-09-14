@@ -11,8 +11,12 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import os
+import sys
+import urllib.parse
 
 import yaml
 from datetime import datetime, timezone
@@ -453,3 +457,87 @@ def build_domains(**kwargs) -> list[dict]:
     order = ["config_domain", "workers", "teams", "mcps", "endpoints",
              "history", "mapping"]
     return [kwargs[k] for k in order]
+
+
+def parser() -> argparse.ArgumentParser:
+    command = argparse.ArgumentParser(description=__doc__)
+    command.add_argument("--check", action="store_true",
+                         help="仅预检：DNS/连接/账号权限/表存在性，不产出报告")
+    command.add_argument("--dsn", default=None,
+                         help="MySQL DSN，如 mysql://host:3306/inner_imp_de；"
+                              "缺省读环境变量 INV_DSN")
+    command.add_argument("--user", default=None, help="缺省读 INV_USER")
+    command.add_argument("--password", default=None, help="缺省读 INV_PASSWORD；"
+                                                         "凭据仅内存使用，不落盘")
+    command.add_argument("--corp-config", type=Path,
+                         default=Path("/Users/gecko/IDEAPlace/corp-agent/"
+                                      "corp-agent-app/src/main/resources/"
+                                      "application-local.yaml"),
+                         help="corp-agent application yaml 路径")
+    command.add_argument("--repo-root", type=Path,
+                         default=Path(__file__).resolve().parents[1],
+                         help="agentteams-java 仓库根（产出 output/ 与 docs/inventory/）")
+    command.add_argument("--sample-limit", type=int, default=20,
+                         help="历史域每表抽样上限（默认 20）")
+    return command
+
+
+def _connect(args) -> tuple[object | None, str | None]:
+    """pymysql 延迟导入；返回 (conn, error)。DSN 解析失败/连接失败均返回 error。"""
+    try:
+        import pymysql  # 仅真实运行需要；测试不打真库，不依赖
+    except ImportError:
+        return None, "pymysql 未安装：pip3 install pymysql"
+    dsn = args.dsn or os.environ.get("INV_DSN")
+    user = args.user or os.environ.get("INV_USER")
+    password = args.password or os.environ.get("INV_PASSWORD")
+    if not (dsn and user and password):
+        return None, "缺少连接参数：--dsn/--user/--password 或 INV_DSN/INV_USER/INV_PASSWORD"
+    parsed = urllib.parse.urlparse(dsn if "://" in dsn else f"mysql://{dsn}")
+    try:
+        return (pymysql.connect(host=parsed.hostname, port=parsed.port or 3306,
+                                database=parsed.path.lstrip("/"), user=user,
+                                password=password, cursorclass=pymysql.cursors.DictCursor,
+                                connect_timeout=10, read_timeout=60), None)
+    except Exception as exc:  # 连接失败：不含凭据的错误摘要
+        return None, f"连接失败：{type(exc).__name__}: {exc}".replace(password, "***")
+
+
+def run(argv: list[str]) -> int:
+    args = parser().parse_args(argv)
+    repo = args.repo_root
+    conn, error = _connect(args)
+    if conn is None:
+        print(f"[PRECHECK] FAIL: {error}", file=sys.stderr)
+        return EXIT_CONN_FAIL
+    presence = probe_tables(conn)
+    missing = [t for t, ok in presence.items() if not ok]
+    if missing:
+        print(f"[PRECHECK] 缺失表（降级继续）: {', '.join(missing)}", file=sys.stderr)
+    if args.check:
+        print("[PRECHECK] OK" if not missing else "[PRECHECK] DEGRADED")
+        return degrade_status(presence)
+
+    config_domain = collect_config(args.corp_config.read_text(encoding="utf-8"))
+    domains = build_domains(
+        config_domain=config_domain,
+        workers=collect_workers(conn, presence["at_worker"] and presence["de_worker"]),
+        teams=collect_teams(conn, presence["de_team"]),
+        mcps=collect_mcps(conn, presence["at_mcp_server"]),
+        endpoints=collect_endpoints(conn, presence["at_service_endpoint"]),
+        history=collect_history(conn, presence["de_task"], sample_limit=args.sample_limit),
+        mapping=evaluate_mappings({}),
+    )
+    detail_hint = write_detail(repo / "output", domains)
+    summary_path = write_summary(repo, domains)
+    print(f"[DONE] 明细: {detail_hint.parent}")
+    print(f"[DONE] 汇总: {summary_path}")
+    return degrade_status(presence)
+
+
+def main() -> int:
+    return run(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -26,13 +27,15 @@ _SPEC.loader.exec_module(_MODULE)
 
 from inventory_legacy_platform import fingerprint, mask_row
 from inventory_legacy_platform import collect_config
-from inventory_legacy_platform import EXIT_DEGRADED, EXIT_OK, probe_tables, degrade_status
+from inventory_legacy_platform import (EXIT_CONN_FAIL, EXIT_DEGRADED, EXIT_OK,
+                                       probe_tables, degrade_status)
 from inventory_legacy_platform import (collect_workers, collect_teams,
                                        collect_mcps, collect_endpoints,
                                        diff_names)
 from inventory_legacy_platform import collect_history
 from inventory_legacy_platform import SEED_MAPPINGS, evaluate_mappings
 from inventory_legacy_platform import write_detail, write_summary, build_domains, _domain
+from inventory_legacy_platform import parser, run
 
 
 class TestGitignore(unittest.TestCase):
@@ -438,6 +441,25 @@ class TestReportWriter(unittest.TestCase):
         self.assertEqual([d["domain"] for d in domains],
                          ["platform-config", "workers", "teams", "mcps",
                           "endpoints", "history", "legacy-to-new-mapping"])
+
+
+class TestCli(unittest.TestCase):
+    def test_parser_accepts_check_mode(self) -> None:
+        args = parser().parse_args(["--check", "--dsn", "mysql://x"])
+        self.assertTrue(args.check)
+        self.assertEqual(args.dsn, "mysql://x")
+
+    def test_run_unreachable_dsn_returns_conn_fail(self) -> None:
+        rc = run(["--check", "--dsn", "mysql://127.0.0.1:1/none",
+                  "--user", "u", "--password", "p"])
+        self.assertEqual(rc, EXIT_CONN_FAIL)
+
+    def test_module_help_smoke(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "scripts/inventory-legacy-platform.py", "--help"],
+            capture_output=True, text=True, cwd=str(ROOT))
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--check", result.stdout)
 
 
 if __name__ == "__main__":
