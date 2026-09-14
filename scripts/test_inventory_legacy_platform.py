@@ -6,10 +6,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import textwrap
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,6 +24,7 @@ sys.modules["inventory_legacy_platform"] = _MODULE
 _SPEC.loader.exec_module(_MODULE)
 
 from inventory_legacy_platform import fingerprint, mask_row
+from inventory_legacy_platform import collect_config
 
 
 class TestGitignore(unittest.TestCase):
@@ -77,6 +77,54 @@ class TestMaskRow(unittest.TestCase):
         masked = mask_row("at_mcp_server", row)
         self.assertEqual(masked["mcp_server_config"], fingerprint('{"token":"t"}'))
         self.assertEqual(masked["auth_config"], fingerprint('{"u":"a"}'))
+
+
+CORP_YAML = textwrap.dedent("""\
+    agentteams:
+      endpoint: agentteams.cn-beijing.aliyuncs.com
+      instance-id: at-cn-test0001
+      worker-url: http://gw.example.internal
+      api-key: "atk-secret"
+      gateway:
+        impl: remote
+      task:
+        enabled: true
+        homeserver-url: http://ws-test.agentteams.aliyuncs.com
+        signin-base-url: https://signin.example
+        default-leader-user-id: "@leader:at-cn-test0001"
+        sync-timeout-minutes: 120
+    agentcore:
+      enabled: true
+      workspace-id: ws-test0001
+      leader-agent-id: agent-test0001
+      api-key: "FwcSECRET"
+      endpoint-template: http://{agentId}.{workspaceId}.agentteams.aliyuncs.com
+      runtime:
+        compute-class: "STANDARD"
+        session-policy-type: "DISABLED"
+""")
+
+
+class TestCollectConfig(unittest.TestCase):
+    def test_config_domain_extraction(self) -> None:
+        cfg = collect_config(CORP_YAML)
+        self.assertEqual(cfg["domain"], "platform-config")
+        self.assertEqual(cfg["status"], "ok")
+        self.assertTrue(cfg["rows"]["agentcore"]["enabled"])
+        self.assertEqual(cfg["rows"]["agentcore"]["workspace_id"], "ws-test0001")
+        self.assertEqual(cfg["rows"]["agentcore"]["runtime"]["compute_class"], "STANDARD")
+        self.assertEqual(cfg["rows"]["agentteams_legacy"]["instance_id"], "at-cn-test0001")
+        self.assertEqual(cfg["rows"]["agentteams_legacy"]["gateway_impl"], "remote")
+        self.assertEqual(cfg["rows"]["agentteams_legacy"]["task"]["homeserver_url"],
+                         "http://ws-test.agentteams.aliyuncs.com")
+
+    def test_credentials_fingerprinted_not_plaintext(self) -> None:
+        cfg = collect_config(CORP_YAML)
+        self.assertEqual(cfg["rows"]["agentcore"]["api_key_fingerprint"],
+                         fingerprint("FwcSECRET"))
+        self.assertNotIn("FwcSECRET", json.dumps(cfg))
+        self.assertNotIn("atk-secret", json.dumps(cfg))
+        self.assertIn("agentcore_api_key", cfg["rows"]["credential_sources"])
 
 
 if __name__ == "__main__":
