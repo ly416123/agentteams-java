@@ -30,6 +30,7 @@ from inventory_legacy_platform import (collect_workers, collect_teams,
                                        collect_mcps, collect_endpoints,
                                        diff_names)
 from inventory_legacy_platform import collect_history
+from inventory_legacy_platform import SEED_MAPPINGS, evaluate_mappings
 
 
 class TestGitignore(unittest.TestCase):
@@ -317,6 +318,24 @@ class TestCollectHistory(unittest.TestCase):
         self.assertEqual(domain["stats"]["de_chat_msg"]["total"], 500)
         self.assertEqual(domain["stats"]["de_chat_msg"]["by_role"], {1: 120})
         self.assertEqual(len(domain["rows"]["samples"]["de_task"]), 5)
+
+
+class TestMappings(unittest.TestCase):
+    def test_seed_mappings_have_decision_and_reason(self) -> None:
+        for m in SEED_MAPPINGS:
+            self.assertIn(m["strategy"], {"adopt", "adapt", "drop"})
+            self.assertTrue(m["reason"])
+
+    def test_evaluate_counts_by_strategy(self) -> None:
+        result = evaluate_mappings({})
+        self.assertEqual(result["stats"],
+                         {"adopt": 0, "adapt": 7, "drop": 1, "total": 8})
+
+    def test_drop_rows_carry_legacy_concept(self) -> None:
+        result = evaluate_mappings({})
+        drops = [m for m in result["rows"] if m["strategy"] == "drop"]
+        self.assertEqual(len(drops), 1)
+        self.assertIn("前缀格式", drops[0]["legacy_concept"])
 
 
 if __name__ == "__main__":

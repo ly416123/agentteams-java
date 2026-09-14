@@ -299,3 +299,41 @@ def _span(conn, sql: str) -> dict:
     values = list(row.values()) if row else [None, None]
     lo, hi = (values + [None, None])[:2]
     return {"from": str(lo) if lo else None, "to": str(hi) if hi else None}
+
+
+SEED_MAPPINGS: list[dict] = [
+    {"legacy_concept": "at_worker.soul + agents（固定分段标记合成 instruction）",
+     "new_concept": "Worker/AgentSpec prompt 直接建模", "strategy": "adapt",
+     "reason": "分段标记协议是阿里实现细节，corp-agent 适配器自述需『厚翻译』"},
+    {"legacy_concept": "legacy Team 无 Leader 参数（groups[0].role=leader 隐式认定）",
+     "new_concept": "Team 显式 Leader 一等概念", "strategy": "adapt",
+     "reason": "隐式格式语义易错"},
+    {"legacy_concept": "AgentCore Team.agents 恰一 Leader 硬约束",
+     "new_concept": "自研 Team 状态机自行定义成员约束", "strategy": "adapt",
+     "reason": "平台硬约束不进入领域模型"},
+    {"legacy_concept": "Agent 属于 Team 时禁止删除（AgentCore 409）",
+     "new_concept": "解绑+删除显式编排（detachAndDeleteWorker 既有）", "strategy": "adapt",
+     "reason": "约束属平台实现细节"},
+    {"legacy_concept": "ServiceEndpoint {workerName}.worker.{host} 前缀格式匹配",
+     "new_concept": "Endpoint 一等实体显式字段", "strategy": "drop",
+     "reason": "格式即协议的反模式"},
+    {"legacy_concept": "modelProvider ↔ modelConnectionId 平台侧连接映射",
+     "new_concept": "AgentSpec manifest + credentialRef 引用", "strategy": "adapt",
+     "reason": "模型配置不绑死平台侧连接"},
+    {"legacy_concept": "mcpServers ↔ tools[{name,type=MCP}]",
+     "new_concept": "MCP 注册中心 + AgentSpec manifest 下发", "strategy": "adapt",
+     "reason": "自研 MCP 发现与运行时绑定已交付"},
+    {"legacy_concept": "Worker（ManagedAgent）资源模型",
+     "new_concept": "Worker + AgentSpec + Team Revision", "strategy": "adapt",
+     "reason": "自研控制平面已按自身架构建模"},
+]
+
+
+def evaluate_mappings(domains: dict) -> dict:
+    """三态映射评估：种子表 + 运行期发现（当前仅种子，OpenAPI 对账阶段扩展）。"""
+    rows = [dict(m) for m in SEED_MAPPINGS]
+    stats = {"adopt": 0, "adapt": 0, "drop": 0, "total": len(rows)}
+    for m in rows:
+        stats[m["strategy"]] += 1
+    return {"domain": "legacy-to-new-mapping", "status": "ok",
+            "rows": rows, "stats": stats, "notes": []}
