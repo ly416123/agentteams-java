@@ -43,7 +43,7 @@ corp-agent MySQL（at_* / de_* 表）      corp-agent application*.yaml
           └─ docs/inventory/<date>-legacy-inventory.md      ← 汇总（脱敏），入库
 ```
 
-- 工具形态：`scripts/inventory-legacy-platform.py`（Python CLI，沿用 scripts/ 惯例），配套 `scripts/test_inventory_legacy_platform.py`（pytest 契约测试）
+- 工具形态：`scripts/inventory-legacy-platform.py`（Python CLI，沿用 scripts/ 惯例），配套 `scripts/test_inventory_legacy_platform.py`（unittest 契约测试，CI 惯例 `python3 -m unittest scripts/test_inventory_legacy_platform.py -v`）
 - DB 访问：pymysql；配置解析：PyYAML
 - 连接串从环境变量/CLI 参数传入，工具自身不保存任何凭据
 
@@ -53,7 +53,7 @@ corp-agent MySQL（at_* / de_* 表）      corp-agent application*.yaml
 |---|---|---|---|
 | ① 平台配置 | corp-agent yaml | AgentCore：enabled/workspace-id/leader-agent-id/runtime（compute-class、session-policy-type）；legacy AgentTeams：endpoint/instance-id/worker-url/Matrix homeserver/task+SSO 配置块。workspace-id/instance-id/leader-agent-id 属资源标识符而非凭据，可全文记录 | 汇总=参数清单；**凭据（api-key/DB 密码/SSO token）只记 SHA-256 指纹前 8 位，不落值** |
 | ② Worker | `at_worker` + `de_worker` | 清单（name/agent_type/deploy_type/model_provider/model_name/status）+ MCP/Skill 绑定结构；soul+agents 正文进明细；`at_worker` 与 `de_worker` 名单差集 = 漂移线索（对齐键预期为两侧 name 类字段，实现计划阶段按 `0827_数字员工ddl.sql` 的 `de_worker` DDL 确认） | 明细含正文；汇总只含清单与差集统计 |
-| ③ Team | `at_team` / `de_team` / `de_team_worker_rel` / `de_team_crew_rel` | leader、成员、worker 分组关系、双侧名单差集 | 明细 + 汇总统计 |
+| ③ Team | `at_team` / `de_team` / `de_team_worker_rel` / `de_team_crew_rel` / `de_user_mapp` | leader、成员、worker 分组关系、双侧名单差集；`de_user_mapp` 用户映射归入组织关系统计（凭据字段指纹化，密码列不 SELECT） | 明细 + 汇总统计 |
 | ④ MCP | `at_mcp_server` + `at_worker.mcp_servers_json` | 协议/地址/部署状态/被引用关系 | 明细 + 汇总统计 |
 | ⑤ Endpoint | `at_service_endpoint` | 组件/资源名/地址/鉴权方式 | 明细 + 汇总统计 |
 | ⑥ 历史数据 | `de_task` / `de_task_rslt` / `de_chat_convo` / `de_chat_msg` | **全量统计**：数量、状态分布、时间跨度、按 worker/团队维度分布；每表抽样 ≤20 条做字段画像 | 汇总=统计画像；明细=仅抽样行 |
@@ -90,12 +90,12 @@ MappingEngine 对每个旧概念输出映射行：`旧概念 → 新平台对应
 
 - `--check` 预检模式：DNS → 网络可达（RDS 白名单常见失败点）→ 账号权限 → 表存在性，逐层诊断并给修复指引
 - 逐表探测，`at_*` 缺失输出「缺失说明」（含原因推断：未启用 `gateway.impl=db` 落库模式），降级继续其余域
-- 退出码区分三种状态：连接失败 / 表缺失（降级成功）/ 正常完成
+- 退出码区分四种状态：正常完成(0) / 表缺失降级成功(1) / 连接失败(2) / 输入或采集失败(3)（批次 D 修订新增码 3，与降级语义区分）
 - 查询全部只读（显式 SELECT，无任何写语句）；大表统计用聚合 SQL 而非全表拉取
 
 ## 8. 测试策略
 
-pytest 契约测试（`scripts/test_inventory_legacy_platform.py`），全部基于脱敏合成 fixture（固化六大域样本 JSON 模拟表数据），不打真库：
+unittest 契约测试（`scripts/test_inventory_legacy_platform.py`），运行命令：`python3 -m unittest scripts/test_inventory_legacy_platform.py -v`；全部基于脱敏合成 fixture（固化六大域样本 JSON 模拟表数据），不打真库：
 
 1. 解析器契约：TSV/JSON/参数结构的解析与字段画像；
 2. 映射引擎契约：三态决策（含种子映射的预期标注）；

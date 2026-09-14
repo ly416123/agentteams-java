@@ -89,7 +89,7 @@ output/
 
 from __future__ import annotations
 
-# 退出码：0=正常完成，1=降级完成（存在表缺失），2=连接失败
+# 退出码：0=正常完成，1=降级完成（存在表缺失），2=连接失败，3=输入/采集失败（批次 D 修订）
 EXIT_OK = 0
 EXIT_DEGRADED = 1
 EXIT_CONN_FAIL = 2
