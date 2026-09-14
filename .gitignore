@@ -32,6 +32,7 @@ out/
 build/
 .flattened-pom.xml
 dependency-reduced-pom.xml
+output/
 
 # Operating-system metadata
 .DS_Store
