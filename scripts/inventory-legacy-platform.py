@@ -2,6 +2,8 @@
 """G12 前置：旧平台配置与历史数据盘点工具（台账镜像口径，只读）。
 
 数据源：corp-agent MySQL（at_* / de_* 表）与 corp-agent application*.yaml。
+连接契约：conn 须以 pymysql.connect(..., cursorclass=pymysql.cursors.DictCursor) 创建，
+所有采集统一按字典行处理（批次 D CLI 建连时落实）。
 产出：output/legacy-inventory-<ts>/detail/*.json（明细，gitignore）
       docs/inventory/<date>-legacy-inventory.md（汇总，入库，脱敏）。
 """
@@ -97,14 +99,15 @@ INVENTORY_TABLES = [
 ]
 
 PROBE_SQL = ("SELECT table_name FROM information_schema.tables "
-             "WHERE table_schema = DATABASE() AND table_name IN (%s" + ", %s" * 12 + ")")
+             "WHERE table_schema = DATABASE() AND table_name IN (%s"
+             + ", %s" * (len(INVENTORY_TABLES) - 1) + ")")
 
 
 def probe_tables(conn) -> dict[str, bool]:
     """逐表探测 information_schema；返回 {表名: 是否存在}。"""
     with conn.cursor() as cur:
         cur.execute(PROBE_SQL, tuple(INVENTORY_TABLES))
-        existing = {row[0] for row in cur.fetchall()}
+        existing = {row["table_name"] for row in cur.fetchall()}
     return {t: t in existing for t in INVENTORY_TABLES}
 
 
@@ -164,6 +167,7 @@ def collect_teams(conn, present: bool) -> dict:
                         " WHERE del_flag = 0")
     crews = _fetch(conn, "SELECT team_id, crew_id FROM de_team_crew_rel"
                          " WHERE del_flag = 0")
+    # tgt_user_pwd 有意不 SELECT（最小列原则）；mask_row 按 SENSITIVE_FIELDS 表级兜底
     user_map = [mask_row("de_user_mapp", r) for r in _fetch(
         conn, "SELECT src_user_id, tgt_user_id, del_flag FROM de_user_mapp")]
     at_teams = _fetch(conn, "SELECT name, description, admin_name, leader_name,"

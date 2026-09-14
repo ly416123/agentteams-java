@@ -143,7 +143,7 @@ class FakeCursor:
     def fetchall(self):
         sql, params = self._last
         wanted = list(params)
-        return [(t,) for t in wanted if t in self._existing]
+        return [{"table_name": t} for t in wanted if t in self._existing]
 
     def __enter__(self):
         return self
@@ -238,9 +238,19 @@ class TestCollectTeamsMcpEndpoint(unittest.TestCase):
     def test_teams(self) -> None:
         rows = [{"team_id": "t-1", "team_name": "team-a", "leader_id": "w-1",
                  "status": "ACTIVE", "del_flag": 0}]
-        db = FakeDb({"SELECT team_id, team_name": rows})
+        db = FakeDb({
+            "SELECT team_id, team_name": rows,
+            "SELECT team_id, worker_id": [{"team_id": "t-1", "worker_id": "w-1", "role": "member"}],
+            "SELECT team_id, crew_id": [{"team_id": "t-1", "crew_id": "c-1"}],
+            "SELECT src_user_id": [{"src_user_id": "u-1", "tgt_user_id": "t-1", "del_flag": 0}],
+            "SELECT name, description": [{"name": "at-t", "description": "d", "status": "ACTIVE"}],
+        })
         domain = collect_teams(db, present=True)
         self.assertEqual(domain["stats"]["de_team_count"], 1)
+        self.assertEqual(domain["stats"]["de_team_worker_rel_count"], 1)
+        self.assertEqual(domain["stats"]["de_team_crew_rel_count"], 1)
+        self.assertEqual(domain["stats"]["user_mapping_count"], 1)
+        self.assertEqual(domain["stats"]["at_team_count"], 1)
 
     def test_mcps(self) -> None:
         rows = [{"mcp_id": "m-1", "name": "mcp-a", "protocol": "SSE",
