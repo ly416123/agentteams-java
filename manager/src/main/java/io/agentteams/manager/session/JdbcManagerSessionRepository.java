@@ -207,24 +207,24 @@ public class JdbcManagerSessionRepository implements ManagerSessionRepository {
         return new ManagerSessionRecord(rs.getObject("id", UUID.class), rs.getString("tenant_id"),
                 rs.getString("project_id"), rs.getString("team_id"), rs.getString("actor"),
                 ManagerSessionRecord.Status.valueOf(rs.getString("status")), rs.getLong("version"),
-                rs.getObject("created_at", Instant.class), rs.getObject("updated_at", Instant.class));
+                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
     }
 
     private ManagerMessageRecord mapMessage(ResultSet rs, int row) throws SQLException {
         return new ManagerMessageRecord(rs.getObject("id", UUID.class), rs.getObject("session_id", UUID.class),
                 rs.getString("idempotency_key"), rs.getString("actor"), rs.getString("role"),
                 rs.getString("content_hash"), rs.getString("redacted_summary"), rs.getString("result_summary"),
-                ManagerMessageRecord.Status.valueOf(rs.getString("status")), rs.getObject("created_at", Instant.class));
+                ManagerMessageRecord.Status.valueOf(rs.getString("status")), rs.getTimestamp("created_at").toInstant());
     }
 
     private ManagerToolCallRecord mapToolCall(ResultSet rs, int row) throws SQLException {
         return new ManagerToolCallRecord(rs.getObject("id", UUID.class), rs.getObject("session_id", UUID.class),
                 rs.getString("idempotency_key"), rs.getString("tool_name"), rs.getString("input_hash"),
-                rs.getString("status"), rs.getString("result_summary"), rs.getObject("created_at", Instant.class));
+                rs.getString("status"), rs.getString("result_summary"), rs.getTimestamp("created_at").toInstant());
     }
 
     private ManagerEventRecord mapEvent(ResultSet rs, int row) throws SQLException {
         return new ManagerEventRecord(rs.getObject("session_id", UUID.class), rs.getLong("cursor"),
-                rs.getString("event_type"), rs.getString("payload"), rs.getObject("created_at", Instant.class));
+                rs.getString("event_type"), rs.getString("payload"), rs.getTimestamp("created_at").toInstant());
     }
 }

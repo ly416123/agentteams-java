@@ -70,7 +70,7 @@ public final class JdbcAuditQueryService {
             Map<String, String> attributes = objectMapper.readValue(rs.getString("attributes"), ATTRIBUTES_TYPE);
             return new AuditEvent(rs.getObject("id", java.util.UUID.class), rs.getString("actor"),
                     rs.getString("action"), rs.getString("resource_type"), rs.getString("resource_id"),
-                    RedactingAuditRecorder.redactAttributes(attributes), rs.getObject("occurred_at", Instant.class));
+                    RedactingAuditRecorder.redactAttributes(attributes), rs.getTimestamp("occurred_at").toInstant());
         } catch (JsonProcessingException error) {
             throw new SQLException("stored audit attributes are not valid JSON", error);
         }

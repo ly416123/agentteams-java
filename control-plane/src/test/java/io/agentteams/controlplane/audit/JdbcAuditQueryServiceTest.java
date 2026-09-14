@@ -42,7 +42,10 @@ class JdbcAuditQueryServiceTest {
         when(resultSet.getString("resource_type")).thenReturn("worker");
         when(resultSet.getString("resource_id")).thenReturn("worker-1");
         when(resultSet.getString("attributes")).thenReturn("{\"token\":\"secret\",\"model\":\"qwen\"}");
-        when(resultSet.getObject("occurred_at", Instant.class)).thenReturn(occurredAt);
+        // 读路径惯例：TIMESTAMPTZ 列经 getTimestamp().toInstant()（PG JDBC 不支持 getObject(col, Instant.class)，
+        // G05 缺陷 532c561 实证；stub 返回 java.sql.Timestamp 与真实驱动行为一致）。
+        when(resultSet.getTimestamp("occurred_at"))
+                .thenReturn(java.sql.Timestamp.from(occurredAt));
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
             RowMapper<AuditEvent> mapper = invocation.getArgument(1);
             return List.of(mapper.mapRow(resultSet, 0));
