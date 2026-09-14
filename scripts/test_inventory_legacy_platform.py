@@ -84,6 +84,11 @@ class TestMaskRow(unittest.TestCase):
         self.assertEqual(masked["mcp_server_config"], fingerprint('{"token":"t"}'))
         self.assertEqual(masked["auth_config"], fingerprint('{"u":"a"}'))
 
+    def test_bytes_sensitive_value_fingerprinted(self) -> None:
+        # DDL 可空性/二进制类型未核验：BLOB 类列 pymysql 返回 bytes，同样不得明文落盘
+        masked = mask_row("de_worker", {"worker_id": "w-1", "api_key": b"ak-bytes-1"})
+        self.assertEqual(masked["api_key"], fingerprint("ak-bytes-1"))
+
 
 CORP_YAML = textwrap.dedent("""\
     agentteams:
@@ -233,6 +238,18 @@ class TestCollectWorkers(unittest.TestCase):
         domain = collect_workers(FakeDb({}), present=False)
         self.assertEqual(domain["status"], "table_missing")
         self.assertIn("gateway.impl=remote", " ".join(domain["notes"]))
+
+    def test_null_names_defended_in_diff(self) -> None:
+        # 0827 DDL 不在仓库，name 可空性未核验：NULL 名不进差集（防 sorted None/str 混排 TypeError）
+        db = FakeDb({
+            "SELECT name, agent_type": [{"name": None, "agent_type": "x"},
+                                        {"name": "w-a", "agent_type": "x"}],
+            "SELECT worker_id, worker_name": [{"worker_id": "w-1", "worker_name": "w-b"}],
+        })
+        domain = collect_workers(db, present=True)
+        self.assertEqual(domain["stats"]["at_worker_count"], 2)  # 计数不受过滤影响
+        self.assertEqual(domain["stats"]["only_in_at"], ["w-a"])
+        self.assertEqual(domain["stats"]["only_in_de"], ["w-b"])
 
 
 class TestDiffNames(unittest.TestCase):

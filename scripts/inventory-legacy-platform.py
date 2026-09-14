@@ -37,7 +37,13 @@ def fingerprint(value: str) -> str:
 def mask_row(table: str, row: dict) -> dict:
     """返回脱敏副本；敏感字段替换为指纹，其余原样保留。"""
     sensitive = SENSITIVE_FIELDS.get(table, set())
-    return {k: (fingerprint(v) if k in sensitive and isinstance(v, str) and v else v)
+
+    def _fp(v):
+        if isinstance(v, bytes):  # BLOB/VARBINARY 类列 pymysql 返回 bytes
+            v = v.decode("utf-8", "replace")
+        return fingerprint(v)
+
+    return {k: (_fp(v) if k in sensitive and isinstance(v, (str, bytes)) and v else v)
             for k, v in row.items()}
 
 
@@ -151,8 +157,9 @@ def collect_workers(conn, present: bool) -> dict:
     de_rows = [mask_row("de_worker", r) for r in _fetch(
         conn, "SELECT worker_id, worker_name, status, model_name, model_mfr_name,"
               " endpoint, api_key FROM de_worker WHERE del_flag = 0")]
-    at_names = [r["name"] for r in at_rows]
-    de_names = [r["worker_name"] for r in de_rows]
+    # 0827 DDL 不在仓库，name 可空性未核验：过滤空名后再差集，防 None/str 混排 TypeError
+    at_names = [r["name"] for r in at_rows if r["name"]]
+    de_names = [r["worker_name"] for r in de_rows if r["worker_name"]]
     stats = {"at_worker_count": len(at_rows), "de_worker_count": len(de_rows),
              "only_in_at": diff_names(at_names, de_names),
              "only_in_de": sorted(set(de_names) - set(at_names))}
