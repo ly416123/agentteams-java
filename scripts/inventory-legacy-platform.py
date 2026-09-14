@@ -113,9 +113,10 @@ INVENTORY_TABLES = [
     "de_user_mapp", "de_task", "de_task_rslt", "de_chat_convo", "de_chat_msg",
 ]
 
-PROBE_SQL = ("SELECT table_name FROM information_schema.tables "
+PROBE_SQL = ("SELECT table_name AS table_name FROM information_schema.tables "
              "WHERE table_schema = DATABASE() AND table_name IN (%s"
              + ", %s" * (len(INVENTORY_TABLES) - 1) + ")")
+# 别名固定小写键：真库 information_schema 列名为大写 TABLE_NAME，DictCursor 键随列名返回
 
 
 def probe_tables(conn) -> dict[str, bool]:
@@ -520,7 +521,11 @@ def run(argv: list[str]) -> int:
     if conn is None:
         print(f"[PRECHECK] FAIL: {error}", file=sys.stderr)
         return EXIT_CONN_FAIL
-    presence = probe_tables(conn)
+    try:
+        presence = probe_tables(conn)
+    except Exception as exc:  # 预检段运行期异常：与降级码 1 区分
+        print(f"[PRECHECK] FAIL: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_INPUT_FAIL
     missing = [t for t, ok in presence.items() if not ok]
     if missing:
         print(f"[PRECHECK] 缺失表（降级继续）: {', '.join(missing)}", file=sys.stderr)

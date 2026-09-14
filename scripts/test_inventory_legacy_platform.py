@@ -32,7 +32,7 @@ from inventory_legacy_platform import (EXIT_CONN_FAIL, EXIT_DEGRADED, EXIT_INPUT
                                        EXIT_OK, probe_tables, degrade_status)
 from inventory_legacy_platform import (collect_workers, collect_teams,
                                        collect_mcps, collect_endpoints,
-                                       diff_names)
+                                       diff_names, PROBE_SQL)
 from inventory_legacy_platform import collect_history
 from inventory_legacy_platform import SEED_MAPPINGS, evaluate_mappings
 from inventory_legacy_platform import write_detail, write_summary, build_domains, _domain
@@ -505,7 +505,7 @@ class TestCli(unittest.TestCase):
         cfg = tmp / "app.yaml"
         cfg.write_text(CORP_YAML, encoding="utf-8")
         queries = {
-            "SELECT table_name FROM information_schema":
+            "SELECT table_name AS table_name FROM information_schema":
                 [{"table_name": t} for t in ALL_TABLES],
             "SELECT name, agent_type": FIXTURE_AT_WORKER,
             "SELECT worker_id, worker_name": FIXTURE_DE_WORKER,
@@ -551,6 +551,18 @@ class TestCli(unittest.TestCase):
             rc = run(["--dsn", "mysql://h/db", "--user", "u", "--password", "p",
                       "--corp-config", "/nonexistent/app.yaml",
                       "--repo-root", tempfile.mkdtemp()])
+        self.assertEqual(rc, EXIT_INPUT_FAIL)
+
+    def test_probe_sql_aliases_table_name_lowercase(self) -> None:
+        # 真库 information_schema 列名为大写 TABLE_NAME，DictCursor 键随列名返回；
+        # 首轮真库试跑实测 KeyError: 'table_name'，别名固定小写键
+        self.assertIn("AS table_name", PROBE_SQL)
+
+    def test_run_probe_failure_reports_input_fail(self) -> None:
+        # 预检段（probe）运行期异常也须回四码，不得裸抛 traceback（退出码 1 与降级冲突）
+        with mock.patch.object(_MODULE, "_connect", return_value=(object(), None)), \
+                mock.patch.object(_MODULE, "probe_tables", side_effect=RuntimeError("boom")):
+            rc = run(["--check", "--dsn", "mysql://h/db", "--user", "u", "--password", "p"])
         self.assertEqual(rc, EXIT_INPUT_FAIL)
 
 
