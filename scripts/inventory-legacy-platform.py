@@ -22,10 +22,11 @@ import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 退出码：0=正常完成，1=降级完成（存在表缺失），2=连接失败
+# 退出码：0=正常完成，1=降级完成（存在表缺失），2=连接失败，3=输入/采集失败
 EXIT_OK = 0
 EXIT_DEGRADED = 1
 EXIT_CONN_FAIL = 2
+EXIT_INPUT_FAIL = 3
 
 # 表内敏感字段（DDL 核验 2026-09-14）：值一律指纹化，不落任何产出物
 SENSITIVE_FIELDS: dict[str, set[str]] = {
@@ -154,26 +155,33 @@ def _domain(name: str, present: bool, rows: dict, stats: dict,
             "stats": stats, "notes": notes or []}
 
 
-def collect_workers(conn, present: bool) -> dict:
+def collect_workers(conn, present: bool, at_present: bool = True) -> dict:
+    """present 语义为 de_worker 台账存在（资源清单以台账为准）；at_present 门控差集侧。"""
     if not present:
         return _domain("workers", False, {}, {})
     at_rows = [mask_row("at_worker", r) for r in _fetch(
         conn, "SELECT name, agent_type, deploy_type, model_provider, model_name,"
               " status, soul, agents, mcp_servers_json, skills_json, groups_json"
-              " FROM at_worker WHERE deleted = 0")]
+              " FROM at_worker WHERE deleted = 0")] if at_present else []
     de_rows = [mask_row("de_worker", r) for r in _fetch(
         conn, "SELECT worker_id, worker_name, status, model_name, model_mfr_name,"
               " endpoint, api_key FROM de_worker WHERE del_flag = 0")]
     # 0827 DDL 不在仓库，name 可空性未核验：过滤空名后再差集，防 None/str 混排 TypeError
     at_names = [r["name"] for r in at_rows if r["name"]]
     de_names = [r["worker_name"] for r in de_rows if r["worker_name"]]
+    if at_present:
+        only_in_at = diff_names(at_names, de_names)
+        only_in_de = sorted(set(de_names) - set(at_names))
+    else:
+        only_in_at = only_in_de = []  # 差集不可算
     stats = {"at_worker_count": len(at_rows), "de_worker_count": len(de_rows),
-             "only_in_at": diff_names(at_names, de_names),
-             "only_in_de": sorted(set(de_names) - set(at_names))}
-    return _domain("workers", True, {"at_worker": at_rows, "de_worker": de_rows}, stats)
+             "only_in_at": only_in_at, "only_in_de": only_in_de}
+    notes = [] if at_present else ["at_worker 缺失：差集不可算，资源清单以 de_worker 台账为准"]
+    return _domain("workers", True, {"at_worker": at_rows, "de_worker": de_rows},
+                   stats, notes)
 
 
-def collect_teams(conn, present: bool) -> dict:
+def collect_teams(conn, present: bool, at_present: bool = True) -> dict:
     if not present:
         return _domain("teams", False, {}, {})
     de_teams = _fetch(conn, "SELECT team_id, team_name, dscr, leader_id, status,"
@@ -185,16 +193,18 @@ def collect_teams(conn, present: bool) -> dict:
     # tgt_user_pwd 有意不 SELECT（最小列原则）；mask_row 按 SENSITIVE_FIELDS 表级兜底
     user_map = [mask_row("de_user_mapp", r) for r in _fetch(
         conn, "SELECT src_user_id, tgt_user_id, del_flag FROM de_user_mapp")]
+    # at_team 仅在存在时查询：预期场景 at_* 从未落库，缺失降级不失败
     at_teams = _fetch(conn, "SELECT name, description, admin_name, leader_name,"
                             " status, member_names, worker_names FROM at_team"
-                            " WHERE deleted = 0")
+                            " WHERE deleted = 0") if at_present else []
+    notes = [] if at_present else ["at_team 缺失：平台侧 Team 镜像不可得（见 MISSING_NOTE）"]
     stats = {"de_team_count": len(de_teams), "de_team_worker_rel_count": len(rels),
              "de_team_crew_rel_count": len(crews), "user_mapping_count": len(user_map),
              "at_team_count": len(at_teams)}
     return _domain("teams", True,
                    {"de_team": de_teams, "de_team_worker_rel": rels,
                     "de_team_crew_rel": crews, "de_user_mapp": user_map,
-                    "at_team": at_teams}, stats)
+                    "at_team": at_teams}, stats, notes)
 
 
 def collect_mcps(conn, present: bool) -> dict:
@@ -464,8 +474,8 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--check", action="store_true",
                          help="仅预检：DNS/连接/账号权限/表存在性，不产出报告")
     command.add_argument("--dsn", default=None,
-                         help="MySQL DSN，如 mysql://host:3306/inner_imp_de；"
-                              "缺省读环境变量 INV_DSN")
+                         help="MySQL DSN，如 mysql://host[:port]/db（仅 host[:port]/db "
+                              "格式，query 参数忽略）；缺省读环境变量 INV_DSN")
     command.add_argument("--user", default=None, help="缺省读 INV_USER")
     command.add_argument("--password", default=None, help="缺省读 INV_PASSWORD；"
                                                          "凭据仅内存使用，不落盘")
@@ -473,7 +483,7 @@ def parser() -> argparse.ArgumentParser:
                          default=Path("/Users/gecko/IDEAPlace/corp-agent/"
                                       "corp-agent-app/src/main/resources/"
                                       "application-local.yaml"),
-                         help="corp-agent application yaml 路径")
+                         help="corp-agent application yaml 路径（默认为本机路径，机器相关）")
     command.add_argument("--repo-root", type=Path,
                          default=Path(__file__).resolve().parents[1],
                          help="agentteams-java 仓库根（产出 output/ 与 docs/inventory/）")
@@ -518,18 +528,27 @@ def run(argv: list[str]) -> int:
         print("[PRECHECK] OK" if not missing else "[PRECHECK] DEGRADED")
         return degrade_status(presence)
 
-    config_domain = collect_config(args.corp_config.read_text(encoding="utf-8"))
-    domains = build_domains(
-        config_domain=config_domain,
-        workers=collect_workers(conn, presence["at_worker"] and presence["de_worker"]),
-        teams=collect_teams(conn, presence["de_team"]),
-        mcps=collect_mcps(conn, presence["at_mcp_server"]),
-        endpoints=collect_endpoints(conn, presence["at_service_endpoint"]),
-        history=collect_history(conn, presence["de_task"], sample_limit=args.sample_limit),
-        mapping=evaluate_mappings({}),
-    )
-    detail_hint = write_detail(repo / "output", domains)
-    summary_path = write_summary(repo, domains)
+    if not args.corp_config.is_file():
+        print(f"[ERROR] corp-config 不存在: {args.corp_config}", file=sys.stderr)
+        return EXIT_INPUT_FAIL
+    try:
+        config_domain = collect_config(args.corp_config.read_text(encoding="utf-8"))
+        domains = build_domains(
+            config_domain=config_domain,
+            workers=collect_workers(conn, presence["de_worker"],
+                                    at_present=presence["at_worker"]),
+            teams=collect_teams(conn, presence["de_team"],
+                                at_present=presence["at_team"]),
+            mcps=collect_mcps(conn, presence["at_mcp_server"]),
+            endpoints=collect_endpoints(conn, presence["at_service_endpoint"]),
+            history=collect_history(conn, presence["de_task"], sample_limit=args.sample_limit),
+            mapping=evaluate_mappings({}),
+        )
+        detail_hint = write_detail(repo / "output", domains)
+        summary_path = write_summary(repo, domains)
+    except Exception as exc:  # 采集/落盘未预期异常：与降级退出码 1 区分
+        print(f"[ERROR] 采集失败：{type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_INPUT_FAIL
     print(f"[DONE] 明细: {detail_hint.parent}")
     print(f"[DONE] 汇总: {summary_path}")
     return degrade_status(presence)

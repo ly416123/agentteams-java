@@ -11,6 +11,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,8 +28,8 @@ _SPEC.loader.exec_module(_MODULE)
 
 from inventory_legacy_platform import fingerprint, mask_row
 from inventory_legacy_platform import collect_config
-from inventory_legacy_platform import (EXIT_CONN_FAIL, EXIT_DEGRADED, EXIT_OK,
-                                       probe_tables, degrade_status)
+from inventory_legacy_platform import (EXIT_CONN_FAIL, EXIT_DEGRADED, EXIT_INPUT_FAIL,
+                                       EXIT_OK, probe_tables, degrade_status)
 from inventory_legacy_platform import (collect_workers, collect_teams,
                                        collect_mcps, collect_endpoints,
                                        diff_names)
@@ -256,6 +257,17 @@ class TestCollectWorkers(unittest.TestCase):
         self.assertEqual(domain["stats"]["only_in_at"], ["w-a"])
         self.assertEqual(domain["stats"]["only_in_de"], ["w-b"])
 
+    def test_workers_at_missing_still_collects_de(self) -> None:
+        # 预期场景 at_worker 缺失：de_worker 台账仍须采集，差集置空并注明
+        db = FakeDb({"SELECT worker_id, worker_name": FIXTURE_DE_WORKER})
+        domain = collect_workers(db, present=True, at_present=False)
+        self.assertEqual(domain["status"], "ok")
+        self.assertEqual(domain["stats"]["at_worker_count"], 0)
+        self.assertEqual(domain["stats"]["de_worker_count"], 1)
+        self.assertEqual(domain["stats"]["only_in_at"], [])
+        self.assertEqual(domain["stats"]["only_in_de"], [])
+        self.assertTrue(any("at_worker" in n for n in domain["notes"]))
+
 
 class TestDiffNames(unittest.TestCase):
     def test_diff_names(self) -> None:
@@ -280,6 +292,22 @@ class TestCollectTeamsMcpEndpoint(unittest.TestCase):
         self.assertEqual(domain["stats"]["de_team_crew_rel_count"], 1)
         self.assertEqual(domain["stats"]["user_mapping_count"], 1)
         self.assertEqual(domain["stats"]["at_team_count"], 1)
+
+    def test_teams_without_at_team(self) -> None:
+        # 预期场景 at_team 缺失：de_* 四表照常采集，at_team 置空并注明
+        db = FakeDb({
+            "SELECT team_id, team_name": [{"team_id": "t-1", "team_name": "team-a",
+                                           "leader_id": "w-1", "status": "ACTIVE",
+                                           "del_flag": 0}],
+            "SELECT team_id, worker_id": [],
+            "SELECT team_id, crew_id": [],
+            "SELECT src_user_id": [],
+        })
+        domain = collect_teams(db, present=True, at_present=False)
+        self.assertEqual(domain["status"], "ok")
+        self.assertEqual(domain["stats"]["de_team_count"], 1)
+        self.assertEqual(domain["stats"]["at_team_count"], 0)
+        self.assertTrue(any("at_team" in n for n in domain["notes"]))
 
     def test_mcps(self) -> None:
         rows = [{"mcp_id": "m-1", "name": "mcp-a", "protocol": "SSE",
@@ -442,6 +470,16 @@ class TestReportWriter(unittest.TestCase):
                          ["platform-config", "workers", "teams", "mcps",
                           "endpoints", "history", "legacy-to-new-mapping"])
 
+    def test_summary_empty_drift_and_history_fallback(self) -> None:
+        domains = [
+            _domain("workers", True, {}, {"at_worker_count": 0, "de_worker_count": 0}),
+            evaluate_mappings({}),
+        ]
+        path = write_summary(self.tmp, domains)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("无漂移线索", text)
+        self.assertIn("无历史数据", text)
+
 
 class TestCli(unittest.TestCase):
     def test_parser_accepts_check_mode(self) -> None:
@@ -460,6 +498,60 @@ class TestCli(unittest.TestCase):
             capture_output=True, text=True, cwd=str(ROOT))
         self.assertEqual(result.returncode, 0)
         self.assertIn("--check", result.stdout)
+
+    def test_run_full_pipeline_with_fakes(self) -> None:
+        # 假件端到端：mock _connect，七域组装→两层落盘→退出码全链路
+        tmp = Path(tempfile.mkdtemp())
+        cfg = tmp / "app.yaml"
+        cfg.write_text(CORP_YAML, encoding="utf-8")
+        queries = {
+            "SELECT table_name FROM information_schema":
+                [{"table_name": t} for t in ALL_TABLES],
+            "SELECT name, agent_type": FIXTURE_AT_WORKER,
+            "SELECT worker_id, worker_name": FIXTURE_DE_WORKER,
+            "SELECT team_id, team_name": [{"team_id": "t-1", "team_name": "team-a",
+                                           "leader_id": "w-1", "status": "ACTIVE",
+                                           "create_time": "2025-01-01 00:00:00"}],
+            "SELECT team_id, worker_id": [{"team_id": "t-1", "worker_id": "w-1",
+                                           "role": "member"}],
+            "SELECT team_id, crew_id": [{"team_id": "t-1", "crew_id": "c-1"}],
+            "SELECT src_user_id": [{"src_user_id": "u-1", "tgt_user_id": "t-1",
+                                    "del_flag": 0}],
+            "SELECT name, description": [{"name": "at-t", "description": "d",
+                                          "status": "ACTIVE"}],
+            "SELECT mcp_id, name": [{"mcp_id": "m-1", "name": "mcp-a", "protocol": "SSE",
+                                     "url": "http://m", "deploy_status": "DEPLOYED",
+                                     "mcp_server_config": '{"token":"t"}',
+                                     "auth_config": None, "auth_enabled": 1}],
+            "SELECT endpoint_id, endpoint_name": [{"endpoint_id": "ep-1",
+                                                   "endpoint_name": "e", "component": "worker",
+                                                   "resource_name": "worker-alpha",
+                                                   "domain": "d.example", "api_key": "epk-1",
+                                                   "status": "AVAILABLE"}],
+            "SELECT status, COUNT(*) AS c FROM de_task": [{"status": "CP", "c": 7}],
+            "SELECT COUNT(*) AS c, SUM(parent_task_id IS NOT NULL)": [{"c": 7, "child": 1}],
+            "SELECT COUNT(*) AS c, SUM(ver_no > 1)": [{"c": 9, "multiver": 2}],
+            "SELECT COUNT(*) AS c FROM de_chat_msg": [{"c": 100}],
+        }
+        with mock.patch.object(_MODULE, "_connect", return_value=(FakeDb(queries), None)):
+            rc = run(["--dsn", "mysql://h:3306/db", "--user", "u", "--password", "p",
+                      "--corp-config", str(cfg), "--repo-root", str(tmp),
+                      "--sample-limit", "3"])
+        self.assertEqual(rc, EXIT_OK)
+        summaries = list((tmp / "docs" / "inventory").glob("*-legacy-inventory.md"))
+        self.assertEqual(len(summaries), 1)
+        text = summaries[0].read_text(encoding="utf-8")
+        self.assertIn("台账镜像口径", text)
+        self.assertNotIn("FwcSECRET", text)  # 汇总层凭据脱敏全链路
+        detail_dir = next((tmp / "output").glob("legacy-inventory-*/detail"))
+        self.assertEqual(len(list(detail_dir.glob("*.json"))), 7)  # 七域齐全
+
+    def test_run_missing_corp_config_reports_input_fail(self) -> None:
+        with mock.patch.object(_MODULE, "_connect", return_value=(FakeDb({}), None)):
+            rc = run(["--dsn", "mysql://h/db", "--user", "u", "--password", "p",
+                      "--corp-config", "/nonexistent/app.yaml",
+                      "--repo-root", tempfile.mkdtemp()])
+        self.assertEqual(rc, EXIT_INPUT_FAIL)
 
 
 if __name__ == "__main__":
