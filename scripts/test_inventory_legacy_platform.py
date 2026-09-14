@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -31,6 +32,7 @@ from inventory_legacy_platform import (collect_workers, collect_teams,
                                        diff_names)
 from inventory_legacy_platform import collect_history
 from inventory_legacy_platform import SEED_MAPPINGS, evaluate_mappings
+from inventory_legacy_platform import write_detail, write_summary, build_domains, _domain
 
 
 class TestGitignore(unittest.TestCase):
@@ -382,6 +384,60 @@ class TestMappings(unittest.TestCase):
         drops = [m for m in result["rows"] if m["strategy"] == "drop"]
         self.assertEqual(len(drops), 1)
         self.assertIn("前缀格式", drops[0]["legacy_concept"])
+
+
+FIXTURE_DOMAINS = [
+    collect_config(CORP_YAML),
+    collect_workers(FakeDb({
+        "SELECT name, agent_type": FIXTURE_AT_WORKER,
+        "SELECT worker_id, worker_name": FIXTURE_DE_WORKER}), present=True),
+    collect_history(FakeDb({
+        "SELECT status, COUNT(*) AS c FROM de_task":
+            [{"status": "CP", "c": 7}, {"status": "F", "c": 3}],
+        "SELECT COUNT(*) AS c, SUM(parent_task_id IS NOT NULL)":
+            [{"c": 10, "child": 2}],
+        "SELECT COUNT(*) AS c, SUM(ver_no > 1)": [{"c": 12, "multiver": 4}],
+        "SELECT COUNT(*) AS c FROM de_chat_msg": [{"c": 500}],
+    }), present=True, sample_limit=5),
+    evaluate_mappings({}),
+]
+
+
+class TestReportWriter(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_detail_contains_bodies_and_meta(self) -> None:
+        path = write_detail(self.tmp, FIXTURE_DOMAINS)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["_meta"]["caliber"], "ledger-mirror")
+        self.assertEqual(payload["_meta"]["domains"], 4)
+        workers_text = (path.parent / "workers.json").read_text(encoding="utf-8")
+        self.assertIn("SOUL MARKER alpha", workers_text)  # 正文仅入明细层
+
+    def test_summary_excludes_bodies_and_credentials(self) -> None:
+        path = write_summary(self.tmp, FIXTURE_DOMAINS)
+        text = path.read_text(encoding="utf-8")
+        self.assertNotIn("SOUL MARKER", text)          # Prompt 正文不入库
+        self.assertNotIn("AGENTS MARKER", text)
+        self.assertNotIn("FwcSECRET", text)             # 凭据不入库
+        self.assertIn("worker-beta", text)              # 清单名可入库
+        self.assertIn("adopt", text)                    # 映射统计在汇总
+        self.assertIn("台账镜像口径", text)               # 口径声明
+
+    def test_build_domains_orders_six(self) -> None:
+        domains = build_domains(
+            config_domain=FIXTURE_DOMAINS[0],
+            workers=FIXTURE_DOMAINS[1],
+            teams=_domain("teams", False, {}, {}),
+            mcps=_domain("mcps", False, {}, {}),
+            endpoints=_domain("endpoints", False, {}, {}),
+            history=FIXTURE_DOMAINS[2],
+            mapping=FIXTURE_DOMAINS[3],
+        )
+        self.assertEqual([d["domain"] for d in domains],
+                         ["platform-config", "workers", "teams", "mcps",
+                          "endpoints", "history", "legacy-to-new-mapping"])
 
 
 if __name__ == "__main__":

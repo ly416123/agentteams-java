@@ -12,8 +12,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import yaml
+from datetime import datetime, timezone
+from pathlib import Path
 
 # 退出码：0=正常完成，1=降级完成（存在表缺失），2=连接失败
 EXIT_OK = 0
@@ -346,3 +349,107 @@ def evaluate_mappings(domains: dict) -> dict:
         stats[m["strategy"]] += 1
     return {"domain": "legacy-to-new-mapping", "status": "ok",
             "rows": rows, "stats": stats, "notes": []}
+
+
+def _meta(source: str) -> dict:
+    return {
+        "tool": "inventory-legacy-platform",
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source": source,
+        "caliber": "ledger-mirror",
+        "caliber_note": "台账镜像口径：数据来自 corp-agent 本地台账（at_*/de_*），"
+                        "可能与阿里云平台侧真实状态存在漂移；核对需 OpenAPI 对账（后续阶段）",
+        "sensitivity": "detail 层含 prompt 正文与抽样消息元数据；禁止提交到 git",
+    }
+
+
+def write_detail(out_root: Path, domains: list[dict]) -> Path:
+    """明细层：output/legacy-inventory-<ts>/detail/*.json（每域一文件）。"""
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    detail_dir = out_root / f"legacy-inventory-{ts}" / "detail"
+    detail_dir.mkdir(parents=True, exist_ok=True)
+    meta = _meta("corp-agent MySQL ledger + application yaml")
+    for d in domains:
+        payload = {"_meta": {**meta, "domains": len(domains)}, **d}
+        path = detail_dir / f"{d['domain']}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2,
+                                   default=str), encoding="utf-8")
+    return detail_dir / f"{domains[0]['domain']}.json"
+
+
+SUMMARY_TEMPLATE = """# 旧平台资产盘点汇总（{date}）
+
+- 数据源：corp-agent MySQL 台账 + corp-agent application yaml
+- 口径：**台账镜像口径** —— 台账为「本地落库+远程同步」镜像，可能与平台侧真实状态漂移；核对需后续 OpenAPI 对账
+- 敏感性：本报告不含 Prompt 正文、消息内容与凭据；明细（含正文）在 `output/`（gitignore）
+
+## 资产总览
+
+| 域 | 状态 | 数量统计 |
+|---|---|---|
+{domain_rows}
+
+## 漂移线索（at_* vs de_* 名单差集）
+
+{drift_rows}
+
+## 历史数据画像
+
+{history_rows}
+
+## 旧→新映射评估（三态决策）
+
+策略口径：adopt=概念对等直接迁移；adapt=语义等价按自研架构重建；drop=阿里缺陷或无迁移价值（须记录理由）。
+
+| 旧概念 | 新平台对应 | 策略 | 理由 |
+|---|---|---|---|
+{mapping_rows}
+
+## 映射统计
+
+| 策略 | 数量 |
+|---|---|
+| adopt | {n_adopt} |
+| adapt | {n_adapt} |
+| drop | {n_drop} |
+"""
+
+
+def write_summary(out_root: Path, domains: list[dict]) -> Path:
+    """汇总层：docs/inventory/<date>-legacy-inventory.md（入库，脱敏）。"""
+    domain_rows, drift_rows, history_rows = [], [], []
+    for d in domains:
+        stats_inline = "; ".join(f"{k}={v}" for k, v in d.get("stats", {}).items()
+                                 if isinstance(v, (int, str)))
+        domain_rows.append(f"| {d['domain']} | {d['status']} | {stats_inline} |")
+        for key in ("only_in_at", "only_in_de"):
+            values = d.get("stats", {}).get(key) or []
+            if values:
+                drift_rows.append(f"- `{d['domain']}.{key}`: {', '.join(map(str, values))}")
+        if d["domain"] == "history":
+            for table, s in d.get("stats", {}).items():
+                head = ", ".join(f"{k}={v}" for k, v in list(s.items())[:3])
+                history_rows.append(f"- `{table}`: {head}")
+    mapping = next(d for d in domains if d["domain"] == "legacy-to-new-mapping")
+    mapping_rows = ["| {} | {} | {} | {} |".format(
+        m["legacy_concept"], m["new_concept"], m["strategy"], m["reason"])
+        for m in mapping["rows"]]
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    docs_dir = out_root / "docs" / "inventory"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    path = docs_dir / f"{date}-legacy-inventory.md"
+    path.write_text(SUMMARY_TEMPLATE.format(
+        date=date, domain_rows="\n".join(domain_rows),
+        drift_rows="\n".join(drift_rows) or "-（无漂移线索）",
+        history_rows="\n".join(history_rows) or "-（无历史数据）",
+        mapping_rows="\n".join(mapping_rows),
+        n_adopt=mapping["stats"]["adopt"], n_adapt=mapping["stats"]["adapt"],
+        n_drop=mapping["stats"]["drop"]), encoding="utf-8")
+    return path
+
+
+def build_domains(**kwargs) -> list[dict]:
+    """固定域序组装：配置→资源四域→历史→映射。"""
+    order = ["config_domain", "workers", "teams", "mcps", "endpoints",
+             "history", "mapping"]
+    return [kwargs[k] for k in order]
