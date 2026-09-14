@@ -29,6 +29,7 @@ from inventory_legacy_platform import EXIT_DEGRADED, EXIT_OK, probe_tables, degr
 from inventory_legacy_platform import (collect_workers, collect_teams,
                                        collect_mcps, collect_endpoints,
                                        diff_names)
+from inventory_legacy_platform import collect_history
 
 
 class TestGitignore(unittest.TestCase):
@@ -199,7 +200,12 @@ class FakeQueryCursor:
         return None
 
     def execute(self, sql: str, params=None) -> None:
-        self._rows = next((v for k, v in self._queries.items() if sql.startswith(k)), [])
+        # 先精确匹配，未命中再取最长前缀——防短键误命中长 SQL（聚合/抽样键交叉时静默串扰）
+        if sql in self._queries:
+            self._rows = list(self._queries[sql])
+            return
+        hits = [k for k in self._queries if sql.startswith(k)]
+        self._rows = list(self._queries[max(hits, key=len)]) if hits else []
 
     def fetchall(self):
         return [dict(r) for r in self._rows]
@@ -270,6 +276,47 @@ class TestCollectTeamsMcpEndpoint(unittest.TestCase):
         domain = collect_endpoints(db, present=True)
         self.assertEqual(domain["stats"]["at_endpoint_count"], 1)
         self.assertNotIn("epk-1", json.dumps(domain["rows"]))
+
+
+HISTORY_FIXTURES = {
+    "SELECT status, COUNT(*) AS c FROM de_task":
+        [{"status": "CP", "c": 7}, {"status": "F", "c": 3}],
+    "SELECT task_type, COUNT(*) AS c FROM de_task":
+        [{"task_type": "RT", "c": 8}, {"task_type": "SHD", "c": 2}],
+    "SELECT COUNT(*) AS c, SUM(parent_task_id IS NOT NULL)":
+        [{"c": 10, "child": 2}],
+    "SELECT COUNT(*) AS c, SUM(ver_no > 1)":
+        [{"c": 12, "multiver": 4, "ok": 9}],
+    "SELECT COUNT(*) AS c FROM de_chat_msg":
+        [{"c": 500}],
+    "SELECT role, COUNT(*) AS c FROM de_chat_msg":
+        [{"role": 1, "c": 120}],
+    # 历史域抽样路由键：HISTORY_SAMPLE_TABLES 四条 SQL 的前缀
+    "SELECT task_id, team_id, task_title":
+        [{"task_id": "t-1", "task_title": "s"}] * 5,
+    "SELECT task_id, ver_no":
+        [{"task_id": "t-1", "ver_no": 1}] * 5,
+    "SELECT id, user_id, team_id":
+        [{"id": 1, "user_id": "u-1"}] * 5,
+    "SELECT id, convo_id, role":
+        [{"id": 1, "convo_id": 1, "role": 1}] * 5,
+}
+
+
+class TestCollectHistory(unittest.TestCase):
+    def test_history_stats_and_samples(self) -> None:
+        db = FakeDb({k: list(v) for k, v in HISTORY_FIXTURES.items()})
+        domain = collect_history(db, present=True, sample_limit=5)
+        self.assertEqual(domain["status"], "ok")
+        self.assertEqual(domain["stats"]["de_task"]["total"], 10)
+        self.assertEqual(domain["stats"]["de_task"]["by_status"], {"CP": 7, "F": 3})
+        self.assertEqual(domain["stats"]["de_task"]["by_type"], {"RT": 8, "SHD": 2})
+        self.assertEqual(domain["stats"]["de_task"]["child_task_count"], 2)
+        self.assertEqual(domain["stats"]["de_task_rslt"]["total"], 12)
+        self.assertEqual(domain["stats"]["de_task_rslt"]["multi_version_count"], 4)
+        self.assertEqual(domain["stats"]["de_chat_msg"]["total"], 500)
+        self.assertEqual(domain["stats"]["de_chat_msg"]["by_role"], {1: 120})
+        self.assertEqual(len(domain["rows"]["samples"]["de_task"]), 5)
 
 
 if __name__ == "__main__":

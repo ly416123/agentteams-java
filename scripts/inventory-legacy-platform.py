@@ -202,3 +202,100 @@ def collect_endpoints(conn, present: bool) -> dict:
               " api_key FROM at_service_endpoint WHERE deleted = 0")]
     return _domain("endpoints", True, {"at_service_endpoint": rows},
                    {"at_endpoint_count": len(rows)})
+
+
+HISTORY_SAMPLE_TABLES = {
+    "de_task": ("SELECT task_id, team_id, task_title, task_type, status, prior_lv,"
+                " parent_task_id, stime, etime, create_time FROM de_task"
+                " WHERE del_flag = 0 ORDER BY create_time DESC LIMIT %s",),
+    "de_task_rslt": ("SELECT task_id, ver_no, summ, succ_flag, error_info, etime"
+                     " FROM de_task_rslt WHERE del_flag = 0 ORDER BY create_time DESC LIMIT %s",),
+    "de_chat_convo": ("SELECT id, user_id, team_id, title, status, last_chat_time"
+                      " FROM de_chat_convo WHERE del_flag = 0 ORDER BY last_chat_time"
+                      " DESC LIMIT %s",),
+    "de_chat_msg": ("SELECT id, convo_id, role, sender_id, gena_status, task_id,"
+                    " end_reason, create_time FROM de_chat_msg WHERE del_flag = 0"
+                    " ORDER BY create_time DESC LIMIT %s",),
+}
+
+
+def collect_history(conn, present: bool, sample_limit: int = 20) -> dict:
+    """历史域：全量聚合统计 + 每表抽样 ≤ sample_limit 条画像。
+
+    消息正文（de_chat_msg.cont）与任务详情（de_task_rslt.detl）不采集。
+    """
+    if not present:
+        return _domain("history", False, {}, {})
+    task = _row(conn, "SELECT COUNT(*) AS c, SUM(parent_task_id IS NOT NULL) AS child"
+                      " FROM de_task WHERE del_flag = 0")
+    rslt = _row(conn, "SELECT COUNT(*) AS c, SUM(ver_no > 1) AS multiver,"
+                      " SUM(succ_flag = 1) AS ok FROM de_task_rslt WHERE del_flag = 0")
+    stats: dict[str, dict] = {
+        "de_task": {
+            "total": task.get("c", 0),
+            "child_task_count": int(task.get("child") or 0),
+            "by_status": _pairs(conn, "SELECT status, COUNT(*) AS c FROM de_task"
+                                      " WHERE del_flag = 0 GROUP BY status"),
+            "by_type": _pairs(conn, "SELECT task_type, COUNT(*) AS c FROM de_task"
+                                    " WHERE del_flag = 0 GROUP BY task_type"),
+            "time_span": _span(conn, "SELECT MIN(stime), MAX(etime) FROM de_task"
+                                     " WHERE del_flag = 0"),
+        },
+        "de_task_rslt": {
+            "total": rslt.get("c", 0),
+            "multi_version_count": int(rslt.get("multiver") or 0),
+            "success_count": int(rslt.get("ok") or 0),
+        },
+        "de_chat_convo": {
+            "total": _scalar(conn, "SELECT COUNT(*) AS c FROM de_chat_convo"
+                                   " WHERE del_flag = 0"),
+            "time_span": _span(conn, "SELECT MIN(last_chat_time), MAX(last_chat_time)"
+                                     " FROM de_chat_convo WHERE del_flag = 0"),
+        },
+        "de_chat_msg": {
+            "total": _scalar(conn, "SELECT COUNT(*) AS c FROM de_chat_msg"
+                                   " WHERE del_flag = 0"),
+            "by_role": _pairs(conn, "SELECT role, COUNT(*) AS c FROM de_chat_msg"
+                                    " WHERE del_flag = 0 GROUP BY role"),
+            "time_span": _span(conn, "SELECT MIN(create_time), MAX(create_time)"
+                                     " FROM de_chat_msg WHERE del_flag = 0"),
+        },
+    }
+    samples: dict[str, list[dict]] = {}
+    for table, (sql,) in HISTORY_SAMPLE_TABLES.items():
+        with conn.cursor() as cur:
+            cur.execute(sql, (sample_limit,))
+            samples[table] = [dict(r) for r in cur.fetchall()]
+    return _domain("history", True, {"samples": samples}, stats)
+
+
+def _row(conn, sql: str) -> dict:
+    """单行多列聚合：真库 DictCursor 返回 dict；fixture 同构。"""
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        return cur.fetchone() or {}
+
+
+def _scalar(conn, sql: str):
+    """单值聚合：取行第一列。"""
+    row = _row(conn, sql)
+    return next(iter(row.values())) if row else 0
+
+
+def _pairs(conn, sql: str) -> dict:
+    """两列分组计数 → dict（首列=键，次列=计数）。"""
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        rows = cur.fetchall()
+    if not rows:
+        return {}
+    first = next(iter(rows[0]))
+    second = next(k for k in rows[0] if k != first)
+    return {r[first]: r[second] for r in rows}
+
+
+def _span(conn, sql: str) -> dict:
+    row = _row(conn, sql)
+    values = list(row.values()) if row else [None, None]
+    lo, hi = (values + [None, None])[:2]
+    return {"from": str(lo) if lo else None, "to": str(hi) if hi else None}
