@@ -267,7 +267,7 @@ class TestCollectConfig(unittest.TestCase):
                          fingerprint("FwcSECRET"))
         self.assertNotIn("FwcSECRET", json.dumps(cfg))
         self.assertNotIn("atk-secret", json.dumps(cfg))
-        self.assertIn("agentcore_api_key", cfg["rows"]["agentcore"]["credential_sources"])
+        self.assertIn("agentcore_api_key", cfg["rows"]["credential_sources"])
 ```
 
 （测试文件头部需 `import json`。）
@@ -512,7 +512,7 @@ class TestCollectWorkers(unittest.TestCase):
     def test_missing_table_reports_missing(self) -> None:
         domain = collect_workers(FakeDb({}), present=False)
         self.assertEqual(domain["status"], "table_missing")
-        self.assertIn("gateway.impl=db", " ".join(domain["notes"]))
+        self.assertIn("gateway.impl=remote", " ".join(domain["notes"]))
 
 
 class TestDiffNames(unittest.TestCase):
