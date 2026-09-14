@@ -342,7 +342,9 @@ class NatsGatewayEventConsumerTest {
         verify(jetStream, org.mockito.Mockito.timeout(3_000).times(5)).subscribe(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
-        verify(recoveredTask, org.mockito.Mockito.timeout(3_000))
+        // 恢复后的订阅由 consumeLoop 持续轮询，断言“至少被消费一次”而非恰好一次：
+        // 默认 times(1) 在负载下 verify 轮询延迟时会遇 TooManyActualInvocations（flaky）。
+        verify(recoveredTask, org.mockito.Mockito.timeout(3_000).atLeastOnce())
                 .nextMessage(org.mockito.ArgumentMatchers.any(Duration.class));
         consumer.close();
     }
