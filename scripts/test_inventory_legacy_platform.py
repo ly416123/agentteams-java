@@ -480,6 +480,23 @@ class TestReportWriter(unittest.TestCase):
         self.assertIn("无漂移线索", text)
         self.assertIn("无历史数据", text)
 
+    def test_summary_renders_roster_and_degrade_notes(self) -> None:
+        # §9.2 清单骨架：de_worker/de_team 名单入汇总（清单名可入库）
+        # §7 降级说明：table_missing 域的 notes 首条入汇总，单独阅读时口径完整
+        domains = [
+            _domain("mcps", False, {}, {}),
+            collect_workers(FakeDb({
+                "SELECT name, agent_type": FIXTURE_AT_WORKER,
+                "SELECT worker_id, worker_name": FIXTURE_DE_WORKER}), present=True),
+            evaluate_mappings({}),
+        ]
+        path = write_summary(self.tmp, domains)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("worker-alpha", text)  # 清单骨架
+        self.assertIn("de_worker (1)", text)
+        self.assertIn("gateway.impl=remote", text)  # 降级原因推断
+        self.assertIn("table_missing", text)
+
 
 class TestCli(unittest.TestCase):
     def test_parser_accepts_check_mode(self) -> None:

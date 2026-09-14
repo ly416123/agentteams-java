@@ -404,6 +404,14 @@ SUMMARY_TEMPLATE = """# 旧平台资产盘点汇总（{date}）
 |---|---|---|
 {domain_rows}
 
+## 降级说明（表缺失域）
+
+{degrade_rows}
+
+## 清单骨架（名单；完整字段在明细层）
+
+{roster_rows}
+
 ## 漂移线索（at_* vs de_* 名单差集）
 
 {drift_rows}
@@ -430,13 +438,31 @@ SUMMARY_TEMPLATE = """# 旧平台资产盘点汇总（{date}）
 """
 
 
+# §9.2 清单骨架：清单名可入库（规格 §6 口径），完整字段留明细层
+ROSTER_KEYS = {"workers": ("de_worker", "worker_name"),
+               "teams": ("de_team", "team_name")}
+
+
 def write_summary(out_root: Path, domains: list[dict]) -> Path:
     """汇总层：docs/inventory/<date>-legacy-inventory.md（入库，脱敏）。"""
     domain_rows, drift_rows, history_rows = [], [], []
+    degrade_rows, roster_rows = [], []
     for d in domains:
         stats_inline = "; ".join(f"{k}={v}" for k, v in d.get("stats", {}).items()
                                  if isinstance(v, (int, str)))
         domain_rows.append(f"| {d['domain']} | {d['status']} | {stats_inline} |")
+        if d["status"] == "table_missing":  # §7 降级说明：notes 首条入库，单独阅读口径完整
+            note = (d.get("notes") or [""])[0]
+            if note:
+                degrade_rows.append(f"- `{d['domain']}`: {note}")
+        roster = ROSTER_KEYS.get(d["domain"])
+        if roster:
+            rows_key, name_key = roster
+            names = sorted({r.get(name_key) for r in d.get("rows", {}).get(rows_key, [])
+                            if r.get(name_key)})
+            if names:
+                roster_rows.append(
+                    f"- {d['domain']}.{rows_key} ({len(names)}): {', '.join(names)}")
         for key in ("only_in_at", "only_in_de"):
             values = d.get("stats", {}).get(key) or []
             if values:
@@ -455,6 +481,8 @@ def write_summary(out_root: Path, domains: list[dict]) -> Path:
     path = docs_dir / f"{date}-legacy-inventory.md"
     path.write_text(SUMMARY_TEMPLATE.format(
         date=date, domain_rows="\n".join(domain_rows),
+        degrade_rows="\n".join(degrade_rows) or "-（无降级域）",
+        roster_rows="\n".join(roster_rows) or "-（无清单骨架数据）",
         drift_rows="\n".join(drift_rows) or "-（无漂移线索）",
         history_rows="\n".join(history_rows) or "-（无历史数据）",
         mapping_rows="\n".join(mapping_rows),
