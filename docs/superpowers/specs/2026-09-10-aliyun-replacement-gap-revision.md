@@ -30,7 +30,7 @@
 | G06 取消/暂停/恢复语义 | 控制面状态与 Runtime 能力不完全对等 | 成立（方向性核验） | 不变 |
 | G07 生产凭据接入 | 默认 `UnavailableCredentialSecretProvider` 返回空值 | 成立。属部署侧适配而非功能缺失，与原分析定性一致 | 不变 |
 | G08 真实模型/MCP/Skill 一致性 | 需按选定 Runtime 完整验收 | 成立（验收型工作包） | 不变 |
-| G09 SDK/Java 17 兼容 | Java 21 SDK 无法直接引入 corp-agent | 成立。`sdk/java/pom.xml` 无独立 `release` 配置（跟随父 pom Java 21） | **补充首选路线**：SDK 依赖薄，将独立 SDK 编译目标降到 Java 17 是三条路线中改动最小、风险最低的，建议 A 批次先做降版本验证 spike |
+| G09 SDK/Java 17 兼容 | Java 21 SDK 无法直接引入 corp-agent | **spike 已完成（2026-09-14）**：`sdk/java/pom.xml` 单独覆盖 `maven.compiler.release=17`，源码零改动（无 Java 18+ API），release 17 编译通过、7/7 测试绿、产物 class major version 61，README/javadoc 口径同步 | **首选路线已验证可行**：SDK 可直接以 Java 17 交付，A 批次接入层替换可直接引入 artifact |
 | G10 生产基础设施适配 | 多为集成与验证工作 | 成立 | 不变 |
 | G11 硬预算与成本 | `HARD_LIMIT` 未与任务/模型 admission 连接 | 成立，有代码级证据：`HARD_LIMIT` 全部 7 处引用均在 `usage` 预算评估/通知/仓储链路，无 admission 路径引用 | 不变 |
 | G12 数据迁移 | 未发现针对阿里云的迁移工具链 | 成立 | 不变；前置盘点工具应尽早启动 |
@@ -73,5 +73,5 @@ G02「结果评审」的对象与 G03「子任务产物汇总」存在交集：�
 | 1 | 业务拍板：子任务是展示还是真调度 | G03 决策 |
 | 2 | G02 任务评审闭环设计（B 批次起点） | G02 |
 | 3 | 任务侧二进制交付与交付可靠性设计 | G05 剩余 |
-| 4 | SDK 降版本到 Java 17 的编译验证 spike | G09 |
+| 4 | ~~SDK 降版本到 Java 17 的编译验证 spike~~ 已完成（2026-09-14：release 17 编译通过、7/7 测试绿、major version 61，源码零改动） | G09 |
 | 5 | 启动旧平台配置与历史数据盘点工具 | G12 前置 |

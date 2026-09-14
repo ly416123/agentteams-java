@@ -14,6 +14,11 @@
     <artifactId>agentteams-java-sdk</artifactId>
     <name>AgentTeams Java SDK</name>
 
+    <!-- G09：SDK 面向 corp-agent（Java 17）交付，独立于主线的 Java 21 基线单独降编译目标 -->
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
