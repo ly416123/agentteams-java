@@ -455,8 +455,11 @@ class TestReportWriter(unittest.TestCase):
         self.assertIn("worker-beta", text)              # 清单名可入库
         self.assertIn("adopt", text)                    # 映射统计在汇总
         self.assertIn("台账镜像口径", text)               # 口径声明
+        # history 域 stats 为嵌套 dict，总览行退化为各表 total（防空统计误导）
+        self.assertIn("de_task_total=10", text)
+        self.assertIn("de_chat_msg_total=500", text)
 
-    def test_build_domains_orders_six(self) -> None:
+    def test_build_domains_orders_seven(self) -> None:
         domains = build_domains(
             config_domain=FIXTURE_DOMAINS[0],
             workers=FIXTURE_DOMAINS[1],

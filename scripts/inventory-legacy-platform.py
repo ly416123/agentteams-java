@@ -7,6 +7,10 @@
 序列化契约：rows/samples 可能含 datetime，批次 D CLI 落盘须 json.dumps(..., default=str)。
 产出：output/legacy-inventory-<ts>/detail/*.json（明细，gitignore）
       docs/inventory/<date>-legacy-inventory.md（汇总，入库，脱敏）。
+
+跟进项（G12 迁移实施前处理）：at_worker.mcp_servers_json 未做整字段指纹化
+（不在 SENSITIVE_FIELDS），其 JSON 结构内可能内嵌 token/密钥；当前仅落
+output/ 明细（gitignore，不出库）。迁移实施阶段应将其视同敏感字段脱敏。
 """
 
 from __future__ import annotations
@@ -38,7 +42,12 @@ SENSITIVE_FIELDS: dict[str, set[str]] = {
 
 
 def fingerprint(value: str) -> str:
-    """SHA-256 前 8 位十六进制，稳定且不可逆。"""
+    """SHA-256 前 8 位十六进制，稳定且不可逆。
+
+    留档：8 位（32 bit）仅用于盘点对账的人工识别与跨表比对，不作为唯一键；
+    当前库行规模（百~千级）碰撞概率可忽略，若需严格唯一性须回原值比对。
+    指纹不可逆，原值不落任何产出物。
+    """
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
 
 
@@ -448,9 +457,14 @@ def write_summary(out_root: Path, domains: list[dict]) -> Path:
     domain_rows, drift_rows, history_rows = [], [], []
     degrade_rows, roster_rows = [], []
     for d in domains:
-        stats_inline = "; ".join(f"{k}={v}" for k, v in d.get("stats", {}).items()
-                                 if isinstance(v, (int, str)))
-        domain_rows.append(f"| {d['domain']} | {d['status']} | {stats_inline} |")
+        cells = []
+        for k, v in d.get("stats", {}).items():
+            if isinstance(v, (int, str)):
+                cells.append(f"{k}={v}")
+            elif isinstance(v, dict) and "total" in v:
+                # 嵌套 stats（history 域）总览退化为各表 total，防空统计误导
+                cells.append(f"{k}_total={v['total']}")
+        domain_rows.append(f"| {d['domain']} | {d['status']} | {'; '.join(cells)} |")
         if d["status"] == "table_missing":  # §7 降级说明：notes 首条入库，单独阅读口径完整
             note = (d.get("notes") or [""])[0]
             if note:

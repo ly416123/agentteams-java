@@ -13,7 +13,7 @@
 | teams | ok | de_team_count=15; de_team_worker_rel_count=163; de_team_crew_rel_count=24; user_mapping_count=15; at_team_count=0 |
 | mcps | table_missing |  |
 | endpoints | table_missing |  |
-| history | ok |  |
+| history | ok | de_task_total=326; de_task_rslt_total=158; de_chat_convo_total=164; de_chat_msg_total=1277 |
 | legacy-to-new-mapping | ok | adopt=0; adapt=7; drop=1; total=8 |
 
 ## 降级说明（表缺失域）
@@ -32,10 +32,10 @@
 
 ## 历史数据画像
 
-- `de_task`: total=325, child_task_count=134, by_status={'CC': 22, 'P': 5, 'CP': 280, 'R': 7, 'W': 11}
-- `de_task_rslt`: total=157, multi_version_count=0, success_count=157
-- `de_chat_convo`: total=164, time_span={'from': '2026-09-02 16:27:22', 'to': '2026-09-14 19:49:51'}
-- `de_chat_msg`: total=1276, by_role={0: 291, 1: 985}, time_span={'from': '2026-09-02 16:25:06', 'to': '2026-09-14 19:49:51'}
+- `de_task`: total=326, child_task_count=134, by_status={'CC': 22, 'P': 5, 'CP': 281, 'R': 7, 'W': 11}
+- `de_task_rslt`: total=158, multi_version_count=0, success_count=158
+- `de_chat_convo`: total=164, time_span={'from': '2026-09-02 16:27:22', 'to': '2026-09-14 20:04:17'}
+- `de_chat_msg`: total=1277, by_role={0: 291, 1: 986}, time_span={'from': '2026-09-02 16:25:06', 'to': '2026-09-14 20:04:17'}
 
 ## 旧→新映射评估（三态决策）
 
