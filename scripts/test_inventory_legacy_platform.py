@@ -26,6 +26,9 @@ _SPEC.loader.exec_module(_MODULE)
 from inventory_legacy_platform import fingerprint, mask_row
 from inventory_legacy_platform import collect_config
 from inventory_legacy_platform import EXIT_DEGRADED, EXIT_OK, probe_tables, degrade_status
+from inventory_legacy_platform import (collect_workers, collect_teams,
+                                       collect_mcps, collect_endpoints,
+                                       diff_names)
 
 
 class TestGitignore(unittest.TestCase):
@@ -173,6 +176,90 @@ class TestProbeTables(unittest.TestCase):
         self.assertFalse(presence["at_worker"])
         self.assertTrue(presence["de_worker"])
         self.assertEqual(degrade_status(presence), EXIT_DEGRADED)
+
+
+class FakeDb:
+    """按 SQL 前缀路由的假 DB：queries = {sql 前缀: 行列表}。"""
+
+    def __init__(self, queries: dict[str, list[dict]]) -> None:
+        self._queries = queries
+
+    def cursor(self):
+        return FakeQueryCursor(self._queries)
+
+
+class FakeQueryCursor:
+    def __init__(self, queries: dict[str, list[dict]]) -> None:
+        self._queries = queries
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+    def execute(self, sql: str, params=None) -> None:
+        self._rows = next((v for k, v in self._queries.items() if sql.startswith(k)), [])
+
+    def fetchall(self):
+        return [dict(r) for r in self._rows]
+
+    def fetchone(self):
+        return dict(self._rows[0]) if self._rows else None
+
+
+class TestCollectWorkers(unittest.TestCase):
+    def test_workers_merged_with_diff(self) -> None:
+        db = FakeDb({
+            "SELECT name, agent_type": FIXTURE_AT_WORKER,
+            "SELECT worker_id, worker_name": FIXTURE_DE_WORKER,
+        })
+        domain = collect_workers(db, present=True)
+        self.assertEqual(domain["status"], "ok")
+        self.assertEqual(domain["stats"]["at_worker_count"], 2)
+        self.assertEqual(domain["stats"]["de_worker_count"], 1)
+        # 差集：at_worker 有、de_worker 无
+        self.assertEqual(domain["stats"]["only_in_at"], ["worker-beta"])
+        self.assertEqual(domain["stats"]["only_in_de"], [])
+
+    def test_missing_table_reports_missing(self) -> None:
+        domain = collect_workers(FakeDb({}), present=False)
+        self.assertEqual(domain["status"], "table_missing")
+        self.assertIn("gateway.impl=remote", " ".join(domain["notes"]))
+
+
+class TestDiffNames(unittest.TestCase):
+    def test_diff_names(self) -> None:
+        self.assertEqual(diff_names(["a", "b"], ["a"]), ["b"])
+        self.assertEqual(diff_names([], ["x"]), [])
+
+
+class TestCollectTeamsMcpEndpoint(unittest.TestCase):
+    def test_teams(self) -> None:
+        rows = [{"team_id": "t-1", "team_name": "team-a", "leader_id": "w-1",
+                 "status": "ACTIVE", "del_flag": 0}]
+        db = FakeDb({"SELECT team_id, team_name": rows})
+        domain = collect_teams(db, present=True)
+        self.assertEqual(domain["stats"]["de_team_count"], 1)
+
+    def test_mcps(self) -> None:
+        rows = [{"mcp_id": "m-1", "name": "mcp-a", "protocol": "SSE",
+                 "url": "http://m", "deploy_status": "DEPLOYED",
+                 "mcp_server_config": '{"token":"t"}', "auth_config": None,
+                 "auth_enabled": 1}]
+        db = FakeDb({"SELECT mcp_id, name": rows})
+        domain = collect_mcps(db, present=True)
+        self.assertEqual(domain["stats"]["at_mcp_count"], 1)
+        self.assertNotIn('{"token":"t"}', json.dumps(domain["rows"]))
+
+    def test_endpoints(self) -> None:
+        rows = [{"endpoint_id": "ep-1", "endpoint_name": "e", "component": "worker",
+                 "resource_name": "worker-alpha", "domain": "d.example",
+                 "api_key": "epk-1", "status": "AVAILABLE"}]
+        db = FakeDb({"SELECT endpoint_id, endpoint_name": rows})
+        domain = collect_endpoints(db, present=True)
+        self.assertEqual(domain["stats"]["at_endpoint_count"], 1)
+        self.assertNotIn("epk-1", json.dumps(domain["rows"]))
 
 
 if __name__ == "__main__":
