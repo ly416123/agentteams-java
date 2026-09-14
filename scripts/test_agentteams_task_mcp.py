@@ -655,6 +655,17 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
                       [headers for method, path, headers, _ in self.server.requests
                        if method == "POST" and path.endswith("/attachments")][0])
 
+    def test_create_task_rejects_more_than_20_attachments(self):
+        self._use_env(self.env)
+        items = [{"sessionId": str(uuid.uuid4()), "fileId": str(uuid.uuid4()),
+                  "name": f"a{i}.pdf", "sizeBytes": 1} for i in range(21)]
+        response = rpc({"jsonrpc": "2.0", "id": 40, "method": "tools/call", "params": {
+            "name": "create_task",
+            "arguments": {"title": "超限", "prompt": "p", "attachments": items}}})
+        self.assertTrue(response["result"]["isError"])
+        # 前置拒绝：不得发出任何 API 调用（服务端同款上限 83a786e）。
+        self.assertEqual(self.server.requests, [])
+
     def test_get_task_result_includes_task_files(self):
         self._use_env(self.env)
         response = rpc({"jsonrpc": "2.0", "id": 25, "method": "tools/call", "params": {

@@ -98,6 +98,28 @@ data:
                             "message_id": {"type": "string", "description": "Originating message id."},
                         },
                     },
+                    "attachments": {
+                        "type": "array",
+                        "maxItems": 20,
+                        "description": (
+                            "Optional list of up to 20 conversation file references "
+                            "to deliver as INPUT. Each item needs sessionId, fileId, "
+                            "name and sizeBytes."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "sessionId": {"type": "string",
+                                              "description": "Source conversation session UUID."},
+                                "fileId": {"type": "string", "description": "Conversation file UUID."},
+                                "name": {"type": "string",
+                                         "description": "File name shown in the task file manifest."},
+                                "sizeBytes": {"type": "integer",
+                                              "description": "File size in bytes (at least 1)."},
+                            },
+                            "required": ["sessionId", "fileId", "name", "sizeBytes"],
+                        },
+                    },
                 },
                 "required": ["title", "prompt"],
             },
@@ -465,6 +487,10 @@ data:
         attachments = arguments.get("attachments") or []
         if not isinstance(attachments, list):
             raise ValueError("attachments must be a list")
+        # 对齐服务端 registerAttachments 的 20 上限与 OpenAPI maxItems:20（83a786e）；
+        # inputSchema 只提示不强制，MCP 侧前置拒绝避免整任务创建失败在服务端才暴露。
+        if len(attachments) > 20:
+            raise ValueError("at most 20 attachments per task")
         declared: list[dict[str, Any]] = []
         for index, item in enumerate(attachments, start=1):
             if not isinstance(item, dict):
