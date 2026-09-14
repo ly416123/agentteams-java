@@ -292,6 +292,11 @@ HISTORY_FIXTURES = {
         [{"c": 500}],
     "SELECT role, COUNT(*) AS c FROM de_chat_msg":
         [{"role": 1, "c": 120}],
+    "SELECT COUNT(*) AS c FROM de_chat_convo":
+        [{"c": 30}],
+    # 真实 DictCursor 下 MIN/MAX 无别名列名为 "MIN(col)"，fixture 同构
+    "SELECT MIN(stime), MAX(etime) FROM de_task":
+        [{"MIN(stime)": "2025-01-01 00:00:00", "MAX(etime)": "2025-06-30 00:00:00"}],
     # 历史域抽样路由键：HISTORY_SAMPLE_TABLES 四条 SQL 的前缀
     "SELECT task_id, team_id, task_title":
         [{"task_id": "t-1", "task_title": "s"}] * 5,
@@ -317,7 +322,31 @@ class TestCollectHistory(unittest.TestCase):
         self.assertEqual(domain["stats"]["de_task_rslt"]["multi_version_count"], 4)
         self.assertEqual(domain["stats"]["de_chat_msg"]["total"], 500)
         self.assertEqual(domain["stats"]["de_chat_msg"]["by_role"], {1: 120})
+        self.assertEqual(domain["stats"]["de_chat_convo"]["total"], 30)
+        # _span 正向分支：MIN/MAX 值 str() 化
+        self.assertEqual(domain["stats"]["de_task"]["time_span"],
+                         {"from": "2025-01-01 00:00:00", "to": "2025-06-30 00:00:00"})
+        # _span 空回退分支：convo/msg 的 MIN/MAX 无 fixture → None/None
+        self.assertEqual(domain["stats"]["de_chat_msg"]["time_span"],
+                         {"from": None, "to": None})
         self.assertEqual(len(domain["rows"]["samples"]["de_task"]), 5)
+
+    def test_history_empty_database(self) -> None:
+        # 全空库：_row/_scalar/_pairs/_span 空回退 + 抽样空列表，不抛异常
+        domain = collect_history(FakeDb({}), present=True)
+        self.assertEqual(domain["status"], "ok")
+        self.assertEqual(domain["stats"]["de_task"]["total"], 0)
+        self.assertEqual(domain["stats"]["de_task"]["by_status"], {})
+        self.assertEqual(domain["stats"]["de_task_rslt"]["success_count"], 0)
+        self.assertEqual(domain["stats"]["de_chat_msg"]["time_span"],
+                         {"from": None, "to": None})
+        for table in ("de_task", "de_task_rslt", "de_chat_convo", "de_chat_msg"):
+            self.assertEqual(domain["rows"]["samples"][table], [])
+
+    def test_history_missing_table_reports_missing(self) -> None:
+        domain = collect_history(FakeDb({}), present=False)
+        self.assertEqual(domain["status"], "table_missing")
+        self.assertIn("gateway.impl=remote", " ".join(domain["notes"]))
 
 
 class TestMappings(unittest.TestCase):

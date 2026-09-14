@@ -4,6 +4,7 @@
 数据源：corp-agent MySQL（at_* / de_* 表）与 corp-agent application*.yaml。
 连接契约：conn 须以 pymysql.connect(..., cursorclass=pymysql.cursors.DictCursor) 创建，
 所有采集统一按字典行处理（批次 D CLI 建连时落实）。
+序列化契约：rows/samples 可能含 datetime，批次 D CLI 落盘须 json.dumps(..., default=str)。
 产出：output/legacy-inventory-<ts>/detail/*.json（明细，gitignore）
       docs/inventory/<date>-legacy-inventory.md（汇总，入库，脱敏）。
 """
@@ -120,9 +121,9 @@ MISSING_NOTE = ("at_* 平台镜像表缺失：corp-agent 当前 agentteams.gatew
                 "平台侧真实状态需 OpenAPI 对账（后续阶段）。")
 
 
-def _fetch(conn, sql: str) -> list[dict]:
+def _fetch(conn, sql: str, params=None) -> list[dict]:
     with conn.cursor() as cur:
-        cur.execute(sql)
+        cur.execute(sql, params)  # pymysql args=None 等价无参数化
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -263,9 +264,7 @@ def collect_history(conn, present: bool, sample_limit: int = 20) -> dict:
     }
     samples: dict[str, list[dict]] = {}
     for table, (sql,) in HISTORY_SAMPLE_TABLES.items():
-        with conn.cursor() as cur:
-            cur.execute(sql, (sample_limit,))
-            samples[table] = [dict(r) for r in cur.fetchall()]
+        samples[table] = _fetch(conn, sql, (sample_limit,))
     return _domain("history", True, {"samples": samples}, stats)
 
 
@@ -330,7 +329,10 @@ SEED_MAPPINGS: list[dict] = [
 
 
 def evaluate_mappings(domains: dict) -> dict:
-    """三态映射评估：种子表 + 运行期发现（当前仅种子，OpenAPI 对账阶段扩展）。"""
+    """三态映射评估：种子表 + 运行期发现（当前仅种子，OpenAPI 对账阶段扩展）。
+
+    domains 为运行期对账结果预留；strategy 合法性由 TestMappings 守护，
+    接入运行期发现后未知策略需重新决策（fail-fast 或计入 other）。"""
     rows = [dict(m) for m in SEED_MAPPINGS]
     stats = {"adopt": 0, "adapt": 0, "drop": 0, "total": len(rows)}
     for m in rows:
