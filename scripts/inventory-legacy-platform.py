@@ -461,8 +461,10 @@ def write_summary(out_root: Path, domains: list[dict]) -> Path:
             names = sorted({r.get(name_key) for r in d.get("rows", {}).get(rows_key, [])
                             if r.get(name_key)})
             if names:
+                total = len(d.get("rows", {}).get(rows_key, []))
                 roster_rows.append(
-                    f"- {d['domain']}.{rows_key} ({len(names)}): {', '.join(names)}")
+                    f"- {d['domain']}.{rows_key} ({len(names)} 名单/{total} 行): "
+                    f"{', '.join(names)}")
         for key in ("only_in_at", "only_in_de"):
             values = d.get("stats", {}).get(key) or []
             if values:

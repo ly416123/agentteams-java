@@ -493,7 +493,7 @@ class TestReportWriter(unittest.TestCase):
         path = write_summary(self.tmp, domains)
         text = path.read_text(encoding="utf-8")
         self.assertIn("worker-alpha", text)  # 清单骨架
-        self.assertIn("de_worker (1)", text)
+        self.assertIn("de_worker (1 名单/1 行)", text)
         self.assertIn("gateway.impl=remote", text)  # 降级原因推断
         self.assertIn("table_missing", text)
 

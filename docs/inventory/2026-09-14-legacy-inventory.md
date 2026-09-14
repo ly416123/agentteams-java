@@ -16,16 +16,26 @@
 | history | ok |  |
 | legacy-to-new-mapping | ok | adopt=0; adapt=7; drop=1; total=8 |
 
+## 降级说明（表缺失域）
+
+- `mcps`: at_* 平台镜像表缺失：corp-agent 当前 agentteams.gateway.impl=remote（纯远程透传，从未落库）。资源清单以 de_* 业务台账为准，平台侧真实状态需 OpenAPI 对账（后续阶段）。
+- `endpoints`: at_* 平台镜像表缺失：corp-agent 当前 agentteams.gateway.impl=remote（纯远程透传，从未落库）。资源清单以 de_* 业务台账为准，平台侧真实状态需 OpenAPI 对账（后续阶段）。
+
+## 清单骨架（名单；完整字段在明细层）
+
+- workers.de_worker (5 名单/75 行): corp-leader, 供应链主管, 战略专家, 销售顾问, 风控管理
+- teams.de_team (15 名单/15 行): corp-map-team-01o-exr8za0cqr-542b799, corp-map-team-02048034615296-84cd1f6, corp-map-team-14894789144576-2833680, corp-map-team-1ebmw6kfkbduhc-bd368a9, corp-map-team-30482643423232-6ab079f, corp-map-team-45zq23qfby9pam-f9c7879, corp-map-team-47207311732736-e9397ff, corp-map-team-4oalxa9ba5p6ho-fca1ac8, corp-map-team-6g6787n2e1a63e-a8e3590, corp-map-team-9encf9h6ejrfv0-efc9c13, corp-map-team-flcqo7i3gcc8x3-98a816f, corp-map-team-klnbjilphdcaoj-081897f, corp-map-team-m9e2keojffiss1-dc47924, corp-map-team-pohtb569sj-g4g-1ea7925, corp-map-team-ta5hyaf8csdl0m-3490d0c
+
 ## 漂移线索（at_* vs de_* 名单差集）
 
 -（无漂移线索）
 
 ## 历史数据画像
 
-- `de_task`: total=323, child_task_count=133, by_status={'CC': 22, 'P': 5, 'CP': 278, 'R': 7, 'W': 11}
-- `de_task_rslt`: total=156, multi_version_count=0, success_count=156
-- `de_chat_convo`: total=164, time_span={'from': '2026-09-02 16:27:22', 'to': '2026-09-14 19:31:50'}
-- `de_chat_msg`: total=1264, by_role={0: 286, 1: 978}, time_span={'from': '2026-09-02 16:25:06', 'to': '2026-09-14 19:31:50'}
+- `de_task`: total=325, child_task_count=134, by_status={'CC': 22, 'P': 5, 'CP': 280, 'R': 7, 'W': 11}
+- `de_task_rslt`: total=157, multi_version_count=0, success_count=157
+- `de_chat_convo`: total=164, time_span={'from': '2026-09-02 16:27:22', 'to': '2026-09-14 19:49:51'}
+- `de_chat_msg`: total=1276, by_role={0: 291, 1: 985}, time_span={'from': '2026-09-02 16:25:06', 'to': '2026-09-14 19:49:51'}
 
 ## 旧→新映射评估（三态决策）
 
