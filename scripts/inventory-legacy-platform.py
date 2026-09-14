@@ -88,3 +88,25 @@ def collect_config(yaml_text: str) -> dict:
     }
     return {"domain": "platform-config", "status": "ok", "rows": rows,
             "stats": {}, "notes": []}
+
+
+INVENTORY_TABLES = [
+    "at_team", "at_worker", "at_mcp_server", "at_service_endpoint",
+    "de_worker", "de_team", "de_team_worker_rel", "de_team_crew_rel",
+    "de_user_mapp", "de_task", "de_task_rslt", "de_chat_convo", "de_chat_msg",
+]
+
+PROBE_SQL = ("SELECT table_name FROM information_schema.tables "
+             "WHERE table_schema = DATABASE() AND table_name IN (%s" + ", %s" * 12 + ")")
+
+
+def probe_tables(conn) -> dict[str, bool]:
+    """逐表探测 information_schema；返回 {表名: 是否存在}。"""
+    with conn.cursor() as cur:
+        cur.execute(PROBE_SQL, tuple(INVENTORY_TABLES))
+        existing = {row[0] for row in cur.fetchall()}
+    return {t: t in existing for t in INVENTORY_TABLES}
+
+
+def degrade_status(presence: dict[str, bool]) -> int:
+    return EXIT_OK if all(presence.values()) else EXIT_DEGRADED

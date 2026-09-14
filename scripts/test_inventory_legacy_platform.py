@@ -25,6 +25,7 @@ _SPEC.loader.exec_module(_MODULE)
 
 from inventory_legacy_platform import fingerprint, mask_row
 from inventory_legacy_platform import collect_config
+from inventory_legacy_platform import EXIT_DEGRADED, EXIT_OK, probe_tables, degrade_status
 
 
 class TestGitignore(unittest.TestCase):
@@ -125,6 +126,53 @@ class TestCollectConfig(unittest.TestCase):
         self.assertNotIn("FwcSECRET", json.dumps(cfg))
         self.assertNotIn("atk-secret", json.dumps(cfg))
         self.assertIn("agentcore_api_key", cfg["rows"]["credential_sources"])
+
+
+class FakeCursor:
+    """INFORMATION_SCHEMA 探测假游标：table_rows = [存在表名]。"""
+
+    def __init__(self, existing: list[str]) -> None:
+        self._existing = set(existing)
+
+    def execute(self, sql: str, params=None) -> None:
+        self._last = (sql, params)
+
+    def fetchall(self):
+        sql, params = self._last
+        wanted = list(params)
+        return [(t,) for t in wanted if t in self._existing]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+
+class FakeConn:
+    def __init__(self, existing: list[str]) -> None:
+        self._cursor = FakeCursor(existing)
+
+    def cursor(self):
+        return self._cursor
+
+
+ALL_TABLES = ["at_team", "at_worker", "at_mcp_server", "at_service_endpoint",
+              "de_worker", "de_team", "de_team_worker_rel", "de_team_crew_rel",
+              "de_user_mapp", "de_task", "de_task_rslt", "de_chat_convo", "de_chat_msg"]
+
+
+class TestProbeTables(unittest.TestCase):
+    def test_all_present_ok(self) -> None:
+        presence = probe_tables(FakeConn(ALL_TABLES))
+        self.assertTrue(all(presence.values()))
+        self.assertEqual(degrade_status(presence), EXIT_OK)
+
+    def test_at_tables_missing_degrades(self) -> None:
+        presence = probe_tables(FakeConn([t for t in ALL_TABLES if not t.startswith("at_")]))
+        self.assertFalse(presence["at_worker"])
+        self.assertTrue(presence["de_worker"])
+        self.assertEqual(degrade_status(presence), EXIT_DEGRADED)
 
 
 if __name__ == "__main__":
