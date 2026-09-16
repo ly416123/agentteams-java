@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -84,9 +85,15 @@ def skill_payload(draft: dict, visibility: str) -> dict:
 
 
 def version_payload(draft: dict) -> dict:
+    """版本草案：digest 用占位内容的真实 sha256（包本体待从旧平台导出后重传覆盖）。"""
     version = draft.get("version") or "0.0.1"
-    return {"version": version, "digest": f"legacy:{draft['name']}@{version}",
-            "manifest": {"source": "legacy-agentcore", "label": draft.get("display_name")},
+    placeholder = f"legacy:{draft['name']}@{version}"
+    digest = hashlib.sha256(placeholder.encode("utf-8")).hexdigest()
+    label = draft.get("display_name") or draft["name"]
+    description = draft.get("description") or label
+    return {"version": version, "digest": f"sha256:{digest}",
+            "manifest": {"name": draft["name"], "description": description, "entry": "SKILL.md",
+                         "sizeBytes": 0, "source": "legacy-agentcore"},
             "visibility": "PRIVATE"}
 
 
@@ -118,9 +125,25 @@ def apply_skills(client: Client, drafts: list[dict], *, visibility: str, dry_run
     results = []
     for d in drafts:
         name = d["name"]
+        vp = version_payload(d)
         if name in existing:
-            results.append({"kind": "skill", "name": name, "status": "skipped",
-                            "reason": "exists", "id": existing[name]})
+            # skill 已存在：版本级补齐（02:06 首轮版本注册曾因可见性 403，不可只按 name 跳过）
+            sid = existing[name]
+            if dry_run:
+                results.append({"kind": "skill", "name": name, "status": "dry-run",
+                                "action": f"PATCH 版本 {vp}"})
+                continue
+            vst, vlist = client.request("GET", f"/api/v1/skills/{sid}/versions")
+            have = {v.get("version") for v in (vlist or [])} if vst == 200 and isinstance(vlist, list) else set()
+            if vp["version"] in have:
+                results.append({"kind": "skill", "name": name, "status": "skipped",
+                                "reason": "version-exists", "id": sid})
+                continue
+            vst2, vbody = client.request("POST", f"/api/v1/skills/{sid}/versions", vp,
+                                          idem=f"legacy-skill-{name}-version")
+            results.append({"kind": "skill", "name": name,
+                            "status": "created" if vst2 in (200, 201) else "failed",
+                            "id": sid, "version_http": vst2, "version_resp": vbody})
             continue
         if dry_run:
             results.append({"kind": "skill", "name": name, "status": "dry-run",
@@ -132,7 +155,7 @@ def apply_skills(client: Client, drafts: list[dict], *, visibility: str, dry_run
             results.append({"kind": "skill", "name": name, "status": "failed", "http": status, "resp": body})
             continue
         sid = body.get("id")
-        vstatus, vbody = client.request("POST", f"/api/v1/skills/{sid}/versions", version_payload(d),
+        vstatus, vbody = client.request("POST", f"/api/v1/skills/{sid}/versions", vp,
                                         idem=f"legacy-skill-{name}-version")
         results.append({"kind": "skill", "name": name, "status": "created" if vstatus in (200, 201) else "failed",
                         "id": sid, "version_http": vstatus, "version_resp": vbody})

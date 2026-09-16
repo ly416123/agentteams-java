@@ -20,12 +20,13 @@ class FakeClient(_app.Client):
     """记录请求并按脚本回放，验证幂等/查重/失败路径。"""
 
     def __init__(self, existing_mcp: dict | None = None, existing_skill: dict | None = None,
-                 fail_first_skill: bool = False):
+                 fail_first_skill: bool = False, skill_versions: dict | None = None):
         super().__init__("http://fake", "tok")
         self.calls: list[tuple] = []
         self._existing_mcp = existing_mcp or {}
         self._existing_skill = existing_skill or {}
         self._fail_first_skill = fail_first_skill
+        self._skill_versions = skill_versions or {}
         self._skill_posts = 0
 
     def request(self, method, path, body=None, idem=None):  # noqa: D102
@@ -43,6 +44,9 @@ class FakeClient(_app.Client):
             if self._fail_first_skill and self._skill_posts == 1:
                 return 409, {"error": "duplicate"}
             return 201, {"id": f"skill-uuid-{self._skill_posts}", "name": body["name"]}
+        if method == "GET" and path.endswith("/versions"):
+            sid = path.split("/")[4]
+            return 200, self._skill_versions.get(sid, [])
         if path.endswith("/versions"):
             return 201, {"id": "version-uuid-1"}
         return 500, {"error": "unexpected"}
@@ -84,14 +88,30 @@ class TestApplySkills(unittest.TestCase):
         rows = _app.apply_skills(client, [self.DRAFT], visibility="PUBLIC", dry_run=False)
         self.assertEqual(rows[0]["status"], "created")
         version_call = [c for c in client.calls if c[1].endswith("/versions")][0]
-        self.assertEqual(version_call[2]["digest"], "legacy:markdown-to-pdf@1.0.0")
+        digest = version_call[2]["digest"]
+        self.assertTrue(digest.startswith("sha256:") and len(digest) == 71, digest)
 
     def test_create_failure_records_failed_without_version(self) -> None:
         client = FakeClient(fail_first_skill=True)
         rows = _app.apply_skills(client, [self.DRAFT], visibility="PUBLIC", dry_run=False)
         self.assertEqual(rows[0]["status"], "failed")
         self.assertEqual(rows[0]["http"], 409)
-        self.assertFalse([c for c in client.calls if c[1].endswith("/versions")])
+        self.assertFalse([c for c in client.calls if c[1].endswith("/versions") and c[0] == "POST"])
+
+    def test_existing_skill_with_missing_version_is_backfilled(self) -> None:
+        client = FakeClient(existing_skill={"markdown-to-pdf": "skill-uuid-9"},
+                            skill_versions={"skill-uuid-9": []})
+        rows = _app.apply_skills(client, [self.DRAFT], visibility="PUBLIC", dry_run=False)
+        self.assertEqual(rows[0]["status"], "created")
+        self.assertTrue(any(c[0] == "POST" and c[1].endswith("/versions") for c in client.calls))
+
+    def test_existing_skill_with_same_version_is_skipped(self) -> None:
+        client = FakeClient(existing_skill={"markdown-to-pdf": "skill-uuid-9"},
+                            skill_versions={"skill-uuid-9": [{"version": "1.0.0"}]})
+        rows = _app.apply_skills(client, [self.DRAFT], visibility="PUBLIC", dry_run=False)
+        self.assertEqual(rows[0]["status"], "skipped")
+        self.assertEqual(rows[0]["reason"], "version-exists")
+        self.assertFalse([c for c in client.calls if c[0] == "POST"])
 
 
 if __name__ == "__main__":
