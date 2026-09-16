@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""G12 基础配置迁移执行器：映射包草案 → 新平台注册（MCP + Skills）。
+"""G12 基础配置迁移执行器：映射包草案 → 新平台注册（MCP + Skills + Model 目录 + AgentSpec）。
 
 输入：output/migration-map-<ts>/detail/*.json（build-migration-map.py 产物）
-目标：agentteams-java control-plane（/api/v1/mcp-servers、/api/v1/skills）
+目标：agentteams-java control-plane（/api/v1/mcp-servers、/api/v1/skills、
+      /api/v1/model-providers[/{id}/models]、/api/v1/agent-specs）
 
 用法：
   export AGENTTEAMS_CONTROL_PLANE_URL=http://agentteams-control-plane:8080
   export AGENTTEAMS_MCP_TOKEN=<bearer>            # 鉴权开启时必填
   python3 scripts/apply-migration-map.py --dry-run            # 预览动作
   python3 scripts/apply-migration-map.py [--include-tags prod-candidate] [--probe]
+         [--skip-models] [--skip-agentspecs]
 
-幂等：MCP/Skill 均按 name 查重跳过；Idempotency-Key 确定性（legacy-mcp-<name> 等），重跑安全。
+幂等：全部按 name 查重跳过；Idempotency-Key 确定性（legacy-mcp-<name> 等），重跑安全。
+依赖序：model provider → model（挂在 provider 下）→ agent-spec（校验 model 引用）。
 产出：output/apply-migration-<ts>/result.json（created/skipped/failed 明细）。
 """
 from __future__ import annotations
@@ -77,6 +80,17 @@ class Client:
 def mcp_payload(draft: dict) -> dict:
     return {"name": draft["name"], "transport": draft["transport"], "endpoint": draft["endpoint"],
             "credentialRef": draft.get("credential_ref"), "enabled": True}
+
+
+def provider_payload(draft: dict) -> dict:
+    return {"name": draft["name"], "providerType": draft.get("provider_type") or "openai-compatible",
+            "endpoint": draft.get("endpoint"), "credentialRef": draft.get("credential_ref"),
+            "settings": {}, "enabled": True}
+
+
+def model_payload(draft: dict) -> dict:
+    return {"name": draft["name"], "modelId": draft.get("model_id") or draft["name"],
+            "capabilities": {}, "enabled": True}
 
 
 def skill_payload(draft: dict, visibility: str) -> dict:
@@ -162,6 +176,100 @@ def apply_skills(client: Client, drafts: list[dict], *, visibility: str, dry_run
     return results
 
 
+def apply_providers(client: Client, drafts: list[dict], *, dry_run: bool) -> list[dict]:
+    existing = {} if dry_run else client.list_names("/api/v1/model-providers")
+    results = []
+    for d in drafts:
+        name = d["name"]
+        if name in existing:
+            results.append({"kind": "model-provider", "name": name, "status": "skipped",
+                            "reason": "exists", "id": existing[name]})
+            continue
+        if dry_run:
+            results.append({"kind": "model-provider", "name": name, "status": "dry-run",
+                            "action": f"POST /api/v1/model-providers {provider_payload(d)}"})
+            continue
+        status, body = client.request("POST", "/api/v1/model-providers", provider_payload(d),
+                                      idem=f"legacy-modelprov-{name}")
+        results.append({"kind": "model-provider", "name": name,
+                        "status": "created" if status in (200, 201) else "failed",
+                        "http": status, "id": body.get("id") if isinstance(body, dict) else None,
+                        "resp": body})
+    return results
+
+
+def provider_id_map(client: Client, results: list[dict], dry_run: bool) -> dict:
+    """apply_providers 结果 -> {name: id}；非 dry_run 再 GET 全量补全（处理可见性遗漏），
+    dry_run 时占位，保证后续 dry-run 分支不触网。"""
+    ids = {r["name"]: r["id"] for r in results if r.get("kind") == "model-provider" and r.get("id")}
+    if not dry_run:
+        ids.update(client.list_names("/api/v1/model-providers"))
+    if not ids:
+        return {r["name"]: f"dry-run-{r['name']}" for r in results
+                if r.get("kind") == "model-provider"}
+    return ids
+
+
+def apply_models(client: Client, drafts: list[dict], provider_ids: dict, *, dry_run: bool) -> list[dict]:
+    existing_by_provider: dict[str, set] = {}
+    results = []
+    for d in drafts:
+        pname = d["provider_name"]
+        name = d["name"]
+        if pname not in provider_ids:
+            results.append({"kind": "model", "name": name, "status": "failed",
+                            "reason": f"provider-missing: {pname}"})
+            continue
+        pid = provider_ids[pname]
+        if pname not in existing_by_provider:
+            if dry_run:
+                existing_by_provider[pname] = set()
+            else:
+                st, rows = client.request("GET", f"/api/v1/model-providers/{pid}/models")
+                existing_by_provider[pname] = ({m.get("name") for m in (rows or [])}
+                                               if st == 200 and isinstance(rows, list) else set())
+        if name in existing_by_provider[pname]:
+            results.append({"kind": "model", "name": name, "status": "skipped",
+                            "reason": "exists", "provider": pname})
+            continue
+        if dry_run:
+            results.append({"kind": "model", "name": name, "status": "dry-run",
+                            "action": f"POST /api/v1/model-providers/{pname}/models {model_payload(d)}"})
+            continue
+        status, body = client.request("POST", f"/api/v1/model-providers/{pid}/models", model_payload(d),
+                                      idem=f"legacy-model-{pname}-{name}")
+        results.append({"kind": "model", "name": name, "provider": pname,
+                        "status": "created" if status in (200, 201) else "failed",
+                        "http": status, "id": body.get("id") if isinstance(body, dict) else None,
+                        "resp": body})
+    return results
+
+
+def apply_agent_specs(client: Client, drafts: list[dict], *, dry_run: bool) -> list[dict]:
+    existing = {} if dry_run else client.list_names("/api/v1/agent-specs")
+    results = []
+    for d in drafts:
+        name = d["name"]
+        if name in existing:
+            results.append({"kind": "agent-spec", "name": name, "status": "skipped",
+                            "reason": "exists", "id": existing[name]})
+            continue
+        payload = d["registration"]
+        if dry_run:
+            results.append({"kind": "agent-spec", "name": name, "status": "dry-run",
+                            "action": f"POST /api/v1/agent-specs {name} {d.get('worker_type')} "
+                                      f"{payload.get('modelProvider')}/{payload.get('modelName')} "
+                                      f"mcp={len(payload['spec']['mcpRefs'])} skill={len(payload['spec']['skillRefs'])}"})
+            continue
+        status, body = client.request("POST", "/api/v1/agent-specs", payload,
+                                      idem=f"legacy-agentspec-{name}")
+        results.append({"kind": "agent-spec", "name": name,
+                        "status": "created" if status in (200, 201) else "failed",
+                        "http": status, "id": body.get("id") if isinstance(body, dict) else None,
+                        "resp": body})
+    return results
+
+
 def main(argv: list[str]) -> int:
     args = list(argv)
     dry_run = "--apply" not in args
@@ -175,6 +283,8 @@ def main(argv: list[str]) -> int:
     tags = DEFAULT_TAGS
     if "--include-tags" in args:
         tags = args[args.index("--include-tags") + 1].split(",")
+    skip_models = "--skip-models" in args
+    skip_agentspecs = "--skip-agentspecs" in args
 
     detail = _latest_map_dir(map_dir)
     base_url = os.environ.get("AGENTTEAMS_CONTROL_PLANE_URL", "")
@@ -188,13 +298,23 @@ def main(argv: list[str]) -> int:
 
     mcps = tag_filter(json.loads((detail / "mcp-register-drafts.json").read_text(encoding="utf-8")))
     skills = json.loads((detail / "skill-register-drafts.json").read_text(encoding="utf-8"))
+    providers = [] if skip_models else json.loads(
+        (detail / "model-provider-drafts.json").read_text(encoding="utf-8"))
+    models = [] if skip_models else json.loads(
+        (detail / "model-register-drafts.json").read_text(encoding="utf-8"))
+    agentspecs = [] if skip_agentspecs else json.loads(
+        (detail / "worker-agent-spec-drafts.json").read_text(encoding="utf-8"))
 
     print(f"[PLAN] tags={tags} dry_run={dry_run} target={base_url or '(dry-run)'}")
     print(f"[PLAN] MCP {len(mcps)} 个（{[m['name'] for m in mcps]}）")
     print(f"[PLAN] Skills {len(skills)} 个（活跃 {sum(1 for s in skills if s['in_use'])}）")
+    print(f"[PLAN] ModelProviders {len(providers)}；Models {len(models)}；AgentSpecs {len(agentspecs)}")
 
     results = apply_mcps(client, mcps, probe=probe, dry_run=dry_run)
     results += apply_skills(client, skills, visibility=visibility, dry_run=dry_run)
+    results += apply_providers(client, providers, dry_run=dry_run)
+    results += apply_models(client, models, provider_id_map(client, results, dry_run), dry_run=dry_run)
+    results += apply_agent_specs(client, agentspecs, dry_run=dry_run)
 
     out_root = Path("output") / f"apply-migration-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     if not dry_run:

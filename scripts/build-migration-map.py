@@ -9,6 +9,9 @@
 - mcp_server_config.url -> mcp_servers.endpoint；headers/auth -> credential_ref 建议（值不出 detail）
 - protocol -> transport（SSE 直映；其余 STREAMABLE_HTTP 并标记待核）
 - skill(name,label,version) -> skills(name,display_name=label,description=label) + skill_versions
+- model_providers(address,protocols) -> model-providers(providerType=openai-compatible)；api_keys 导出已脱敏 -> credential_ref 占位
+- models + worker 引用并集 -> /model-providers/{id}/models（modelId=name，AgentSpec 引用键）
+- worker(full) -> agent-specs（runtime=qwenpaw；soul/agents 内嵌 spec.legacy 保真，spec ≤64KB 已核）
 - 模板从引用 worker 的 soul/agents 实例反推（引用关系保留）
 """
 from __future__ import annotations
@@ -153,11 +156,81 @@ def build_templates(detail: Path) -> list[dict]:
     return list(by_tpl.values())
 
 
+def build_model_providers(detail: Path) -> list[dict]:
+    rows = json.loads((detail / "model_providers.json").read_text(encoding="utf-8"))
+    drafts = []
+    for p in rows:
+        name = p.get("name") or ""
+        drafts.append({
+            "name": name, "provider_type": "openai-compatible", "endpoint": p.get("address"),
+            # 旧平台 api_keys 导出即脱敏（***），凭据值属迁移决策项：credential_ref 占位
+            "credential_ref": f"legacy-modelprov-{name}",
+            "legacy_provider": p.get("provider"), "protocols": p.get("protocols") or [],
+            "deploy_status": p.get("deploy_status"), "legacy_id": p.get("id"),
+        })
+    return drafts
+
+
+def build_models(detail: Path) -> list[dict]:
+    """模型目录（models.json）与 worker 实际引用取并集；worker 引用未注册模型时
+    按 provider 兜底归档（空 provider 归 default）——AgentSpec 校验按 (provider, modelId) 查。"""
+    rows = json.loads((detail / "models.json").read_text(encoding="utf-8"))
+    by_key: dict[tuple, dict] = {}
+    for m in rows:
+        pname = m.get("provider_name") or "default"
+        mname = m.get("name")
+        if not mname:
+            continue
+        by_key[(pname, mname)] = {"name": mname, "model_id": mname, "provider_name": pname,
+                                  "source": "model-catalog", "in_use_by_workers": 0}
+    for w in json.loads((detail / "workers.json").read_text(encoding="utf-8")):
+        model = (w.get("full") or {}).get("model") or {}
+        mname = model.get("model_name")
+        if not mname:
+            continue
+        key = (model.get("model_provider") or "default", mname)
+        if key not in by_key:
+            by_key[key] = {"name": mname, "model_id": mname, "provider_name": key[0],
+                           "source": "worker-reference", "in_use_by_workers": 0}
+        by_key[key]["in_use_by_workers"] += 1
+    return list(by_key.values())
+
+
+def agent_spec_registration(full: dict) -> dict:
+    """worker full -> POST /api/v1/agent-specs 请求体（runtime 同值直映 qwenpaw）。"""
+    model = full.get("model") or {}
+    provider = model.get("model_provider") or "default"
+    model_name = model.get("model_name") or ""
+    role = "EXECUTOR"
+    team = None
+    for g in (full.get("groups") or []):
+        if not team:
+            team = g.get("name")
+        if (g.get("role") or "").lower() == "leader":
+            role = "LEADER"
+    spec = {
+        "modelRef": {"provider": provider, "model": model_name},
+        "skillRefs": [s.get("name") for s in (full.get("skills") or []) if s.get("name")],
+        "mcpRefs": [m.get("name") for m in (full.get("mcp_servers") or []) if m.get("name")],
+        # soul/agents 为人格与技能路由 prompt 正文，64KB 限内（导出最大 ~24KB）
+        "legacy": {"soul": full.get("soul") or "", "agents": full.get("agents") or "",
+                   "template": full.get("template"), "agentType": full.get("agent_type"),
+                   "versionCode": full.get("version_code"), "subagents": full.get("subagents"),
+                   "channels": full.get("channels"), "credentials": full.get("credentials"),
+                   "deployType": full.get("deploy_type"), "legacyStatus": full.get("status")},
+    }
+    return {"name": full.get("name"), "runtime": "qwenpaw", "workerType": role,
+            "modelProvider": provider, "modelName": model_name, "teamRef": team,
+            "desiredState": "RUNNING" if (full.get("status") or "").lower() == "running" else "STOPPED",
+            "spec": spec}
+
+
 def build_workers(detail: Path) -> list[dict]:
     workers = json.loads((detail / "workers.json").read_text(encoding="utf-8"))
     drafts = []
     for w in workers:
         full = w.get("full") or {}
+        reg = agent_spec_registration(full)
         drafts.append({
             "name": full.get("name") or (w.get("summary") or {}).get("name"),
             "status": full.get("status"), "agent_type": full.get("agent_type"),
@@ -168,12 +241,16 @@ def build_workers(detail: Path) -> list[dict]:
             "skills": [s.get("name") for s in (full.get("skills") or [])],
             "soul_fingerprint": fp(full.get("soul") or ""), "agents_fingerprint": fp(full.get("agents") or ""),
             "soul_chars": len(full.get("soul") or ""), "agents_chars": len(full.get("agents") or ""),
-            "_soul_raw": full.get("soul"), "_agents_raw": full.get("agents"),
+            "worker_type": reg["workerType"], "team_ref": reg["teamRef"],
+            "desired_state": reg["desiredState"],
+            "registration": reg,
+            "spec_bytes": len(json.dumps(reg["spec"], ensure_ascii=False).encode("utf-8")),
         })
     return drafts
 
 
-def write_summary(path: Path, mcps: list, skills: list, templates: list, workers: list) -> None:
+def write_summary(path: Path, mcps: list, skills: list, templates: list, workers: list,
+                  providers: list, models: list) -> None:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     tags: dict[str, int] = {}
     for m in mcps:
@@ -201,10 +278,25 @@ def write_summary(path: Path, mcps: list, skills: list, templates: list, workers
                      f"（指纹 {e['soul_fingerprint']}/{e['agents_fingerprint']}），模型 {e['model']}，"
                      f"绑定 MCP {len(e['mcp_servers'])}、skill {len(e['skills'])}")
     lines += ["", f"## Worker → AgentSpec 草案：{len(workers)} 个（明细见 output/migration-map-*/detail）", "",
-              "## 待办决策", "",
+              f"- workerType：LEADER {sum(1 for w in workers if w['worker_type'] == 'LEADER')} / "
+              f"EXECUTOR {sum(1 for w in workers if w['worker_type'] == 'EXECUTOR')}；"
+              f"desiredState RUNNING {sum(1 for w in workers if w['desired_state'] == 'RUNNING')} / "
+              f"STOPPED {sum(1 for w in workers if w['desired_state'] == 'STOPPED')}",
+              f"- spec 体积：max {max((w['spec_bytes'] for w in workers), default=0)} bytes"
+              f"（限 64KB，超限 {sum(1 for w in workers if w['spec_bytes'] > 64 * 1024)} 个）",
+              "", "## Model Provider / Model 注册草案", "",
+              "| Provider | 类型 | endpoint | credential_ref |", "|---|---|---|---|"]
+    for p in providers:
+        lines.append(f"| {p['name']} | {p['provider_type']} | {p['endpoint']} | {p['credential_ref']} |")
+    lines += ["", "| Model | Provider | 来源 | worker 引用 |", "|---|---|---|---|"]
+    for m in sorted(models, key=lambda x: (x["provider_name"], -x["in_use_by_workers"])):
+        lines.append(f"| {m['name']} | {m['provider_name']} | {m['source']} | {m['in_use_by_workers']} |")
+    lines += ["", "## 待办决策", "",
               "- [ ] MCP 22 个中哪些生产迁移（环境标记已打：uat/variant/test 默认不迁）",
               "- [ ] transport 兼容性复核（非 SSE protocol 标记 STREAMABLE_HTTP 待核）",
-              "- [ ] 模板实例反推 vs 控制台模板中心定义（若有出入以控制台为准）"]
+              "- [ ] 模板实例反推 vs 控制台模板中心定义（若有出入以控制台为准）",
+              "- [ ] model provider 凭据值（api_keys 导出已脱敏，需控制台重取后入 credential store）",
+              "- [ ] AgentSpec 发布（publish）时机：需 MCP/skill 引用在新平台可见后执行，当前保持 DRAFT"]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -218,8 +310,11 @@ def main() -> int:
     skills = build_skills(detail)
     templates = build_templates(detail)
     workers = build_workers(detail)
+    providers = build_model_providers(detail)
+    models = build_models(detail)
 
     for name, rows in (("mcp-register-drafts.json", mcps), ("skill-register-drafts.json", skills),
+                       ("model-provider-drafts.json", providers), ("model-register-drafts.json", models),
                        ("template-extracts.json", templates), ("worker-agent-spec-drafts.json", workers)):
         (out_detail / name).write_text(json.dumps(rows, ensure_ascii=False, indent=1, default=str),
                                        encoding="utf-8")
@@ -227,11 +322,15 @@ def main() -> int:
     docs = Path("docs/inventory")
     docs.mkdir(parents=True, exist_ok=True)
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    write_summary(docs / f"{date}-legacy-asset-migration-map.md", mcps, skills, templates, workers)
+    write_summary(docs / f"{date}-legacy-asset-migration-map.md", mcps, skills, templates, workers,
+                  providers, models)
 
     print(f"[mcps] {len(mcps)}（标记 {({t: sum(1 for m in mcps if m['env_tag']==t) for t in set(m['env_tag'] for m in mcps)})}）")
     print(f"[skills] {len(skills)}（活跃 {sum(1 for s in skills if s['in_use'])}）")
-    print(f"[templates] {len(templates)}；[workers] {len(workers)}")
+    print(f"[providers] {len(providers)}；[models] {len(models)}（worker 引用补齐 "
+          f"{sum(1 for m in models if m['source'] == 'worker-reference')}）")
+    print(f"[templates] {len(templates)}；[workers] {len(workers)}（"
+          f"LEADER {sum(1 for w in workers if w['worker_type'] == 'LEADER')}）")
     print(f"[DONE] 草案：{out_root}/detail；汇总：docs/inventory/{date}-legacy-asset-migration-map.md")
     return 0
 

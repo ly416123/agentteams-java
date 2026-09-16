@@ -69,8 +69,31 @@
 
 ## Worker → AgentSpec 草案：29 个（明细见 output/migration-map-*/detail）
 
+- workerType：LEADER 6 / EXECUTOR 23；desiredState RUNNING 29 / STOPPED 0
+- spec 体积：max 25380 bytes（限 64KB，超限 0 个）
+
+## Model Provider / Model 注册草案
+
+| Provider | 类型 | endpoint | credential_ref |
+|---|---|---|---|
+| ds-laster | openai-compatible | https://dashscope.aliyuncs.com/compatible-mode/v1 | legacy-modelprov-ds-laster |
+| my-hunyuan-provider | openai-compatible | https://hunyuan.tencentcloudapi.com | legacy-modelprov-my-hunyuan-provider |
+| default | openai-compatible | https://dashscope.aliyuncs.com/compatible-mode/v1 | legacy-modelprov-default |
+
+| Model | Provider | 来源 | worker 引用 |
+|---|---|---|---|
+| qwen3.7-max | default | model-catalog | 20 |
+| qwen3.8-max | default | model-catalog | 5 |
+| deepseek-v4-flash | default | model-catalog | 3 |
+| deepseek-v4-pro | default | model-catalog | 0 |
+| deepseek-v4-flash-0731 | ds-laster | model-catalog | 0 |
+| deepseek-v4-pro-0813 | ds-laster | model-catalog | 0 |
+| hunyuan-pro | my-hunyuan-provider | model-catalog | 1 |
+
 ## 待办决策
 
 - [ ] MCP 22 个中哪些生产迁移（环境标记已打：uat/variant/test 默认不迁）
 - [ ] transport 兼容性复核（非 SSE protocol 标记 STREAMABLE_HTTP 待核）
 - [ ] 模板实例反推 vs 控制台模板中心定义（若有出入以控制台为准）
+- [ ] model provider 凭据值（api_keys 导出已脱敏，需控制台重取后入 credential store）
+- [ ] AgentSpec 发布（publish）时机：需 MCP/skill 引用在新平台可见后执行，当前保持 DRAFT
