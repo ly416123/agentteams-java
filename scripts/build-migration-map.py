@@ -42,6 +42,8 @@ def env_tag(name: str) -> str:
         return "variant"
     if "test" in low:
         return "test"
+    if low.endswith("-dev") or "-dev-" in low:
+        return "dev"
     return "prod-candidate"
 
 
@@ -78,6 +80,19 @@ def latest_export() -> Path:
     return roots[-1]
 
 
+SENSITIVE_KEYS = {"headers", "authorization", "api_key", "token", "auth",
+                  "securitySchemes", "defaultUpstreamSecurity"}
+
+
+def _flatten_keys(d, depth: int = 0) -> set:
+    if depth > 4 or not isinstance(d, dict):
+        return set()
+    keys = set(d.keys())
+    for v in d.values():
+        keys |= _flatten_keys(v, depth + 1)
+    return keys
+
+
 def build_mcps(detail: Path) -> list[dict]:
     rows = json.loads((detail / "mcps.json").read_text(encoding="utf-8"))
     drafts = []
@@ -86,7 +101,7 @@ def build_mcps(detail: Path) -> list[dict]:
         config = parse_config(m.get("mcp_server_config"))
         transport, needs_review = transport_of(m.get("protocol"))
         addresses = m.get("addresses") or []
-        sensitive = any(k in config for k in ("headers", "authorization", "api_key", "token", "auth"))
+        sensitive = bool(_flatten_keys(config) & SENSITIVE_KEYS)
         drafts.append({
             "legacy_id": m.get("id"), "name": name, "env_tag": env_tag(name),
             "transport": transport, "endpoint": addresses[0] if addresses else config.get("mcpServerURL") or config.get("url"),
