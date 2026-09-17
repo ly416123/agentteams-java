@@ -141,6 +141,7 @@
   "users": [
     {
       "username": "alice",
+      "id": "3773053b-8786-4402-b670-270baa336320",
       "enabled": true,
       "email": "alice@agentteams.local",
       "emailVerified": true,
@@ -159,11 +160,14 @@
         "task:read", "task:create", "task:cancel", "task:retry", "task:pause",
         "task:approve", "task:reject", "artifact:read", "artifact:write",
         "agent:read", "agent:write", "config:read", "config:write", "usage:read", "quota:write",
-        "team:read", "team:write", "memory:read", "sandbox:read"
+        "team:read", "team:write", "memory:read", "sandbox:read",
+        "skill:read", "skill:write", "mcp:read", "mcp:write",
+        "model:read", "model:write", "agent-spec:read", "agent-spec:write"
       ]
     },
     {
       "username": "quota-admin",
+      "id": "b0a5e6a1-2c3d-4e5f-8a9b-0c1d2e3f4a51",
       "enabled": true,
       "email": "quota-admin@agentteams.local",
       "emailVerified": true,
@@ -192,6 +196,7 @@
     },
     {
       "username": "reader",
+      "id": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e52",
       "enabled": true,
       "email": "reader@agentteams.local",
       "emailVerified": true,
@@ -210,6 +215,7 @@
     },
     {
       "username": "tenant-b-user",
+      "id": "d2e3f4a5-b6c7-4d8e-9f0a-1b2c3d4e5f53",
       "enabled": true,
       "email": "tenant-b@agentteams.local",
       "emailVerified": true,
