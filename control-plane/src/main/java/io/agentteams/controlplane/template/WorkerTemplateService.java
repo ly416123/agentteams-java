@@ -15,11 +15,14 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public final class WorkerTemplateService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(WorkerTemplateService.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final WorkerTemplateRepository repository;
     private final TemplateInstanceProvisioner provisioner;
@@ -145,6 +148,8 @@ public final class WorkerTemplateService {
                     clock.instant(), 1);
             return repository.updateInstance(succeeded, 0);
         } catch (RuntimeException failure) {
+            LOGGER.warn("Worker template instance provisioning failed instanceId={} templateId={} revision={} errorType={}",
+                    instanceId, templateId, revision, failure.getClass().getSimpleName());
             WorkerTemplateInstance failed = new WorkerTemplateInstance(instanceId, templateId, revision, null, null,
                     "FAILED", revision, key, hash, now, clock.instant(), 1);
             repository.updateInstance(failed, 0);
