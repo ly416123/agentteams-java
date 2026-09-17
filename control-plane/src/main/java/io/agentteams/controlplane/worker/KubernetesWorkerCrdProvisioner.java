@@ -61,6 +61,12 @@ public final class KubernetesWorkerCrdProvisioner implements WorkerCrdProvisione
         spec.put("image", request.image());
         spec.put("replicas", request.replicas());
         spec.put("env", environment(request));
+        if (!request.secretEnv().isEmpty()) {
+            Map<String, Object> secretEnv = new LinkedHashMap<>();
+            request.secretEnv().forEach((name, ref) -> secretEnv.put(name,
+                    Map.of("secret", ref.secret(), "key", ref.key())));
+            spec.put("secretEnv", secretEnv);
+        }
         if (request.tlsSecret() != null && !request.tlsSecret().isBlank()) {
             spec.put("tlsSecret", request.tlsSecret().trim());
         }

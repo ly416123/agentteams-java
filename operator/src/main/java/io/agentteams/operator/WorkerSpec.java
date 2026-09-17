@@ -5,11 +5,27 @@ import java.util.Objects;
 
 /** Kubernetes-friendly mutable spec with immutable-style accessors for application code. */
 public final class WorkerSpec {
+
+    /** Reference to one key inside a Secret, materialized as a secretKeyRef environment variable. */
+    public record SecretEnvRef(String secret, String key) {
+        public SecretEnvRef {
+            if (secret == null || secret.isBlank()) {
+                throw new IllegalArgumentException("secretEnv secret name must not be blank");
+            }
+            if (key == null || key.isBlank()) {
+                throw new IllegalArgumentException("secretEnv key must not be blank");
+            }
+            secret = secret.trim();
+            key = key.trim();
+        }
+    }
+
     private String agentId;
     private String runtime;
     private String image;
     private int replicas;
     private Map<String, String> env;
+    private Map<String, SecretEnvRef> secretEnv;
     private String tlsSecret;
     private String specDigest;
     private String configRevision;
@@ -21,6 +37,7 @@ public final class WorkerSpec {
         this.image = "";
         this.replicas = 1;
         this.env = Map.of();
+        this.secretEnv = Map.of();
         this.tlsSecret = "";
         this.specDigest = "";
         this.configRevision = "";
@@ -54,6 +71,7 @@ public final class WorkerSpec {
     public String image() { return image; }
     public int replicas() { return replicas; }
     public Map<String, String> env() { return env; }
+    public Map<String, SecretEnvRef> secretEnv() { return secretEnv; }
     public String tlsSecret() { return tlsSecret; }
     public String specDigest() { return specDigest; }
     public String configRevision() { return configRevision; }
@@ -72,6 +90,10 @@ public final class WorkerSpec {
     }
     public Map<String, String> getEnv() { return env; }
     public void setEnv(Map<String, String> value) { env = Map.copyOf(Objects.requireNonNull(value, "env")); }
+    public Map<String, SecretEnvRef> getSecretEnv() { return secretEnv; }
+    public void setSecretEnv(Map<String, SecretEnvRef> value) {
+        secretEnv = value == null ? Map.of() : Map.copyOf(value);
+    }
     public String getTlsSecret() { return tlsSecret; }
     public void setTlsSecret(String value) { tlsSecret = value == null ? "" : value.trim(); }
     public String getSpecDigest() { return specDigest; }

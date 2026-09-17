@@ -23,6 +23,14 @@ spec:
                 image: { type: string }
                 replicas: { type: integer, minimum: 0, default: 1 }
                 env: { type: object, additionalProperties: { type: string } }
+                secretEnv:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      secret: { type: string }
+                      key: { type: string }
+                    required: [secret, key]
                 tlsSecret: { type: string }
                 specDigest: { type: string }
                 configRevision: { type: string }

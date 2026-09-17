@@ -4,6 +4,8 @@ import io.fabric8.kubernetes.api.model.ContainerBuilder;
 import io.fabric8.kubernetes.api.model.ConfigMapEnvSourceBuilder;
 import io.fabric8.kubernetes.api.model.EnvFromSourceBuilder;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
+import io.fabric8.kubernetes.api.model.EnvVarSourceBuilder;
+import io.fabric8.kubernetes.api.model.SecretKeySelectorBuilder;
 import io.fabric8.kubernetes.api.model.LabelSelectorBuilder;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
 import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
@@ -34,6 +36,10 @@ public final class WorkerResourceFactory {
     static final String RUNTIME_ANNOTATION = "agentteams.io/runtime";
     static final String CONFIG_REVISION_ANNOTATION = "agentteams.io/config-revision";
     static final String SECRET_GENERATION_ANNOTATION = "agentteams.io/secret-generation";
+    // secretEnv must never shadow the identity and version facts injected below.
+    private static final java.util.Set<String> PROTECTED_ENV = java.util.Set.of(
+            "AGENTTEAMS_AGENT_ID", "AGENTTEAMS_RUNTIME", RUNTIME_CONFIG_MAP_ENV,
+            "AGENTTEAMS_SPEC_DIGEST", "AGENTTEAMS_CONFIG_REVISION", "AGENTTEAMS_SECRET_GENERATION");
 
     private WorkerResourceFactory() { }
 
@@ -66,10 +72,7 @@ public final class WorkerResourceFactory {
                 .withLivenessProbe(new ProbeBuilder().withTcpSocket(new TCPSocketActionBuilder()
                         .withPort(new io.fabric8.kubernetes.api.model.IntOrString(GRPC_PORT)).build())
                         .withInitialDelaySeconds(15).withPeriodSeconds(20).withFailureThreshold(3).build())
-                .withEnv(environment.entrySet().stream()
-                        .sorted(Map.Entry.comparingByKey())
-                        .map(entry -> new EnvVarBuilder().withName(entry.getKey()).withValue(entry.getValue()).build())
-                        .toList());
+                .withEnv(envVariables(spec, environment));
         PodSpecBuilder podSpec = new PodSpecBuilder()
                 .withAutomountServiceAccountToken(false)
                 .withContainers(container.build());
@@ -104,6 +107,33 @@ public final class WorkerResourceFactory {
                                 .build())
                 .build())
                 .build();
+    }
+
+    /** Merges plaintext env and secretKeyRef-backed env into one sorted list, fail-fast on collisions. */
+    private static List<io.fabric8.kubernetes.api.model.EnvVar> envVariables(WorkerSpec spec,
+            Map<String, String> environment) {
+        Map<String, WorkerSpec.SecretEnvRef> secretEnv = spec.secretEnv() == null ? Map.of() : spec.secretEnv();
+        for (Map.Entry<String, WorkerSpec.SecretEnvRef> entry : secretEnv.entrySet()) {
+            String envName = entry.getKey();
+            if (envName == null || !envName.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                throw new IllegalArgumentException("secretEnv names must be valid environment variable names: " + envName);
+            }
+            if (PROTECTED_ENV.contains(envName) || environment.containsKey(envName)) {
+                throw new IllegalArgumentException("secretEnv must not override canonical worker environment: " + envName);
+            }
+        }
+        List<io.fabric8.kubernetes.api.model.EnvVar> envVars = new ArrayList<>(environment.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> new EnvVarBuilder().withName(entry.getKey()).withValue(entry.getValue()).build())
+                .toList());
+        secretEnv.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> envVars.add(new EnvVarBuilder()
+                        .withName(entry.getKey())
+                        .withValueFrom(new EnvVarSourceBuilder().withSecretKeyRef(new SecretKeySelectorBuilder()
+                                .withName(entry.getValue().secret()).withKey(entry.getValue().key()).build()).build())
+                        .build()));
+        return envVars;
     }
 
     public static Service service(Worker worker) {

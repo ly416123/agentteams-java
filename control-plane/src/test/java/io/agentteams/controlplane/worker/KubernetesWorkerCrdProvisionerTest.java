@@ -36,4 +36,38 @@ class KubernetesWorkerCrdProvisionerTest {
         assertThat(environment.get("AGENTTEAMS_SCOPE_TENANT")).isEqualTo("tenant-a");
         assertThat(environment.get("AGENTTEAMS_SCOPE_PROJECT")).isEqualTo("project-a");
     }
+
+    @Test
+    void forwardsSecretEnvReferencesIntoTheWorkerSpec() {
+        UUID workerId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        WorkerCrdProvisioner.Request request = new WorkerCrdProvisioner.Request(
+                workerId, "qwenpaw", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
+                "sha256:template", "cfg-1", "", "ghcr.io/ly416123/agentteams-agent-worker:latest",
+                1, "agentteams-agentteams-java-gateway", 9090,
+                "http://agentteams-agentteams-java-control-plane:8080", "http://qwenpaw:8088", "", Map.of(),
+                Map.of("DASHSCOPE_API_KEY", new WorkerCrdProvisioner.SecretEnvRef("dashscope-credentials", "apiKey")));
+
+        GenericKubernetesResource resource = KubernetesWorkerCrdProvisioner.resource("agentteams", request);
+
+        Map<String, Object> spec = resource.get("spec");
+        assertThat(spec).containsKey("secretEnv");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> secretEnv = (Map<String, Object>) spec.get("secretEnv");
+        assertThat(secretEnv.get("DASHSCOPE_API_KEY"))
+                .isEqualTo(Map.of("secret", "dashscope-credentials", "key", "apiKey"));
+    }
+
+    @Test
+    void omitsSecretEnvWhenNoReferencesAreConfigured() {
+        UUID workerId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        WorkerCrdProvisioner.Request request = new WorkerCrdProvisioner.Request(
+                workerId, "qwenpaw", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
+                "sha256:template", "cfg-1", "", "ghcr.io/ly416123/agentteams-agent-worker:latest",
+                1, "agentteams-agentteams-java-gateway", 9090,
+                "http://agentteams-agentteams-java-control-plane:8080", "http://qwenpaw:8088", "", Map.of());
+
+        GenericKubernetesResource resource = KubernetesWorkerCrdProvisioner.resource("agentteams", request);
+
+        assertThat(resource.<Map<String, Object>>get("spec")).doesNotContainKey("secretEnv");
+    }
 }

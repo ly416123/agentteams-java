@@ -130,6 +130,58 @@ class WorkerResourceFactoryTest {
     }
 
     @Test
+    void rendersSecretEnvReferencesAsSecretKeyRefEnvironmentVariables() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-secret-env")
+                .withNamespace("agentteams").build());
+        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1,
+                Map.of("MODEL", "deepseek", "AGENTTEAMS_RUNTIME_CONFIG_MAP",
+                        "release-agentteams-java-agent-runtime"));
+        spec.setSecretEnv(Map.of("DASHSCOPE_API_KEY", new WorkerSpec.SecretEnvRef("dashscope-credentials", "apiKey")));
+        worker.setSpec(spec);
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv())
+                .anySatisfy(env -> {
+                    assertThat(env.getName()).isEqualTo("DASHSCOPE_API_KEY");
+                    assertThat(env.getValue()).isNull();
+                    assertThat(env.getValueFrom().getSecretKeyRef().getName()).isEqualTo("dashscope-credentials");
+                    assertThat(env.getValueFrom().getSecretKeyRef().getKey()).isEqualTo("apiKey");
+                })
+                .anySatisfy(env -> {
+                    assertThat(env.getName()).isEqualTo("MODEL");
+                    assertThat(env.getValue()).isEqualTo("deepseek");
+                });
+    }
+
+    @Test
+    void rejectsSecretEnvThatShadowsCanonicalIdentity() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-shadow").withNamespace("agentteams").build());
+        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of());
+        spec.setSecretEnv(Map.of("AGENTTEAMS_AGENT_ID", new WorkerSpec.SecretEnvRef("evil", "agentId")));
+        worker.setSpec(spec);
+
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                .isThrownBy(() -> WorkerResourceFactory.deployment(worker))
+                .withMessageContaining("AGENTTEAMS_AGENT_ID");
+    }
+
+    @Test
+    void rejectsSecretEnvCollidingWithPlaintextEnvironment() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-collide").withNamespace("agentteams").build());
+        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of("MODEL", "deepseek"));
+        spec.setSecretEnv(Map.of("MODEL", new WorkerSpec.SecretEnvRef("dashscope-credentials", "apiKey")));
+        worker.setSpec(spec);
+
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                .isThrownBy(() -> WorkerResourceFactory.deployment(worker))
+                .withMessageContaining("MODEL");
+    }
+
+    @Test
     void mountsConfiguredTlsSecretIntoWorkerDeployment() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-tls").withNamespace("agentteams").build());
