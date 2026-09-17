@@ -161,7 +161,8 @@
             "gatewayPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
             "configManifestBaseUrl": { "type": "string", "format": "uri-reference" },
             "qwenpawEndpoint": { "type": "string", "minLength": 1 },
-            "tlsSecretName": { "type": "string" }
+            "tlsSecretName": { "type": "string" },
+            "credentialSecretEnvs": { "type": "string" }
           }
         },
         "scheduler": {
