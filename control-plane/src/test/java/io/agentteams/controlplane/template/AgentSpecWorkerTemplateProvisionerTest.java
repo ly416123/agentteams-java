@@ -68,5 +68,52 @@ class AgentSpecWorkerTemplateProvisionerTest {
         assertThat(request.getValue().tenantId()).isEqualTo("tenant-a");
         assertThat(request.getValue().projectId()).isEqualTo("project-a");
         assertThat(request.getValue().team()).isEqualTo("team-a");
+        assertThat(request.getValue().secretEnv()).isEmpty();
+    }
+
+    @Test
+    void forwardsConfiguredCredentialSecretEnvsIntoProvisionRequests() {
+        AgentSpecService specs = mock(AgentSpecService.class);
+        AgentService agents = mock(AgentService.class);
+        WorkerCrdProvisioner crd = mock(WorkerCrdProvisioner.class);
+        UUID workerId = UUID.randomUUID();
+        UUID instanceId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        PrincipalContext.set(new Principal("subject-1",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                java.util.Set.of("agent:write")));
+        when(specs.create(eq("template-spec-" + instanceId), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new AgentSpecRecord(UUID.randomUUID(), "worker", "qwenpaw", "deepseek",
+                        "deepseek-chat", null, "RUNNING", "DRAFT", "{}", NOW, NOW, 1));
+        when(agents.create(eq("template-worker-" + instanceId), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new AgentRecord(workerId, "template-worker-" + instanceId,
+                        io.agentteams.domain.agent.AgentPhase.PROVISIONING, "qwenpaw", "{}", "{}", NOW, NOW, 0));
+        AgentSpecWorkerTemplateProvisioner provisioner = new AgentSpecWorkerTemplateProvisioner(
+                specs, agents, crd, "worker:image", 1, "gateway", 9090, "http://control-plane",
+                "http://qwenpaw", "",
+                "{\"DASHSCOPE_API_KEY\":{\"secret\":\"dashscope-credentials\",\"key\":\"apiKey\"}}");
+
+        provisioner.provision(new WorkerTemplateRevision(UUID.randomUUID(), 1,
+                "{\"runtime\":\"qwenpaw\",\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\"}",
+                "digest-1", WorkerType.LEADER, TemplateStatus.PUBLISHED, "subject-1", NOW, NOW, 1),
+                instanceId, "instance-key");
+
+        ArgumentCaptor<WorkerCrdProvisioner.Request> request = ArgumentCaptor.forClass(WorkerCrdProvisioner.Request.class);
+        verify(crd).provision(request.capture());
+        assertThat(request.getValue().secretEnv())
+                .containsEntry("DASHSCOPE_API_KEY",
+                        new WorkerCrdProvisioner.SecretEnvRef("dashscope-credentials", "apiKey"));
+    }
+
+    @Test
+    void rejectsInvalidCredentialSecretEnvJsonAtConstructionTime() {
+        AgentSpecService specs = mock(AgentSpecService.class);
+        AgentService agents = mock(AgentService.class);
+        WorkerCrdProvisioner crd = mock(WorkerCrdProvisioner.class);
+
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                .isThrownBy(() -> new AgentSpecWorkerTemplateProvisioner(
+                        specs, agents, crd, "worker:image", 1, "gateway", 9090, "http://control-plane",
+                        "http://qwenpaw", "", "{not-json"))
+                .withMessageContaining("credential-secret-envs");
     }
 }

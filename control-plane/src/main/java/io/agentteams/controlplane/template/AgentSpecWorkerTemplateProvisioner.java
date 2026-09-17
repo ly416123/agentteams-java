@@ -8,6 +8,7 @@ import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.worker.NoopWorkerCrdProvisioner;
 import io.agentteams.controlplane.worker.WorkerCrdProvisioner;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,7 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
     private final String configManifestBaseUrl;
     private final String qwenPawEndpoint;
     private final String tlsSecret;
+    private final Map<String, WorkerCrdProvisioner.SecretEnvRef> credentialSecretEnvs;
 
     public AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents) {
         this(specs, agents, new NoopWorkerCrdProvisioner(),
@@ -45,15 +47,24 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             @Value("${agentteams.worker-provisioner.gateway-port:9090}") int gatewayPort,
             @Value("${agentteams.worker-provisioner.config-manifest-base-url:http://agentteams-agentteams-java-control-plane:8080}") String configManifestBaseUrl,
             @Value("${agentteams.worker-provisioner.qwenpaw-endpoint:http://qwenpaw:8088}") String qwenPawEndpoint,
-            @Value("${agentteams.worker-provisioner.tls-secret-name:}") String tlsSecret) {
+            @Value("${agentteams.worker-provisioner.tls-secret-name:}") String tlsSecret,
+            @Value("${agentteams.worker-provisioner.credential-secret-envs:}") String credentialSecretEnvsJson) {
         this(specs, agents, provisioners.getIfAvailable(NoopWorkerCrdProvisioner::new), workerImage, workerReplicas,
-                gatewayHost, gatewayPort, configManifestBaseUrl, qwenPawEndpoint, tlsSecret);
+                gatewayHost, gatewayPort, configManifestBaseUrl, qwenPawEndpoint, tlsSecret, credentialSecretEnvsJson);
     }
 
     AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
             WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
             String gatewayHost, int gatewayPort, String configManifestBaseUrl, String qwenPawEndpoint,
             String tlsSecret) {
+        this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
+                configManifestBaseUrl, qwenPawEndpoint, tlsSecret, "");
+    }
+
+    AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
+            WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl, String qwenPawEndpoint,
+            String tlsSecret, String credentialSecretEnvsJson) {
         this.specs = specs;
         this.agents = agents;
         this.workerCrdProvisioner = workerCrdProvisioner;
@@ -66,6 +77,7 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
         this.configManifestBaseUrl = required(configManifestBaseUrl, "config manifest base URL");
         this.qwenPawEndpoint = required(qwenPawEndpoint, "QwenPaw endpoint");
         this.tlsSecret = tlsSecret == null ? "" : tlsSecret.trim();
+        this.credentialSecretEnvs = parseCredentialSecretEnvs(credentialSecretEnvsJson);
     }
 
     @Override
@@ -88,7 +100,7 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
                     principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
                     revision.digest(), "template-" + revision.revision(), "",
                     workerImage, workerReplicas, gatewayHost, gatewayPort, configManifestBaseUrl,
-                    qwenPawEndpoint, tlsSecret, java.util.Map.of()));
+                    qwenPawEndpoint, tlsSecret, java.util.Map.of(), credentialSecretEnvs));
             return new ProvisionedInstance(spec.id(), worker.id());
         } catch (Exception error) {
             if (error instanceof RuntimeException runtime) throw runtime;
@@ -104,6 +116,31 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
         values.put("team", principal.scope().team());
         scope.set("scope", values);
         return scope.toString();
+    }
+
+    private static Map<String, WorkerCrdProvisioner.SecretEnvRef> parseCredentialSecretEnvs(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            JsonNode root = MAPPER.readTree(json);
+            if (!root.isObject()) {
+                throw new IllegalArgumentException("credential-secret-envs must be a JSON object");
+            }
+            Map<String, WorkerCrdProvisioner.SecretEnvRef> out = new java.util.LinkedHashMap<>();
+            root.fields().forEachRemaining(entry -> {
+                JsonNode ref = entry.getValue();
+                if (!ref.isObject() || !ref.hasNonNull("secret") || !ref.hasNonNull("key")) {
+                    throw new IllegalArgumentException(
+                            "credential-secret-envs entry must contain secret and key: " + entry.getKey());
+                }
+                out.put(entry.getKey(), new WorkerCrdProvisioner.SecretEnvRef(
+                        ref.get("secret").asText(), ref.get("key").asText()));
+            });
+            return java.util.Map.copyOf(out);
+        } catch (IllegalArgumentException error) {
+            throw error;
+        } catch (Exception error) {
+            throw new IllegalArgumentException("credential-secret-envs is not valid JSON", error);
+        }
     }
 
     private static String required(JsonNode json, String field, String defaultValue) {

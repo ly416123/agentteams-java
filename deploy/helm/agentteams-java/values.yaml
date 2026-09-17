@@ -68,6 +68,10 @@ controlPlane:
     configManifestBaseUrl: ""
     qwenpawEndpoint: http://qwenpaw:8088
     tlsSecretName: ""
+    # Optional JSON map of worker credential environment variables backed by
+    # Secret references, e.g. {"DASHSCOPE_API_KEY":{"secret":"dashscope-credentials","key":"apiKey"}}.
+    # Each entry renders a secretKeyRef env var in every provisioned worker.
+    credentialSecretEnvs: ""
   scheduler:
     enabled: true
     pollIntervalMs: 1000

@@ -176,6 +176,8 @@ spec:
               value: {{ .Values.controlPlane.workerProvisioner.qwenpawEndpoint | quote }}
             - name: AGENTTEAMS_WORKER_PROVISIONER_TLS_SECRET_NAME
               value: {{ .Values.controlPlane.workerProvisioner.tlsSecretName | quote }}
+            - name: AGENTTEAMS_WORKER_PROVISIONER_CREDENTIAL_SECRET_ENVS
+              value: {{ .Values.controlPlane.workerProvisioner.credentialSecretEnvs | quote }}
 {{- if .Values.storage.enabled }}
             - name: AGENTTEAMS_STORAGE_ENDPOINT
               value: {{ .Values.storage.endpoint | quote }}
