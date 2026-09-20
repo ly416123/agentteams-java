@@ -1,1 +1,342 @@
-$(cat /Users/gecko/.config/superpowers/worktrees/agentteams-java/codex-l5-mcp-integration/deploy/helm/agentteams-java/values.yaml)
+images:
+  controlPlane: ghcr.io/ly416123/agentteams-control-plane:latest
+  gateway: ghcr.io/ly416123/agentteams-agent-gateway:latest
+  operator: ghcr.io/ly416123/agentteams-operator:latest
+console:
+  # The public Console is opt-in so API-only installations remain unchanged.
+  enabled: false
+  image: ghcr.io/ly416123/agentteams-console:latest
+  service:
+    type: ClusterIP
+    nodePort: null
+  # These values are embedded in a ConfigMap mounted as a browser-readable
+  # runtime file. Never put credentials, tokens, or private keys here.
+  config:
+    apiBasePath: /api
+    oidcIssuer: ""
+    oidcClientId: ""
+ingress:
+  # Public HTTP entry is opt-in. Gateway gRPC remains a separate internal
+  # Service and is never routed by these resources.
+  enabled: false
+  mode: INGRESS # INGRESS | GATEWAY_API
+  className: nginx
+  host: ""
+  tlsSecretName: ""
+  annotations: {}
+  gatewayClassName: ""
+imagePullPolicy: IfNotPresent
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: agentteams
+controlPlane:
+  replicas: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  port: 8080
+  serviceAccount:
+    create: true
+    name: agentteams-control-plane
+  teamSync:
+    enabled: true
+    # Empty means the Helm release namespace. Install one release per business
+    # namespace; do not widen this to a cluster-wide informer without a new RBAC design.
+    namespace: ""
+  workerProvisioner:
+    # Explicit Worker instantiation creates the Worker CR only when this is enabled.
+    # Keep disabled for API-only installations without Control Plane Kubernetes RBAC.
+    enabled: false
+    namespace: ""
+    image: ghcr.io/ly416123/agentteams-agent-worker:latest
+    replicas: 1
+    gatewayHost: agentteams-agentteams-java-gateway
+    gatewayPort: 9090
+    configManifestBaseUrl: ""
+    qwenpawEndpoint: http://qwenpaw:8088
+    tlsSecretName: ""
+    # Optional JSON map of worker credential environment variables backed by
+    # Secret references, e.g. {"DASHSCOPE_API_KEY":{"secret":"dashscope-credentials","key":"apiKey"}}.
+    # Each entry renders a secretKeyRef env var in every provisioned worker.
+    credentialSecretEnvs: ""
+  scheduler:
+    enabled: true
+    pollIntervalMs: 1000
+    leaseDuration: 30s
+    batchSize: 16
+  scheduledTasks:
+    enabled: true
+    pollIntervalMs: 1000
+    batchSize: 16
+  webhook:
+    transport:
+      timeout: 10s
+    scheduler:
+      enabled: true
+      pollIntervalMs: 1000
+      leaseDuration: 30s
+      batchSize: 16
+      maxAttempts: 5
+  taskStateConsistency:
+    enabled: true
+    reconcileIntervalMs: 60000
+    leaseDuration: 30s
+    lookback: 24h
+    batchSize: 100
+  usageBudget:
+    scheduler:
+      enabled: false
+      pollIntervalMs: 60000
+      leaseDuration: 30s
+      maxPoliciesPerRun: 100
+      retryDelay: 1m
+  usagePriceSync:
+    enabled: false
+    endpoint: ""
+    connectTimeout: 2s
+    requestTimeout: 10s
+    # Keep this as a decimal string: Helm can render large YAML numbers in
+    # scientific notation, while Spring binds this environment variable to a long.
+    pollIntervalMs: "3600000"
+    leaseDuration: 30s
+    maxResponseBytes: 262144
+    maxQuotes: 1000
+    targets: []
+  security:
+    apiEnabled: false
+    secretResolver:
+      backend: VALIDATION_ONLY
+    oidc:
+      enabled: false
+      issuerUri: ""
+      jwkSetUri: ""
+      audience: ""
+      tenantClaim: tenant
+      projectClaim: project
+      teamClaim: team
+      permissionsClaim: permissions
+  matrix:
+    appservice:
+      authEnabled: false
+      hsTokenSecret: ""
+      hsTokenKey: hs-token
+  tokenLedger:
+    # Required only when a separately deployed Manager/Worker settlement bridge
+    # is enabled. Keep empty by default so the internal API fails closed.
+    internalToken: ""
+  env:
+    SPRING_PROFILES_ACTIVE: k8s
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
+    AGENTTEAMS_NATS_ENABLED: "true"
+    AGENTTEAMS_OUTBOX_RELAY_ENABLED: "true"
+    AGENTTEAMS_CONFIG_SNAPSHOT_RETENTION_COUNT: "5"
+    AGENTTEAMS_CONFIG_SNAPSHOT_CLEANUP_BATCH_SIZE: "25"
+    AGENTTEAMS_CONFIG_SNAPSHOT_CLEANUP_INTERVAL_MS: "300000"
+    AGENTTEAMS_ARTIFACT_RETENTION_SUCCESSFUL_TASK_RETENTION: "30d"
+    AGENTTEAMS_ARTIFACT_RETENTION_FAILED_TASK_RETENTION: "90d"
+    AGENTTEAMS_ARTIFACT_RETENTION_TEMPORARY_UPLOAD_RETENTION: "2h"
+    AGENTTEAMS_ARTIFACT_RETENTION_LEGAL_HOLD: "false"
+    AGENTTEAMS_ARTIFACT_RETENTION_BATCH_SIZE: "100"
+    AGENTTEAMS_ARTIFACT_RETENTION_CLEANUP_INTERVAL_MS: "300000"
+gateway:
+  replicas: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  port: 9090
+  httpPort: 8080
+  serviceAccount:
+    create: true
+    name: agentteams-gateway
+  tls:
+    enabled: false
+    secretName: agentteams-gateway-mtls
+    mountPath: /etc/agentteams/gateway-tls
+    certificateChainPath: /etc/agentteams/gateway-tls/tls.crt
+    privateKeyPath: /etc/agentteams/gateway-tls/tls.key
+    trustCertificateCollectionPath: /etc/agentteams/gateway-tls/ca.crt
+  # AgentChannel is a long-lived gRPC stream. Keep reconnects for a worker on
+  # the same Gateway replica when possible; durable DB ownership still handles
+  # pod loss and cross-replica stale streams.
+  sessionAffinity: ClientIP
+  env:
+    AGENTTEAMS_GATEWAY_GRPC_PORT: "9090"
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
+    AGENTTEAMS_GATEWAY_NATS_ENABLED: "true"
+    AGENTTEAMS_GATEWAY_NATS_URL: nats://nats:4222
+  quota:
+    # The Gateway exposes the gRPC quota contract only when this bridge is
+    # enabled. Reservations remain durable in the Control Plane database.
+    remoteEnabled: false
+    controlPlaneUrl: ""
+    internalToken: ""
+    requestTimeout: 3s
+  artifact:
+    # The Gateway exposes the gRPC artifact upload contract only when this
+    # bridge is enabled. Artifact bytes flow from the Worker straight to
+    # object storage through Control Plane presigned URLs.
+    enabled: false
+    controlPlaneUrl: ""
+    internalToken: ""
+    requestTimeout: 5s
+  workerOperations:
+    # Gateway reports its live Worker Hello facts to the Control Plane only
+    # when this explicitly configured bridge is enabled.
+    remoteEnabled: false
+    controlPlaneUrl: ""
+    internalToken: ""
+    requestTimeout: 3s
+manager:
+  enabled: false
+  image: ghcr.io/ly416123/agentteams-manager:latest
+  existingSecret: agentteams-database
+  model: deepseek-v4-flash
+  conversation:
+    runtime: fake
+    qwenpawEndpoint: http://127.0.0.1:8088
+    qwenpawAgentId: default
+    # The NetworkPolicy egress port for the selected QwenPaw endpoint.
+    qwenpawEgressPort: 8088
+  env:
+    AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 2
+    targetCPUUtilizationPercentage: 70
+operator:
+  replicas: 1
+  # Operator reports Worker rollout facts to the Control Plane when an
+  # internal token is configured. The URL defaults to the release Service.
+  controlPlaneUrl: ""
+  internalToken: ""
+  internalTokenSecret: ""
+  internalTokenKey: internal-token
+  serviceAccount:
+    create: true
+    name: agentteams-operator
+  leaderElection:
+    enabled: true
+    leaseName: agentteams-operator
+agentRuntime:
+  # Workers consume the rendered runtime ConfigMap. Keep the safe QwenPaw path
+  # as the default until an AgentScope-capable worker advertises its capability.
+  default: QWENPAW
+  # Workers upload artifacts straight to object storage through Gateway-brokered
+  # presigned URLs when the worker image supports it; upload failures degrade to
+  # the in-process memory:// artifact reference.
+  artifactUploadEnabled: false
+  agentScope:
+    enabled: false
+    rolloutPercentage: 0
+    agentAllowlist: []
+    teamAllowlist: []
+    tenantAllowlist: []
+sandbox:
+  # Sandbox is opt-in. Existing tasks keep the in-process/NONE execution path.
+  enabled: false
+  defaultProfile: NONE
+  provider: fake
+  runtimeClasses:
+    isolated: gvisor
+    hardened: kata-qemu
+  defaultTtlSeconds: 1800
+  maxTtlSeconds: 86400
+  image: ghcr.io/ly416123/agentteams-task-sandbox:latest
+database:
+  jdbcUrl: jdbc:postgresql://postgresql:5432/agentteams
+  username: agentteams
+  existingSecret: agentteams-database
+storage:
+  enabled: false
+  endpoint: http://minio:9000
+  # Optional browser-facing endpoint used only to generate presigned URLs.
+  # Leave empty when the internal storage endpoint is reachable by clients.
+  presignEndpoint: ""
+  # Optional explicit S3 region. Setting it avoids region discovery during
+  # presigning when the browser endpoint is not reachable from the pod.
+  region: ""
+  bucket: agentteams
+  existingSecret: agentteams-storage
+nats:
+  url: nats://nats:4222
+resources: {}
+availability:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+networkPolicy:
+  enabled: true
+  # External dependency egress uses explicit CIDRs. PROXY and PLATFORM are
+  # reserved for environment overlays; this chart does not infer FQDN rules.
+  egressMode: CIDR
+  allowPublicInternet: false
+  external:
+    postgresql: []
+    nats: []
+    objectStorage: []
+    otlp: []
+    oidc: []
+    matrix: []
+    modelProviders: []
+  proxy:
+    host: ""
+    port: 0
+    cidr: ""
+  platformPolicyArtifact: ""
+  dashboardAlertReceiver:
+    # Allow an in-cluster dashboard alert receiver when explicitly enabled.
+    # External webhook egress requires a separate, deployment-specific rule.
+    enabled: false
+    port: 8080
+  # Empty external CIDRs intentionally fail closed. Configure these only when
+  # the dependency is outside the release namespace.
+  databaseEgressCIDR: ""
+  natsEgressCIDR: ""
+  storageEgressCIDR: ""
+  # Allow the Control Plane to reach the configured OIDC issuer. This is only
+  # rendered when OIDC is enabled and a specific external CIDR is configured.
+  oidcEgressCIDR: ""
+  oidcEgressPort: 443
+  # Some CNIs evaluate Kind Service traffic after node-level DNAT. Keep the
+  # default least-privilege rules unless a development cluster needs this
+  # explicit API-port-only exception.
+  kubernetesApiAllowAllEgress: false
+  # Kubernetes' default Service CIDR; override for clusters using another CIDR.
+  kubernetesApiCIDR: 10.96.0.0/12
+  # The Service is DNATed to the API endpoint; set this when the CNI evaluates
+  # the post-DNAT destination (Kind does this by default).
+  kubernetesApiEndpointCIDR: ""
+  kubernetesApiEndpointPort: 6443
+observability:
+  tracing:
+    enabled: false
+    samplingProbability: 0.1
+    # Full OTLP HTTP traces endpoint, for example:
+    # http://otel-collector:4318/v1/traces
+    otlpEndpoint: ""
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
