@@ -29,6 +29,18 @@ def fail(message: str) -> None:
     raise SmokeFailure(message)
 
 
+def run(*args: str, namespace: str | None = None) -> str:
+    command = ["kubectl"]
+    if namespace:
+        command += ["-n", namespace]
+    command += list(args)
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        fail(f"command failed ({result.returncode}): {' '.join(command)}\n"
+             f"{result.stderr.strip()}")
+    return result.stdout.strip()
+
+
 def api_request(base_url: str, path: str, method: str = "GET",
                 body: dict | None = None, idempotency_key: str | None = None) -> dict:
     payload = None if body is None else json.dumps(body).encode("utf-8")

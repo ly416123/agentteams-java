@@ -38,6 +38,7 @@ class KindConfigAcceptanceContractTest(unittest.TestCase):
     def test_resource_binding_ack_verifies_startup_config_bootstrap(self):
         source = (ROOT / "scripts/run-kind-resource-binding-ack.py").read_text(encoding="utf-8")
         for required in (
+                "def run(",
                 "def worker_pod_names",
                 "def deployment_ready",
                 "def pod_logs",
