@@ -27,7 +27,7 @@ class KindMcpDiscoveryContractTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("Run Kind MCP discovery aggregation acceptance", workflow)
         self.assertLess(
-            workflow.index("Run Kind resource binding ACK acceptance"),
+            workflow.index("Run Kind resource binding ACK and config bootstrap acceptance"),
             workflow.index("Run Kind MCP discovery aggregation acceptance"),
         )
 
