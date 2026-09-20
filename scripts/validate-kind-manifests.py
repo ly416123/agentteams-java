@@ -268,9 +268,10 @@ def main():
         fail("CI must execute the Kind object reference integrity validation")
     if ("Configure deterministic QwenPaw model" not in oidc_workflow
             or "kind-qwenpaw-openai-mock.yaml" not in oidc_workflow
+            or "kind-qwenpaw-task-mcp.yaml" not in oidc_workflow
             or "agentteams-kind-mock" not in oidc_workflow
             or "/api/models/custom-providers" not in oidc_workflow):
-        fail("CI recovery job must configure the deterministic QwenPaw model mock")
+        fail("CI Kind jobs must configure the QwenPaw model mock and task MCP ConfigMap")
     oidc_values = (ROOT / "deploy/helm/kind-oidc-values.yaml").read_text(encoding="utf-8")
     matrix_values = (ROOT / "deploy/helm/kind-matrix-values.yaml").read_text(encoding="utf-8")
     if "kind-oidc:" not in oidc_workflow:
