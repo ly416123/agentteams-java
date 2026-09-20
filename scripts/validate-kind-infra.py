@@ -45,6 +45,16 @@ def main():
     args = nats["spec"]["template"]["spec"]["containers"][0].get("args", [])
     if "--store_dir" not in args or "/data/jetstream" not in args:
         fail("NATS must persist JetStream data under /data/jetstream")
+    minio = find("StatefulSet", "minio")
+    minio_image = minio["spec"]["template"]["spec"]["containers"][0].get("image")
+    expected_minio_image = "quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z"
+    if minio_image != expected_minio_image:
+        fail(f"MinIO must use {expected_minio_image}, got {minio_image}")
+    minio_bootstrap = find("Job", "minio-bucket-bootstrap")
+    minio_client_image = minio_bootstrap["spec"]["template"]["spec"]["containers"][0].get("image")
+    expected_minio_client_image = "quay.io/minio/mc:RELEASE.2025-07-21T05-28-08Z"
+    if minio_client_image != expected_minio_client_image:
+        fail(f"MinIO bootstrap must use {expected_minio_client_image}, got {minio_client_image}")
     bootstrap = find("Job", "nats-stream-bootstrap")
     bootstrap_args = " ".join(
         bootstrap["spec"]["template"]["spec"]["containers"][0].get("args", []))
