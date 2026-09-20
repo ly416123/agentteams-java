@@ -51,8 +51,8 @@
 
 ## 2026-09-20 L5 执行记录
 
-- Worker 镜像：`agentteams-agent-worker:l5-90b5ad7-amd64`，平台 `linux/amd64`，包含 AgentScope 与 QwenPaw 能力隔离、可写状态目录、无人值守工具权限和安全诊断修复。
-- Control Plane 使用 `agentteams-control-plane:l5-c64508e-amd64`，Operator 使用 `agentteams-operator:l5-c64508e-amd64`，均为 `2/2 Ready`。
+- Worker 镜像：`agentteams-agent-worker:l5-10af52c9-amd64`，平台 `linux/amd64`，包含 AgentScope 与 QwenPaw 能力隔离、可写状态目录、无人值守工具权限、安全诊断修复和启动配置恢复。
+- Control Plane 使用 `agentteams-control-plane:l5-10af52c9-amd64`，Operator 使用 `agentteams-operator:l5-c64508e-amd64`，均为 `2/2 Ready`。
 - 独立模型 Secret `agentteams-dashscope` 已创建；只向 Worker 注入 `DASHSCOPE_API_KEY`，未读取或复制 MCP Secret 的百炼 Key。
 - Worker Provisioner 分别引用 `agentteams-mcp-tools/mcp-tools-token` 和待创建的 `agentteams-dashscope/api-key`；未引用 `bailian-api-key`。
 - MCP Server `agentteams-web-search` 已注册，仅允许 `http`、域名 `agentteams-mcp-tools` 和工具 `web_search`，超时上限为 30 秒。
@@ -64,4 +64,4 @@
 - 初次任务被旧 Worker 接收，暴露出 Worker Hello 同时声明两种 runtime 能力的问题；已用回归测试修复为按实际 runtime 只声明一种能力，随后重新部署并重跑验收任务。
 - AgentScope 默认权限模式会拒绝无人值守工具调用；已用回归测试锁定 Worker Harness 为 `PermissionMode.BYPASS`，同时继续禁用 Shell 和子代理。
 - 验收任务 `ae54ce09-86fd-4342-aaa4-30a38af75df2` 已由 AgentScope Worker 成功完成，输出为 `www.pbc.gov.cn`；对应 MCP Pod 收到 `agentscope-java` 初始化请求。
-- 当前已知平台缺口：Worker 重启后历史 ConfigChanged 不会自动重放；本次通过发布新的 AgentSpec 并重新部署绑定完成配置下发，后续应补充配置快照重放或启动拉取。
+- Worker 启动配置恢复已部署：Control Plane 提供集群内 `/internal/config/agents/{agentId}/current` 快照边界，Worker 启动时拉取并以 `sequence=0` 应用当前绑定；外部 `/api/v1/config` 管理接口仍受 OIDC 鉴权保护，NetworkPolicy 仅允许 Worker 访问 Control Plane 8080。L5 上 4 个现有 Worker 已统一滚动到 `l5-10af52c9-amd64`，其中有配置绑定的 Worker 日志均出现 `ConfigChanged completed ... applied=true`，全部 `1/1 Ready`。
