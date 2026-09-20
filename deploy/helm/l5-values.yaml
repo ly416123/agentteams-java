@@ -9,8 +9,9 @@
 # IfNotPresent). Without these pins a Helm upgrade would roll workloads back
 # to the ghcr.io :latest tags, which do not exist on the L5 host.
 images:
-  controlPlane: ghcr.io/ly416123/agentteams-control-plane:l5-artifact-upload-20260907-v1
+  controlPlane: agentteams-control-plane:l5-c64508e-amd64
   gateway: ghcr.io/ly416123/agentteams-agent-gateway:l5-artifact-upload-20260907-v1
+  operator: agentteams-operator:l5-c64508e-amd64
 console:
   image: ghcr.io/ly416123/agentteams-console:l5-artifact-upload-20260907-v1
   config:
@@ -32,7 +33,7 @@ controlPlane:
   workerProvisioner:
     # Dynamic workers are provisioned with this image; keep it in sync with
     # the pinned control-plane/gateway tag above.
-    image: agentteams-agent-worker:l5-d8243ce-amd64
+    image: agentteams-agent-worker:l5-runtime-capabilities-amd64
     # The Worker receives the MCP connection token and a separate model key.
     # The Bailian API key remains private to agentteams-mcp-tools and must not
     # be mapped here. Create agentteams-dashscope before provisioning a Worker.

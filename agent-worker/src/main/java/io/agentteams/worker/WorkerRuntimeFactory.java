@@ -2,13 +2,20 @@ package io.agentteams.worker;
 
 import io.agentscope.core.model.ModelRegistry;
 import io.agentteams.runtime.AgentRuntime;
+import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.AgentScopeRolloutPolicy;
+import io.agentteams.runtime.CompletionStatus;
 import io.agentteams.runtime.QwenPawHttpRuntimeConfiguration;
 import io.agentteams.runtime.QwenPawHttpRuntimePort;
 import io.agentteams.runtime.QwenPawRuntime;
 import io.agentteams.runtime.ProjectScopedRuntimeModelCallAdmission;
 import io.agentteams.runtime.RuntimeQuotaPort;
 import io.agentteams.runtime.RuntimeModelCallAdmission;
+import io.agentteams.runtime.RuntimeResult;
+import io.agentteams.runtime.RuntimeSnapshot;
+import io.agentteams.runtime.RuntimeStatus;
+import io.agentteams.runtime.RuntimeSubmission;
+import io.agentteams.runtime.RuntimeTask;
 import io.agentteams.runtime.SemaphoreRuntimeModelCallAdmission;
 import io.agentteams.worker.agentscope.AgentScopeHarnessFactory;
 import io.agentteams.worker.agentscope.AgentScopeRuntime;
@@ -84,7 +91,9 @@ public final class WorkerRuntimeFactory {
         Objects.requireNonNull(gatewayChannel, "gatewayChannel");
         Objects.requireNonNull(clock, "clock");
         validate(configuration);
-        AgentRuntime qwenPaw = qwenPaw(configuration, gatewayChannel, clock, quotaPort);
+        AgentRuntime qwenPaw = shouldInitializeQwenPaw(configuration.runtime())
+                ? qwenPaw(configuration, gatewayChannel, clock, quotaPort)
+                : new UnavailableRuntime();
         AgentRuntime agentScope = agentScope(configuration, clock);
         AgentScopeRolloutPolicy effectiveRollout = configuration.runtime()
                 == io.agentteams.application.api.ExecutionRuntime.AGENTSCOPE
@@ -92,6 +101,10 @@ public final class WorkerRuntimeFactory {
                         java.util.Set.of(), java.util.Set.of(), java.util.Set.of())
                 : rollout;
         return new WorkerRuntimeRouter(qwenPaw, agentScope, effectiveRollout);
+    }
+
+    static boolean shouldInitializeQwenPaw(io.agentteams.application.api.ExecutionRuntime runtime) {
+        return runtime != io.agentteams.application.api.ExecutionRuntime.AGENTSCOPE;
     }
 
     private AgentRuntime agentScope(QwenPawWorker.WorkerConfiguration configuration, Clock clock) {
@@ -143,6 +156,23 @@ public final class WorkerRuntimeFactory {
         String configured = System.getenv("AGENTSCOPE_WORKSPACE");
         return Path.of(configured == null || configured.isBlank()
                 ? "/tmp/agentteams-agentscope" : configured.trim());
+    }
+
+    /** AGENTSCOPE workers fail closed if a task lacks the stable scope required for routing. */
+    private static final class UnavailableRuntime implements AgentRuntime {
+        @Override public void start(AgentRuntimeContext context) { }
+        @Override public RuntimeSubmission submit(RuntimeTask task) {
+            return RuntimeSubmission.rejected("RUNTIME_UNAVAILABLE");
+        }
+        @Override public CompletionStatus complete(RuntimeResult result) {
+            return CompletionStatus.UNKNOWN_TASK;
+        }
+        @Override public boolean cancel(java.util.UUID taskId) { return false; }
+        @Override public java.util.Optional<RuntimeStatus> status(java.util.UUID taskId) {
+            return java.util.Optional.empty();
+        }
+        @Override public RuntimeSnapshot snapshot() { return new RuntimeSnapshot(0, 0); }
+        @Override public void stop() { }
     }
 
     private static final class FailClosedWorkspaceOwnershipPort implements SandboxWorkspaceOwnershipPort {

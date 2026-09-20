@@ -4,12 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.agentscope.core.model.ModelRegistry;
+import io.agentteams.application.api.ExecutionRuntime;
 import io.agentteams.runtime.AgentScopeRolloutPolicy;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class WorkerRuntimeFactoryTest {
+    @Test
+    void doesNotInitializeQwenPawBridgeForAnAgentScopeWorker() {
+        assertThat(WorkerRuntimeFactory.shouldInitializeQwenPaw(ExecutionRuntime.AGENTSCOPE)).isFalse();
+        assertThat(WorkerRuntimeFactory.shouldInitializeQwenPaw(ExecutionRuntime.QWENPAW)).isTrue();
+    }
+
     @Test
     void productionClasspathProvidesDashScopeModelResolution() {
         assertThat(ModelRegistry.canResolve("dashscope:qwen-plus")).isTrue();

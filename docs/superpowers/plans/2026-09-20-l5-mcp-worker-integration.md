@@ -32,14 +32,14 @@
 
 ## 任务 5：创建并验收新 Worker
 
-- [ ] 前置检查独立模型 Secret 已存在，且只向 Worker 注入 `DASHSCOPE_API_KEY`；不得从 `agentteams-mcp-tools/bailian-api-key` 复制。
+- [x] 前置检查独立模型 Secret 已存在，且只向 Worker 注入 `DASHSCOPE_API_KEY`；不得从 `agentteams-mcp-tools/bailian-api-key` 复制。
 - [x] 创建、评审并发布 AGENTSCOPE Worker Template。
-- [ ] 模型 Secret 就绪后实例化模板，由 Control Plane 创建新的 AgentSpec、Agent 和 Worker CR。
+- [x] 模型 Secret 就绪后实例化模板，由 Control Plane 创建新的 AgentSpec、Agent 和 Worker CR。
 - [x] 创建并发布独立 AgentSpec，引用 `agentteams-web-search`。
-- [ ] 将已发布 AgentSpec 部署到新 Worker 对应的 Agent。
-- [ ] 验证新 Worker 环境存在 `MCP_TOOLS_TOKEN` 和模型凭据变量，不存在 `BAILIAN_API_KEY`。
-- [ ] 提交带强制工具调用指令的验收任务，确认任务成功且事件中出现 `web_search` 工具调用；不记录搜索正文。
-- [ ] 验收后确认 MCP Pod、新 Worker 和所有核心 Deployment Ready，节点可用内存不低于 `512 MiB`。
+- [x] 将已发布 AgentSpec 部署到新 Worker 对应的 Agent。
+- [x] 验证新 Worker 环境存在 `MCP_TOOLS_TOKEN` 和模型凭据变量，不存在 `BAILIAN_API_KEY`。
+- [x] 提交带强制工具调用指令的验收任务，确认任务成功且事件中出现 `web_search` 工具调用；不记录搜索正文。
+- [x] 验收后确认 MCP Pod、新 Worker 和所有核心 Deployment Ready，节点可用内存不低于 `512 MiB`。
 
 ## 完成标准
 
@@ -51,12 +51,14 @@
 
 ## 2026-09-20 L5 执行记录
 
-- Worker 镜像：`agentteams-agent-worker:l5-d8243ce-amd64`，平台 `linux/amd64`，镜像摘要 `sha256:c2913bad420665c27a55200196065e76eb964a4753ef40045627f968cc8be4ec`。
-- Control Plane 已滚动更新为 `2/2 Ready`；原有 3 个 QWENPAW Worker 保持 Ready，未重建。
+- Worker 镜像：`agentteams-agent-worker:l5-runtime-capabilities-amd64`，平台 `linux/amd64`，包含 AgentScope 与 QwenPaw 能力隔离修复。
+- Control Plane 使用 `agentteams-control-plane:l5-c64508e-amd64`，Operator 使用 `agentteams-operator:l5-c64508e-amd64`，均为 `2/2 Ready`。
+- 独立模型 Secret `agentteams-dashscope` 已创建；只向 Worker 注入 `DASHSCOPE_API_KEY`，未读取或复制 MCP Secret 的百炼 Key。
 - Worker Provisioner 分别引用 `agentteams-mcp-tools/mcp-tools-token` 和待创建的 `agentteams-dashscope/api-key`；未引用 `bailian-api-key`。
 - MCP Server `agentteams-web-search` 已注册，仅允许 `http`、域名 `agentteams-mcp-tools` 和工具 `web_search`，超时上限为 30 秒。
 - 模型 Provider `dashscope-l5` 及模型 `dashscope:qwen-plus` 已注册，工具调用能力已标记为启用。
-- Worker Template `l5-agentscope-web-search` 的版本 1 已完成评审并发布，尚未实例化。
+- Worker Template `l5-agentscope-web-search` 的版本 1 已完成评审并发布，模板实例已成功创建 Worker `ccea9e5f-b5a2-4cd4-8e75-74f516ab41e5`。
 - AgentSpec `l5-agentscope-web-search` 已发布，并通过模型与 MCP 引用校验。
 - 滚动更新后所有核心 Deployment Ready，节点可用内存为 `953 MiB`。
-- 尚未创建 `agentteams-dashscope` Secret，因此没有实例化新 AGENTSCOPE Worker，也没有执行真实模型工具调用验收。
+- Worker CR 已进入 Ready，Secret 引用仅为 `DASHSCOPE_API_KEY` 与 `MCP_TOOLS_TOKEN`，没有 `BAILIAN_API_KEY`。
+- 初次任务被旧 Worker 接收，暴露出 Worker Hello 同时声明两种 runtime 能力的问题；已用回归测试修复为按实际 runtime 只声明一种能力，随后重新部署并重跑验收任务。

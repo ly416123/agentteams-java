@@ -73,6 +73,21 @@ class QwenPawWorkerTest {
     }
 
     @Test
+    void advertisesOnlyTheConfiguredRuntimeCapability() {
+        QwenPawWorker.WorkerConfiguration agentScope = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-scope", "AGENTTEAMS_RUNTIME", "AGENTSCOPE"));
+        QwenPawWorker.WorkerConfiguration qwenPaw = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "qwen-paw", "AGENTTEAMS_RUNTIME", "QWENPAW"));
+
+        assertThat(QwenPawWorker.hello(agentScope, CLOCK).getCapabilitiesMap())
+                .containsEntry("runtime-agentscope-v1", "v1")
+                .doesNotContainKey("runtime-qwenpaw-v1");
+        assertThat(QwenPawWorker.hello(qwenPaw, CLOCK).getCapabilitiesMap())
+                .containsEntry("runtime-qwenpaw-v1", "v1")
+                .doesNotContainKey("runtime-agentscope-v1");
+    }
+
+    @Test
     void fallsBackToQwenPawForBlankRuntimeConfiguration() {
         QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
                 "AGENTTEAMS_AGENT_ID", "agent-a",

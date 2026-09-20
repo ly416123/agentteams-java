@@ -641,8 +641,7 @@ public final class QwenPawWorker implements AutoCloseable {
                 .setProtocolVersion(PROTOCOL_VERSION)
                 .setRuntimeName(configuration.runtime().name().toLowerCase(java.util.Locale.ROOT))
                 .setRuntimeVersion(configuration.runtimeVersion())
-                .putAllCapabilities(Map.of("http-sse", "v1", "qwenpaw", "v1",
-                        "runtime-qwenpaw-v1", "v1", "runtime-agentscope-v1", "v1"))
+                .putAllCapabilities(capabilities(configuration.runtime()))
                 .setMaxConcurrentTasks(configuration.maxConcurrentTasks())
                 .setMaxWorkspaceBytes(configuration.maxWorkspaceBytes())
                 .setMaxArtifactBytes(configuration.maxArtifactBytes())
@@ -650,6 +649,13 @@ public final class QwenPawWorker implements AutoCloseable {
                 .setConfigRevision(configuration.configRevision())
                 .setSecretGeneration(configuration.secretGeneration())
                 .build();
+    }
+
+    private static Map<String, String> capabilities(ExecutionRuntime runtime) {
+        if (runtime == ExecutionRuntime.AGENTSCOPE) {
+            return Map.of("http-sse", "v1", "agentscope", "v1", "runtime-agentscope-v1", "v1");
+        }
+        return Map.of("http-sse", "v1", "qwenpaw", "v1", "runtime-qwenpaw-v1", "v1");
     }
 
     private static Timestamp timestamp(Instant instant) {

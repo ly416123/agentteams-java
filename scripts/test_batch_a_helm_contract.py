@@ -50,6 +50,14 @@ class BatchAHelmContractTest(unittest.TestCase):
         self.assertNotIn("bailian-api-key", raw_mapping)
         self.assertNotIn("BAILIAN_API_KEY", raw_mapping)
 
+    def test_operator_worker_crd_preserves_secret_env_references(self):
+        crd = yaml.safe_load(
+            (ROOT / "operator/src/main/resources/crd/worker-crd.yaml").read_text(encoding="utf-8")
+        )
+        secret_env = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["secretEnv"]
+        self.assertEqual(secret_env["type"], "object")
+        self.assertEqual(secret_env["additionalProperties"]["required"], ["secret", "key"])
+
     def test_values_schema_restricts_runtime_and_sandbox_enums(self):
         schema = json.loads(read_chart("values.schema.json"))
         sandbox = schema["properties"]["sandbox"]["properties"]
