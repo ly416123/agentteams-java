@@ -44,7 +44,7 @@ jobs:
         run: bash scripts/validate-backup-scripts.sh
       - name: Test Kind recovery scripts
         run: |
-          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --disable-pip-version-check pytest alibabacloud-agentcore20260804
           python -m pytest scripts -q
       - name: Validate production endpoint preflight script
         run: bash -n scripts/validate-production-endpoints.sh
