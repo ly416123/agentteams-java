@@ -24,6 +24,29 @@ helm upgrade agentteams deploy/helm/agentteams-java \
   --wait --timeout 5m
 ```
 
+如果 release 已经在 L5 运行并使用平台导入的本地镜像标签，只为修复入口或更新
+Console 时不要重新覆盖 `images.*`。使用只包含入口配置的临时 overlay，保留当前
+release 的镜像和凭据配置：
+
+```yaml
+# /tmp/l5-console-nodeport-values.yaml
+console:
+  service:
+    type: NodePort
+    nodePort: 30080
+```
+
+```bash
+helm upgrade agentteams deploy/helm/agentteams-java \
+  --namespace agentteams --reuse-values \
+  -f /tmp/l5-console-nodeport-values.yaml \
+  --wait --timeout 5m
+```
+
+完整 `l5-values.yaml` 适用于首次部署或明确要切换到其中声明的镜像标签时；已有
+release 应先核对 `helm get values agentteams -n agentteams`，避免把已导入的本地
+Control Plane/Operator 镜像替换为不可拉取的标签。
+
 `console.config.oidcIssuer`、Control Plane 的 `issuerUri` 和 Manager 的
 `issuerUri` 必须保持一致；Control Plane 和 Manager 的 `jwkSetUri` 仍使用集群内的
 `http://keycloak:8080/.../certs`，不应改成浏览器 NodePort。
