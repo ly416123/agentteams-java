@@ -82,7 +82,7 @@ class ConfigBootstrapFetcherTest {
 
     private void start(String body, int status) throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/api/v1/config/agents/" + AGENT_ID + "/current", exchange -> {
+        server.createContext("/internal/config/agents/" + AGENT_ID + "/current", exchange -> {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(status, bytes.length);
             exchange.getResponseBody().write(bytes);

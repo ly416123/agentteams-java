@@ -191,7 +191,7 @@ class QwenPawWorkerTest {
         com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
                 new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         String agentId = "00000000-0000-0000-0000-000000000001";
-        server.createContext("/api/v1/config/agents/" + agentId + "/current", exchange -> {
+        server.createContext("/internal/config/agents/" + agentId + "/current", exchange -> {
             requested.set(true);
             byte[] body = "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
@@ -233,7 +233,7 @@ class QwenPawWorkerTest {
         com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
                 new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         String agentId = "00000000-0000-0000-0000-000000000001";
-        server.createContext("/api/v1/config/agents/" + agentId + "/current", exchange -> {
+        server.createContext("/internal/config/agents/" + agentId + "/current", exchange -> {
             byte[] body = "unavailable".getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(503, body.length);
             exchange.getResponseBody().write(body);

@@ -52,7 +52,7 @@ final class ConfigBootstrapFetcher {
     List<ConfigChanged> fetch(String agentId) {
         String id = requireText(agentId, "agentId");
         URI uri = URI.create(controlPlaneBase.toString().replaceAll("/+$", "")
-                + "/api/v1/config/agents/" + URLEncoder.encode(id, StandardCharsets.UTF_8) + "/current");
+                + "/internal/config/agents/" + URLEncoder.encode(id, StandardCharsets.UTF_8) + "/current");
         try {
             HttpResponse<InputStream> response = client.send(HttpRequest.newBuilder(uri)
                     .timeout(timeout).header("Accept", "application/json").GET().build(),
