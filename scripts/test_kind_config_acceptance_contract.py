@@ -34,3 +34,26 @@ class KindConfigAcceptanceContractTest(unittest.TestCase):
         source = (ROOT / "scripts/run-kind-resource-binding-ack.py").read_text(encoding="utf-8")
         self.assertNotIn('"reference": "kind-mcp"', source)
         self.assertIn('"type": "SKILL"', source)
+
+    def test_resource_binding_ack_verifies_startup_config_bootstrap(self):
+        source = (ROOT / "scripts/run-kind-resource-binding-ack.py").read_text(encoding="utf-8")
+        for required in (
+                "def worker_pod_names",
+                "def deployment_ready",
+                "def pod_logs",
+                "def wait_for_replacement_worker",
+                "sequence=0",
+                "applied=true",
+                "KIND_CONFIG_BOOTSTRAP_OK",
+        ):
+            self.assertIn(required, source)
+
+    def test_bootstrap_restart_runs_after_valid_apply_before_invalid_fixture(self):
+        source = (ROOT / "scripts/run-kind-resource-binding-ack.py").read_text(encoding="utf-8")
+        valid = source.index("KIND_RESOURCE_BINDING_ACK_OK")
+        delete = source.index('run("delete", "pod"')
+        bootstrap = source.index("KIND_CONFIG_BOOTSTRAP_OK")
+        invalid = source.index("KIND_RESOURCE_BINDING_FAILURE_OK")
+        self.assertLess(valid, delete)
+        self.assertLess(delete, bootstrap)
+        self.assertLess(bootstrap, invalid)
