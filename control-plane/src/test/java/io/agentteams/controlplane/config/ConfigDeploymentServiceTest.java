@@ -210,4 +210,36 @@ class ConfigDeploymentServiceTest {
             throw new IllegalStateException(error);
         }
     }
+    @Test
+    void returnsCurrentSnapshotsAndCompletedFilesForAnAgent() {
+        FoundationPersistenceService persistence = mock(FoundationPersistenceService.class);
+        FoundationTransaction tx = mock(FoundationTransaction.class);
+        ConfigLifecycleRepository lifecycle = mock(ConfigLifecycleRepository.class);
+        ConfigSnapshotRepository snapshots = mock(ConfigSnapshotRepository.class);
+        UUID agentId = UUID.randomUUID();
+        UUID snapshotId = UUID.randomUUID();
+        ConfigBindingRecord binding = new ConfigBindingRecord(UUID.randomUUID(), "agent-spec:a", agentId,
+                snapshotId, NOW);
+        ConfigSnapshot snapshot = new ConfigSnapshot(snapshotId, binding.subject(), 7, "{}", "checksum", "actor", NOW);
+        when(tx.configLifecycle()).thenReturn(lifecycle);
+        when(lifecycle.findBindingsForAgent(agentId)).thenReturn(List.of(binding));
+        when(lifecycle.findFiles(snapshotId)).thenReturn(List.of());
+        when(snapshots.findById(snapshotId)).thenReturn(Optional.of(snapshot));
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            Function<FoundationTransaction, ?> work = invocation.getArgument(0);
+            return work.apply(tx);
+        });
+
+        ConfigDeploymentService service = new ConfigDeploymentService(persistence, snapshots,
+                Clock.fixed(NOW, ZoneOffset.UTC), MAPPER);
+
+        assertThat(service.findCurrentForAgent(agentId)).singleElement()
+                .satisfies(current -> {
+                    assertThat(current.binding()).isEqualTo(binding);
+                    assertThat(current.snapshot()).isEqualTo(snapshot);
+                    assertThat(current.files()).isEmpty();
+                });
+    }
+
+
 }

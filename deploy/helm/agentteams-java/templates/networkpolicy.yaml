@@ -44,6 +44,9 @@ spec:
             matchLabels: { app.kubernetes.io/name: agentteams-gateway }
         - podSelector:
             matchLabels: { app.kubernetes.io/name: agentteams-operator }
+        # Workers fetch their current configuration snapshot during startup.
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agentteams-worker }
         # Prometheus discovers the application pods directly and scrapes their
         # actuator endpoint rather than going through the Service.
         - podSelector:

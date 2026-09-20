@@ -10,7 +10,9 @@ import io.agentteams.controlplane.config.ConfigSnapshotRepository;
 import io.agentteams.controlplane.config.ConfigSnapshotService;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -63,6 +65,14 @@ public final class ConfigController {
         return DeploymentResponse.from(deployment);
     }
 
+    @GetMapping("/agents/{agentId}/current")
+    public List<CurrentConfigResponse> current(@PathVariable UUID agentId) {
+        return deployments.findCurrentForAgent(agentId).stream()
+                .peek(current -> PrincipalContext.requireScope(current.snapshot().manifestJson()))
+                .map(CurrentConfigResponse::from)
+                .toList();
+    }
+
     @GetMapping("/bindings/{bindingId}")
     public BindingStatusResponse bindingStatus(@PathVariable UUID bindingId) {
         ConfigBindingStatus status = deployments.findBindingStatus(bindingId)
@@ -109,6 +119,32 @@ public final class ConfigController {
         static DeploymentResponse from(ConfigDeploymentService.ConfigDeployment deployment) {
             return new DeploymentResponse(deployment.binding().id(), deployment.binding().agentId(),
                     deployment.snapshot().id(), deployment.snapshot().version(), deployment.eventId(), "PENDING");
+        }
+    }
+
+    public record CurrentConfigResponse(UUID bindingId, UUID agentId, UUID snapshotId, long configVersion,
+            String manifestUri, String manifestSha256, long sizeBytes, String manifestJson,
+            List<CurrentFileResponse> files, boolean rollback) {
+        private static final int INLINE_MANIFEST_LIMIT_BYTES = 64 * 1024;
+
+        static CurrentConfigResponse from(ConfigDeploymentService.CurrentConfigBinding current) {
+            ConfigSnapshot snapshot = current.snapshot();
+            byte[] manifest = snapshot.manifestJson().getBytes(StandardCharsets.UTF_8);
+            String inline = manifest.length <= INLINE_MANIFEST_LIMIT_BYTES ? snapshot.manifestJson() : "";
+            List<CurrentFileResponse> files = current.files().stream()
+                    .map(file -> CurrentFileResponse.from(snapshot.id(), file))
+                    .toList();
+            return new CurrentConfigResponse(current.binding().id(), current.binding().agentId(), snapshot.id(),
+                    snapshot.version(), "urn:agentteams:config:" + snapshot.id(), snapshot.checksum(), manifest.length,
+                    inline, files, false);
+        }
+    }
+
+    public record CurrentFileResponse(String path, String uri, String sha256, long sizeBytes, String contentType) {
+        static CurrentFileResponse from(UUID snapshotId, io.agentteams.controlplane.config.ConfigFileRecord file) {
+            return new CurrentFileResponse(file.path(),
+                    "urn:agentteams:config-file:" + snapshotId + ":" + file.path(), file.checksum(),
+                    file.sizeBytes(), file.contentType());
         }
     }
 

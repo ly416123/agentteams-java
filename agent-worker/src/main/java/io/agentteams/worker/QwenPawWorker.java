@@ -93,6 +93,7 @@ public final class QwenPawWorker implements AutoCloseable {
     private final io.agentteams.runtime.AgentRuntime runtime;
     private final AssignmentSandboxStateProbePort sandboxStateProbe;
     private final ConfigManifestFetcher manifestFetcher;
+    private final ConfigBootstrapFetcher bootstrapFetcher;
     private final ConfigFileFetcher configFileFetcher;
     private final SkillArtifactMaterializer skillArtifactMaterializer;
     private final Path configDirectory;
@@ -129,6 +130,9 @@ public final class QwenPawWorker implements AutoCloseable {
                 .create(configuration, gatewayChannel, clock, quotaPort);
         this.manifestFetcher = new ConfigManifestFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigManifestBytes());
+        this.bootstrapFetcher = configuration.configManifestBaseUrl() == null ? null
+                : new ConfigBootstrapFetcher(configuration.configManifestBaseUrl(), configuration.configFetchTimeout(),
+                        configuration.maxConfigManifestBytes(), configuration.maxConfigFileBytes());
         this.configFileFetcher = new ConfigFileFetcher(configuration.configManifestBaseUrl(),
                 configuration.configFetchTimeout(), configuration.maxConfigFileBytes());
         this.skillArtifactMaterializer = new SkillArtifactMaterializer(
@@ -200,6 +204,7 @@ public final class QwenPawWorker implements AutoCloseable {
 
     public void start() {
         healthServer.start();
+        bootstrapCurrentConfig();
         channelPort.connect();
         channelClient.connect(hello);
         scheduler.scheduleAtFixedRate(this::heartbeatLeases, 5, 5, TimeUnit.SECONDS);
@@ -267,7 +272,23 @@ public final class QwenPawWorker implements AutoCloseable {
         };
     }
 
+    private void bootstrapCurrentConfig() {
+        if (bootstrapFetcher == null) return;
+        try {
+            for (ConfigChanged changed : bootstrapFetcher.fetch(configuration.agentId())) {
+                applyConfigChanged(changed, false);
+            }
+        } catch (Exception failure) {
+            System.err.printf("Unable to bootstrap current config agent=%s error=%s%n",
+                    configuration.agentId(), rootMessage(failure));
+        }
+    }
+
     private void onConfigChanged(ConfigChanged changed) {
+        applyConfigChanged(changed, true);
+    }
+
+    private void applyConfigChanged(ConfigChanged changed, boolean acknowledge) {
         EventMetadata input = changed.getMetadata();
         System.out.printf("ConfigChanged received agent=%s version=%d sequence=%d%n",
                 configuration.agentId(), changed.getConfigVersion(), input.getSequence());
@@ -296,11 +317,13 @@ public final class QwenPawWorker implements AutoCloseable {
         } catch (Exception failure) {
             errorMessage = truncate(rootMessage(failure));
         }
-        channelPort.send(AgentMessage.newBuilder()
-                .setConfigApplied(configApplied(changed, applied, errorMessage, resourceResults, clock)).build());
+        if (acknowledge) {
+            channelPort.send(AgentMessage.newBuilder()
+                    .setConfigApplied(configApplied(changed, applied, errorMessage, resourceResults, clock)).build());
+        }
         System.out.printf("ConfigChanged completed agent=%s version=%d applied=%s error=%s%n",
                 configuration.agentId(), changed.getConfigVersion(), applied, errorMessage);
-        if (input.getSequence() > 0) {
+        if (acknowledge && input.getSequence() > 0) {
             acknowledge(input);
         }
     }
@@ -518,6 +541,10 @@ public final class QwenPawWorker implements AutoCloseable {
         }
         System.out.printf("Task assignment task=%s accepted=%s%n",
                 assignment.getMetadata().getTaskId(), submission.accepted());
+        if (!submission.accepted()) {
+            System.err.printf("Task assignment rejected task=%s reason=%s%n",
+                    assignment.getMetadata().getTaskId(), submission.reason());
+        }
         if (assignment.getMetadata().getSequence() > 0) {
             acknowledge(assignment);
         }
@@ -641,8 +668,7 @@ public final class QwenPawWorker implements AutoCloseable {
                 .setProtocolVersion(PROTOCOL_VERSION)
                 .setRuntimeName(configuration.runtime().name().toLowerCase(java.util.Locale.ROOT))
                 .setRuntimeVersion(configuration.runtimeVersion())
-                .putAllCapabilities(Map.of("http-sse", "v1", "qwenpaw", "v1",
-                        "runtime-qwenpaw-v1", "v1", "runtime-agentscope-v1", "v1"))
+                .putAllCapabilities(capabilities(configuration.runtime()))
                 .setMaxConcurrentTasks(configuration.maxConcurrentTasks())
                 .setMaxWorkspaceBytes(configuration.maxWorkspaceBytes())
                 .setMaxArtifactBytes(configuration.maxArtifactBytes())
@@ -650,6 +676,13 @@ public final class QwenPawWorker implements AutoCloseable {
                 .setConfigRevision(configuration.configRevision())
                 .setSecretGeneration(configuration.secretGeneration())
                 .build();
+    }
+
+    private static Map<String, String> capabilities(ExecutionRuntime runtime) {
+        if (runtime == ExecutionRuntime.AGENTSCOPE) {
+            return Map.of("http-sse", "v1", "agentscope", "v1", "runtime-agentscope-v1", "v1");
+        }
+        return Map.of("http-sse", "v1", "qwenpaw", "v1", "runtime-qwenpaw-v1", "v1");
     }
 
     private static Timestamp timestamp(Instant instant) {

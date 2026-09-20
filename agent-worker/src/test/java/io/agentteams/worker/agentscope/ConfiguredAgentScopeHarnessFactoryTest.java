@@ -9,6 +9,7 @@ import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.permission.PermissionMode;
 import io.agentteams.application.api.SandboxRuntimePort;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.runtime.AgentRuntimeContext;
@@ -197,6 +198,19 @@ class ConfiguredAgentScopeHarnessFactoryTest {
         var harness = factory.create(task("attempt-mcp", "lease-mcp"), context());
 
         assertThat(received.get()).containsExactly(server);
+        harness.close();
+    }
+
+    @Test
+    void allowsConfiguredRuntimeToolsInUnattendedWorkerSessions() throws Exception {
+        ConfiguredAgentScopeHarnessFactory factory = new ConfiguredAgentScopeHarnessFactory(
+                new TestModel(), AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(),
+                        Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC), root), root);
+
+        var harness = factory.create(task("attempt-permissions", "lease-permissions"), context());
+
+        assertThat(harness.getPermissionMode("", "attempt-permissions"))
+                .isEqualTo(PermissionMode.BYPASS);
         harness.close();
     }
 

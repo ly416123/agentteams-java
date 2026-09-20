@@ -40,6 +40,7 @@ Thumbs.db
 
 # Local API credentials (never commit)
 /apikey
+/ali_model_api_key
 .env*
 !.env.example
 

@@ -38,6 +38,7 @@ import reactor.core.Disposable;
  */
 public final class AgentScopeRuntime implements AgentRuntime {
     private static final String FAILURE_MESSAGE = "AgentScope execution failed";
+    private static final System.Logger LOG = System.getLogger(AgentScopeRuntime.class.getName());
 
     private final Object lifecycleLock = new Object();
     private volatile FakeRuntime state = new FakeRuntime();
@@ -90,10 +91,19 @@ public final class AgentScopeRuntime implements AgentRuntime {
             } catch (RuntimeException error) {
                 state.cancel(task.id());
                 releaseBinding(task.id());
+                LOG.log(System.Logger.Level.WARNING,
+                        "AgentScope task rejected before acceptance task=" + task.id()
+                                + " reason=" + rootMessage(error));
                 return RuntimeSubmission.rejected("RUNTIME_UNAVAILABLE");
             }
             return submission;
         }
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) current = current.getCause();
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     private void startExecutionLocked(RuntimeTask task, AgentRuntimeContext currentContext,
@@ -126,7 +136,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     .build();
             Disposable disposable = agent.streamEvents(new UserMessage(task.inputJson()), agentContext)
                     .subscribe(event -> onEvent(execution, event),
-                            error -> onStreamError(execution),
+                    error -> onStreamError(execution, error),
                             () -> onStreamComplete(execution));
             execution.installDisposable(disposable);
         } catch (RuntimeException error) {
@@ -166,11 +176,17 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     execution.resultCandidate = execution.translator.safeResultCandidate(event);
                 }
                 if (translated.kind() == AgentScopeExecutionEvent.Kind.ERROR) {
+                    LOG.log(System.Logger.Level.WARNING,
+                            "AgentScope emitted an error event task=" + execution.task.id()
+                                    + " type=" + originalEvent.getClass().getSimpleName());
                     completeFailureLocked(execution, FAILURE_MESSAGE);
                 } else if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_ENDED) {
                     completeSuccessLocked(execution);
                 }
             } catch (RuntimeException error) {
+                LOG.log(System.Logger.Level.WARNING,
+                        "AgentScope event processing failed task=" + execution.task.id()
+                                + " reason=" + rootMessage(error));
                 if (isCurrentLocked(execution)) {
                     completeFailureLocked(execution, FAILURE_MESSAGE);
                 }
@@ -178,10 +194,13 @@ public final class AgentScopeRuntime implements AgentRuntime {
         }
     }
 
-    private void onStreamError(Execution execution) {
+    private void onStreamError(Execution execution, Throwable error) {
         synchronized (lifecycleLock) {
             expireLeasesLocked();
             if (isCurrentLocked(execution)) {
+                LOG.log(System.Logger.Level.WARNING,
+                        "AgentScope stream failed task=" + execution.task.id()
+                                + " reason=" + rootMessage(error));
                 completeFailureLocked(execution, FAILURE_MESSAGE);
             }
         }
@@ -191,6 +210,8 @@ public final class AgentScopeRuntime implements AgentRuntime {
         synchronized (lifecycleLock) {
             expireLeasesLocked();
             if (isCurrentLocked(execution)) {
+                LOG.log(System.Logger.Level.WARNING,
+                        "AgentScope stream completed without a terminal result task=" + execution.task.id());
                 completeFailureLocked(execution, FAILURE_MESSAGE);
             }
         }
