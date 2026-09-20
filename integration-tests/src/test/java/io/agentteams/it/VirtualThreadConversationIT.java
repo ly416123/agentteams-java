@@ -324,12 +324,12 @@ class VirtualThreadConversationIT {
             try (exchange) {
                 var output = exchange.getResponseBody();
                 write(output, "data: {\"type\":\"text\",\"delta\":true,\"text\":\"part-1\"}\n\n");
-                if (content.startsWith("cancel")) {
+                if (content.contains("cancel-sse")) {
                     cancelScenarioStarted.countDown();
                     sleep(5_000);
                     return;
                 }
-                if (content.startsWith("timeout")) {
+                if (content.contains("timeout-sse")) {
                     sleep(1_500);
                     return;
                 }
