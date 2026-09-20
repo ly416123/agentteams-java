@@ -44,6 +44,16 @@ class KindMatrixSmokeContractTest(unittest.TestCase):
             start_task,
         )
 
+    def test_approval_waits_for_async_task_spec_update(self):
+        script_text = (ROOT / "scripts/smoke-kind-matrix.sh").read_text(encoding="utf-8")
+        approval_wait = script_text.split("wait_task_approval() {", 1)[1].split(
+            "\nwait_task_transition", 1
+        )[0]
+
+        self.assertIn("approvalGranted", approval_wait)
+        self.assertIn("local deadline=$((SECONDS + 90))", approval_wait)
+        self.assertIn('wait_task_approval "${task_id}"', script_text)
+
 
 if __name__ == "__main__":
     unittest.main()

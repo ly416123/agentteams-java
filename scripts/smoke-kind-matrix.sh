@@ -257,6 +257,24 @@ wait_task_phase() {
   done
 }
 
+wait_task_approval() {
+  local task_id="$1"
+  local deadline=$((SECONDS + 90))
+  local approval_seen=0
+  while [[ "${approval_seen}" != "1" ]]; do
+    approval_seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+      psql -At -U agentteams -d agentteams -c \
+      "SELECT CASE WHEN spec->>'approvalGranted'='true' THEN 1 ELSE 0 END FROM tasks WHERE id='${task_id}'" \
+      | tr -d '\r' | head -n 1)"
+    [[ "${approval_seen}" == "1" ]] && break
+    if (( SECONDS >= deadline )); then
+      echo "Task ${task_id} did not record approval in its spec" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
 task_version() {
   local task_id="$1"
   kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
@@ -308,10 +326,7 @@ wait_matrix_event "${status_body}"
 approve_body="!agentteams approve ${task_id}"
 send_matrix_command "kind-matrix-approve-${run_id}" "${approve_body}"
 wait_matrix_event "${approve_body}"
-approval_seen="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
-  psql -At -U agentteams -d agentteams -c "SELECT CASE WHEN spec->>'approvalGranted'='true' THEN 1 ELSE 0 END FROM tasks WHERE id='${task_id}'" \
-  | tr -d '\r' | head -n 1)"
-[[ "${approval_seen}" == "1" ]] || { echo "Matrix approve did not update task spec" >&2; exit 1; }
+wait_task_approval "${task_id}"
 
 pause_body="!agentteams pause ${task_id}"
 send_matrix_command "kind-matrix-pause-${run_id}" "${pause_body}"
