@@ -12,6 +12,7 @@ import argparse
 import http.client
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -113,12 +114,74 @@ def validated_agent_id(value: str) -> str:
     return agent_id
 
 
+def worker_pod_names(namespace: str, deployment: str) -> list[str]:
+    deployment_json = json.loads(run("get", "deployment", deployment, "-o", "json", namespace=namespace))
+    selector = deployment_json.get("spec", {}).get("selector", {}).get("matchLabels", {})
+    if not selector:
+        fail(f"Worker Deployment {deployment} has no selector")
+    selector_value = ",".join(f"{key}={value}" for key, value in selector.items())
+    pods = json.loads(run("get", "pods", "-l", selector_value, "-o", "json", namespace=namespace))
+    return [item["metadata"]["name"] for item in pods.get("items", [])
+            if item.get("status", {}).get("phase") == "Running"
+            and not item.get("metadata", {}).get("deletionTimestamp")]
+
+
+def deployment_ready(namespace: str, deployment: str, expected_replicas: int) -> bool:
+    deployment_json = json.loads(run("get", "deployment", deployment, "-o", "json", namespace=namespace))
+    status = deployment_json.get("status", {})
+    return int(status.get("readyReplicas", 0)) == expected_replicas
+
+
+def pod_logs(namespace: str, pod: str) -> str:
+    result = subprocess.run(
+        ["kubectl", "-n", namespace, "logs", pod, "--tail=120"],
+        check=False, capture_output=True, text=True)
+    output = result.stdout if result.returncode == 0 else result.stderr
+    return "\n".join(line[:512] for line in output.splitlines()[-120:])
+
+
+def wait_for_replacement_worker(namespace: str, deployment: str, old_pod: str,
+                                expected_replicas: int, timeout: float,
+                                interval: float) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            replacements = [pod for pod in worker_pod_names(namespace, deployment)
+                            if pod != old_pod]
+            if replacements and deployment_ready(namespace, deployment, expected_replicas):
+                return replacements[0]
+        except (SmokeFailure, json.JSONDecodeError):
+            pass
+        time.sleep(interval)
+    fail(f"timed out waiting for replacement Worker Pod after deleting {old_pod}")
+
+
+def wait_for_bootstrap_log(namespace: str, pod: str, agent_id: str,
+                           timeout: float, interval: float) -> None:
+    deadline = time.monotonic() + timeout
+    received_prefix = f"ConfigChanged received agent={agent_id}"
+    completed_prefix = f"ConfigChanged completed agent={agent_id}"
+    while time.monotonic() < deadline:
+        logs = pod_logs(namespace, pod)
+        received = any(received_prefix in line and "sequence=0" in line
+                        for line in logs.splitlines())
+        completed = any(completed_prefix in line and "sequence=0" in line
+                        and "applied=true" in line for line in logs.splitlines())
+        if received and completed:
+            return
+        time.sleep(interval)
+    fail(f"replacement Worker Pod {pod} did not log successful sequence=0 config bootstrap")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--base-url", default=os.environ.get("AGENTTEAMS_CONTROL_PLANE_URL", "").strip(),
                         help="Control Plane URL (or AGENTTEAMS_CONTROL_PLANE_URL)")
     parser.add_argument("--agent-id", default=os.environ.get("AGENTTEAMS_AGENT_ID", "").strip(),
                         help="Worker UUID (or AGENTTEAMS_AGENT_ID)")
+    parser.add_argument("--worker-deployment", default="qwenpaw-real",
+                        help="Worker Deployment managed by the Kind acceptance fixture")
     parser.add_argument("--timeout", type=float, default=240.0,
                         help="maximum seconds to wait for each Worker apply")
     parser.add_argument("--poll-interval", type=float, default=2.0)
@@ -136,7 +199,10 @@ def main() -> int:
     binding_id = ""
     statuses: dict[str, dict | None] = {"legacy": None, "valid": None, "invalid": None}
     snapshots: dict[str, dict | None] = {"legacy": None, "valid": None, "invalid": None}
-    context = {"base_url": args.base_url, "agent_id": args.agent_id, "subject": subject}
+    context = {"base_url": args.base_url, "agent_id": args.agent_id, "subject": subject,
+               "worker_deployment": args.worker_deployment}
+    old_pod = ""
+    replacement_pod = ""
     try:
         # QwenPaw's native /api/models/active configuration requires a model
         # even for the compatibility (no resourceBindings) manifest. Keep the
@@ -204,6 +270,20 @@ def main() -> int:
         print("KIND_RESOURCE_BINDING_ACK_OK "
               f"subject={subject} binding={binding_id} revision={snapshots['valid']['version']}")
 
+        expected_replicas = len(worker_pod_names(args.namespace, args.worker_deployment))
+        if expected_replicas != 1:
+            fail(f"expected one running Worker Pod before bootstrap restart, got {expected_replicas}")
+        old_pod = worker_pod_names(args.namespace, args.worker_deployment)[0]
+        run("delete", "pod", old_pod, "--wait=true", namespace=args.namespace)
+        replacement_pod = wait_for_replacement_worker(
+            args.namespace, args.worker_deployment, old_pod, expected_replicas,
+            args.timeout, args.poll_interval)
+        wait_for_bootstrap_log(args.namespace, replacement_pod, args.agent_id,
+                               args.timeout, args.poll_interval)
+        print("KIND_CONFIG_BOOTSTRAP_OK "
+              f"agent={args.agent_id} old_pod={old_pod} replacement_pod={replacement_pod} "
+              f"revision={snapshots['valid']['version']}")
+
         snapshots["invalid"] = create_snapshot(args.base_url, subject, invalid)
         deployment = api_request(
             args.base_url, f"/api/v1/config/snapshots/{snapshots['invalid']['id']}/agents/{args.agent_id}",
@@ -223,7 +303,8 @@ def main() -> int:
               "error=RESOURCE_BINDING_INVALID")
         return 0
     except Exception as error:
-        context.update({"binding_id": binding_id, "snapshots": snapshots, "statuses": statuses})
+        context.update({"binding_id": binding_id, "snapshots": snapshots, "statuses": statuses,
+                        "old_pod": old_pod, "replacement_pod": replacement_pod})
         print(f"KIND_RESOURCE_BINDING_ACK_FAIL: {error}", file=sys.stderr)
         print("KIND_RESOURCE_BINDING_ACK_DIAGNOSTICS: "
               + json.dumps(context, sort_keys=True, default=str), file=sys.stderr)

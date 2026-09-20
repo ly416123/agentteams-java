@@ -15,7 +15,7 @@ class CiTestcontainerImagesTest(unittest.TestCase):
     def test_minio_uses_official_fixed_tag_image(self):
         source = TASK_PUSH_TEST.read_text(encoding="utf-8")
 
-        self.assertIn('"minio/minio:" + MINIO_VERSION', source)
+        self.assertIn('"quay.io/minio/minio:" + MINIO_VERSION', source)
         self.assertNotIn("dockerproxy.net/minio/minio", source)
 
 

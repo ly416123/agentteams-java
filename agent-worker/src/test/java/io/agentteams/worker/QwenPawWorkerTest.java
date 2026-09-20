@@ -4,7 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.Timestamp;
+import io.agentteams.contracts.v1.AgentChannelGrpc;
+import io.agentteams.contracts.v1.AgentMessage;
 import io.agentteams.application.api.ExecutionRuntime;
+import io.grpc.Server;
+import io.grpc.stub.StreamObserver;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.agentteams.contracts.v1.AgentHello;
 import java.time.Clock;
 import java.time.Instant;
@@ -188,6 +193,7 @@ class QwenPawWorkerTest {
     @Test
     void pullsCurrentConfigBeforeConnectingToGateway() throws Exception {
         java.util.concurrent.atomic.AtomicBoolean requested = new java.util.concurrent.atomic.AtomicBoolean();
+        Server gateway = testGatewayServer();
         com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
                 new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         String agentId = "00000000-0000-0000-0000-000000000001";
@@ -214,7 +220,7 @@ class QwenPawWorkerTest {
         QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
                 "AGENTTEAMS_AGENT_ID", agentId,
                 "AGENTTEAMS_GATEWAY_HOST", "127.0.0.1",
-                "AGENTTEAMS_GATEWAY_PORT", "1",
+                "AGENTTEAMS_GATEWAY_PORT", Integer.toString(gateway.getPort()),
                 "AGENTTEAMS_WORKER_HEALTH_PORT", Integer.toString(freePort()),
                 "AGENTTEAMS_CONFIG_MANIFEST_BASE_URL", "http://127.0.0.1:" + server.getAddress().getPort(),
                 "QWENPAW_ENDPOINT", "http://127.0.0.1:" + server.getAddress().getPort()));
@@ -225,11 +231,13 @@ class QwenPawWorkerTest {
         } finally {
             worker.close();
             server.stop(0);
+            gateway.shutdownNow();
         }
     }
 
     @Test
     void continuesGatewayStartupWhenConfigBootstrapFails() throws Exception {
+        Server gateway = testGatewayServer();
         com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
                 new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         String agentId = "00000000-0000-0000-0000-000000000001";
@@ -255,7 +263,7 @@ class QwenPawWorkerTest {
         QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
                 "AGENTTEAMS_AGENT_ID", agentId,
                 "AGENTTEAMS_GATEWAY_HOST", "127.0.0.1",
-                "AGENTTEAMS_GATEWAY_PORT", "1",
+                "AGENTTEAMS_GATEWAY_PORT", Integer.toString(gateway.getPort()),
                 "AGENTTEAMS_WORKER_HEALTH_PORT", Integer.toString(freePort()),
                 "AGENTTEAMS_CONFIG_MANIFEST_BASE_URL", "http://127.0.0.1:" + server.getAddress().getPort(),
                 "QWENPAW_ENDPOINT", "http://127.0.0.1:" + server.getAddress().getPort()));
@@ -265,7 +273,24 @@ class QwenPawWorkerTest {
         } finally {
             worker.close();
             server.stop(0);
+            gateway.shutdownNow();
         }
+    }
+
+    private static Server testGatewayServer() throws java.io.IOException {
+        return NettyServerBuilder.forPort(0)
+                .addService(new AgentChannelGrpc.AgentChannelImplBase() {
+                    @Override
+                    public StreamObserver<AgentMessage> connect(StreamObserver<io.agentteams.contracts.v1.ServerMessage> responseObserver) {
+                        return new StreamObserver<>() {
+                            @Override public void onNext(AgentMessage value) { }
+                            @Override public void onError(Throwable error) { }
+                            @Override public void onCompleted() { responseObserver.onCompleted(); }
+                        };
+                    }
+                })
+                .build()
+                .start();
     }
 
     private static int freePort() throws java.io.IOException {

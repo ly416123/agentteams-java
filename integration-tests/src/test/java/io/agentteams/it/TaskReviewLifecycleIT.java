@@ -212,7 +212,7 @@ class TaskReviewLifecycleIT {
         List<Long> eventVersions = jdbc.queryForList("""
                 SELECT aggregate_version FROM domain_events
                  WHERE aggregate_type = 'task' AND aggregate_id = ?
-                 ORDER BY id
+                 ORDER BY aggregate_version ASC, id ASC
                 """, Long.class, taskId);
         for (int i = 1; i < eventVersions.size(); i++) {
             assertTrue(eventVersions.get(i) > eventVersions.get(i - 1),
@@ -243,7 +243,7 @@ class TaskReviewLifecycleIT {
 
     @Test
     void cancelWithReasonReplaysIdempotently() {
-        UUID taskId = createQueuedTask("it-cancel-reason-key");
+        UUID taskId = createQueuedTask("it-cancel-reason-create-key");
         long versionBefore = tasks.get(taskId).version();
         TaskRecord cancelled = tasks.cancel(taskId, versionBefore, "it-cancel-reason-key",
                 "alice", "rest", "需求变更");

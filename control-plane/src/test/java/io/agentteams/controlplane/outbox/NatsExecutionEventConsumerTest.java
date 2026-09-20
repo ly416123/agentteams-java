@@ -300,10 +300,21 @@ class NatsExecutionEventConsumerTest {
                 .thenReturn(first)
                 .thenThrow(new java.io.IOException("reconnect unavailable"))
                 .thenReturn(recovered);
+        CountDownLatch consumerStopped = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            consumerStopped.countDown();
+            return null;
+        }).when(first).unsubscribe();
         when(first.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
-                .thenReturn(null);
+                .thenAnswer(invocation -> {
+                    consumerStopped.await();
+                    return null;
+                });
         when(recovered.nextMessage(org.mockito.ArgumentMatchers.any(Duration.class)))
-                .thenReturn(null);
+                .thenAnswer(invocation -> {
+                    consumerStopped.await();
+                    return null;
+                });
 
         NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(connection,
                 mock(ExecutionEventPort.class), command -> { }, new com.fasterxml.jackson.databind.ObjectMapper(),
@@ -321,6 +332,7 @@ class NatsExecutionEventConsumerTest {
         verify(recovered, org.mockito.Mockito.timeout(3_000))
                 .nextMessage(org.mockito.ArgumentMatchers.any(Duration.class));
         consumer.close();
+        consumerStopped.countDown();
     }
 
     @Test
