@@ -185,4 +185,93 @@ class QwenPawWorkerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AGENTTEAMS_GATEWAY_TLS_CA_CERT_PATH");
     }
+    @Test
+    void pullsCurrentConfigBeforeConnectingToGateway() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean requested = new java.util.concurrent.atomic.AtomicBoolean();
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        String agentId = "00000000-0000-0000-0000-000000000001";
+        server.createContext("/api/v1/config/agents/" + agentId + "/current", exchange -> {
+            requested.set(true);
+            byte[] body = "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.createContext("/api/models/active", exchange -> {
+            byte[] body = "{\"active_llm\":{\"provider_id\":\"qwen\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.createContext("/", exchange -> {
+            byte[] body = "{\"active_llm\":{\"provider_id\":\"qwen\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", agentId,
+                "AGENTTEAMS_GATEWAY_HOST", "127.0.0.1",
+                "AGENTTEAMS_GATEWAY_PORT", "1",
+                "AGENTTEAMS_WORKER_HEALTH_PORT", Integer.toString(freePort()),
+                "AGENTTEAMS_CONFIG_MANIFEST_BASE_URL", "http://127.0.0.1:" + server.getAddress().getPort(),
+                "QWENPAW_ENDPOINT", "http://127.0.0.1:" + server.getAddress().getPort()));
+        QwenPawWorker worker = new QwenPawWorker(configuration, null);
+        try {
+            worker.start();
+            assertThat(requested).isTrue();
+        } finally {
+            worker.close();
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void continuesGatewayStartupWhenConfigBootstrapFails() throws Exception {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        String agentId = "00000000-0000-0000-0000-000000000001";
+        server.createContext("/api/v1/config/agents/" + agentId + "/current", exchange -> {
+            byte[] body = "unavailable".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(503, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.createContext("/api/models/active", exchange -> {
+            byte[] body = "{\"active_llm\":{\"provider_id\":\"qwen\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.createContext("/", exchange -> {
+            byte[] body = "{\"active_llm\":{\"provider_id\":\"qwen\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", agentId,
+                "AGENTTEAMS_GATEWAY_HOST", "127.0.0.1",
+                "AGENTTEAMS_GATEWAY_PORT", "1",
+                "AGENTTEAMS_WORKER_HEALTH_PORT", Integer.toString(freePort()),
+                "AGENTTEAMS_CONFIG_MANIFEST_BASE_URL", "http://127.0.0.1:" + server.getAddress().getPort(),
+                "QWENPAW_ENDPOINT", "http://127.0.0.1:" + server.getAddress().getPort()));
+        QwenPawWorker worker = new QwenPawWorker(configuration, null);
+        try {
+            worker.start();
+        } finally {
+            worker.close();
+            server.stop(0);
+        }
+    }
+
+    private static int freePort() throws java.io.IOException {
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
+            return socket.getLocalPort();
+        }
+    }
+
 }
