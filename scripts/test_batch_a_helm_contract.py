@@ -30,13 +30,17 @@ def render_chart(*args):
 
 
 class BatchAHelmContractTest(unittest.TestCase):
-    def test_l5_worker_provisioner_maps_only_mcp_connection_token(self):
+    def test_l5_worker_provisioner_separates_mcp_and_model_credentials(self):
         l5_values = yaml.safe_load((ROOT / "deploy/helm/l5-values.yaml").read_text(encoding="utf-8"))
         raw_mapping = l5_values["controlPlane"]["workerProvisioner"]["credentialSecretEnvs"]
 
         self.assertEqual(
             json.loads(raw_mapping),
             {
+                "DASHSCOPE_API_KEY": {
+                    "secret": "agentteams-dashscope",
+                    "key": "api-key",
+                },
                 "MCP_TOOLS_TOKEN": {
                     "secret": "agentteams-mcp-tools",
                     "key": "mcp-tools-token",
