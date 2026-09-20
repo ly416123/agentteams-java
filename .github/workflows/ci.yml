@@ -172,6 +172,7 @@ jobs:
       - name: Install Kind dependencies
         run: |
           kubectl apply -f deploy/kind-dev-infra.yaml
+          kubectl apply -f deploy/kind-qwenpaw-task-mcp.yaml
           # Manager 的 existingSecret（含 deepseek-api-key placeholder）在两处
           # Kind job 均无 install-kind-dev.sh 兜底，需在此显式创建。
           kubectl -n agentteams create secret generic agentteams-manager \
@@ -557,6 +558,7 @@ jobs:
       - name: Install Kind dependencies
         run: |
           kubectl apply -f deploy/kind-dev-infra.yaml
+          kubectl apply -f deploy/kind-qwenpaw-task-mcp.yaml
           # Manager 的 existingSecret（含 deepseek-api-key placeholder）在两处
           # Kind job 均无 install-kind-dev.sh 兜底，需在此显式创建。
           kubectl -n agentteams create secret generic agentteams-manager \
