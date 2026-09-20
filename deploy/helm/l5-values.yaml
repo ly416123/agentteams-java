@@ -33,6 +33,10 @@ controlPlane:
     # Dynamic workers are provisioned with this image; keep it in sync with
     # the pinned control-plane/gateway tag above.
     image: ghcr.io/ly416123/agentteams-agent-worker:l5-artifact-upload-20260907-v1
+    # The Worker receives only the MCP connection token. The Bailian API key
+    # remains private to agentteams-mcp-tools and must not be mapped here.
+    credentialSecretEnvs: >-
+      {"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"}}
 
 manager:
   security:

@@ -30,6 +30,22 @@ def render_chart(*args):
 
 
 class BatchAHelmContractTest(unittest.TestCase):
+    def test_l5_worker_provisioner_maps_only_mcp_connection_token(self):
+        l5_values = yaml.safe_load((ROOT / "deploy/helm/l5-values.yaml").read_text(encoding="utf-8"))
+        raw_mapping = l5_values["controlPlane"]["workerProvisioner"]["credentialSecretEnvs"]
+
+        self.assertEqual(
+            json.loads(raw_mapping),
+            {
+                "MCP_TOOLS_TOKEN": {
+                    "secret": "agentteams-mcp-tools",
+                    "key": "mcp-tools-token",
+                }
+            },
+        )
+        self.assertNotIn("bailian-api-key", raw_mapping)
+        self.assertNotIn("BAILIAN_API_KEY", raw_mapping)
+
     def test_values_schema_restricts_runtime_and_sandbox_enums(self):
         schema = json.loads(read_chart("values.schema.json"))
         sandbox = schema["properties"]["sandbox"]["properties"]
