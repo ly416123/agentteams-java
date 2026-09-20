@@ -42,6 +42,7 @@ class KindConfigAcceptanceContractTest(unittest.TestCase):
                 "def worker_pod_names",
                 "def deployment_ready",
                 "def pod_logs",
+                "bootstrap_log_tail",
                 "def wait_for_replacement_worker",
                 "sequence=0",
                 "applied=true",

@@ -215,6 +215,7 @@ def main() -> int:
                "worker_deployment": args.worker_deployment}
     old_pod = ""
     replacement_pod = ""
+    bootstrap_log_tail = ""
     try:
         # QwenPaw's native /api/models/active configuration requires a model
         # even for the compatibility (no resourceBindings) manifest. Keep the
@@ -315,8 +316,14 @@ def main() -> int:
               "error=RESOURCE_BINDING_INVALID")
         return 0
     except Exception as error:
+        if replacement_pod:
+            try:
+                bootstrap_log_tail = pod_logs(args.namespace, replacement_pod)
+            except Exception as log_error:
+                bootstrap_log_tail = f"unable to read replacement Worker logs: {log_error}"
         context.update({"binding_id": binding_id, "snapshots": snapshots, "statuses": statuses,
-                        "old_pod": old_pod, "replacement_pod": replacement_pod})
+                        "old_pod": old_pod, "replacement_pod": replacement_pod,
+                        "bootstrap_log_tail": bootstrap_log_tail})
         print(f"KIND_RESOURCE_BINDING_ACK_FAIL: {error}", file=sys.stderr)
         print("KIND_RESOURCE_BINDING_ACK_DIAGNOSTICS: "
               + json.dumps(context, sort_keys=True, default=str), file=sys.stderr)
