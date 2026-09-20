@@ -1,0 +1,1 @@
+$(cat /Users/gecko/.config/superpowers/worktrees/agentteams-java/codex-l5-mcp-integration/docs/superpowers/specs/2026-09-21-l5-console-nodeport-design.md)
