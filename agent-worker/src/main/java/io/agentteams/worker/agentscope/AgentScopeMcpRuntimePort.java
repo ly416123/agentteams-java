@@ -47,9 +47,19 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
                 }
                 registration.apply();
             } catch (RuntimeException error) {
+                System.getLogger(AgentScopeMcpRuntimePort.class.getName()).log(
+                        System.Logger.Level.WARNING,
+                        "MCP client registration failed server=" + server.reference()
+                                + " reason=" + rootMessage(error));
                 throw new IllegalStateException("MCP_RUNTIME_UNAVAILABLE");
             }
         }
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) current = current.getCause();
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     private static McpClientWrapper buildClient(RuntimeMcpServer server, McpCredentialProvider credentials) {
