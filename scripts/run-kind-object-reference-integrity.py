@@ -13,7 +13,7 @@ import sys
 import uuid
 
 
-MINIO_IMAGE = "minio/mc:RELEASE.2025-07-21T05-28-08Z"
+MINIO_IMAGE = "quay.io/minio/mc:RELEASE.2025-07-21T05-28-08Z"
 MINIO_BUCKET = "agentteams"
 ARTIFACT_CONTENT = b"agentteams-object-reference-artifact-v1\n"
 CONFIG_CONTENT = b"agentteams-object-reference-config-v1\n"
