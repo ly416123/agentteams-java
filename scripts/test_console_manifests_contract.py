@@ -66,7 +66,7 @@ class ConsoleDeploymentContractTest(unittest.TestCase):
         self.assertFalse(console_schema["additionalProperties"])
         self.assertEqual(
             set(console_schema["properties"]),
-            {"enabled", "image", "config"},
+            {"enabled", "image", "service", "config"},
         )
         self.assertEqual(
             set(console_schema["properties"]["config"]["properties"]),
