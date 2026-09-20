@@ -38,6 +38,7 @@ import reactor.core.Disposable;
  */
 public final class AgentScopeRuntime implements AgentRuntime {
     private static final String FAILURE_MESSAGE = "AgentScope execution failed";
+    private static final System.Logger LOG = System.getLogger(AgentScopeRuntime.class.getName());
 
     private final Object lifecycleLock = new Object();
     private volatile FakeRuntime state = new FakeRuntime();
@@ -90,10 +91,19 @@ public final class AgentScopeRuntime implements AgentRuntime {
             } catch (RuntimeException error) {
                 state.cancel(task.id());
                 releaseBinding(task.id());
+                LOG.log(System.Logger.Level.WARNING,
+                        "AgentScope task rejected before acceptance task=" + task.id()
+                                + " reason=" + rootMessage(error));
                 return RuntimeSubmission.rejected("RUNTIME_UNAVAILABLE");
             }
             return submission;
         }
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) current = current.getCause();
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     private void startExecutionLocked(RuntimeTask task, AgentRuntimeContext currentContext,

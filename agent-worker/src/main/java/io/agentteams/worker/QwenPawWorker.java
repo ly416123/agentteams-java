@@ -518,6 +518,10 @@ public final class QwenPawWorker implements AutoCloseable {
         }
         System.out.printf("Task assignment task=%s accepted=%s%n",
                 assignment.getMetadata().getTaskId(), submission.accepted());
+        if (!submission.accepted()) {
+            System.err.printf("Task assignment rejected task=%s reason=%s%n",
+                    assignment.getMetadata().getTaskId(), submission.reason());
+        }
         if (assignment.getMetadata().getSequence() > 0) {
             acknowledge(assignment);
         }

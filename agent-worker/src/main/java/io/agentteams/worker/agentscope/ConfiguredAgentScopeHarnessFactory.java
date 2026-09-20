@@ -2,6 +2,7 @@ package io.agentteams.worker.agentscope;
 
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ModelRegistry;
+import io.agentscope.core.state.JsonFileAgentStateStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentteams.application.api.SandboxHandle;
@@ -150,6 +151,7 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
                     .defaultSessionId(required(task, "attemptId"))
                     .model(model)
                     .workspace(workspace)
+                    .stateStore(new JsonFileAgentStateStore(workspaceRoot.resolve(".agentscope-state")))
                     .disableShellTool()
                     .disableSubagents()
                     .disableSessionPersistence()
