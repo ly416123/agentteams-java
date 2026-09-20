@@ -44,6 +44,7 @@ class KindConfigAcceptanceContractTest(unittest.TestCase):
                 "def pod_logs",
                 "bootstrap_log_tail",
                 "final_logs = pod_logs",
+                'completed_prefix in line and "applied=true" in line',
                 "def wait_for_replacement_worker",
                 "sequence=0",
                 "applied=true",

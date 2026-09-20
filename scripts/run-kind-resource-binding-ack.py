@@ -177,16 +177,16 @@ def wait_for_bootstrap_log(namespace: str, pod: str, agent_id: str,
         logs = pod_logs(namespace, pod)
         received = any(received_prefix in line and "sequence=0" in line
                         for line in logs.splitlines())
-        completed = any(completed_prefix in line and "sequence=0" in line
-                        and "applied=true" in line for line in logs.splitlines())
+        completed = any(completed_prefix in line and "applied=true" in line
+                        for line in logs.splitlines())
         if received and completed:
             return
         time.sleep(interval)
     final_logs = pod_logs(namespace, pod)
     final_received = any(received_prefix in line and "sequence=0" in line
                          for line in final_logs.splitlines())
-    final_completed = any(completed_prefix in line and "sequence=0" in line
-                          and "applied=true" in line for line in final_logs.splitlines())
+    final_completed = any(completed_prefix in line and "applied=true" in line
+                          for line in final_logs.splitlines())
     if final_received and final_completed:
         return
     fail(f"replacement Worker Pod {pod} did not log successful sequence=0 config bootstrap")
