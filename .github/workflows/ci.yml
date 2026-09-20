@@ -380,7 +380,7 @@ jobs:
             --projects 4 \
             --timeout 5 \
             --seed 20260828
-      - name: Run Kind resource binding ACK acceptance
+      - name: Run Kind resource binding ACK and config bootstrap acceptance
         env:
           AGENTTEAMS_CONTROL_PLANE_URL: http://127.0.0.1:18080
         run: |

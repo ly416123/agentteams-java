@@ -351,7 +351,8 @@ def main():
     for required in ("AGENTTEAMS_CONTROL_PLANE_URL", "AGENTTEAMS_AGENT_ID",
                      "validated_base_url", "validated_agent_id", "/api/v1/config/snapshots",
                      "resourceBindings", "KIND_RESOURCE_BINDING_ACK_OK",
-                     "KIND_RESOURCE_BINDING_FAILURE_OK"):
+                     "KIND_RESOURCE_BINDING_FAILURE_OK", "KIND_CONFIG_BOOTSTRAP_OK",
+                     "sequence=0", "applied=true"):
         if required not in resource_binding_text:
             fail(f"Kind resource binding ACK script missing {required}")
     mcp_discovery_script = ROOT / "scripts/run-kind-mcp-discovery.py"
