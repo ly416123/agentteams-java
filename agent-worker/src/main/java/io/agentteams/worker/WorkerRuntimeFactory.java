@@ -81,7 +81,8 @@ public final class WorkerRuntimeFactory {
             throw new IllegalStateException("AGENTSCOPE runtime requires configured Harness and model");
         }
         if (configuredHarness == null && !ModelRegistry.canResolve(configuration.model())) {
-            throw new IllegalStateException("AGENTSCOPE runtime requires configured Harness and model");
+            throw new IllegalStateException("AGENTSCOPE model provider cannot resolve: "
+                    + configuration.model());
         }
     }
 
