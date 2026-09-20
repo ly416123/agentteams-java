@@ -97,6 +97,15 @@ public final class ConfigLifecycleRepository {
                 java.sql.Timestamp.from(binding.desiredAt()));
     }
 
+    public List<ConfigBindingRecord> findBindingsForAgent(UUID agentId) {
+        return jdbc.query("""
+                SELECT id, subject, agent_id, snapshot_id, desired_at
+                  FROM config_bindings WHERE agent_id = ? ORDER BY subject, id
+                """, (rs, row) -> new ConfigBindingRecord(rs.getObject("id", UUID.class),
+                rs.getString("subject"), rs.getObject("agent_id", UUID.class),
+                rs.getObject("snapshot_id", UUID.class), instant(rs, "desired_at")), agentId);
+    }
+
     public Optional<ConfigBindingRecord> findBinding(String subject, UUID agentId) {
         return jdbc.query("""
                 SELECT id, subject, agent_id, snapshot_id, desired_at

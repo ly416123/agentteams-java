@@ -192,6 +192,25 @@ public final class ConfigDeploymentService {
         });
     }
 
+    public List<CurrentConfigBinding> findCurrentForAgent(UUID agentId) {
+        Objects.requireNonNull(agentId, "agentId");
+        return persistence.inTransaction(tx -> tx.configLifecycle().findBindingsForAgent(agentId).stream()
+                .map(binding -> new CurrentConfigBinding(binding,
+                        snapshots.findById(binding.snapshotId())
+                                .orElseThrow(() -> new IllegalStateException("desired config snapshot does not exist")),
+                        tx.configLifecycle().findFiles(binding.snapshotId())))
+                .toList());
+    }
+
+    public record CurrentConfigBinding(ConfigBindingRecord binding, ConfigSnapshot snapshot,
+            List<ConfigFileRecord> files) {
+        public CurrentConfigBinding {
+            Objects.requireNonNull(binding, "binding");
+            Objects.requireNonNull(snapshot, "snapshot");
+            files = List.copyOf(Objects.requireNonNull(files, "files"));
+        }
+    }
+
     public java.util.Optional<ConfigBindingStatus> findBindingStatus(UUID bindingId) {
         Objects.requireNonNull(bindingId, "bindingId");
         return persistence.inTransaction(tx -> tx.configLifecycle().findBindingStatus(bindingId));
