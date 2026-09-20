@@ -72,7 +72,7 @@ class TaskPushInfrastructureIT {
 
     @Container
     static final GenericContainer<?> MINIO = new GenericContainer<>(
-            "minio/minio:" + MINIO_VERSION)
+            "quay.io/minio/minio:" + MINIO_VERSION)
             .withCommand("server", "/data", "--console-address", ":9001")
             .withEnv("MINIO_ROOT_USER", "minioadmin")
             .withEnv("MINIO_ROOT_PASSWORD", "minioadmin")
