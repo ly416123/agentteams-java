@@ -20,7 +20,7 @@
 
 - [x] 构建并验证 `linux/amd64` Worker 镜像，使用不可变 L5 标签。
 - [x] 将镜像导入 L5 K3s containerd。
-- [x] 更新 L5 Control Plane 的 Worker Provisioner 配置并等待 Ready；现有 Worker 不重建。
+- [x] 更新 L5 Control Plane 的 Worker Provisioner 配置并等待 Ready；现有 Worker 不切换运行时，统一使用能力隔离后的镜像。
 - [x] 检查节点可用内存和核心 Deployment 状态。
 
 ## 任务 4：注册平台资源
@@ -46,7 +46,7 @@
 - AgentScope Worker 生产包可解析 DashScope 模型。
 - L5 配置以 Secret 引用方式自动向新 Worker 注入 MCP Token。
 - MCP 注册、AgentSpec 配置和 Worker CR 中都不出现 Secret 明文。
-- 新 Worker 实际调用 `web_search` 成功，既有 Worker 未被手工修改。
+- 新 Worker 实际调用 `web_search` 成功；既有 QwenPaw Worker 仍保持原运行时，仅统一切换到能力隔离后的 Worker 镜像。
 - 代码、配置和非敏感验收记录已提交并推送。
 
 ## 2026-09-20 L5 执行记录
