@@ -12,6 +12,26 @@ AgentTeamsClient client = new AgentTeamsClient(
 AgentTeamsClient.Task task = client.getTask(taskId);
 ```
 
+管理端适配器还可以使用 OIDC Bearer Token 创建 Agent、创建/发布 AgentSpec，并把已发布
+配置部署到 Agent：
+
+```java
+AgentTeamsClient admin = new AgentTeamsClient(
+        "https://agentteams.example", () -> shortLivedToken);
+AgentTeamsClient.Agent agent = admin.createAgent(
+        new AgentTeamsClient.CreateAgentRequest("leader", "qwenpaw", "LEADER", null, null),
+        "project-a", "corp-agent-agent-leader");
+AgentTeamsClient.AgentSpec spec = admin.createAgentSpec(
+        new AgentTeamsClient.CreateAgentSpecRequest("leader", "qwenpaw", "default",
+                "qwen3.5-plus", "team-a", "RUNNING", "LEADER", specJson),
+        "project-a", "corp-agent-spec-leader");
+admin.publishAgentSpec(spec.id(), "project-a", "corp-agent-publish-leader");
+admin.deployAgentSpec(spec.id(), agent.id(), "project-a", "corp-agent");
+```
+
+这些管理接口携带 `Authorization: Bearer`、项目作用域和幂等请求头；token 由调用方按需
+刷新，SDK 不保存或打印 token。
+
 客户端会为每个请求生成应用级 HMAC-SHA256 签名，并发送外部组织、外部用户、
 时间戳、Nonce、Body SHA-256 和签名 Header。`asUser(externalUserId)` 用于明确
 请求代表的外部用户；`provisioning()` 提供用户初始化、更新、禁用和成员查询。
