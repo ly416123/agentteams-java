@@ -26,6 +26,11 @@ import java.util.regex.Pattern;
  */
 public final class AgentScopeEventTranslator {
     private static final int MAX_SAFE_MESSAGE_LENGTH = 128;
+    /**
+     * Final answers need enough bounded context for semantic evaluation and artifact consumers.
+     * Process events keep the smaller message limit above to protect the event stream.
+     */
+    private static final int MAX_SAFE_RESULT_LENGTH = 16_384;
     private static final Pattern SENSITIVE_VALUE = Pattern.compile(
             "\\\"(?:authorization|apiKey|api[-_ ]?key|token|password|secret)\\\"\\s*:\\s*\\\""
                     + "(?:bearer\\s+)?[^\\\"]*\\\""
@@ -138,7 +143,7 @@ public final class AgentScopeEventTranslator {
         if (!(event instanceof AgentResultEvent resultEvent) || resultEvent.getResult() == null) {
             return "";
         }
-        return safeText(resultEvent.getResult().getTextContent());
+        return safeResultText(resultEvent.getResult().getTextContent());
     }
 
     private AgentScopeExecutionEvent mapped(String eventId, AgentScopeExecutionEvent.Kind kind,
@@ -162,8 +167,18 @@ public final class AgentScopeEventTranslator {
         if (value == null || value.isBlank()) {
             return "";
         }
-        String redacted = SENSITIVE_VALUE.matcher(value).replaceAll("[REDACTED]");
-        return truncate(redacted);
+        return truncate(redact(value), MAX_SAFE_MESSAGE_LENGTH);
+    }
+
+    private static String safeResultText(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return truncate(redact(value), MAX_SAFE_RESULT_LENGTH);
+    }
+
+    private static String redact(String value) {
+        return SENSITIVE_VALUE.matcher(value).replaceAll("[REDACTED]");
     }
 
     private static String safeToolName(String value) {
@@ -176,7 +191,7 @@ public final class AgentScopeEventTranslator {
             candidate = candidate.substring(0, boundary);
         }
         candidate = candidate.replaceAll("[^A-Za-z0-9_.:-]", "_");
-        candidate = truncate(candidate);
+        candidate = truncate(candidate, MAX_SAFE_MESSAGE_LENGTH);
         return candidate.isBlank() ? "unknown" : candidate;
     }
 
@@ -190,10 +205,10 @@ public final class AgentScopeEventTranslator {
         return -1;
     }
 
-    private static String truncate(String value) {
-        if (value.length() <= MAX_SAFE_MESSAGE_LENGTH) {
+    private static String truncate(String value, int maxLength) {
+        if (value.length() <= maxLength) {
             return value;
         }
-        return value.substring(0, MAX_SAFE_MESSAGE_LENGTH);
+        return value.substring(0, maxLength);
     }
 }

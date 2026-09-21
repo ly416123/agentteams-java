@@ -112,6 +112,30 @@ def _tool_names(observation: Mapping[str, Any]) -> list[str]:
     return names
 
 
+def _retrieval_context(observation: Mapping[str, Any]) -> list[str]:
+    """Extract bounded, textual tool results for metrics such as faithfulness."""
+    contexts: list[str] = []
+    seen: set[str] = set()
+    for event in observation.get("events", []) or []:
+        if not isinstance(event, Mapping):
+            continue
+        event_type = str(event.get("eventType", event.get("type", "")))
+        if event_type not in {"tool.finished", "tool.completed"}:
+            continue
+        payload = _payload(event)
+        for key in ("output", "result", "content", "response", "text"):
+            value = payload.get(key)
+            if isinstance(value, Mapping):
+                value = json.dumps(value, ensure_ascii=False, sort_keys=True)
+            if value is None:
+                continue
+            text = _sanitize_text(value).strip()
+            if text and text not in seen:
+                seen.add(text)
+                contexts.append(text[:8000])
+    return contexts
+
+
 def _expected_tools(case: EvalCase) -> list[str]:
     return [
         str(assertion["name"])
@@ -234,6 +258,9 @@ def build_test_case_payload(case: EvalCase, observation: Mapping[str, Any]) -> d
         "tools_called": [{"name": name} for name in _tool_names(observation)],
         "expected_tools": [{"name": name} for name in _expected_tools(case)],
     }
+    retrieval_context = _retrieval_context(observation)
+    if retrieval_context:
+        payload["retrieval_context"] = retrieval_context
     expected_output = _expected_output(case)
     if expected_output is not None:
         payload["expected_output"] = _sanitize_text(expected_output)
@@ -261,7 +288,15 @@ def _accepted_kwargs(constructor: Any, values: Mapping[str, Any]) -> dict[str, A
 def _make_tool_call(tool_class: Any, name: str, tool_call_type: Any = None) -> Any:
     values: dict[str, Any] = {"name": name}
     if tool_call_type is not None:
-        values["tool_call_type"] = tool_call_type
+        try:
+            parameters = inspect.signature(tool_class).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if "type" in parameters:
+            # DeepEval 4.x names this field `type`.
+            values["type"] = tool_call_type
+        else:
+            values["tool_call_type"] = tool_call_type
     return tool_class(**_accepted_kwargs(tool_class, values))
 
 
@@ -289,7 +324,7 @@ def build_deepeval_test_case(case: EvalCase, observation: Mapping[str, Any]) -> 
         "expected_tools": [_make_tool_call(ToolCall, item["name"], mcp_type)
                            for item in payload["expected_tools"]],
     }
-    for key in ("expected_output", "token_cost", "completion_time"):
+    for key in ("expected_output", "retrieval_context", "token_cost", "completion_time"):
         if key in payload:
             values[key] = payload[key]
     return LLMTestCase(**_accepted_kwargs(LLMTestCase, values))

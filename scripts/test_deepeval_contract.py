@@ -5,6 +5,7 @@ from pathlib import Path
 
 from eval.deepeval_adapter import (
     DeepEvalUnavailable,
+    _make_tool_call,
     build_test_case_payload,
     build_deepeval_metrics,
     load_observation,
@@ -31,7 +32,9 @@ class DeepEvalContractTest(unittest.TestCase):
             "run": {"id": "run-1", "completionTime": 1.25, "tokenCost": 7},
             "events": [
                 {"eventType": "tool.called", "payload": {"tool": "web_search"}},
-                {"eventType": "tool.finished", "payload": {"tool": "web_search"}},
+                {"eventType": "tool.finished", "payload": {
+                    "tool": "web_search", "output": "official MCP source context",
+                }},
             ],
             "result": {
                 "summary": "Model Context Protocol is a standard.",
@@ -50,6 +53,7 @@ class DeepEvalContractTest(unittest.TestCase):
         self.assertIn("Model Context Protocol", payload["actual_output"])
         self.assertEqual([{"name": "web_search"}], payload["tools_called"])
         self.assertEqual([{"name": "web_search"}], payload["expected_tools"])
+        self.assertEqual(["official MCP source context"], payload["retrieval_context"])
         self.assertEqual(7.0, payload["token_cost"])
         self.assertEqual(1.25, payload["completion_time"])
         serialized = json.dumps(payload, ensure_ascii=False).lower()
@@ -91,6 +95,16 @@ class DeepEvalContractTest(unittest.TestCase):
         rubric = load_rubric(Path(__file__).parents[1] / "eval/rubrics/core.yaml")
         with self.assertRaises(DeepEvalUnavailable):
             build_deepeval_metrics(rubric, "mcp-web-search-title")
+
+    def test_tool_call_type_is_compatible_with_deepeval_type_field(self):
+        class FakeToolCall:
+            def __init__(self, *, name, type=None):
+                self.name = name
+                self.type = type
+
+        call = _make_tool_call(FakeToolCall, "web_search", "MCP")
+        self.assertEqual("web_search", call.name)
+        self.assertEqual("MCP", call.type)
 
 
 if __name__ == "__main__":

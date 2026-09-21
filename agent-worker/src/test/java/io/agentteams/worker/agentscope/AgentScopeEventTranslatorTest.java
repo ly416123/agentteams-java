@@ -17,6 +17,7 @@ import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ToolCallEndEvent;
 import io.agentscope.core.event.ToolCallStartEvent;
 import io.agentscope.core.model.ChatUsage;
+import io.agentscope.core.message.UserMessage;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -120,6 +121,31 @@ class AgentScopeEventTranslatorTest {
         assertThat(ended.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.AGENT_ENDED);
         assertThat(ended.terminal()).isTrue();
         assertThat(ended.success()).isTrue();
+    }
+
+    @Test
+    void keepsBoundedLongResultCandidateForSemanticEvaluation() {
+        String longResult = "answer " + "x".repeat(300);
+
+        String candidate = translator.safeResultCandidate(withAttempt(new AgentResultEvent(
+                "long-result-id", CREATED_AT, new UserMessage(longResult))));
+
+        assertThat(candidate).hasSize(longResult.length());
+        assertThat(candidate).hasSizeGreaterThan(128);
+    }
+
+    @Test
+    void redactsSecretsWhilePreservingUsefulResultContent() {
+        String resultText = "answer Authorization: Bearer sk-secret-token-1234567890 "
+                + "x".repeat(300);
+
+        String candidate = translator.safeResultCandidate(withAttempt(new AgentResultEvent(
+                "redacted-result-id", CREATED_AT, new UserMessage(resultText))));
+
+        assertThat(candidate).contains("answer");
+        assertThat(candidate).contains("[REDACTED]");
+        assertThat(candidate).doesNotContain("sk-secret-token-1234567890");
+        assertThat(candidate).hasSizeGreaterThan(128);
     }
 
     @Test
