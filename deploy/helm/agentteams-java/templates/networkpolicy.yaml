@@ -148,6 +148,18 @@ spec:
         - ipBlock: { cidr: {{ .cidr | quote }} }
       ports: [{ protocol: TCP, port: {{ .port }} }]
     {{- end }}
+    {{- range .Values.networkPolicy.external.mcp }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports: [{ protocol: TCP, port: {{ .port }} }]
+    {{- end }}
+    {{- end }}
+    {{- if .Values.networkPolicy.mcp.enabled }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agentteams-mcp-tools }
+      ports:
+        - { protocol: TCP, port: {{ .Values.networkPolicy.mcp.internalServicePort }} }
     {{- end }}
     {{- if eq .Values.networkPolicy.egressMode "PROXY" }}
     - to:

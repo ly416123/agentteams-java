@@ -599,7 +599,16 @@
             "otlp": { "$ref": "#/definitions/egressTargets" },
             "oidc": { "$ref": "#/definitions/egressTargets" },
             "matrix": { "$ref": "#/definitions/egressTargets" },
-            "modelProviders": { "$ref": "#/definitions/egressTargets" }
+            "modelProviders": { "$ref": "#/definitions/egressTargets" },
+            "mcp": { "$ref": "#/definitions/egressTargets" }
+          }
+        },
+        "mcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "internalServicePort": { "type": "integer", "minimum": 1, "maximum": 65535 }
           }
         },
         "proxy": {

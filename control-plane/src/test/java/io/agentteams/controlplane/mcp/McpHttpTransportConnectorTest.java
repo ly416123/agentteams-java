@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,6 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,12 +37,22 @@ class McpHttpTransportConnectorTest {
     void discoversToolsAndDoesNotSendCredentialHeadersOrReferences() throws Exception {
         AtomicReference<String> request = new AtomicReference<>();
         server = server(exchange -> {
-            request.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            request.set(requestBody);
             assertThat(exchange.getRequestMethod()).isEqualTo("POST");
             assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isNull();
-            respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":1,"
-                    + "\"result\":{\"tools\":[{\"name\":\"search\",\"description\":\"Search\","
-                    + "\"inputSchema\":{\"type\":\"object\"}}]}}");
+            JsonNode root = new ObjectMapper().readTree(requestBody);
+            if ("initialize".equals(root.path("method").asText())) {
+                respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                        + root.path("id").asLong() + ",\"result\":{\"protocolVersion\":\"2025-06-18\","
+                        + "\"capabilities\":{},\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}}");
+            } else {
+                assertThat(exchange.getRequestHeaders().getFirst("MCP-Protocol-Version"))
+                        .isEqualTo("2025-06-18");
+                respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                        + root.path("id").asLong() + ",\"result\":{\"tools\":[{\"name\":\"search\","
+                        + "\"description\":\"Search\",\"inputSchema\":{\"type\":\"object\"}}]}}");
+            }
         });
 
         McpHttpTransportConnector connector = connector();
@@ -47,6 +62,99 @@ class McpHttpTransportConnectorTest {
         assertThat(tools).extracting(McpToolDescriptor::name).containsExactly("search");
         assertThat(request).hasValueSatisfying(body -> assertThat(body)
                 .contains("tools/list").doesNotContain("credentialRef", "secret"));
+    }
+
+    @Test
+    void initializesStreamableSessionBeforeListingTools() throws Exception {
+        AtomicReference<Boolean> initialized = new AtomicReference<>(false);
+        AtomicReference<String> sessionId = new AtomicReference<>();
+        ObjectMapper mapper = new ObjectMapper();
+        server = server(exchange -> {
+            JsonNode request = mapper.readTree(exchange.getRequestBody());
+            if ("initialize".equals(request.path("method").asText())) {
+                initialized.set(true);
+                sessionId.set("session-test");
+                exchange.getResponseHeaders().set("Mcp-Session-Id", sessionId.get());
+                respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                        + request.path("id").asLong() + ",\"result\":{\"protocolVersion\":\"2025-06-18\","
+                        + "\"capabilities\":{},\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}}");
+                return;
+            }
+            if ("notifications/initialized".equals(request.path("method").asText())) {
+                assertThat(exchange.getRequestHeaders().getFirst("MCP-Protocol-Version"))
+                        .isEqualTo("2025-06-18");
+                respond(exchange, 202, "application/json", "");
+                return;
+            }
+            assertThat(request.path("method").asText()).isEqualTo("tools/list");
+            assertThat(initialized).hasValue(true);
+            assertThat(exchange.getRequestHeaders().getFirst("Mcp-Session-Id")).isEqualTo(sessionId.get());
+            assertThat(exchange.getRequestHeaders().getFirst("MCP-Protocol-Version"))
+                    .isEqualTo("2025-06-18");
+            respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                    + request.path("id").asLong() + ",\"result\":{\"tools\":[{\"name\":\"search\","
+                    + "\"description\":\"Search\",\"inputSchema\":{\"type\":\"object\"}}]}}");
+        });
+
+        assertThat(connector().discoverTools(target(McpTransport.STREAMABLE_HTTP), Duration.ofSeconds(1)))
+                .extracting(McpToolDescriptor::name).containsExactly("search");
+    }
+
+    @Test
+    void initializesSseSessionBeforeListingTools() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        AtomicReference<OutputStream> stream = new AtomicReference<>();
+        CountDownLatch streamReady = new CountDownLatch(1);
+        CountDownLatch toolsListed = new CountDownLatch(1);
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/sse", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            OutputStream output = exchange.getResponseBody();
+            stream.set(output);
+            output.write("event:endpoint\ndata:/message?sessionId=test\n\n".getBytes(StandardCharsets.UTF_8));
+            output.flush();
+            streamReady.countDown();
+            try {
+                toolsListed.await();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
+            output.close();
+        });
+        server.createContext("/message", exchange -> {
+            try {
+                assertThat(streamReady.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted while waiting for SSE stream", error);
+            }
+            JsonNode request = mapper.readTree(exchange.getRequestBody());
+            String result = "initialize".equals(request.path("method").asText())
+                    ? "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
+                            + "\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}"
+                    : "{\"tools\":[{\"name\":\"search\",\"description\":\"Search\","
+                            + "\"inputSchema\":{\"type\":\"object\"}}]}";
+            if ("notifications/initialized".equals(request.path("method").asText())) {
+                respond(exchange, 202, "application/json", "");
+                return;
+            }
+            if ("tools/list".equals(request.path("method").asText())) {
+                toolsListed.countDown();
+            }
+            OutputStream output = stream.get();
+            output.write(("event:message\ndata:{\"jsonrpc\":\"2.0\",\"id\":"
+                    + request.path("id").asLong() + ",\"result\":" + result + "}\n\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            output.flush();
+            respond(exchange, 202, "application/json", "");
+        });
+        server.setExecutor(Executors.newCachedThreadPool());
+        server.start();
+
+        assertThat(connector().discoverTools(new McpConnectorTarget(UUID.randomUUID(), "test", McpTransport.SSE,
+                URI.create("http://localhost:" + server.getAddress().getPort() + "/sse")),
+                Duration.ofSeconds(1))).extracting(McpToolDescriptor::name).containsExactly("search");
     }
 
     @Test

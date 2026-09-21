@@ -302,6 +302,13 @@ networkPolicy:
     oidc: []
     matrix: []
     modelProviders: []
+    mcp: []
+  # Optional egress for MCP servers exposed inside or outside the cluster.
+  # External entries use explicit CIDRs because NetworkPolicy cannot express
+  # FQDN rules. Internal access is limited to the in-namespace MCP service.
+  mcp:
+    enabled: false
+    internalServicePort: 8090
   proxy:
     host: ""
     port: 0

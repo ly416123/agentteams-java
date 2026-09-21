@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +36,7 @@ import javax.net.ssl.SSLException;
  */
 public final class McpHttpTransportConnector implements McpTransportConnector {
     private static final String ACCEPT = "application/json, text/event-stream";
+    private static final String MCP_PROTOCOL_VERSION = "2025-06-18";
     private final HttpClient httpClient;
     private final McpHttpConnectorProperties properties;
     private final ObjectMapper objectMapper;
@@ -98,9 +100,23 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
         if (target.transport() == McpTransport.SSE) {
             return exchangeSse(endpoint, id, body, timeout);
         }
-        HttpRequest request = request(endpoint, body, timeout);
+        return exchangeStreamable(endpoint, id, body, timeout);
+    }
+
+    private JsonNode exchangeStreamable(URI endpoint, long id, String body, Duration timeout) {
         try {
-            HttpResponse<String> response = httpClient.send(request, bodyHandler());
+            long initializeId = requestIds.incrementAndGet();
+            HttpResponse<String> initialized = httpClient.send(
+                    request(endpoint, requestBody(initializeId, "initialize", initializeParams()), timeout, null),
+                    bodyHandler());
+            JsonNode initializeEnvelope = parseEnvelope(classify(initialized), initializeId);
+            String protocolVersion = initializeEnvelope.path("result").path("protocolVersion")
+                    .asText(MCP_PROTOCOL_VERSION);
+            String sessionId = initialized.headers().firstValue("Mcp-Session-Id").orElse(null);
+            sendNotification(endpoint, notificationBody("notifications/initialized", Map.of()), timeout, sessionId,
+                    protocolVersion);
+            HttpResponse<String> response = httpClient.send(
+                    request(endpoint, body, timeout, sessionId, protocolVersion), bodyHandler());
             return parseEnvelope(classify(response), id);
         } catch (McpHttpConnectorException error) {
             throw error;
@@ -129,23 +145,22 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
             throw protocol("SSE endpoint did not return text/event-stream", null);
         }
 
-        SseReader reader = new SseReader(response.body(), endpoint, id);
+        SseReader reader = new SseReader(response.body(), endpoint);
         reader.start();
         try {
             URI messageEndpoint = validateEndpoint(await(reader.endpoint, timeout));
-            HttpResponse<String> post = httpClient.send(request(messageEndpoint, body, timeout), bodyHandler());
-            McpHttpResponse postResponse = classify(post);
-            if (postResponse.body().isBlank()) {
-                return parseEnvelope(new McpHttpResponse(200, "application/json",
-                        await(reader.message, timeout)), id);
-            }
-            return parseEnvelope(postResponse, id);
+            long initializeId = requestIds.incrementAndGet();
+            var initializeMessage = reader.message(initializeId);
+            McpHttpResponse initialized = postSse(messageEndpoint, initializeId,
+                    requestBody(initializeId, "initialize", initializeParams()), timeout, initializeMessage);
+            parseEnvelope(initialized, initializeId);
+            postSseNotification(messageEndpoint, notificationBody("notifications/initialized", Map.of()), timeout);
+            var responseMessage = reader.message(id);
+            McpHttpResponse result = postSse(messageEndpoint, id, body, timeout, responseMessage);
+            return parseEnvelope(result, id);
         } catch (McpHttpConnectorException error) {
             throw error;
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw network(McpHttpFailureCategory.CONNECTION_FAILURE, "SSE request interrupted", error);
-        } catch (IOException | RuntimeException error) {
+        } catch (RuntimeException error) {
             throw classifyNetwork(error);
         } finally {
             close(response.body());
@@ -191,11 +206,80 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
                 || value.startsWith("*.") && host.endsWith(value.substring(1));
     }
 
-    private HttpRequest request(URI endpoint, String body, Duration timeout) {
-        return HttpRequest.newBuilder(endpoint).timeout(timeout)
+    private McpHttpResponse postSse(URI messageEndpoint, long id, String body, Duration timeout,
+            CompletableFuture<String> message) {
+        try {
+            HttpResponse<String> post = httpClient.send(request(messageEndpoint, body, timeout, null), bodyHandler());
+            McpHttpResponse postResponse = classify(post);
+            if (postResponse.body().isBlank()) {
+                return new McpHttpResponse(200, "application/json", await(message, timeout));
+            }
+            return postResponse;
+        } catch (McpHttpConnectorException error) {
+            throw error;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw network(McpHttpFailureCategory.CONNECTION_FAILURE, "SSE request interrupted", error);
+        } catch (IOException | RuntimeException error) {
+            throw classifyNetwork(error);
+        }
+    }
+
+    private void postSseNotification(URI messageEndpoint, String body, Duration timeout) {
+        try {
+            HttpResponse<String> response = httpClient.send(request(messageEndpoint, body, timeout, null), bodyHandler());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw statusFailure(response.statusCode());
+            }
+        } catch (McpHttpConnectorException error) {
+            throw error;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw network(McpHttpFailureCategory.CONNECTION_FAILURE, "SSE notification interrupted", error);
+        } catch (IOException | RuntimeException error) {
+            throw classifyNetwork(error);
+        }
+    }
+
+    private void sendNotification(URI endpoint, String body, Duration timeout, String sessionId,
+            String protocolVersion) {
+        try {
+            HttpResponse<String> response = httpClient.send(
+                    request(endpoint, body, timeout, sessionId, protocolVersion), bodyHandler());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw statusFailure(response.statusCode());
+            }
+        } catch (McpHttpConnectorException error) {
+            throw error;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw network(McpHttpFailureCategory.CONNECTION_FAILURE, "MCP notification interrupted", error);
+        } catch (IOException | RuntimeException error) {
+            throw classifyNetwork(error);
+        }
+    }
+
+    private HttpRequest request(URI endpoint, String body, Duration timeout, String sessionId) {
+        return request(endpoint, body, timeout, sessionId, null);
+    }
+
+    private HttpRequest request(URI endpoint, String body, Duration timeout, String sessionId,
+            String protocolVersion) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint).timeout(timeout)
                 .header("Accept", ACCEPT)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
+                .header("Content-Type", "application/json");
+        if (sessionId != null && !sessionId.isBlank()) {
+            builder.header("Mcp-Session-Id", sessionId);
+        }
+        if (protocolVersion != null && !protocolVersion.isBlank()) {
+            builder.header("MCP-Protocol-Version", protocolVersion);
+        }
+        return builder.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
+    }
+
+    private static Map<String, Object> initializeParams() {
+        return Map.of("protocolVersion", MCP_PROTOCOL_VERSION, "capabilities", Map.of(),
+                "clientInfo", Map.of("name", "agentteams-control-plane", "version", "0.1.0"));
     }
 
     private String requestBody(long id, String method, Map<String, Object> params) {
@@ -208,6 +292,18 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
             return objectMapper.writeValueAsString(root);
         } catch (RuntimeException | IOException error) {
             throw protocol("MCP request could not be encoded", error);
+        }
+    }
+
+    private String notificationBody(String method, Map<String, Object> params) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("jsonrpc", "2.0");
+            root.put("method", method);
+            root.set("params", objectMapper.valueToTree(params));
+            return objectMapper.writeValueAsString(root);
+        } catch (RuntimeException | IOException error) {
+            throw protocol("MCP notification could not be encoded", error);
         }
     }
 
@@ -328,15 +424,13 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
     private static final class SseReader {
         private final InputStream input;
         private final URI base;
-        private final long id;
         private final CompletableFuture<URI> endpoint = new CompletableFuture<>();
-        private final CompletableFuture<String> message = new CompletableFuture<>();
+        private final Map<Long, CompletableFuture<String>> messages = new ConcurrentHashMap<>();
         private CompletableFuture<?> task;
 
-        private SseReader(InputStream input, URI base, long id) {
+        private SseReader(InputStream input, URI base) {
             this.input = input;
             this.base = base;
-            this.id = id;
         }
 
         private void start() {
@@ -361,11 +455,19 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
                     }
                 }
                 if (!endpoint.isDone()) endpoint.completeExceptionally(protocol("SSE stream ended before endpoint", null));
-                if (!message.isDone()) message.completeExceptionally(protocol("SSE stream ended before response", null));
+                messages.values().forEach(message -> {
+                    if (!message.isDone()) {
+                        message.completeExceptionally(protocol("SSE stream ended before response", null));
+                    }
+                });
             } catch (IOException error) {
                 endpoint.completeExceptionally(error);
-                message.completeExceptionally(error);
+                messages.values().forEach(message -> message.completeExceptionally(error));
             }
+        }
+
+        private CompletableFuture<String> message(long id) {
+            return messages.computeIfAbsent(id, ignored -> new CompletableFuture<>());
         }
 
         private void emit(String event, String data) {
@@ -375,12 +477,12 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
                 catch (RuntimeException error) { endpoint.completeExceptionally(protocol("SSE endpoint is invalid", error)); }
                 return;
             }
-            if (!message.isDone()) {
-                try {
-                    JsonNode root = new ObjectMapper().readTree(data);
-                    if (root != null && root.path("id").asLong(Long.MIN_VALUE) == id) message.complete(data);
-                } catch (IOException ignored) { }
-            }
+            try {
+                JsonNode root = new ObjectMapper().readTree(data);
+                if (root != null && root.path("id").canConvertToLong()) {
+                    message(root.path("id").asLong()).complete(data);
+                }
+            } catch (IOException ignored) { }
         }
 
         private void cancel() { if (task != null) task.cancel(true); }
