@@ -48,3 +48,7 @@ python3 scripts/agentteams_eval.py \
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
 
 支持的确定性断言类型为 `phase`、`required_tool`、`forbidden_tool`、`output_contains` 和 `artifact_integrity`。未知类型会使该用例失败。后续接入 Promptfoo、DeepEval 或 Phoenix 时，仍以这层报告和任务运行证据作为基础。
+
+## 当前验证状态
+
+2026-09-21 已完成本地 Runner 验证：6 个 `unittest` 用例通过、Python 编译检查通过、`scripts/validate-kind-manifests.py` 返回 `KIND_MANIFESTS_OK`。同日尝试在当前 `kind-agentteams` 集群执行真实套件时，Control Plane 接受了任务但集群没有可用 Agent Worker，任务停在 `QUEUED`；临时任务已取消，L5 端到端证据待 Worker 恢复后补录。
