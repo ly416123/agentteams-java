@@ -11,6 +11,7 @@
 images:
   controlPlane: agentteams-control-plane:l5-artifact-scope-20260921-amd64
   gateway: agentteams-agent-gateway:l5-artifact-auth-20260921-amd64
+  operator: agentteams-operator:l5-secret-env-20260921-amd64
 
 resources:
   requests:
