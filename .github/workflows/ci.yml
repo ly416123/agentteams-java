@@ -32,7 +32,9 @@ jobs:
           set -euo pipefail
           python -m unittest scripts/test_agentteams_eval.py -v
           python -m unittest scripts/test_promptfoo_contract.py -v
+          python -m unittest scripts/test_l5_agentteams_eval_contract.py -v
           python -m py_compile scripts/agentteams_eval.py scripts/test_agentteams_eval.py
+          python -m py_compile scripts/run-l5-agentteams-eval.py
           python -m py_compile eval/promptfoo_tests.py eval/promptfoo_provider.py eval/promptfoo_assert.py
           python scripts/agentteams_eval.py --help >/dev/null
           python - <<'PY'

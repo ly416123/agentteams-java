@@ -57,6 +57,19 @@ npx promptfoo@latest eval \
 
 Promptfoo 配置和 Python hooks 都读取 `eval/cases/core.yaml`，不会复制 Prompt 或保存凭证。CI 只做离线契约检查，不自动启动 Promptfoo，也不把 Token 注入 GitHub Actions。
 
+## L5 受控入口
+
+L5 主机可以直接运行受控入口。它会检查 Worker CR 是否全部 Ready，自动解析集群内 Control Plane ClusterIP，并且只从环境变量读取短期 Token：
+
+```bash
+export AGENTTEAMS_EVAL_TOKEN='短期 Bearer Token'
+python3 scripts/run-l5-agentteams-eval.py \
+  --cases eval/cases/core.yaml \
+  --report eval/reports/l5-core-latest.json
+```
+
+入口不会创建身份映射、修改 Kubernetes 资源或保存 Token。运行身份必须已经具备目标租户、项目和团队的读取、创建及执行权限。当前环境没有 GitHub self-hosted L5 Runner，因此没有把私网 L5 地址直接写入 GitHub 定时 Job；未来配置 self-hosted Runner 或主机 cron 时，复用此入口即可。
+
 ## 用例和断言
 
 核心套件当前包含三个用例：
