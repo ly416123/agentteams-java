@@ -39,6 +39,10 @@ python3 scripts/agentteams_eval.py \
 
 用例中的 `scope` 必须与 Token 的租户、项目和团队范围一致。评测 Runner 不会创建或保存长期密钥；运行结束后应关闭 port-forward 并删除临时 Token。
 
+## CI 门禁
+
+每个 Pull Request 会运行离线 `eval-contract` Job。它检查 YAML 用例、Runner、确定性断言、CLI 编译和已提交验收报告的凭证脱敏，不访问 L5、模型或 MCP 服务，因此不需要在 GitHub Actions 配置任何 API Key。L5 套件仍通过受控环境手动执行，结果更新到 `eval/reports/` 后再提交。
+
 ## 用例和断言
 
 核心套件当前包含三个用例：
