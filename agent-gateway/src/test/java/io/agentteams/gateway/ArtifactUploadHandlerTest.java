@@ -184,6 +184,23 @@ class ArtifactUploadHandlerTest {
         assertThat(bridge.completes).isEmpty();
     }
 
+    @Test
+    void rejectsWrongTransportCredential() {
+        RecordingBridge bridge = new RecordingBridge();
+        ArtifactUploadHandler handler = new ArtifactUploadHandler(bridge, Clock.systemUTC(),
+                () -> "wrong-token", () -> "worker-gateway-token");
+        RecordingObserver<PrepareArtifactUploadResponse> observer = new RecordingObserver<>();
+
+        handler.prepareTaskArtifactUpload(prepareRequest(), observer);
+
+        assertThat(observer.values).singleElement().satisfies(response -> {
+            assertThat(response.getAccepted()).isFalse();
+            assertThat(response.getProtocolError())
+                    .isEqualTo(ArtifactProtocolError.ARTIFACT_PROTOCOL_ERROR_UNAUTHENTICATED);
+        });
+        assertThat(bridge.prepares).isEmpty();
+    }
+
     private static PrepareArtifactUploadRequest prepareRequest() {
         return PrepareArtifactUploadRequest.newBuilder()
                 .setMetadata(EventMetadata.newBuilder()

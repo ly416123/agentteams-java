@@ -196,6 +196,11 @@ gateway:
     enabled: false
     controlPlaneUrl: ""
     internalToken: ""
+    # Token required on Worker-originated artifact RPCs. Prefer a Secret in
+    # deployed environments so the value never appears in a Helm manifest.
+    workerToken: ""
+    workerTokenSecret: ""
+    workerTokenKey: worker-token
     requestTimeout: 5s
   workerOperations:
     # Gateway reports its live Worker Hello facts to the Control Plane only

@@ -185,7 +185,7 @@ public final class QwenPawWorker implements AutoCloseable {
             ManagedChannel channel, Clock clock) {
         if (!configuration.artifactUploadEnabled()) return null;
         return new GrpcRuntimeArtifactUploadPort(channel, configuration.agentId(), clock,
-                configuration.artifactUploadTimeout(), () -> "");
+                configuration.artifactUploadTimeout(), configuration::gatewayAuthToken, () -> "");
     }
 
     private static ManagedChannel gatewayChannel(WorkerConfiguration configuration,
@@ -711,6 +711,7 @@ public final class QwenPawWorker implements AutoCloseable {
             String agentId,
             String gatewayHost,
             int gatewayPort,
+            String gatewayAuthToken,
             boolean gatewayTlsEnabled,
             String gatewayTlsCaCertPath,
             String gatewayTlsClientCertPath,
@@ -760,6 +761,10 @@ public final class QwenPawWorker implements AutoCloseable {
             String projectId = scopedValue(environment, "AGENTTEAMS_SCOPE_PROJECT", "AGENTTEAMS_PROJECT_ID");
             boolean quotaRemoteEnabled = booleanValue(environment, "AGENTTEAMS_QUOTA_REMOTE_ENABLED", false);
             boolean artifactUploadEnabled = booleanValue(environment, "AGENTTEAMS_ARTIFACT_UPLOAD_ENABLED", false);
+            String gatewayAuthToken = optional(environment, "AGENTTEAMS_GATEWAY_AUTH_TOKEN");
+            if (artifactUploadEnabled && gatewayAuthToken == null) {
+                throw new IllegalArgumentException("AGENTTEAMS_GATEWAY_AUTH_TOKEN must be set when artifact uploads are enabled");
+            }
             if ((tenantId == null) != (projectId == null)) {
                 throw new IllegalArgumentException("tenant and project scope must be supplied together");
             }
@@ -771,6 +776,7 @@ public final class QwenPawWorker implements AutoCloseable {
                     required(environment, "AGENTTEAMS_AGENT_ID"),
                     value(environment, "AGENTTEAMS_GATEWAY_HOST", "agentteams-agentteams-java-gateway"),
                     integer(environment, "AGENTTEAMS_GATEWAY_PORT", 9090),
+                    gatewayAuthToken,
                     booleanValue(environment, "AGENTTEAMS_GATEWAY_TLS_ENABLED", false),
                     requiredWhenEnabled(environment, "AGENTTEAMS_GATEWAY_TLS_CA_CERT_PATH",
                             "AGENTTEAMS_GATEWAY_TLS_ENABLED"),

@@ -15,6 +15,8 @@ import io.grpc.stub.StreamObserver;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -33,6 +35,8 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
     private final Clock clock;
     /** Transport credential reader; blank means the call carries no identity. */
     private final Supplier<String> transportIdentity;
+    /** Expected Worker credential; blank keeps the package-private test constructor presence-only. */
+    private final Supplier<String> expectedTransportCredential;
 
     public ArtifactUploadHandler(ArtifactUploadBridge client) {
         this(client, Clock.systemUTC());
@@ -43,9 +47,16 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
     }
 
     ArtifactUploadHandler(ArtifactUploadBridge client, Clock clock, Supplier<String> transportIdentity) {
+        this(client, clock, transportIdentity, () -> "");
+    }
+
+    ArtifactUploadHandler(ArtifactUploadBridge client, Clock clock, Supplier<String> transportIdentity,
+            Supplier<String> expectedTransportCredential) {
         this.client = Objects.requireNonNull(client, "client");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.transportIdentity = Objects.requireNonNull(transportIdentity, "transportIdentity");
+        this.expectedTransportCredential = Objects.requireNonNull(expectedTransportCredential,
+                "expectedTransportCredential");
     }
 
     @Override
@@ -124,6 +135,12 @@ public final class ArtifactUploadHandler extends TaskArtifactServiceGrpc.TaskArt
     private void requireTransportCredential() {
         String credential = transportIdentity.get();
         if (credential == null || credential.isBlank()) {
+            throw new UnauthenticatedException();
+        }
+        String expected = expectedTransportCredential.get();
+        if (expected != null && !expected.isBlank()
+                && !MessageDigest.isEqual(credential.trim().getBytes(StandardCharsets.UTF_8),
+                        expected.trim().getBytes(StandardCharsets.UTF_8))) {
             throw new UnauthenticatedException();
         }
     }

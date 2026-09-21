@@ -74,6 +74,15 @@ spec:
               value: {{ default (printf "http://%s-control-plane:%d" (include "agentteams-java.fullname" .) (int .Values.controlPlane.port)) .Values.gateway.artifact.controlPlaneUrl | quote }}
             - name: AGENTTEAMS_GATEWAY_ARTIFACT_INTERNAL_TOKEN
               value: {{ .Values.gateway.artifact.internalToken | quote }}
+            - name: AGENTTEAMS_GATEWAY_ARTIFACT_WORKER_TOKEN
+{{- if .Values.gateway.artifact.workerTokenSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.gateway.artifact.workerTokenSecret | quote }}
+                  key: {{ .Values.gateway.artifact.workerTokenKey | quote }}
+{{- else }}
+              value: {{ .Values.gateway.artifact.workerToken | quote }}
+{{- end }}
             - name: AGENTTEAMS_GATEWAY_ARTIFACT_REQUEST_TIMEOUT
               value: {{ .Values.gateway.artifact.requestTimeout | quote }}
             - name: AGENTTEAMS_GATEWAY_WORKER_OPERATIONS_REMOTE_ENABLED

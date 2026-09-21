@@ -74,8 +74,13 @@ public class AgentGatewayGrpcConfiguration {
     @Bean
     @ConditionalOnBean(ControlPlaneArtifactUploadClient.class)
     @ConditionalOnMissingBean(ArtifactUploadHandler.class)
-    public ArtifactUploadHandler artifactUploadHandler(ControlPlaneArtifactUploadClient client) {
-        return new ArtifactUploadHandler(client);
+    public ArtifactUploadHandler artifactUploadHandler(ControlPlaneArtifactUploadClient client,
+            GatewayArtifactUploadProperties properties) {
+        if (properties.getWorkerToken() == null || properties.getWorkerToken().isBlank()) {
+            throw new IllegalArgumentException("gateway artifact worker token must not be blank");
+        }
+        return new ArtifactUploadHandler(client, Clock.systemUTC(), GrpcTransportIdentity::current,
+                properties::getWorkerToken);
     }
 
     @Bean

@@ -4,6 +4,7 @@ import io.agentteams.application.api.ArtifactUploadHttp;
 import io.agentteams.controlplane.persistence.ArtifactRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
+import io.agentteams.controlplane.persistence.TaskAssignmentRecord;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
@@ -104,7 +105,11 @@ public final class InternalArtifactUploadController {
                 .filter(candidate -> task.equals(candidate.taskId()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "task attempt does not exist for this task"));
-        if (!agentId.equals(record.actor())) {
+        TaskAssignmentRecord assignment = persistence.findTaskAssignmentByAttemptId(attempt)
+                .filter(candidate -> task.equals(candidate.taskId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "task assignment does not exist for this attempt"));
+        if (!assignment.agentId().toString().equals(agentId.trim())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "attempt is not owned by this agent");
         }
         return new OwnedAttempt(task, attempt);

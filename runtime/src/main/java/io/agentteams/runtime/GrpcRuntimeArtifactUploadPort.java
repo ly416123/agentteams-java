@@ -8,6 +8,8 @@ import io.agentteams.contracts.v1.PrepareArtifactUploadResponse;
 import io.agentteams.contracts.v1.ProtocolVersion;
 import io.agentteams.contracts.v1.TaskArtifactServiceGrpc;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.stub.MetadataUtils;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -32,23 +34,34 @@ import java.util.function.Supplier;
  */
 public final class GrpcRuntimeArtifactUploadPort implements RuntimeArtifactUploadPort {
     private static final ProtocolVersion VERSION = ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build();
+    private static final Metadata.Key<String> AGENT_TOKEN = Metadata.Key.of("x-agent-token",
+            Metadata.ASCII_STRING_MARSHALLER);
 
     private final TaskArtifactServiceGrpc.TaskArtifactServiceBlockingStub stub;
     private final HttpClient httpClient;
     private final String agentId;
     private final Clock clock;
     private final Duration timeout;
+    private final Supplier<String> gatewayToken;
     private final Supplier<String> traceparent;
 
     public GrpcRuntimeArtifactUploadPort(ManagedChannel channel, String agentId, Clock clock,
             Duration timeout, Supplier<String> traceparent) {
         this(TaskArtifactServiceGrpc.newBlockingStub(Objects.requireNonNull(channel, "channel")),
                 HttpClient.newBuilder().connectTimeout(Objects.requireNonNull(timeout, "timeout")).build(),
-                agentId, clock, timeout, traceparent);
+                agentId, clock, timeout, () -> "", traceparent);
+    }
+
+    public GrpcRuntimeArtifactUploadPort(ManagedChannel channel, String agentId, Clock clock,
+            Duration timeout, Supplier<String> gatewayToken, Supplier<String> traceparent) {
+        this(TaskArtifactServiceGrpc.newBlockingStub(Objects.requireNonNull(channel, "channel")),
+                HttpClient.newBuilder().connectTimeout(Objects.requireNonNull(timeout, "timeout")).build(),
+                agentId, clock, timeout, gatewayToken, traceparent);
     }
 
     GrpcRuntimeArtifactUploadPort(TaskArtifactServiceGrpc.TaskArtifactServiceBlockingStub stub,
-            HttpClient httpClient, String agentId, Clock clock, Duration timeout, Supplier<String> traceparent) {
+            HttpClient httpClient, String agentId, Clock clock, Duration timeout,
+            Supplier<String> gatewayToken, Supplier<String> traceparent) {
         this.stub = Objects.requireNonNull(stub, "stub");
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
         this.agentId = requireText(agentId, "agentId");
@@ -57,6 +70,7 @@ public final class GrpcRuntimeArtifactUploadPort implements RuntimeArtifactUploa
         if (timeout.isNegative() || timeout.isZero()) {
             throw new IllegalArgumentException("timeout must be positive");
         }
+        this.gatewayToken = Objects.requireNonNull(gatewayToken, "gatewayToken");
         this.traceparent = Objects.requireNonNull(traceparent, "traceparent");
     }
 
@@ -73,7 +87,8 @@ public final class GrpcRuntimeArtifactUploadPort implements RuntimeArtifactUploa
         }
         String sha256 = sha256(payload);
         Instant deadline = clock.instant().plus(timeout.multipliedBy(4));
-        PrepareArtifactUploadResponse prepared = stub
+        TaskArtifactServiceGrpc.TaskArtifactServiceBlockingStub authenticatedStub = authenticatedStub();
+        PrepareArtifactUploadResponse prepared = authenticatedStub
                 .withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS)
                 .prepareTaskArtifactUpload(PrepareArtifactUploadRequest.newBuilder()
                         .setMetadata(metadata(taskId, attemptId, deadline))
@@ -87,7 +102,7 @@ public final class GrpcRuntimeArtifactUploadPort implements RuntimeArtifactUploa
             throw new IllegalStateException("artifact upload was not accepted: " + prepared.getProtocolError());
         }
         putBytes(prepared.getUploadUrl(), contentType, payload);
-        CompleteArtifactUploadResponse completed = stub
+        CompleteArtifactUploadResponse completed = authenticatedStub
                 .withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS)
                 .completeTaskArtifactUpload(CompleteArtifactUploadRequest.newBuilder()
                         .setMetadata(metadata(taskId, attemptId, clock.instant().plus(timeout.multipliedBy(4))))
@@ -102,6 +117,16 @@ public final class GrpcRuntimeArtifactUploadPort implements RuntimeArtifactUploa
             throw new IllegalStateException("artifact upload verification failed: " + completed.getProtocolError());
         }
         return new UploadedArtifact(prepared.getStorageKey(), prepared.getDownloadUrl());
+    }
+
+    private TaskArtifactServiceGrpc.TaskArtifactServiceBlockingStub authenticatedStub() {
+        String token = gatewayToken.get();
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("gateway artifact upload credential is missing");
+        }
+        Metadata headers = new Metadata();
+        headers.put(AGENT_TOKEN, token.trim());
+        return stub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
     }
 
     private void putBytes(String uploadUrl, String contentType, byte[] payload) {

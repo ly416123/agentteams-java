@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.agentteams.controlplane.persistence.ArtifactRepository;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.FoundationTransaction;
+import io.agentteams.controlplane.persistence.TaskAssignmentRecord;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
 import io.agentteams.domain.task.TaskPhase;
 import io.agentteams.storage.ObjectStorage;
@@ -34,6 +35,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class InternalArtifactUploadControllerTest {
     private static final UUID TASK_ID = UUID.randomUUID();
     private static final UUID ATTEMPT_ID = UUID.randomUUID();
+    private static final String AGENT_ID = UUID.randomUUID().toString();
+    private static final String FOREIGN_AGENT_ID = UUID.randomUUID().toString();
     private static final String CONTENT = "plan body";
 
     @Mock private FoundationPersistenceService persistence;
@@ -53,19 +56,21 @@ class InternalArtifactUploadControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(
                         new InternalArtifactUploadController(artifacts, completion, persistence, "secret"))
                 .build();
+        org.mockito.Mockito.lenient().when(persistence.findTaskAssignmentByAttemptId(ATTEMPT_ID))
+                .thenReturn(Optional.of(assignment(AGENT_ID)));
     }
 
     @Test
     void rejectsRequestsWithoutInternalToken() throws Exception {
         mockMvc.perform(post("/internal/v1/artifacts/uploads")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(prepareBody("worker-1")))
+                        .content(prepareBody(AGENT_ID)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void preparesPresignedUploadForTheOwningAgent() throws Exception {
-        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("worker-1")));
+        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("scheduler")));
         when(storage.presignPut(anyString(), anyString(), any()))
                 .thenReturn(URI.create("http://minio/put").toURL());
         when(storage.presignGet(anyString(), any())).thenReturn(URI.create("http://minio/get").toURL());
@@ -73,7 +78,7 @@ class InternalArtifactUploadControllerTest {
         mockMvc.perform(post("/internal/v1/artifacts/uploads")
                         .header(InternalArtifactUploadController.TOKEN_HEADER, "secret")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(prepareBody("worker-1")))
+                        .content(prepareBody(AGENT_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.storageKey").value("tasks/" + TASK_ID + "/attempts/" + ATTEMPT_ID
                         + "/artifacts/plan.md"))
@@ -94,29 +99,31 @@ class InternalArtifactUploadControllerTest {
 
     @Test
     void rejectsPrepareForForeignAgents() throws Exception {
-        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("someone-else")));
+        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("scheduler")));
+        when(persistence.findTaskAssignmentByAttemptId(ATTEMPT_ID))
+                .thenReturn(Optional.of(assignment(FOREIGN_AGENT_ID)));
 
         mockMvc.perform(post("/internal/v1/artifacts/uploads")
                         .header(InternalArtifactUploadController.TOKEN_HEADER, "secret")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(prepareBody("worker-1")))
+                        .content(prepareBody(AGENT_ID)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void rejectsCompletionWhenStorageKeyDoesNotMatchTheAttempt() throws Exception {
-        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("worker-1")));
+        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("scheduler")));
 
         mockMvc.perform(post("/internal/v1/artifacts/complete")
                         .header(InternalArtifactUploadController.TOKEN_HEADER, "secret")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(completeBody("worker-1", "tasks/other/attempts/other/artifacts/plan.md")))
+                        .content(completeBody(AGENT_ID, "tasks/other/attempts/other/artifacts/plan.md")))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void rejectsCompletionWhenStoredBytesDoNotMatchTheDigest() {
-        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("worker-1")));
+        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("scheduler")));
         when(storage.download(anyString()))
                 .thenReturn(new ByteArrayInputStream("tampered".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
@@ -126,14 +133,14 @@ class InternalArtifactUploadControllerTest {
                         post("/internal/v1/artifacts/complete")
                                 .header(InternalArtifactUploadController.TOKEN_HEADER, "secret")
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(completeBody("worker-1", expectedKey()))))
+                                .content(completeBody(AGENT_ID, expectedKey()))))
                 .hasRootCauseInstanceOf(IllegalArgumentException.class)
                 .hasRootCauseMessage("artifact checksum or size mismatch");
     }
 
     @Test
     void completesVerifiedUploadAndExposesArtifactMetadata() throws Exception {
-        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("worker-1")));
+        when(persistence.findTaskAttempt(ATTEMPT_ID)).thenReturn(Optional.of(attempt("scheduler")));
         when(storage.download(anyString()))
                 .thenReturn(new ByteArrayInputStream(CONTENT.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         when(persistence.inTransaction(any())).thenAnswer(invocation -> {
@@ -146,7 +153,7 @@ class InternalArtifactUploadControllerTest {
         mockMvc.perform(post("/internal/v1/artifacts/complete")
                         .header(InternalArtifactUploadController.TOKEN_HEADER, "secret")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(completeBody("worker-1", expectedKey())))
+                        .content(completeBody(AGENT_ID, expectedKey())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.storageKey").value(expectedKey()))
                 .andExpect(jsonPath("$.artifactId").isNotEmpty());
@@ -173,5 +180,10 @@ class InternalArtifactUploadControllerTest {
         return new TaskAttemptRecord(ATTEMPT_ID, TASK_ID, UUID.randomUUID(), TaskPhase.RUNNING,
                 Instant.EPOCH.plusSeconds(3600), null, actor, "leader", "", "",
                 Instant.EPOCH, Instant.EPOCH, 0);
+    }
+
+    private static TaskAssignmentRecord assignment(String agentId) {
+        return new TaskAssignmentRecord(UUID.randomUUID(), TASK_ID, ATTEMPT_ID, UUID.fromString(agentId),
+                TaskPhase.RUNNING, Instant.EPOCH, Instant.EPOCH, null, "{}", Instant.EPOCH, Instant.EPOCH, 0);
     }
 }

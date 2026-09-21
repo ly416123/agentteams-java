@@ -31,7 +31,8 @@ class ArtifactUploadWiringTest {
                 .withPropertyValues("agentteams.gateway.grpc.port=0",
                         "agentteams.gateway.artifact.enabled=true",
                         "agentteams.gateway.artifact.control-plane-url=http://control-plane:8080",
-                        "agentteams.gateway.artifact.internal-token=kind-quota-internal")
+                        "agentteams.gateway.artifact.internal-token=kind-quota-internal",
+                        "agentteams.gateway.artifact.worker-token=worker-gateway-token")
                 .run(context -> {
                     assertThat(context).hasSingleBean(ControlPlaneArtifactUploadClient.class);
                     assertThat(context).hasSingleBean(ArtifactUploadHandler.class);

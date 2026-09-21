@@ -342,6 +342,10 @@ public final class FoundationPersistenceService {
         return inTransaction(tx -> tx.taskAttempts().findById(id));
     }
 
+    public Optional<TaskAssignmentRecord> findTaskAssignmentByAttemptId(UUID attemptId) {
+        return inTransaction(tx -> tx.findAssignmentByAttemptId(attemptId));
+    }
+
     public List<TaskExecutionRecord> findTaskExecution(UUID taskId) {
         return inTransaction(tx -> tx.taskAttempts().findByTaskId(taskId).stream().map(attempt -> {
             TaskAssignmentRecord assignment = tx.findAssignmentByAttemptId(attempt.id()).orElse(null);

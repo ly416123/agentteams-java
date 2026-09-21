@@ -10,6 +10,7 @@ public class GatewayArtifactUploadProperties {
     private boolean enabled;
     private URI controlPlaneUrl;
     private String internalToken = "";
+    private String workerToken = "";
     private Duration requestTimeout = Duration.ofSeconds(5);
 
     public boolean isEnabled() {
@@ -34,6 +35,14 @@ public class GatewayArtifactUploadProperties {
 
     public void setInternalToken(String internalToken) {
         this.internalToken = internalToken == null ? "" : internalToken;
+    }
+
+    public String getWorkerToken() {
+        return workerToken;
+    }
+
+    public void setWorkerToken(String workerToken) {
+        this.workerToken = workerToken == null ? "" : workerToken;
     }
 
     public Duration getRequestTimeout() {
