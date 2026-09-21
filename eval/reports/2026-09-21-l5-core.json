@@ -1,0 +1,83 @@
+{
+  "suite": "core",
+  "startedAt": "2026-09-21T09:49:42.598893Z",
+  "finishedAt": "2026-09-21T09:50:01.087858Z",
+  "passed": true,
+  "cases": [
+    {
+      "caseId": "mcp-web-search-title",
+      "passed": true,
+      "score": 1.0,
+      "assertions": [
+        {
+          "type": "phase",
+          "passed": true,
+          "message": "phase is SUCCEEDED",
+          "expected": "SUCCEEDED"
+        },
+        {
+          "type": "required_tool",
+          "passed": true,
+          "message": "required tool web_search was called",
+          "expected": "web_search"
+        },
+        {
+          "type": "output_contains",
+          "passed": true,
+          "message": "output contains expected text",
+          "expected": "Model Context Protocol"
+        }
+      ],
+      "taskId": "a24eb839-9b54-4814-8711-cc4598d6ff92",
+      "runId": "b87678e8-3d81-4877-839c-b8ba27361b23"
+    },
+    {
+      "caseId": "no-tool-simple-answer",
+      "passed": true,
+      "score": 1.0,
+      "assertions": [
+        {
+          "type": "phase",
+          "passed": true,
+          "message": "phase is SUCCEEDED",
+          "expected": "SUCCEEDED"
+        },
+        {
+          "type": "forbidden_tool",
+          "passed": true,
+          "message": "forbidden tool web_search was not called",
+          "expected": "web_search"
+        },
+        {
+          "type": "output_contains",
+          "passed": true,
+          "message": "output contains expected text",
+          "expected": "2 + 2 = 4"
+        }
+      ],
+      "taskId": "907fefaa-04c3-41ae-bfa9-31da51e8f518",
+      "runId": "2f5b5923-edf2-4cc1-8173-f5fe0370aab6"
+    },
+    {
+      "caseId": "artifact-integrity",
+      "passed": true,
+      "score": 1.0,
+      "assertions": [
+        {
+          "type": "phase",
+          "passed": true,
+          "message": "phase is SUCCEEDED",
+          "expected": "SUCCEEDED"
+        },
+        {
+          "type": "artifact_integrity",
+          "passed": true,
+          "message": "all artifacts have durable metadata",
+          "expected": "durable metadata"
+        }
+      ],
+      "taskId": "84bde065-fc29-4c3a-be85-d046a255d76e",
+      "runId": "65187812-1832-48b8-a798-f69231ac401d"
+    }
+  ]
+}

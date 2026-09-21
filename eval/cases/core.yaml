@@ -7,13 +7,14 @@ cases:
         tenant: tenant-a
         project: project-a
         team: team-a
-      taskType: qwenpaw
+      # AgentScope is the L5 worker with the registered web_search MCP server.
+      taskType: chat
       inputJson:
         prompt: >-
           Use the web_search MCP tool to find the official Model Context Protocol
           site and summarize what it is.
       requiredCapabilities:
-        - web_search
+        - runtime-agentscope-v1
     assertions:
       - type: phase
         expected: SUCCEEDED

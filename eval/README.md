@@ -43,7 +43,7 @@ python3 scripts/agentteams_eval.py \
 
 核心套件当前包含三个用例：
 
-- `mcp-web-search-title`：确认任务成功调用 `web_search`，并返回 MCP 相关内容。
+- `mcp-web-search-title`：将任务路由到 L5 的 AgentScope Worker，确认成功调用 `web_search`，并从结果制品读取 MCP 相关内容。
 - `no-tool-simple-answer`：确认简单问题不触发搜索工具。
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
 
@@ -51,4 +51,4 @@ python3 scripts/agentteams_eval.py \
 
 ## 当前验证状态
 
-2026-09-21 已完成本地 Runner 验证：6 个 `unittest` 用例通过、Python 编译检查通过、`scripts/validate-kind-manifests.py` 返回 `KIND_MANIFESTS_OK`。同日尝试在当前 `kind-agentteams` 集群执行真实套件时，Control Plane 接受了任务但集群没有可用 Agent Worker，任务停在 `QUEUED`；临时任务已取消，L5 端到端证据待 Worker 恢复后补录。
+2026-09-21 已完成本地 Runner 验证：6 个 `unittest` 用例通过、Python 编译检查通过、`scripts/validate-kind-manifests.py` 返回 `KIND_MANIFESTS_OK`。随后在 `ly-MacBookAir7-2` L5 主机执行核心套件，3 个用例全部 `SUCCEEDED`，分数均为 `1.0`；脱敏报告保存在 [`eval/reports/2026-09-21-l5-core.json`](reports/2026-09-21-l5-core.json)。验收使用的临时身份映射已清理。

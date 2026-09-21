@@ -141,6 +141,13 @@ def _output_text(observation: Mapping[str, Any]) -> str:
     return "\n".join(values)
 
 
+def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep report metadata free of presigned URLs and downloaded content."""
+    return {key: artifact.get(key) for key in (
+        "name", "storageRef", "contentType", "sizeBytes", "sha256", "version", "stage", "visibility"
+    ) if key in artifact}
+
+
 def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dict[str, Any]]]:
     result = observation.get("result") or {}
     artifacts = result.get("artifacts", []) if isinstance(result, Mapping) else []
@@ -160,7 +167,9 @@ def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dic
             bad.append(f"{artifact.get('name', '<unnamed>')}: sizeBytes must be positive")
         if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest.lower()):
             bad.append(f"{artifact.get('name', '<unnamed>')}: invalid sha256")
-    return not bad, "; ".join(bad) if bad else "all artifacts have durable metadata", list(artifacts)
+    return not bad, "; ".join(bad) if bad else "all artifacts have durable metadata", [
+        _safe_artifact_metadata(artifact) for artifact in artifacts if isinstance(artifact, Mapping)
+    ]
 
 
 def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list[AssertionResult]:
@@ -293,6 +302,25 @@ class AgentTeamsClient:
     def get_observation(self, task_id: str, run_id: str) -> dict[str, Any]:
         events = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/process-events")
         result = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/result")
+        if isinstance(result, Mapping) and isinstance(result.get("artifacts"), list):
+            enriched = []
+            for artifact in result["artifacts"]:
+                if not isinstance(artifact, Mapping):
+                    enriched.append(artifact)
+                    continue
+                copy = dict(artifact)
+                download_url = copy.get("downloadUrl")
+                if download_url:
+                    try:
+                        request = Request(str(download_url), headers={"Accept": "application/octet-stream"})
+                        with urlopen(request, timeout=self.timeout) as response:
+                            copy["content"] = response.read(2 * 1024 * 1024).decode("utf-8", errors="replace")
+                    except (OSError, URLError):
+                        # Artifact metadata assertions remain useful if content download is unavailable.
+                        pass
+                enriched.append(copy)
+            result = dict(result)
+            result["artifacts"] = enriched
         return {"task": self.get_task(task_id), "run": {"id": run_id},
                 "events": events if isinstance(events, list) else [], "result": result or {}}
 

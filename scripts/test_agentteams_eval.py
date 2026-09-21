@@ -106,6 +106,7 @@ cases:
                         "storageRef": "tasks/task-1/attempts/attempt-1/artifacts/result.json",
                         "sizeBytes": 12,
                         "sha256": "a" * 64,
+                        "downloadUrl": "http://minio.invalid/presigned-secret",
                     }
                 ]
             },
@@ -114,6 +115,7 @@ cases:
         result = evaluate_observation(case, observation)[0]
 
         self.assertTrue(result.passed)
+        self.assertNotIn("downloadUrl", result.actual[0])
 
     def test_client_uses_auth_and_idempotency_for_task_lifecycle(self):
         calls = []
