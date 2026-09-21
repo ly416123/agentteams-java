@@ -56,8 +56,8 @@ class GatewayRuntimeAdapterEventReportTest {
         adapter.acceptAssignment(assignment(taskId));
         channel.sent.clear();
 
-        adapter.reportEvent(taskId, "tool.called", "{\"tool\":\"web_search\"}");
-        adapter.reportEvent(taskId, "tool.finished", "{\"tool\":\"web_search\",\"elapsedMs\":12,\"ok\":true}");
+        assertTrue(adapter.reportEvent(taskId, "tool.called", "{\"tool\":\"web_search\"}"));
+        assertTrue(adapter.reportEvent(taskId, "tool.finished", "{\"tool\":\"web_search\",\"elapsedMs\":12,\"ok\":true}"));
 
         assertEquals(2, channel.sent.size());
         var first = channel.sent.get(0).getTaskEventReport();
@@ -76,11 +76,11 @@ class GatewayRuntimeAdapterEventReportTest {
     void reportEventDropsUnknownTaskAndOversizedPayload() {
         CapturingChannel channel = new CapturingChannel();
         GatewayRuntimeAdapter adapter = adapter(channel, 0);
-        adapter.reportEvent(UUID.randomUUID(), "tool.called", "{}");
+        assertTrue(!adapter.reportEvent(UUID.randomUUID(), "tool.called", "{}"));
         UUID taskId = UUID.randomUUID();
         adapter.acceptAssignment(assignment(taskId));
         channel.sent.clear();
-        adapter.reportEvent(taskId, "tool.called", "x".repeat(4097));
+        assertTrue(!adapter.reportEvent(taskId, "tool.called", "x".repeat(4097)));
         assertTrue(channel.sent.isEmpty());
     }
 
@@ -91,8 +91,8 @@ class GatewayRuntimeAdapterEventReportTest {
         UUID taskId = UUID.randomUUID();
         adapter.acceptAssignment(assignment(taskId));
         channel.sent.clear();
-        adapter.reportEvent(taskId, "tool.called", "{}");
-        adapter.reportEvent(taskId, "tool.called", "{}");
+        assertTrue(adapter.reportEvent(taskId, "tool.called", "{}"));
+        assertTrue(!adapter.reportEvent(taskId, "tool.called", "{}"));
         assertEquals(1, channel.sent.size());
     }
 
@@ -105,8 +105,8 @@ class GatewayRuntimeAdapterEventReportTest {
         adapter.acceptAssignment(assignment(first));
         adapter.acceptAssignment(assignment(second));
         channel.sent.clear();
-        adapter.reportEvent(first, "tool.called", "{}");
-        adapter.reportEvent(second, "tool.called", "{}");
+        assertTrue(adapter.reportEvent(first, "tool.called", "{}"));
+        assertTrue(adapter.reportEvent(second, "tool.called", "{}"));
         // 规格要求每任务滑动窗口：两个任务各自的预算互不挤占（worker 级共享窗口只会放行 1 条）。
         assertEquals(2, channel.sent.size());
     }

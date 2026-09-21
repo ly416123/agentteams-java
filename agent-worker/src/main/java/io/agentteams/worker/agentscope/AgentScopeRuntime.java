@@ -109,8 +109,12 @@ public final class AgentScopeRuntime implements AgentRuntime {
         try {
             runtimeEventSink.accept(new RuntimeEvent(UUID.fromString(event.taskId()), eventType,
                     payload, Instant.now(requireContextLocked().clock())));
-        } catch (RuntimeException ignored) {
-            // Middle-of-execution reporting is best-effort and must not fail the task.
+        } catch (RuntimeException error) {
+            // Middle-of-execution reporting is best-effort and must not fail the task,
+            // but the boundary failure must remain diagnosable in production.
+            LOG.log(System.Logger.Level.WARNING,
+                    "AgentScope runtime event delivery failed task=" + event.taskId()
+                            + " type=" + eventType + " tool=" + tool + " reason=" + rootMessage(error));
         }
     }
 

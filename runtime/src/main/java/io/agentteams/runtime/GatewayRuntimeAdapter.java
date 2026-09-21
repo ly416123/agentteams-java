@@ -157,27 +157,37 @@ public final class GatewayRuntimeAdapter {
      * 可运维），绝不威胁任务赋值、聚合版本或 gRPC 通道；因此也不推进
      * expectedVersion。
      */
-    public void reportEvent(UUID taskId, String eventType, String payloadJson) {
+    /**
+     * Reports a middle-of-execution event and returns whether it passed the
+     * local admission gates and was handed to the channel.
+     *
+     * <p>A {@code false} result means the event was intentionally shed by a
+     * local gate (unknown assignment, unsupported type, oversized payload, or
+     * rate limit). Transport failures still throw so the caller can record the
+     * boundary failure separately while keeping the task terminal path in
+     * control.</p>
+     */
+    public boolean reportEvent(UUID taskId, String eventType, String payloadJson) {
         if (eventType == null || !ALLOWED_EVENT_TYPES.contains(eventType)) {
-            return;
+            return false;
         }
         AssignmentContext context = assignments.get(taskId);
         if (context == null) {
             LOG.log(System.Logger.Level.DEBUG, "Dropping runtime event for unknown task " + taskId);
-            return;
+            return false;
         }
         byte[] payload = payloadJson == null ? new byte[0] : payloadJson.getBytes(StandardCharsets.UTF_8);
         if (payload.length > MAX_EVENT_PAYLOAD_BYTES) {
             LOG.log(System.Logger.Level.WARNING,
                     "Dropping runtime event for task " + taskId + ": payload exceeds "
                             + MAX_EVENT_PAYLOAD_BYTES + " bytes");
-            return;
+            return false;
         }
         RuntimeEventRateLimiter eventLimiter = context.eventLimiter();
         if (eventLimiter != null && !eventLimiter.tryAcquire()) {
             // 高频路径降为 debug，避免日志刷屏。
             LOG.log(System.Logger.Level.DEBUG, "Rate limit shed runtime event for task " + taskId);
-            return;
+            return false;
         }
         channel.send(AgentMessage.newBuilder().setTaskEventReport(
                 io.agentteams.contracts.v1.TaskEventReport.newBuilder()
@@ -186,6 +196,7 @@ public final class GatewayRuntimeAdapter {
                         .setEventType(eventType)
                         .setPayload(ByteString.copyFrom(payload))
                         .build()).build());
+        return true;
     }
 
     /** Keeps terminal execution events aligned after a heartbeat sent by the channel client. */

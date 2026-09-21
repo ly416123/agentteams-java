@@ -142,8 +142,13 @@ public final class QwenPawWorker implements AutoCloseable {
         this.runtimeAdapter = new GatewayRuntimeAdapter(configuration.agentId(), channelPort, runtime, clock,
                 artifactUploadPort(configuration, gatewayChannel, clock), configuration.eventRateLimit());
         // runtime SSE 中间事件 → 适配器出口（限速与白名单在两侧兜底）。
-        this.runtime.setEventSink(event -> runtimeAdapter.reportEvent(event.taskId(), event.eventType(),
-                event.payloadJson()));
+        this.runtime.setEventSink(event -> {
+            boolean handedOff = runtimeAdapter.reportEvent(event.taskId(), event.eventType(), event.payloadJson());
+            if (!handedOff) {
+                System.getLogger(QwenPawWorker.class.getName()).log(System.Logger.Level.WARNING,
+                        "Runtime event was shed task=" + event.taskId() + " type=" + event.eventType());
+            }
+        });
         RuntimeResultSink resultSink = this::onRuntimeResult;
         this.hello = hello(configuration, clock);
         runtime.start(new AgentRuntimeContext("qwenpaw", configuration.maxConcurrentTasks(), clock,
