@@ -50,9 +50,16 @@ jobs:
           data = json.loads(report.read_text(encoding="utf-8"))
           assert data["passed"] is True
           assert all(case["passed"] for case in data["cases"])
-          serialized = report.read_text(encoding="utf-8").lower()
-          for marker in ("bearer ", "x-amz-signature", "api_key", "password"):
-              assert marker not in serialized, marker
+          reports = [report,
+                     Path("eval/reports/2026-09-21-l5-deepeval-summary.json"),
+                     *Path("eval/reports/2026-09-21-l5-deepeval").glob("*.json")]
+          summary = json.loads(Path("eval/reports/2026-09-21-l5-deepeval-summary.json").read_text(encoding="utf-8"))
+          assert summary["deterministicPassed"] is True
+          assert all(case["passed"] for case in summary["cases"])
+          for artifact in reports:
+              serialized = artifact.read_text(encoding="utf-8").lower()
+              for marker in ("bearer ", "x-amz-signature", "api_key", "password", "cookie"):
+                  assert marker not in serialized, f"{artifact}: {marker}"
           PY
 
   verify:

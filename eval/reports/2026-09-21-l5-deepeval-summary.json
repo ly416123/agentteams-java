@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "agentteams-l5-deepeval-summary-v1",
+  "suite": "core",
+  "startedAt": "2026-09-21T11:05:58.099170Z",
+  "finishedAt": "2026-09-21T11:06:34.837278Z",
+  "deterministicPassed": true,
+  "cases": [
+    {
+      "caseId": "mcp-web-search-title",
+      "taskId": "777d12ab-85c2-444e-a6f7-366c48f2c3e3",
+      "runId": "d349b9fd-5d46-4251-b1da-8625b11aa4ad",
+      "passed": true,
+      "score": 1.0
+    },
+    {
+      "caseId": "no-tool-simple-answer",
+      "taskId": "5007c999-e53c-4a6e-8bd5-f30523e61868",
+      "runId": "5db9d04b-ed84-4ba6-9088-1a6e2b4087f5",
+      "passed": true,
+      "score": 1.0
+    },
+    {
+      "caseId": "artifact-integrity",
+      "taskId": "5f02b036-4a21-4cd4-9a8e-6dab5ac99963",
+      "runId": "8b832140-9cd8-44e5-8d9f-25255d48dfb3",
+      "passed": true,
+      "score": 1.0
+    }
+  ],
+  "semanticExports": [
+    "eval/reports/2026-09-21-l5-deepeval/mcp-web-search-title.json",
+    "eval/reports/2026-09-21-l5-deepeval/no-tool-simple-answer.json",
+    "eval/reports/2026-09-21-l5-deepeval/artifact-integrity.json"
+  ]
+}

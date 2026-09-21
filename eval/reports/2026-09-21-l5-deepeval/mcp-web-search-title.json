@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "deepeval-v1",
+  "caseId": "mcp-web-search-title",
+  "testCase": {
+    "input": "Use the web_search MCP tool to find the official Model Context Protocol site and summarize what it is.",
+    "actual_output": "task succeeded\nBased on the web search results, here's a summary of the Model Context Protocol (MCP):\n\n**What is Model Context Protocol (MCP)?*\n{\"taskId\":\"777d12ab-85c2-444e-a6f7-366c48f2c3e3\",\"status\":\"SUCCEEDED\",\"completedAt\":\"2026-09-21T11:06:09.232800027Z\",\"outputChars\":128,\"usage\":{\"provider\":\"dashscope-l5\",\"model\":\"dashscope:qwen-plus\",\"promptTokens\":8205,\"completionTokens\":502}}",
+    "tools_called": [
+      {
+        "name": "web_search"
+      }
+    ],
+    "expected_tools": [
+      {
+        "name": "web_search"
+      }
+    ],
+    "expected_output": "Model Context Protocol"
+  }
+}

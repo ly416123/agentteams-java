@@ -158,3 +158,5 @@ python3 scripts/run-l5-agentteams-eval.py \
 ## 当前验证状态
 
 2026-09-21 已完成本地 Runner 验证：6 个 `unittest` 用例通过、Python 编译检查通过、`scripts/validate-kind-manifests.py` 返回 `KIND_MANIFESTS_OK`。随后在 `ly-MacBookAir7-2` L5 主机执行核心套件，3 个用例全部 `SUCCEEDED`，分数均为 `1.0`；脱敏报告保存在 [`eval/reports/2026-09-21-l5-core.json`](reports/2026-09-21-l5-core.json)。验收使用的临时身份映射已清理。
+
+同日又在 L5 运行了带 `--deepeval-export-dir` 的核心套件，3 个用例仍全部 `SUCCEEDED`，并保存了脱敏的 DeepEval 输入样本。汇总记录见 [`eval/reports/2026-09-21-l5-deepeval-summary.json`](reports/2026-09-21-l5-deepeval-summary.json)，样本位于 [`eval/reports/2026-09-21-l5-deepeval/`](reports/2026-09-21-l5-deepeval/)。临时项目成员关系、Token、脚本和 L5 临时目录均已清理；人工语义标注和阈值校准仍待独立评测环境执行。

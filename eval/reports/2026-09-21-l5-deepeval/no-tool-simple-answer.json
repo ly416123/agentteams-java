@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "deepeval-v1",
+  "caseId": "no-tool-simple-answer",
+  "testCase": {
+    "input": "Answer exactly with: 2 + 2 = 4",
+    "actual_output": "task succeeded\n2 + 2 = 4\n{\"taskId\":\"5007c999-e53c-4a6e-8bd5-f30523e61868\",\"status\":\"SUCCEEDED\",\"completedAt\":\"2026-09-21T11:06:12.814400754Z\",\"outputChars\":9,\"usage\":{\"provider\":\"deepseek\",\"model\":\"deepseek-chat\",\"promptTokens\":14418,\"completionTokens\":39}}",
+    "tools_called": [],
+    "expected_tools": [],
+    "expected_output": "2 + 2 = 4"
+  }
+}
