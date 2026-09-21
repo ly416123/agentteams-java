@@ -114,7 +114,7 @@ class AgentTeamsClientTest {
             }
         });
         server.createContext("/api/v1/agent-specs/00000000-0000-0000-0000-000000000011/deployments/00000000-0000-0000-0000-000000000012", exchange ->
-                respond(exchange, 200, "{\"bindingId\":\"00000000-0000-0000-0000-000000000013\",\"agentId\":\"" + agentId + "\",\"snapshotId\":\"00000000-0000-0000-0000-000000000014\",\"configVersion\":1,\"eventId\":\"00000000-0000-0000-0000-000000000015\",\"phase\":\"PENDING\"}"));
+                deployResponse(exchange, agentId));
         server.createContext("/api/v1/agents", exchange ->
                 respond(exchange, 201, "{\"id\":\"" + agentId + "\",\"name\":\"leader\",\"workerType\":\"LEADER\",\"phase\":\"PROVISIONING\",\"runtime\":\"qwenpaw\",\"version\":0}"));
 
@@ -129,6 +129,11 @@ class AgentTeamsClientTest {
         assertThat(client.deployAgentSpec(specId, agentId, "project-a", "corp-agent").agentId()).isEqualTo(agentId);
         assertThat(agent.id()).isEqualTo(agentId);
         assertThat(spec.id()).isEqualTo(specId);
+    }
+
+    private static void deployResponse(HttpExchange exchange, UUID agentId) throws IOException {
+        assertThat(exchange.getRequestHeaders().getFirst("X-Actor")).isEqualTo("corp-agent");
+        respond(exchange, 200, "{\"bindingId\":\"00000000-0000-0000-0000-000000000013\",\"agentId\":\"" + agentId + "\",\"snapshotId\":\"00000000-0000-0000-0000-000000000014\",\"configVersion\":1,\"eventId\":\"00000000-0000-0000-0000-000000000015\",\"phase\":\"PENDING\"}");
     }
 
     private static String taskJson() {

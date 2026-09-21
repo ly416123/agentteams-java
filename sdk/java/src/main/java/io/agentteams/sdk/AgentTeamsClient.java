@@ -13,6 +13,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.nio.charset.StandardCharsets;
@@ -53,8 +54,8 @@ public final class AgentTeamsClient {
         requireId(specId);
         requireId(agentId);
         String path = withProject("/api/v1/agent-specs/" + specId + "/deployments/" + agentId, projectId);
-        if (actor != null && !actor.isBlank()) path += "&actor=" + URLEncoder.encode(actor, StandardCharsets.UTF_8);
-        return send("POST", path, null, AgentSpecDeployment.class, false, null);
+        return send("POST", path, null, AgentSpecDeployment.class, false, null,
+                actor == null || actor.isBlank() ? Map.of() : Map.of("X-Actor", actor));
     }
     public Task getTask(UUID taskId) { requireId(taskId); return send("GET", "/api/v1/tasks/" + taskId, null, Task.class, true, null); }
     public Task cancelTask(UUID taskId, LifecycleRequest request) { return cancelTask(taskId, request, false); }
@@ -63,8 +64,13 @@ public final class AgentTeamsClient {
     public TaskResultManifest getTaskResult(UUID taskId, UUID runId) { requireId(taskId); requireId(runId); return send("GET", "/api/v1/tasks/" + taskId + "/runs/" + runId + "/result?visibility=REQUESTER", null, TaskResultManifest.class, true, null); }
     public List<TaskProcessEvent> listTaskProcessEvents(UUID taskId, UUID runId, long after) { requireId(taskId); requireId(runId); if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative"); TaskProcessEvent[] e = send("GET", "/api/v1/tasks/" + taskId + "/runs/" + runId + "/process-events?after=" + after + "&visibility=REQUESTER", null, TaskProcessEvent[].class, true, null); return List.of(e); }
     private <T> T send(String method, String path, Object body, Class<T> responseType, boolean retrySafe, String idempotencyKey) {
+        return send(method, path, body, responseType, retrySafe, idempotencyKey, Map.of());
+    }
+    private <T> T send(String method, String path, Object body, Class<T> responseType, boolean retrySafe,
+                       String idempotencyKey, Map<String, String> extraHeaders) {
         String bodyJson = body == null ? "" : writeJson(body); String bodyHash = sha256(bodyJson); String timestamp = Long.toString(Instant.now().getEpochSecond()); String nonce = UUID.randomUUID().toString();
         HttpRequest.Builder request = HttpRequest.newBuilder().uri(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(30)).header("Accept", "application/json");
+        extraHeaders.forEach(request::header);
         if (accessKeyId != null) { String signature = new HmacSha256Signer(accessKeySecret).sign(Canonicalizer.canonical(method, URI.create(path), externalOrganizationId, externalUserId, timestamp, nonce, bodyHash)); request.header("Authorization", "AT-HMAC-SHA256 Credential=" + accessKeyId + ",SignedHeaders=...").header("X-AT-Timestamp", timestamp).header("X-AT-Nonce", nonce).header("X-AT-Organization-Id", externalOrganizationId).header("X-AT-User-Id", externalUserId).header("X-AT-Content-SHA256", bodyHash).header("X-AT-Signature", signature); }
         else if (accessToken != null) { String token = accessToken.get(); if (token != null && !token.isBlank()) request.header("Authorization", "Bearer " + token); }
         if ("GET".equals(method)) request.GET(); else request.header("Content-Type", "application/json").header("Idempotency-Key", idempotencyKey == null ? "sdk-" + UUID.randomUUID() : idempotencyKey).method(method, HttpRequest.BodyPublishers.ofString(bodyJson));
