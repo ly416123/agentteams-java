@@ -100,6 +100,37 @@ class AgentTeamsClientTest {
                 UUID.fromString("00000000-0000-0000-0000-000000000002"), 0)).hasSize(1);
     }
 
+    @Test
+    void createsPublishesAndDeploysAgentSpecWithOidcHeaders() {
+        UUID specId = UUID.fromString("00000000-0000-0000-0000-000000000011");
+        UUID agentId = UUID.fromString("00000000-0000-0000-0000-000000000012");
+        server.createContext("/api/v1/agent-specs", exchange -> {
+            assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("Bearer token-1");
+            assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isNotBlank();
+            if ("POST".equals(exchange.getRequestMethod()) && exchange.getRequestURI().getPath().equals("/api/v1/agent-specs")) {
+                respond(exchange, 201, "{\"id\":\"" + specId + "\",\"name\":\"leader\",\"runtime\":\"qwenpaw\",\"modelProvider\":\"default\",\"modelName\":\"qwen\",\"teamRef\":\"team-a\",\"workerType\":\"LEADER\",\"desiredState\":\"RUNNING\",\"lifecycleStatus\":\"DRAFT\",\"spec\":\"{}\",\"version\":0}");
+            } else {
+                respond(exchange, 200, "{\"id\":\"" + specId + "\",\"name\":\"leader\",\"runtime\":\"qwenpaw\",\"modelProvider\":\"default\",\"modelName\":\"qwen\",\"teamRef\":\"team-a\",\"workerType\":\"LEADER\",\"desiredState\":\"RUNNING\",\"lifecycleStatus\":\"PUBLISHED\",\"spec\":\"{}\",\"version\":1}");
+            }
+        });
+        server.createContext("/api/v1/agent-specs/00000000-0000-0000-0000-000000000011/deployments/00000000-0000-0000-0000-000000000012", exchange ->
+                respond(exchange, 200, "{\"bindingId\":\"00000000-0000-0000-0000-000000000013\",\"agentId\":\"" + agentId + "\",\"snapshotId\":\"00000000-0000-0000-0000-000000000014\",\"configVersion\":1,\"eventId\":\"00000000-0000-0000-0000-000000000015\",\"phase\":\"PENDING\"}"));
+        server.createContext("/api/v1/agents", exchange ->
+                respond(exchange, 201, "{\"id\":\"" + agentId + "\",\"name\":\"leader\",\"workerType\":\"LEADER\",\"phase\":\"PROVISIONING\",\"runtime\":\"qwenpaw\",\"version\":0}"));
+
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+        AgentTeamsClient.Agent agent = client.createAgent(
+                new AgentTeamsClient.CreateAgentRequest("leader", "qwenpaw", "LEADER", null, null),
+                "project-a", "agent-create-1");
+        AgentTeamsClient.AgentSpec spec = client.createAgentSpec(
+                new AgentTeamsClient.CreateAgentSpecRequest("leader", "qwenpaw", "default", "qwen", "team-a",
+                        "RUNNING", "LEADER", null), "project-a", "spec-create-1");
+        assertThat(client.publishAgentSpec(specId, "project-a", "spec-publish-1").lifecycleStatus()).isEqualTo("PUBLISHED");
+        assertThat(client.deployAgentSpec(specId, agentId, "project-a", "corp-agent").agentId()).isEqualTo(agentId);
+        assertThat(agent.id()).isEqualTo(agentId);
+        assertThat(spec.id()).isEqualTo(specId);
+    }
+
     private static String taskJson() {
         return "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"title\":\"Demo\","
                 + "\"description\":\"Task\",\"phase\":\"DRAFT\",\"priority\":0,"

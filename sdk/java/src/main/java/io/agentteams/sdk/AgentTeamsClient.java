@@ -6,6 +6,7 @@ import io.agentteams.sdk.signing.Canonicalizer;
 import io.agentteams.sdk.signing.HmacSha256Signer;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.nio.charset.StandardCharsets;
 
 /** Small Java 17 client for the AgentTeams public API. */
 public final class AgentTeamsClient {
@@ -36,6 +38,24 @@ public final class AgentTeamsClient {
     public Provisioning provisioning() { requireSignedUser(); return new Provisioning(); }
     public Project createProject(CreateProjectRequest request) { return send("POST", "/api/v1/projects", request, Project.class, false, null); }
     public Project createProject(CreateProjectRequest request, String idempotencyKey, boolean retrySafe) { return send("POST", "/api/v1/projects", request, Project.class, retrySafe, idempotencyKey); }
+    public Agent createAgent(CreateAgentRequest request, String projectId, String idempotencyKey) {
+        return send("POST", withProject("/api/v1/agents", projectId), request, Agent.class, false, idempotencyKey);
+    }
+    public AgentSpec createAgentSpec(CreateAgentSpecRequest request, String projectId, String idempotencyKey) {
+        return send("POST", withProject("/api/v1/agent-specs", projectId), request, AgentSpec.class, false, idempotencyKey);
+    }
+    public AgentSpec publishAgentSpec(UUID specId, String projectId, String idempotencyKey) {
+        requireId(specId);
+        return send("POST", withProject("/api/v1/agent-specs/" + specId + "/publish", projectId), null,
+                AgentSpec.class, false, idempotencyKey);
+    }
+    public AgentSpecDeployment deployAgentSpec(UUID specId, UUID agentId, String projectId, String actor) {
+        requireId(specId);
+        requireId(agentId);
+        String path = withProject("/api/v1/agent-specs/" + specId + "/deployments/" + agentId, projectId);
+        if (actor != null && !actor.isBlank()) path += "&actor=" + URLEncoder.encode(actor, StandardCharsets.UTF_8);
+        return send("POST", path, null, AgentSpecDeployment.class, false, null);
+    }
     public Task getTask(UUID taskId) { requireId(taskId); return send("GET", "/api/v1/tasks/" + taskId, null, Task.class, true, null); }
     public Task cancelTask(UUID taskId, LifecycleRequest request) { return cancelTask(taskId, request, false); }
     public Task cancelTask(UUID taskId, LifecycleRequest request, boolean retrySafe) { requireId(taskId); return send("POST", "/api/v1/tasks/" + taskId + "/cancel", request, Task.class, retrySafe, null); }
@@ -62,6 +82,11 @@ public final class AgentTeamsClient {
     private static void requireId(UUID id) { if (id == null) throw new IllegalArgumentException("id must not be null"); }
     private void requireSignedUser() { if (accessKeyId == null || blank(externalUserId)) throw new IllegalStateException("provisioning requires a signed client asUser(externalUserId)"); }
     private static boolean blank(String s) { return s == null || s.isBlank(); }
+    private static String withProject(String path, String projectId) {
+        return projectId == null || projectId.isBlank() ? path
+                : path + (path.contains("?") ? "&" : "?") + "projectId="
+                + URLEncoder.encode(projectId, StandardCharsets.UTF_8);
+    }
     public final class Provisioning {
         private Provisioning() { }
         public ProvisioningUser initializeUser(ProvisioningRequest request, String idempotencyKey, boolean retrySafe) { return send("POST", "/api/v1/provisioning/users", request, ProvisioningUser.class, retrySafe, idempotencyKey); }
@@ -71,6 +96,17 @@ public final class AgentTeamsClient {
         private void requireExternal(String id) { if (blank(id)) throw new IllegalArgumentException("externalUserId must not be blank"); }
     }
     public record CreateProjectRequest(String name) { } public record LifecycleRequest(Long expectedVersion, String actor, String source) { } public record ProvisioningRequest(String externalUserId, String displayName) { } public record ProvisioningUser(String externalUserId, String status) { } public record Membership(String projectId, String role) { }
+    public record CreateAgentRequest(String name, String runtime, String workerType, JsonNode capabilities, JsonNode metadata) { }
+    public record CreateAgentSpecRequest(String name, String runtime, String modelProvider, String modelName,
+                                         String teamRef, String desiredState, String workerType, JsonNode spec) { }
     public record Project(UUID id, String tenantId, String name, String status, String createdBy) { } public record Task(UUID id, String title, String description, String phase, int priority, java.time.Instant createdAt, java.time.Instant updatedAt, long version) { } public record TaskProgressSnapshot(String phase, long completed, long total, int progress, String waitingReason) { } public record TaskProcessEvent(UUID eventId, UUID taskId, UUID runId, long sequence, String eventType, String visibility, java.time.Instant occurredAt, String correlationId, String payload, String payloadRef) { } public record TaskResultManifest(UUID taskId, UUID runId, String status, String summary, java.util.List<ArtifactMetadata> artifacts) { } public record ArtifactMetadata(String name, String storageRef, String contentType, long sizeBytes, String sha256, long version, String stage, String visibility) { }
+    public record Agent(UUID id, String name, String workerType, String phase, String runtime,
+                        java.time.Instant createdAt, java.time.Instant updatedAt, long version, String templateName) { }
+    public record AgentSpec(UUID id, String name, String runtime, String modelProvider, String modelName,
+                            String teamRef, String workerType, String desiredState, String lifecycleStatus,
+                            String spec, java.time.Instant createdAt, java.time.Instant updatedAt, long version,
+                            String tenantId, String projectId) { }
+    public record AgentSpecDeployment(UUID bindingId, UUID agentId, UUID snapshotId, long configVersion,
+                                      UUID eventId, String phase) { }
     public static final class ApiErrorException extends RuntimeException { private final int status; private final String code; private final String correlationId; private final JsonNode details; private ApiErrorException(int status, String code, String message, String correlationId, JsonNode details, Throwable cause) { super(message, cause); this.status = status; this.code = code; this.correlationId = correlationId; this.details = details; } public int status() { return status; } public String code() { return code; } public String correlationId() { return correlationId; } public JsonNode details() { return details; } }
 }
