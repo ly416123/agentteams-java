@@ -44,7 +44,11 @@ class BatchAHelmContractTest(unittest.TestCase):
                 "MCP_TOOLS_TOKEN": {
                     "secret": "agentteams-mcp-tools",
                     "key": "mcp-tools-token",
-                }
+                },
+                "AGENTTEAMS_GATEWAY_AUTH_TOKEN": {
+                    "secret": "agentteams-gateway",
+                    "key": "worker-token",
+                },
             },
         )
         self.assertNotIn("bailian-api-key", raw_mapping)

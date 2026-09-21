@@ -12,7 +12,7 @@
 
 ## 任务 2：固化 L5 Worker 凭据映射
 
-- [x] 在 Helm 契约测试中断言 L5 只将 `MCP_TOOLS_TOKEN` 映射到 `agentteams-mcp-tools/mcp-tools-token`。
+- [x] 在 Helm 契约测试中断言 L5 将 `MCP_TOOLS_TOKEN` 映射到 `agentteams-mcp-tools/mcp-tools-token`，并将 Worker 产物上传认证令牌独立映射到 `AGENTTEAMS_GATEWAY_AUTH_TOKEN`。
 - [x] 在 `deploy/helm/l5-values.yaml` 配置 `credentialSecretEnvs`。
 - [x] 验证渲染后的 Control Plane 环境变量包含映射，Worker 模板只引用 `mcp-tools-token`，不引用 `bailian-api-key`。
 
@@ -37,7 +37,7 @@
 - [x] 模型 Secret 就绪后实例化模板，由 Control Plane 创建新的 AgentSpec、Agent 和 Worker CR。
 - [x] 创建并发布独立 AgentSpec，引用 `agentteams-web-search`。
 - [x] 将已发布 AgentSpec 部署到新 Worker 对应的 Agent。
-- [x] 验证新 Worker 环境存在 `MCP_TOOLS_TOKEN` 和模型凭据变量，不存在 `BAILIAN_API_KEY`。
+- [x] 验证新 Worker 环境存在 `MCP_TOOLS_TOKEN`、`AGENTTEAMS_GATEWAY_AUTH_TOKEN` 和模型凭据变量，不存在 `BAILIAN_API_KEY`。
 - [x] 提交带强制工具调用指令的验收任务，任务成功并返回 `www.pbc.gov.cn`；MCP 服务日志确认收到 AgentScope 客户端初始化请求，未记录搜索正文。
 - [x] 验收后确认 MCP Pod、新 Worker 和所有核心 Deployment Ready，节点可用内存不低于 `512 MiB`。
 
@@ -60,7 +60,7 @@
 - Worker Template `l5-agentscope-web-search` 的版本 1 已完成评审并发布，模板实例已成功创建 Worker `ccea9e5f-b5a2-4cd4-8e75-74f516ab41e5`。
 - AgentSpec `l5-agentscope-web-search` 已发布，并通过模型与 MCP 引用校验。
 - 滚动更新后所有核心 Deployment Ready，节点可用内存为 `953 MiB`。
-- Worker CR 已进入 Ready，Secret 引用仅为 `DASHSCOPE_API_KEY` 与 `MCP_TOOLS_TOKEN`，没有 `BAILIAN_API_KEY`。
+- Worker CR 已进入 Ready，Secret 引用包含独立的 `DASHSCOPE_API_KEY`、`MCP_TOOLS_TOKEN` 和产物上传用 `AGENTTEAMS_GATEWAY_AUTH_TOKEN`，没有 `BAILIAN_API_KEY`。
 - 初次任务被旧 Worker 接收，暴露出 Worker Hello 同时声明两种 runtime 能力的问题；已用回归测试修复为按实际 runtime 只声明一种能力，随后重新部署并重跑验收任务。
 - AgentScope 默认权限模式会拒绝无人值守工具调用；已用回归测试锁定 Worker Harness 为 `PermissionMode.BYPASS`，同时继续禁用 Shell 和子代理。
 - 验收任务 `ae54ce09-86fd-4342-aaa4-30a38af75df2` 已由 AgentScope Worker 成功完成，输出为 `www.pbc.gov.cn`；对应 MCP Pod 收到 `agentscope-java` 初始化请求。
