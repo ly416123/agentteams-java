@@ -86,6 +86,25 @@ class AgentScopeRuntimeTest {
     }
 
     @Test
+    void failsWhenRequiredMcpToolWasNotCalled() throws Exception {
+        List<RuntimeResult> results = new CopyOnWriteArrayList<>();
+        CountDownLatch completed = new CountDownLatch(1);
+        runtime = newRuntime(new DeterministicModel("safe answer"), event -> { });
+        runtime.start(context(1, result -> {
+            results.add(result);
+            completed.countDown();
+        }));
+
+        RuntimeTask task = taskWithInput("attempt-required-tool", "lease-required-tool", "corr-required-tool",
+                "{\"prompt\":\"answer\",\"requiredMcpTools\":[\"web_search\"]}");
+        assertThat(runtime.submit(task)).isEqualTo(RuntimeSubmission.acceptedSubmission());
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).success()).isFalse();
+        assertThat(results.get(0).output()).contains("REQUIRED_TOOL_NOT_CALLED: web_search");
+    }
+
+    @Test
     void publishesToolCallsThroughTheWorkerRuntimeEventSink() {
         List<RuntimeEvent> runtimeEvents = new CopyOnWriteArrayList<>();
         runtime = newRuntime(new DeterministicModel("unused"), event -> { });
@@ -623,6 +642,16 @@ class AgentScopeRuntimeTest {
             metadata.put("leaseExpiresAt", leaseExpiresAt);
         }
         return new RuntimeTask(UUID.randomUUID(), "chat", "hello", metadata);
+    }
+
+    private static RuntimeTask taskWithInput(String attemptId, String leaseId, String correlationId,
+            String inputJson) {
+        Map<String, String> metadata = new java.util.HashMap<>(Map.of(
+                "attemptId", attemptId,
+                "leaseId", leaseId,
+                "correlationId", correlationId,
+                "agentId", "worker-test"));
+        return new RuntimeTask(UUID.randomUUID(), "chat", inputJson, metadata);
     }
 
     private static final class AdjustableClock extends Clock {

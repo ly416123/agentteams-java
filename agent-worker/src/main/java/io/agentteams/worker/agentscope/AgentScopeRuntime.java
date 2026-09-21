@@ -1,5 +1,7 @@
 package io.agentteams.worker.agentscope;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.ModelCallEndEvent;
@@ -21,9 +23,12 @@ import io.agentteams.runtime.RuntimeSubmission;
 import io.agentteams.runtime.RuntimeTask;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,6 +45,8 @@ import reactor.core.Disposable;
  */
 public final class AgentScopeRuntime implements AgentRuntime {
     private static final String FAILURE_MESSAGE = "AgentScope execution failed";
+    private static final String REQUIRED_TOOL_FAILURE_PREFIX = "REQUIRED_TOOL_NOT_CALLED: ";
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final System.Logger LOG = System.getLogger(AgentScopeRuntime.class.getName());
 
     private final Object lifecycleLock = new Object();
@@ -142,6 +149,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         String attemptId = requiredMetadata(task, "attemptId");
         String leaseId = requiredMetadata(task, "leaseId");
         String correlationId = task.metadata().getOrDefault("correlationId", task.id().toString());
+        Set<String> requiredMcpTools = requiredMcpTools(task.inputJson());
         // Validate lease metadata before creating a provider Agent, so malformed
         // expiry metadata cannot leave an untracked Harness resource behind.
         parseLeaseExpiresAt(task.metadata().get("leaseExpiresAt"));
@@ -149,7 +157,8 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 task.id().toString(), attemptId, leaseId, correlationId, currentContext.runtimeName());
         HarnessAgent agent = Objects.requireNonNull(harnessFactory.create(task, currentContext),
                 "harnessFactory returned null");
-        Execution execution = new Execution(task, agent, translator, attemptId, leaseId, currentGeneration);
+        Execution execution = new Execution(task, agent, translator, attemptId, leaseId, currentGeneration,
+                requiredMcpTools);
         Execution previous = executions.putIfAbsent(task.id(), execution);
         if (previous != null) {
             execution.close();
@@ -165,7 +174,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     .put("correlationId", correlationId)
                     .put("runtime", currentContext.runtimeName())
                     .build();
-            Disposable disposable = agent.streamEvents(new UserMessage(task.inputJson()), agentContext)
+            Disposable disposable = agent.streamEvents(new UserMessage(agentInput(task.inputJson(), requiredMcpTools)), agentContext)
                     .subscribe(event -> onEvent(execution, event),
                     error -> onStreamError(execution, error),
                             () -> onStreamComplete(execution));
@@ -203,6 +212,12 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     return;
                 }
                 reportRuntimeEvent(translated);
+                if (translated.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED) {
+                    String tool = toolName(translated.safeMessage());
+                    if (!"unknown".equals(tool)) {
+                        execution.completedMcpTools.add(tool);
+                    }
+                }
                 if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_RESULT
                         && !translated.duplicate()) {
                     execution.resultCandidate = execution.translator.safeResultCandidate(event);
@@ -213,7 +228,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                                     + " type=" + originalEvent.getClass().getSimpleName());
                     completeFailureLocked(execution, FAILURE_MESSAGE);
                 } else if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_ENDED) {
-                    completeSuccessLocked(execution);
+                    completeRequiredToolsOrSuccessLocked(execution);
                 }
             } catch (RuntimeException error) {
                 LOG.log(System.Logger.Level.WARNING,
@@ -254,6 +269,19 @@ public final class AgentScopeRuntime implements AgentRuntime {
         completeLocked(execution, RuntimeResult.success(execution.task.id(),
                 execution.resultCandidate == null ? "" : execution.resultCandidate,
                 Instant.now(currentContext.clock()), execution.callUsage));
+    }
+
+    private void completeRequiredToolsOrSuccessLocked(Execution execution) {
+        if (!execution.requiredMcpTools.isEmpty()) {
+            List<String> missing = execution.requiredMcpTools.stream()
+                    .filter(tool -> !execution.completedMcpTools.contains(tool))
+                    .toList();
+            if (!missing.isEmpty()) {
+                completeFailureLocked(execution, REQUIRED_TOOL_FAILURE_PREFIX + String.join(",", missing));
+                return;
+            }
+        }
+        completeSuccessLocked(execution);
     }
 
     private void completeFailureLocked(UUID taskId) {
@@ -486,6 +514,45 @@ public final class AgentScopeRuntime implements AgentRuntime {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    /** Reads the optional task contract without changing the existing plain-text task format. */
+    private static Set<String> requiredMcpTools(String inputJson) {
+        if (inputJson == null || inputJson.isBlank()) {
+            return Set.of();
+        }
+        try {
+            JsonNode root = JSON.readTree(inputJson);
+            JsonNode required = root == null ? null : root.get("requiredMcpTools");
+            if (required == null || required.isNull()) {
+                return Set.of();
+            }
+            if (!required.isArray()) {
+                throw new IllegalArgumentException("task input requiredMcpTools must be an array");
+            }
+            Set<String> tools = new LinkedHashSet<>();
+            for (JsonNode item : required) {
+                if (!item.isTextual() || item.asText().isBlank()) {
+                    throw new IllegalArgumentException("task input requiredMcpTools must contain non-empty strings");
+                }
+                tools.add(item.asText().trim());
+            }
+            return Set.copyOf(tools);
+        } catch (java.io.IOException error) {
+            // Existing tasks may carry arbitrary text in inputJson; only valid JSON objects
+            // participate in the optional required-tool contract.
+            return Set.of();
+        }
+    }
+
+    private static String agentInput(String inputJson, Set<String> requiredMcpTools) {
+        if (requiredMcpTools.isEmpty()) {
+            return inputJson;
+        }
+        return "Before answering, you MUST call each of these MCP tools exactly as required by the task: "
+                + String.join(", ", requiredMcpTools)
+                + ". Do not claim that a tool was called unless the tool call actually succeeds.\n\n"
+                + inputJson;
+    }
+
     private void expireLeasesLocked() {
         if (context == null) {
             return;
@@ -545,6 +612,8 @@ public final class AgentScopeRuntime implements AgentRuntime {
         private final String leaseId;
         private final Instant leaseExpiresAt;
         private final long generation;
+        private final Set<String> requiredMcpTools;
+        private final Set<String> completedMcpTools = ConcurrentHashMap.newKeySet();
         private final AtomicBoolean terminalSubmitted = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicReference<Disposable> disposable = new AtomicReference<>();
@@ -552,7 +621,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         private volatile RuntimeCallUsage callUsage;
 
         Execution(RuntimeTask task, HarnessAgent agent, AgentScopeEventTranslator translator,
-                String attemptId, String leaseId, long generation) {
+                String attemptId, String leaseId, long generation, Set<String> requiredMcpTools) {
             this.task = task;
             this.agent = agent;
             this.translator = translator;
@@ -560,6 +629,12 @@ public final class AgentScopeRuntime implements AgentRuntime {
             this.leaseId = leaseId;
             this.leaseExpiresAt = parseLeaseExpiresAt(task.metadata().get("leaseExpiresAt"));
             this.generation = generation;
+            this.requiredMcpTools = Set.copyOf(requiredMcpTools);
+        }
+
+        Execution(RuntimeTask task, HarnessAgent agent, AgentScopeEventTranslator translator,
+                String attemptId, String leaseId, long generation) {
+            this(task, agent, translator, attemptId, leaseId, generation, Set.of());
         }
 
         void recordUsage(RuntimeCallUsage observed) {
