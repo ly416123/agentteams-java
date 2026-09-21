@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "deepeval-v1",
+  "caseId": "mcp-web-search-title",
+  "testCase": {
+    "input": "Use the web_search MCP tool to find the official Model Context Protocol site and summarize what it is.",
+    "actual_output": "task succeeded\nThe **Model Context Protocol (MCP)** is an open standard initiated by Anthropic in November 2024 and now widely adopted across the AI ecosystem—including by OpenAI and Microsoft—to standardize how AI agents (or “hosts”, e.g., Claude Desktop, IDEs, or agent SDKs) securely and interoperably connect to external tools, data sources, and systems.\n\n### Summary of MCP:\n- **Purpose**: Solves the “fragmentation problem” in AI tool integration—replacing ad-hoc, one-off glue code with a unified, protocol-driven interface.\n- **Core Idea**: Acts as a *universal context bus*, decoupling the AI host from implementation details of tools/data. It defines *how* context is exchanged—not how models are called or prompts structured.\n- **Architecture**:\n  - **Host**: The AI application (e.g., Claude Desktop, Cursor, Azure AI Foundry) that consumes capabilities.\n  - **Client**: Lightweight, 1:1 protocol client embedded in the host.\n  - **Server**: A lightweight, standalone program exposing specific capabilities (e.g., file access, API calls, UI component registry) via standardized JSON-RPC 2.0 endpoints.\n- **Two Primary Capabilities**:\n  - **Tools**: Model-invoked functions (e.g., `searchRegistryItems`, `getRegistryItem`) for dynamic actions like querying or modifying data.\n  - **Resources**: Application-managed, read-only data (e.g., files, documents) injected into context—enabling caching, indexing, and token-efficient use.\n- **Key Features**:\n  - Versioned (e.g., `2026-07-28` revision), stateless by design.\n  - Supports secure sandboxing—tools run outside the model’s process, enabling permission control and safety enforcement.\n  - Enables human-in-the-loop via optional `sampling` endpoints for approval/clarification during tool execution.\n  - Interoperable across LLM vendors and platforms—facilitating multi-LLM architectures and cross-agent tool discovery.\n\nMCP is increasingly foundational for enterprise AI orchestration, especially in private data environments and IDE-integrated agent workflows.\n\nLet me know if you'd like help:\n- Setting up an MCP server (e.g., for local files or APIs),\n- Configuring an IDE (like Cursor or Claude Desktop) to use MCP,\n- Or generating a compliant MCP server stub in TypeScript/Python.\n\nI’m ready to assist.\n{\"taskId\":\"8722eca9-29d7-4828-b875-1bc27b023f56\",\"status\":\"SUCCEEDED\",\"completedAt\":\"2026-09-21T11:52:13.567507439Z\",\"outputChars\":2257,\"usage\":{\"provider\":\"dashscope-l5\",\"model\":\"dashscope:qwen-plus\",\"promptTokens\":8181,\"completionTokens\":531}}",
+    "tools_called": [
+      {
+        "name": "web_search"
+      }
+    ],
+    "expected_tools": [
+      {
+        "name": "web_search"
+      }
+    ],
+    "expected_output": "Model Context Protocol"
+  }
+}

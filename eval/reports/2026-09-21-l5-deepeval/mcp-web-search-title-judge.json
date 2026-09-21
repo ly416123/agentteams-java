@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "deepeval-judge-v1",
+  "caseId": "mcp-web-search-title",
+  "sample": {
+    "taskId": "8722eca9-29d7-4828-b875-1bc27b023f56",
+    "runId": "4ca1e4d7-8d78-40b2-b57e-95362a8250ae",
+    "deterministicPassed": true,
+    "outputChars": 2257,
+    "artifactSizes": {
+      "output.md": 2131,
+      "result.json": 245
+    }
+  },
+  "provider": "dashscope",
+  "model": "qwen-plus",
+  "metrics": [
+    {
+      "metric": "AnswerRelevancyMetric",
+      "score": 0.7931034482758621,
+      "threshold": 0.8,
+      "success": false
+    },
+    {
+      "metric": "ToolCorrectnessMetric",
+      "score": 1.0,
+      "threshold": 0.9,
+      "success": true
+    },
+    {
+      "metric": "FaithfulnessMetric",
+      "status": "skipped",
+      "reason": "retrieval_context_not_available_in_current_event_contract"
+    }
+  ],
+  "note": "The deterministic gate passed. Semantic scores remain advisory pending human calibration."
+}
