@@ -9,7 +9,6 @@ identifiers and assertion results.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -30,6 +29,10 @@ TERMINAL_PHASES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
 class EvalError(RuntimeError):
     """A safe, user-facing evaluation error without credentials."""
+
+
+class EvalTransportError(EvalError):
+    """The API could not be called or returned an unusable response."""
 
 
 @dataclass(frozen=True)
@@ -220,7 +223,9 @@ class AgentTeamsClient:
         except HTTPError as exc:
             return exc.code, exc.headers, exc.read()
         except URLError as exc:
-            raise EvalError(f"request failed for {request.method} {request.full_url}: {exc.reason}") from exc
+            raise EvalTransportError(
+                f"request failed for {request.method} {request.full_url}: {exc.reason}"
+            ) from exc
 
     def _request(self, method: str, path: str, body: Mapping[str, Any] | None = None,
                  idempotent: bool = False) -> Any:
@@ -235,13 +240,14 @@ class AgentTeamsClient:
         status, _, raw = self.transport(request, self.timeout)
         if status < 200 or status >= 300:
             detail = raw.decode("utf-8", errors="replace")[:300]
-            raise EvalError(f"HTTP {status} {method} {path}: {detail}")
+            detail = detail.replace(self.token, "[REDACTED]")
+            raise EvalTransportError(f"HTTP {status} {method} {path}: {detail}")
         if not raw:
             return None
         try:
             return json.loads(raw.decode("utf-8"))
         except json.JSONDecodeError as exc:
-            raise EvalError(f"invalid JSON response from {method} {path}") from exc
+            raise EvalTransportError(f"invalid JSON response from {method} {path}") from exc
 
     def create_task(self, case: EvalCase) -> dict[str, Any]:
         task = case.task
@@ -295,6 +301,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _redact(value: Any, secret: str) -> Any:
+    if isinstance(value, str):
+        return value.replace(secret, "[REDACTED]")
+    if isinstance(value, list):
+        return [_redact(item, secret) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact(item, secret) for key, item in value.items()}
+    return value
+
+
 def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: float,
               poll_seconds: float) -> dict[str, Any]:
     started = _now()
@@ -315,12 +331,14 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
                 raise EvalError(f"task {task_id} run response has no run id")
             item["runId"] = run_id
             assertion_results = evaluate_observation(case, client.get_observation(task_id, run_id))
-            item["assertions"] = [result.as_dict() for result in assertion_results]
+            item["assertions"] = [_redact(result.as_dict(), client.token) for result in assertion_results]
             item["score"] = (sum(result.passed for result in assertion_results) / len(assertion_results)
                               if assertion_results else 0.0)
             item["passed"] = bool(assertion_results) and all(result.passed for result in assertion_results)
+        except EvalTransportError:
+            raise
         except EvalError as exc:
-            item["error"] = str(exc)
+            item["error"] = _redact(str(exc), client.token)
         report_cases.append(item)
     return {"suite": "core", "startedAt": started, "finishedAt": _now(),
             "passed": all(item["passed"] for item in report_cases), "cases": report_cases}

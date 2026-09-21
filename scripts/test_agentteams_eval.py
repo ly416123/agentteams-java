@@ -159,6 +159,19 @@ cases:
         self.assertTrue(calls[1].headers.get("Idempotency-key"))
         self.assertNotEqual(calls[0].headers["Idempotency-key"], calls[1].headers["Idempotency-key"])
 
+    def test_core_suite_contains_three_credential_free_cases(self):
+        cases = load_cases(Path(__file__).parents[1] / "eval/cases/core.yaml")
+        self.assertEqual({"mcp-web-search-title", "no-tool-simple-answer", "artifact-integrity"},
+                         {case.case_id for case in cases})
+        for case in cases:
+            self.assertTrue(case.task.get("taskType"))
+            self.assertTrue(case.task.get("inputJson", {}).get("prompt"))
+            self.assertTrue(case.assertions)
+            serialized = json.dumps(case.task, ensure_ascii=False).lower()
+            self.assertNotIn("api_key", serialized)
+            self.assertNotIn("password", serialized)
+            self.assertNotIn("cookie", serialized)
+
 
 if __name__ == "__main__":
     unittest.main()

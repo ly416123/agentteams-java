@@ -1,0 +1,64 @@
+# Core deterministic cases for AgentTeams. No credentials belong in this file.
+cases:
+  - id: mcp-web-search-title
+    name: Web search returns MCP title
+    task:
+      scope:
+        tenant: tenant-a
+        project: project-a
+        team: team-a
+      taskType: qwenpaw
+      inputJson:
+        prompt: >-
+          Use the web_search MCP tool to find the official Model Context Protocol
+          site and summarize what it is.
+      requiredCapabilities:
+        - web_search
+    assertions:
+      - type: phase
+        expected: SUCCEEDED
+      - type: required_tool
+        name: web_search
+      - type: output_contains
+        value: Model Context Protocol
+    limits:
+      timeoutSeconds: 180
+
+  - id: no-tool-simple-answer
+    name: Simple answer does not call a search tool
+    task:
+      scope:
+        tenant: tenant-a
+        project: project-a
+        team: team-a
+      taskType: qwenpaw
+      inputJson:
+        prompt: "Answer exactly with: 2 + 2 = 4"
+      requiredCapabilities: []
+    assertions:
+      - type: phase
+        expected: SUCCEEDED
+      - type: forbidden_tool
+        name: web_search
+      - type: output_contains
+        value: 2 + 2 = 4
+    limits:
+      timeoutSeconds: 120
+
+  - id: artifact-integrity
+    name: Result artifacts have durable integrity metadata
+    task:
+      scope:
+        tenant: tenant-a
+        project: project-a
+        team: team-a
+      taskType: qwenpaw
+      inputJson:
+        prompt: Return a short answer and produce one JSON result artifact.
+      requiredCapabilities: []
+    assertions:
+      - type: phase
+        expected: SUCCEEDED
+      - type: artifact_integrity
+    limits:
+      timeoutSeconds: 180
