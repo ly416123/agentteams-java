@@ -45,12 +45,14 @@ controlPlane:
   workerProvisioner:
     # Dynamic workers are provisioned with this image; keep it in sync with
     # the pinned control-plane/gateway tag above.
-    image: agentteams-agent-worker:l5-10af52c9-amd64
+    image: agentteams-agent-worker:l5-fddf67c0-amd64
     # The Worker receives the MCP connection token and a separate model key.
     # The Bailian API key remains private to agentteams-mcp-tools and must not
     # be mapped here. Create agentteams-dashscope before provisioning a Worker.
     credentialSecretEnvs: >-
       {"DASHSCOPE_API_KEY":{"secret":"agentteams-dashscope","key":"api-key"},"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"}}
+    # Optional model endpoint override. Use only with a key issued for that
+    # endpoint; the current L5 key is valid for the China endpoint.
 
 manager:
   security:
