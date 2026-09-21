@@ -1,6 +1,7 @@
 package io.agentteams.worker;
 
 import io.agentscope.core.model.ModelRegistry;
+import io.agentscope.core.model.ModelCreationContext;
 import io.agentteams.runtime.AgentRuntime;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.AgentScopeRolloutPolicy;
@@ -122,7 +123,8 @@ public final class WorkerRuntimeFactory {
             AgentScopeWorkspaceFactory workspaceFactory = new AgentScopeWorkspaceFactory(
                     sandboxStateProbe, clock, root, workspaceOwnership);
             configured = new ConfiguredAgentScopeHarnessFactory(
-                    ModelRegistry.resolve(configuration.model()), workspaceFactory, root);
+                    ModelRegistry.resolve(configuration.model(), modelCreationContext(System.getenv())),
+                    workspaceFactory, root);
             harness = configured;
         }
         if (harness == null) {
@@ -151,6 +153,18 @@ public final class WorkerRuntimeFactory {
     private static boolean modelConfigured(QwenPawWorker.WorkerConfiguration configuration) {
         return configuration.model() != null && !configuration.model().isBlank()
                 && !"unknown".equalsIgnoreCase(configuration.model().trim());
+    }
+
+    static ModelCreationContext modelCreationContext(Map<String, String> environment) {
+        String baseUrl = environment.get("AGENTTEAMS_MODEL_BASE_URL");
+        if (baseUrl == null || baseUrl.isBlank()) {
+            baseUrl = environment.get("DASHSCOPE_BASE_URL");
+        }
+        ModelCreationContext.Builder builder = ModelCreationContext.builder();
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            builder.baseUrl(baseUrl.trim());
+        }
+        return builder.build();
     }
 
     private static Path workspaceRoot() {

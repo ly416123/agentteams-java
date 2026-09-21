@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.agentscope.core.model.ModelRegistry;
+import io.agentscope.core.model.ModelCreationContext;
 import io.agentteams.application.api.ExecutionRuntime;
 import io.agentteams.runtime.AgentScopeRolloutPolicy;
 import java.util.Map;
@@ -20,6 +21,14 @@ class WorkerRuntimeFactoryTest {
     @Test
     void productionClasspathProvidesDashScopeModelResolution() {
         assertThat(ModelRegistry.canResolve("dashscope:qwen-plus")).isTrue();
+    }
+
+    @Test
+    void appliesOptionalDashScopeBaseUrlToModelCreationContext() {
+        ModelCreationContext context = WorkerRuntimeFactory.modelCreationContext(Map.of(
+                "DASHSCOPE_BASE_URL", "https://dashscope-intl.aliyuncs.com"));
+
+        assertThat(context.getBaseUrl()).isEqualTo("https://dashscope-intl.aliyuncs.com");
     }
 
     @Test
