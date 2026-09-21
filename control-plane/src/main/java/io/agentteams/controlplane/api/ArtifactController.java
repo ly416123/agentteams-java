@@ -66,7 +66,6 @@ public final class ArtifactController {
     public List<ArtifactResponse> list(@PathVariable UUID taskId, @PathVariable UUID attemptId) {
         requireArtifactScope(taskId, attemptId);
         return persistence.findArtifactsByTaskIdAndAttemptId(taskId, attemptId).stream()
-                .filter(artifact -> visible(artifact.id()))
                 .map(this::response).toList();
     }
 
@@ -77,7 +76,6 @@ public final class ArtifactController {
         ArtifactRecord record = persistence.findArtifact(artifactId)
                 .filter(artifact -> taskId.equals(artifact.taskId()) && attemptId.equals(artifact.attemptId()))
                 .orElseThrow(() -> new ResourceNotFoundException("artifact", artifactId));
-        requireVisible(record.id());
         return response(record);
     }
 
@@ -156,11 +154,6 @@ public final class ArtifactController {
         if (PrincipalContext.current().isPresent()) {
             tasks.get(taskId);
         }
-    }
-
-    private boolean visible(UUID artifactId) {
-        return resourceScopes == null || PrincipalContext.current().isEmpty()
-                || resourceScopes.visible("ARTIFACT", artifactId);
     }
 
     private void requireVisible(UUID artifactId) {

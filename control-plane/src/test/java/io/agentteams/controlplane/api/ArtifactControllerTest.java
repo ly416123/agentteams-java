@@ -16,6 +16,7 @@ import io.agentteams.controlplane.artifact.ArtifactUpload;
 import io.agentteams.controlplane.persistence.ArtifactRecord;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskAttemptRecord;
+import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
@@ -142,7 +143,7 @@ class ArtifactControllerTest {
     }
 
     @Test
-    void rejectsAnArtifactReadFromAnotherProject() throws Exception {
+    void readsWorkerUploadedArtifactWhenParentTaskIsVisible() throws Exception {
         UUID taskId = UUID.randomUUID();
         UUID attemptId = UUID.randomUUID();
         UUID artifactId = UUID.randomUUID();
@@ -151,11 +152,36 @@ class ArtifactControllerTest {
                 "application/json", 7, "abc", "AVAILABLE", "{}", Instant.now(), Instant.now(), 0);
         when(persistence.findTaskAttempt(attemptId)).thenReturn(java.util.Optional.of(attempt(taskId, attemptId)));
         when(persistence.findArtifact(artifactId)).thenReturn(java.util.Optional.of(record));
+        when(tasks.get(taskId)).thenReturn(TaskRecord.draft(taskId, "visible", "", "alice", "rest", Instant.now()));
+        when(artifacts.prepareDownload(eq(key), any())).thenReturn(new URL("https://minio.test/download"));
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                java.util.Set.of("artifact:read")));
+        try {
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                            "/api/v1/tasks/{taskId}/attempts/{attemptId}/artifacts/{artifactId}", taskId, attemptId,
+                            artifactId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value("result.json"));
+        } finally {
+            PrincipalContext.clear();
+        }
+    }
+
+    @Test
+    void rejectsAnArtifactReadFromAnotherProject() throws Exception {
+        UUID taskId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+        UUID artifactId = UUID.randomUUID();
+        String key = "tasks/" + taskId + "/attempts/" + attemptId + "/artifacts/result.json";
+        ArtifactRecord record = new ArtifactRecord(artifactId, taskId, attemptId, "result.json", key,
+                "application/json", 7, "abc", "AVAILABLE", "{}", Instant.now(), Instant.now(), 0);
+        when(persistence.findTaskAttempt(attemptId)).thenReturn(java.util.Optional.of(attempt(taskId, attemptId)));
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
                 java.util.Set.of("artifact:read")));
         doThrow(new AuthorizationException("resource is outside caller project"))
-                .when(resourceScopes).requireVisible("ARTIFACT", artifactId);
+                .when(tasks).get(taskId);
         try {
             mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
                             "/api/v1/tasks/{taskId}/attempts/{attemptId}/artifacts/{artifactId}", taskId, attemptId,
