@@ -14,6 +14,7 @@ import io.agentscope.core.message.UserMessage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeResult;
+import io.agentteams.runtime.RuntimeEvent;
 import io.agentteams.runtime.RuntimeSnapshot;
 import io.agentteams.runtime.RuntimeTask;
 import io.agentteams.runtime.RuntimeTaskState;
@@ -82,6 +83,29 @@ class AgentScopeRuntimeTest {
             assertThat(event.correlationId()).isEqualTo("corr-1");
             assertThat(event.runtime()).isEqualTo("agentscope-test");
         });
+    }
+
+    @Test
+    void publishesToolCallsThroughTheWorkerRuntimeEventSink() {
+        List<RuntimeEvent> runtimeEvents = new CopyOnWriteArrayList<>();
+        runtime = newRuntime(new DeterministicModel("unused"), event -> { });
+        runtime.start(context(1, ignored -> { }));
+        runtime.setEventSink(runtimeEvents::add);
+
+        UUID taskId = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        runtime.reportRuntimeEvent(new AgentScopeExecutionEvent(
+                taskId.toString(), "attempt-tool", "lease-tool", "event-tool-start",
+                "corr-tool", "agentscope-test", AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED,
+                "tool web_search started", false, true, false));
+        runtime.reportRuntimeEvent(new AgentScopeExecutionEvent(
+                taskId.toString(), "attempt-tool", "lease-tool", "event-tool-end",
+                "corr-tool", "agentscope-test", AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
+                "tool web_search completed", false, true, false));
+
+        assertThat(runtimeEvents).extracting(RuntimeEvent::eventType)
+                .containsExactly("tool.called", "tool.finished");
+        assertThat(runtimeEvents.get(0).payloadJson()).contains("\"tool\":\"web_search\"");
+        assertThat(runtimeEvents.get(1).payloadJson()).contains("\"ok\":true");
     }
 
     @Test

@@ -12,6 +12,8 @@ import io.agentteams.runtime.CompletionStatus;
 import io.agentteams.runtime.FakeRuntime;
 import io.agentteams.runtime.RuntimeCallUsage;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
+import io.agentteams.runtime.RuntimeEvent;
+import io.agentteams.runtime.RuntimeEventSink;
 import io.agentteams.runtime.RuntimeResult;
 import io.agentteams.runtime.RuntimeSnapshot;
 import io.agentteams.runtime.RuntimeStatus;
@@ -45,6 +47,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     private final AgentScopeHarnessFactory harnessFactory;
     private final Consumer<AgentScopeExecutionEvent> eventSink;
     private final WorkspaceActiveGuard workspaceActiveGuard;
+    private volatile RuntimeEventSink runtimeEventSink = event -> { };
     private final Map<UUID, Execution> executions = new ConcurrentHashMap<>();
     private final Map<UUID, RuntimeResult> pendingTerminalResults = new ConcurrentHashMap<>();
     private AgentRuntimeContext context;
@@ -73,6 +76,34 @@ public final class AgentScopeRuntime implements AgentRuntime {
             state.start(context);
             this.context = context;
             generation++;
+        }
+    }
+
+    @Override
+    public void setEventSink(RuntimeEventSink eventSink) {
+        this.runtimeEventSink = Objects.requireNonNull(eventSink, "eventSink");
+    }
+
+    /** Publishes AgentScope tool lifecycle events through the common worker event sink. */
+    void reportRuntimeEvent(AgentScopeExecutionEvent event) {
+        Objects.requireNonNull(event, "event");
+        String eventType;
+        if (event.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED) {
+            eventType = "tool.called";
+        } else if (event.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED) {
+            eventType = "tool.finished";
+        } else {
+            return;
+        }
+        String tool = toolName(event.safeMessage());
+        String payload = eventType.equals("tool.called")
+                ? "{\"tool\":\"" + jsonEscape(tool) + "\"}"
+                : "{\"tool\":\"" + jsonEscape(tool) + "\",\"ok\":true}";
+        try {
+            runtimeEventSink.accept(new RuntimeEvent(UUID.fromString(event.taskId()), eventType,
+                    payload, Instant.now(requireContextLocked().clock())));
+        } catch (RuntimeException ignored) {
+            // Middle-of-execution reporting is best-effort and must not fail the task.
         }
     }
 
@@ -171,6 +202,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 if (!isCurrentLocked(execution) || translated.duplicate()) {
                     return;
                 }
+                reportRuntimeEvent(translated);
                 if (translated.kind() == AgentScopeExecutionEvent.Kind.AGENT_RESULT
                         && !translated.duplicate()) {
                     execution.resultCandidate = execution.translator.safeResultCandidate(event);
@@ -434,6 +466,24 @@ public final class AgentScopeRuntime implements AgentRuntime {
             enriched = enriched.withMetadataEntry("leaseId", leaseId);
         }
         return enriched;
+    }
+
+    private static String toolName(String message) {
+        if (message == null || !message.startsWith("tool ")) {
+            return "unknown";
+        }
+        String candidate = message.substring("tool ".length());
+        for (String suffix : new String[] {" started", " completed"}) {
+            if (candidate.endsWith(suffix)) {
+                candidate = candidate.substring(0, candidate.length() - suffix.length());
+                break;
+            }
+        }
+        return candidate.isBlank() ? "unknown" : candidate;
+    }
+
+    private static String jsonEscape(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void expireLeasesLocked() {

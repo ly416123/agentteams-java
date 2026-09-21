@@ -7,6 +7,7 @@ import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.AgentScopeRolloutPolicy;
 import io.agentteams.runtime.CompletionStatus;
 import io.agentteams.runtime.RuntimeResult;
+import io.agentteams.runtime.RuntimeEventSink;
 import io.agentteams.runtime.RuntimeSnapshot;
 import io.agentteams.runtime.RuntimeStatus;
 import io.agentteams.runtime.RuntimeSubmission;
@@ -77,6 +78,20 @@ class WorkerRuntimeRouterTest {
 
         assertThat(qwen.stopCount()).isEqualTo(1);
         assertThat(agentScope.stopCount()).isEqualTo(1);
+    }
+
+    @Test
+    void forwardsRuntimeEventSinkToBothRuntimeImplementations() {
+        RecordingRuntime qwen = new RecordingRuntime();
+        RecordingRuntime agentScope = new RecordingRuntime();
+        WorkerRuntimeRouter router = new WorkerRuntimeRouter(qwen, agentScope,
+                new AgentScopeRolloutPolicy("QWENPAW", true, 0,
+                        Set.of(), Set.of(), Set.of()));
+
+        router.setEventSink(event -> { });
+
+        assertThat(qwen.eventSinkConfigured()).isTrue();
+        assertThat(agentScope.eventSinkConfigured()).isTrue();
     }
 
     @Test
@@ -175,9 +190,15 @@ class WorkerRuntimeRouterTest {
         private final List<UUID> cancelled = new ArrayList<>();
         private final List<UUID> completed = new ArrayList<>();
         private int stopCount;
+        private boolean eventSinkConfigured;
 
         @Override
         public void start(AgentRuntimeContext context) { }
+
+        @Override
+        public void setEventSink(RuntimeEventSink eventSink) {
+            this.eventSinkConfigured = eventSink != null;
+        }
 
         @Override
         public RuntimeSubmission submit(RuntimeTask task) {
@@ -210,5 +231,6 @@ class WorkerRuntimeRouterTest {
         List<UUID> cancelled() { return cancelled; }
         List<UUID> completed() { return completed; }
         int stopCount() { return stopCount; }
+        boolean eventSinkConfigured() { return eventSinkConfigured; }
     }
 }

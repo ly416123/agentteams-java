@@ -57,6 +57,9 @@ public final class WorkerRuntimeRouter implements AgentRuntime {
     @Override
     public void setEventSink(io.agentteams.runtime.RuntimeEventSink eventSink) {
         qwenPaw.setEventSink(eventSink);
+        if (agentScope != null) {
+            agentScope.setEventSink(eventSink);
+        }
     }
 
     @Override
