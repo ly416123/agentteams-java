@@ -57,6 +57,30 @@ npx promptfoo@latest eval \
 
 Promptfoo 配置和 Python hooks 都读取 `eval/cases/core.yaml`，不会复制 Prompt 或保存凭证。CI 只做离线契约检查，不自动启动 Promptfoo，也不把 Token 注入 GitHub Actions。
 
+## DeepEval 可选语义评测
+
+DeepEval 只作为 P2 的语义评测适配器，不替代 Runner 的确定性门禁。适配器把已经采集的 AgentTeams observation 转成 `LLMTestCase` 所需的输入、实际输出、期望工具和工具轨迹；它不会在导出文件中复制制品下载 URL。默认 CI 不安装 DeepEval，也不会调用外部模型。
+
+需要进行本地语义评测时，在隔离虚拟环境中安装可选依赖：
+
+```bash
+python3 -m venv /tmp/agentteams-deepeval
+source /tmp/agentteams-deepeval/bin/activate
+python -m pip install pyyaml deepeval
+```
+
+适配器的输入是 Runner 采集的原始 observation JSON。导出不包含凭证或预签名 URL：
+
+```bash
+python3 eval/deepeval_adapter.py \
+  --cases eval/cases/core.yaml \
+  --case-id mcp-web-search-title \
+  --observation /tmp/agentteams-observation.json \
+  --output /tmp/agentteams-deepeval-case.json
+```
+
+代码中可按需调用 `build_deepeval_test_case` 和 `evaluate_with_deepeval`，再配置 DeepEval 的 `AnswerRelevancyMetric`、`FaithfulnessMetric` 或 `ToolCorrectnessMetric`。模型密钥只能通过本机环境变量或密钥管理系统提供，不能写入用例、导出 JSON 或 CI 日志。确定性断言失败仍然直接阻断，LLM Judge 结果只作为语义评分和人工抽检依据。
+
 ## L5 受控入口
 
 L5 主机可以直接运行受控入口。它会检查 Worker CR 是否全部 Ready，自动解析集群内 Control Plane ClusterIP，并且只从环境变量读取短期 Token：
@@ -78,7 +102,7 @@ python3 scripts/run-l5-agentteams-eval.py \
 - `no-tool-simple-answer`：确认简单问题不触发搜索工具。
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
 
-支持的确定性断言类型为 `phase`、`required_tool`、`forbidden_tool`、`output_contains` 和 `artifact_integrity`。未知类型会使该用例失败。后续接入 Promptfoo、DeepEval 或 Phoenix 时，仍以这层报告和任务运行证据作为基础。
+支持的确定性断言类型为 `phase`、`required_tool`、`forbidden_tool`、`output_contains` 和 `artifact_integrity`。未知类型会使该用例失败。Promptfoo 和 DeepEval 都以这层报告和任务运行证据作为基础；Phoenix 仍留待后续接入。
 
 ## 当前验证状态
 
