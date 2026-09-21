@@ -9,8 +9,8 @@
 # IfNotPresent). Without these pins a Helm upgrade would roll workloads back
 # to the ghcr.io :latest tags, which do not exist on the L5 host.
 images:
-  controlPlane: agentteams-control-plane:l5-10af52c9-amd64
-  gateway: ghcr.io/ly416123/agentteams-agent-gateway:l5-artifact-upload-20260907-v1
+  controlPlane: agentteams-control-plane:l5-f4725df3-amd64
+  gateway: agentteams-agent-gateway:l5-f4725df3-amd64
 
 resources:
   requests:
