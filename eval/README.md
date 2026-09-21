@@ -43,6 +43,20 @@ python3 scripts/agentteams_eval.py \
 
 每个 Pull Request 会运行离线 `eval-contract` Job。它检查 YAML 用例、Runner、确定性断言、CLI 编译和已提交验收报告的凭证脱敏，不访问 L5、模型或 MCP 服务，因此不需要在 GitHub Actions 配置任何 API Key。L5 套件仍通过受控环境手动执行，结果更新到 `eval/reports/` 后再提交。
 
+## Promptfoo 可选矩阵
+
+Promptfoo 只负责本地 CLI 和矩阵编排，实际任务执行、事件读取、制品校验和确定性评分仍由 AgentTeams Runner 完成。需要运行时：
+
+```bash
+export AGENTTEAMS_EVAL_BASE_URL='http://127.0.0.1:18081'
+export AGENTTEAMS_EVAL_TOKEN='短期 Bearer Token'
+npx promptfoo@latest eval \
+  --config eval/promptfooconfig.yaml \
+  --output /tmp/agentteams-promptfoo.json
+```
+
+Promptfoo 配置和 Python hooks 都读取 `eval/cases/core.yaml`，不会复制 Prompt 或保存凭证。CI 只做离线契约检查，不自动启动 Promptfoo，也不把 Token 注入 GitHub Actions。
+
 ## 用例和断言
 
 核心套件当前包含三个用例：

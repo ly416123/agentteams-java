@@ -1,0 +1,18 @@
+# Optional Promptfoo adapter. It delegates execution and deterministic scoring
+# to the AgentTeams Runner; Promptfoo only provides matrix/CLI orchestration.
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: AgentTeams core evaluation matrix
+
+providers:
+  - id: file://promptfoo_provider.py
+
+prompts:
+  - "{{prompt}}"
+
+tests:
+  - file://promptfoo_tests.py:generate_tests
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://promptfoo_assert.py
