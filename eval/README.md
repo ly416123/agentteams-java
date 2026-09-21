@@ -102,6 +102,35 @@ result = evaluate_with_deepeval(test_case, metrics)
 
 阈值需要使用脱敏真实样本和人工复核结果校准后，才可以进入发布策略。DeepEval 的指标字段和工具正确性评测方式见[官方指标文档](https://deepeval.com/docs/metrics-tool-correctness)。
 
+## Judge 阈值校准
+
+校准记录只保存 `caseId`、样本编号、DeepEval 指标分数和人工 `pass/fail` 标签，不保存 Prompt、答案、制品或凭证。示例输入结构：
+
+```json
+{
+  "schemaVersion": "deepeval-calibration-v1",
+  "suite": "core",
+  "samples": [
+    {
+      "caseId": "mcp-web-search-title",
+      "sampleId": "sample-001",
+      "humanLabel": "pass",
+      "metricScores": {"answer_relevancy": 0.94, "tool_correctness": 0.96}
+    }
+  ]
+}
+```
+
+使用离线脚本计算可分离的候选阈值：
+
+```bash
+python3 eval/deepeval_calibration.py \
+  --input /tmp/agentteams-deepeval-calibration.json \
+  --output /tmp/agentteams-deepeval-thresholds.json
+```
+
+只有当人工通过样本的最低分高于人工失败样本的最高分时，脚本才会给出候选阈值；否则保留人工复核状态，不自动修改 [`eval/rubrics/core.yaml`](rubrics/core.yaml)。
+
 ## L5 受控入口
 
 L5 主机可以直接运行受控入口。它会检查 Worker CR 是否全部 Ready，自动解析集群内 Control Plane ClusterIP，并且只从环境变量读取短期 Token：

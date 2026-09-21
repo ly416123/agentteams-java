@@ -34,12 +34,15 @@ jobs:
           python -m unittest scripts/test_promptfoo_contract.py -v
           python -m unittest scripts/test_l5_agentteams_eval_contract.py -v
           python -m unittest scripts/test_deepeval_contract.py -v
+          python -m unittest scripts/test_deepeval_calibration.py -v
           python -m py_compile scripts/agentteams_eval.py scripts/test_agentteams_eval.py
           python -m py_compile scripts/run-l5-agentteams-eval.py
           python -m py_compile eval/promptfoo_tests.py eval/promptfoo_provider.py eval/promptfoo_assert.py
           python -m py_compile eval/deepeval_adapter.py scripts/test_deepeval_contract.py
+          python -m py_compile eval/deepeval_calibration.py scripts/test_deepeval_calibration.py
           python scripts/agentteams_eval.py --help >/dev/null
           python eval/deepeval_adapter.py --help >/dev/null
+          python eval/deepeval_calibration.py --help >/dev/null
           python - <<'PY'
           import json
           from pathlib import Path
