@@ -11,12 +11,15 @@ credentials or an LLM provider.
 from __future__ import annotations
 
 import argparse
+import importlib
 import inspect
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+import yaml
 
 # Make the direct `python3 eval/deepeval_adapter.py ...` entrypoint work from
 # any current directory without importing DeepEval or requiring installation.
@@ -29,6 +32,13 @@ from scripts.agentteams_eval import EvalCase, EvalError, load_cases
 
 class DeepEvalUnavailable(EvalError):
     """Raised when a caller requests DeepEval without installing it."""
+
+
+_METRIC_CLASSES = {
+    "answer_relevancy": "AnswerRelevancyMetric",
+    "faithfulness": "FaithfulnessMetric",
+    "tool_correctness": "ToolCorrectnessMetric",
+}
 
 
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[^\s,;]+")
@@ -125,6 +135,94 @@ def _number(mapping: Mapping[str, Any], keys: Sequence[str]) -> float | None:
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return float(value)
     return None
+
+
+def load_rubric(path: str | Path) -> dict[str, Any]:
+    """Load and validate a versioned, credential-free semantic rubric."""
+    try:
+        value = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise EvalError(f"cannot read rubric YAML {path}: {exc}") from exc
+    if not isinstance(value, Mapping):
+        raise EvalError("rubric must contain an object")
+    rubric = dict(value)
+    if rubric.get("schemaVersion") != "deepeval-rubric-v1":
+        raise EvalError("rubric schemaVersion must be deepeval-rubric-v1")
+    if rubric.get("hardGate") != "deterministic":
+        raise EvalError("rubric hardGate must be deterministic")
+    cases = rubric.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise EvalError("rubric cases must be a non-empty list")
+    seen_cases: set[str] = set()
+    normalized_cases: list[dict[str, Any]] = []
+    for index, item in enumerate(cases):
+        if not isinstance(item, Mapping):
+            raise EvalError(f"rubric case[{index}] must be an object")
+        case = dict(item)
+        case_id = str(case.get("id", "")).strip()
+        if not case_id:
+            raise EvalError(f"rubric case[{index}] requires id")
+        if case_id in seen_cases:
+            raise EvalError(f"duplicate rubric case id: {case_id}")
+        seen_cases.add(case_id)
+        metrics = case.get("metrics", [])
+        if not isinstance(metrics, list):
+            raise EvalError(f"rubric case {case_id}.metrics must be a list")
+        seen_metrics: set[str] = set()
+        normalized_metrics: list[dict[str, Any]] = []
+        for metric_index, raw_metric in enumerate(metrics):
+            if not isinstance(raw_metric, Mapping):
+                raise EvalError(f"rubric case {case_id}.metric[{metric_index}] must be an object")
+            metric = dict(raw_metric)
+            metric_id = str(metric.get("id", "")).strip()
+            if metric_id not in _METRIC_CLASSES:
+                raise EvalError(f"unsupported DeepEval metric: {metric_id}")
+            if metric_id in seen_metrics:
+                raise EvalError(f"duplicate metric {metric_id} in rubric case {case_id}")
+            seen_metrics.add(metric_id)
+            threshold = metric.get("threshold")
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+                raise EvalError(f"metric {metric_id} threshold must be a number")
+            if not 0.0 <= float(threshold) <= 1.0:
+                raise EvalError(f"metric {metric_id} threshold must be between 0 and 1")
+            metric["id"] = metric_id
+            metric["threshold"] = float(threshold)
+            metric["includeReason"] = bool(metric.get("includeReason", True))
+            normalized_metrics.append(metric)
+        case["id"] = case_id
+        case["metrics"] = normalized_metrics
+        normalized_cases.append(case)
+    rubric["cases"] = normalized_cases
+    return rubric
+
+
+def build_deepeval_metrics(rubric: Mapping[str, Any], case_id: str,
+                           model: Any = None) -> list[Any]:
+    """Build configured DeepEval metrics for one case on demand."""
+    try:
+        deepeval_metrics = importlib.import_module("deepeval.metrics")
+    except ImportError as exc:
+        raise DeepEvalUnavailable(
+            "DeepEval is not installed; run `python -m pip install deepeval` in an optional environment"
+        ) from exc
+    cases = rubric.get("cases", [])
+    case = next((item for item in cases if isinstance(item, Mapping) and item.get("id") == case_id), None)
+    if case is None:
+        raise EvalError(f"unknown rubric case id: {case_id}")
+    metrics: list[Any] = []
+    for spec in case.get("metrics", []):
+        metric_id = str(spec["id"])
+        metric_class = getattr(deepeval_metrics, _METRIC_CLASSES[metric_id], None)
+        if metric_class is None:
+            raise EvalError(f"DeepEval does not provide metric class for {metric_id}")
+        values: dict[str, Any] = {
+            "threshold": float(spec["threshold"]),
+            "include_reason": bool(spec.get("includeReason", True)),
+        }
+        if model is not None:
+            values["model"] = model
+        metrics.append(metric_class(**_accepted_kwargs(metric_class, values)))
+    return metrics
 
 
 def build_test_case_payload(case: EvalCase, observation: Mapping[str, Any]) -> dict[str, Any]:

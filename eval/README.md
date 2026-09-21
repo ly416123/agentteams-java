@@ -84,6 +84,24 @@ python3 eval/deepeval_adapter.py \
 
 代码中可按需调用 `build_deepeval_test_case` 和 `evaluate_with_deepeval`，再配置 DeepEval 的 `AnswerRelevancyMetric`、`FaithfulnessMetric` 或 `ToolCorrectnessMetric`。模型密钥只能通过本机环境变量或密钥管理系统提供，不能写入用例、导出 JSON 或 CI 日志。确定性断言失败仍然直接阻断，LLM Judge 结果只作为语义评分和人工抽检依据。
 
+初始 Rubric 保存在 [`eval/rubrics/core.yaml`](rubrics/core.yaml)，目前只记录指标和候选阈值，不作为发布门禁。接入独立评测环境时，调用 `load_rubric` 读取配置，再用 `build_deepeval_metrics` 创建指标：
+
+```python
+from eval.deepeval_adapter import (
+    build_deepeval_metrics,
+    build_deepeval_test_case,
+    evaluate_with_deepeval,
+    load_rubric,
+)
+
+rubric = load_rubric("eval/rubrics/core.yaml")
+metrics = build_deepeval_metrics(rubric, "mcp-web-search-title")
+test_case = build_deepeval_test_case(case, observation)
+result = evaluate_with_deepeval(test_case, metrics)
+```
+
+阈值需要使用脱敏真实样本和人工复核结果校准后，才可以进入发布策略。DeepEval 的指标字段和工具正确性评测方式见[官方指标文档](https://deepeval.com/docs/metrics-tool-correctness)。
+
 ## L5 受控入口
 
 L5 主机可以直接运行受控入口。它会检查 Worker CR 是否全部 Ready，自动解析集群内 Control Plane ClusterIP，并且只从环境变量读取短期 Token：

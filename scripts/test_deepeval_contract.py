@@ -3,7 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from eval.deepeval_adapter import build_test_case_payload, load_observation, render_export
+from eval.deepeval_adapter import (
+    DeepEvalUnavailable,
+    build_test_case_payload,
+    build_deepeval_metrics,
+    load_observation,
+    load_rubric,
+    render_export,
+)
 from scripts.agentteams_eval import EvalCase
 
 
@@ -62,6 +69,28 @@ class DeepEvalContractTest(unittest.TestCase):
         # The contract suite intentionally runs without the optional package.
         payload = build_test_case_payload(self.case, self.observation)
         self.assertTrue(payload["actual_output"])
+
+    def test_core_rubric_is_versioned_and_keeps_deterministic_hard_gate(self):
+        rubric = load_rubric(Path(__file__).parents[1] / "eval/rubrics/core.yaml")
+
+        self.assertEqual("deepeval-rubric-v1", rubric["schemaVersion"])
+        self.assertEqual("deterministic", rubric["hardGate"])
+        case_ids = {case["id"] for case in rubric["cases"]}
+        self.assertEqual(
+            {"mcp-web-search-title", "no-tool-simple-answer", "artifact-integrity"},
+            case_ids,
+        )
+        for case in rubric["cases"]:
+            metric_ids = [metric["id"] for metric in case["metrics"]]
+            self.assertEqual(len(metric_ids), len(set(metric_ids)))
+            for metric in case["metrics"]:
+                self.assertGreaterEqual(metric["threshold"], 0.0)
+                self.assertLessEqual(metric["threshold"], 1.0)
+
+    def test_metric_construction_is_optional_when_deepeval_is_absent(self):
+        rubric = load_rubric(Path(__file__).parents[1] / "eval/rubrics/core.yaml")
+        with self.assertRaises(DeepEvalUnavailable):
+            build_deepeval_metrics(rubric, "mcp-web-search-title")
 
 
 if __name__ == "__main__":
