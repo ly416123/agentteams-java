@@ -16,6 +16,7 @@
 - [x] 新增 `eval/deepeval_adapter.py`，提供纯 JSON 归一化和可选 `LLMTestCase` 构造。
 - [x] 支持 `ToolCall`、`expected_tools`、`token_cost` 和 `completion_time` 字段。
 - [x] 新增命令行导出入口，读取指定用例和 observation JSON。
+- [x] Runner 增加可选 `--deepeval-export-dir`，直接写出已脱敏的语义评测输入。
 - [x] 新增无 DeepEval 依赖的契约测试和 CI 编译检查。
 - [x] 更新评测 README，记录隔离安装、密钥边界和运行方式。
 - [ ] 用脱敏的真实 AgentTeams 样本校准 Judge Rubric 和阈值。

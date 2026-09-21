@@ -77,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--token-env", default="AGENTTEAMS_EVAL_TOKEN")
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--poll-seconds", type=float, default=3.0)
+    parser.add_argument("--deepeval-export-dir", type=Path,
+                        help="optional directory for credential-free DeepEval case exports")
     args = parser.parse_args(argv)
     try:
         token = os.environ.get(args.token_env, "")
@@ -86,7 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         base_url = args.base_url.rstrip("/") or cluster_service_url(
             args.namespace, "agentteams-agentteams-java-control-plane", 8080)
         report = run_suite(AgentTeamsClient(base_url, token), load_cases(args.cases),
-                           args.timeout_seconds, args.poll_seconds)
+                           args.timeout_seconds, args.poll_seconds,
+                           deepeval_export_dir=args.deepeval_export_dir)
         write_report(Path(args.report), report)
         return 0 if report["passed"] else 1
     except (EvalError, OSError, ValueError, json.JSONDecodeError) as exc:

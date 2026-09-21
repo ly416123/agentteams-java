@@ -10,6 +10,7 @@ class L5AgentTeamsEvalContractTest(unittest.TestCase):
         source = (ROOT / "scripts/run-l5-agentteams-eval.py").read_text(encoding="utf-8")
         self.assertIn('default="AGENTTEAMS_EVAL_TOKEN"', source)
         self.assertIn("assert_workers_ready", source)
+        self.assertIn("deepeval_export_dir", source)
         self.assertNotIn("alice-dev", source)
         self.assertNotIn("ssssss", source)
         self.assertNotIn("password=", source)

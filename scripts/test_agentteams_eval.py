@@ -174,6 +174,59 @@ cases:
             self.assertNotIn("password", serialized)
             self.assertNotIn("cookie", serialized)
 
+    def test_suite_can_export_sanitized_deepeval_case(self):
+        calls = []
+
+        def transport(request, timeout):
+            calls.append(request)
+            path = request.full_url.split("http://test", 1)[1]
+            if request.method == "POST" and path == "/api/v1/tasks":
+                return 201, {}, json.dumps({"id": "task-1", "version": 0}).encode()
+            if request.method == "POST" and path == "/api/v1/tasks/task-1/queue":
+                return 200, {}, json.dumps({"id": "task-1", "phase": "QUEUED", "version": 1}).encode()
+            if request.method == "GET" and path == "/api/v1/tasks/task-1":
+                return 200, {}, json.dumps({"id": "task-1", "phase": "SUCCEEDED"}).encode()
+            if request.method == "GET" and path == "/api/v1/tasks/task-1/runs":
+                return 200, {}, json.dumps([{"id": "run-1", "tokenCost": 3}]).encode()
+            if request.method == "GET" and path.endswith("/process-events"):
+                return 200, {}, json.dumps([{
+                    "eventType": "tool.called",
+                    "payload": {"tool": "web_search"},
+                }]).encode()
+            if request.method == "GET" and path.endswith("/result"):
+                return 200, {}, json.dumps({
+                    "summary": "Model Context Protocol",
+                    "artifacts": [{
+                        "name": "answer.md",
+                        "downloadUrl": "https://minio.invalid/result?X-Amz-Signature=fixture",
+                        "content": "Model Context Protocol",
+                    }],
+                }).encode()
+            raise AssertionError(f"unexpected request {request.method} {path}")
+
+        case = EvalCase("sample", "Sample", {
+            "scope": {"tenant": "tenant-a", "project": "project-a", "team": "team-a"},
+            "taskType": "chat",
+            "inputJson": {"prompt": "Find the MCP title"},
+        }, [
+            {"type": "phase", "expected": "SUCCEEDED"},
+            {"type": "required_tool", "name": "web_search"},
+        ], {})
+        with tempfile.TemporaryDirectory() as directory:
+            export_dir = Path(directory) / "deepeval"
+            report = run_suite(
+                AgentTeamsClient("http://test", "test-token", transport=transport),
+                [case], timeout_seconds=1, poll_seconds=0,
+                deepeval_export_dir=export_dir,
+            )
+            exported = json.loads((export_dir / "sample.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(report["passed"])
+        self.assertEqual("sample", exported["caseId"])
+        serialized = json.dumps(exported, ensure_ascii=False).lower()
+        self.assertNotIn("downloadurl", serialized)
+        self.assertNotIn("x-amz-signature", serialized)
+
 
 if __name__ == "__main__":
     unittest.main()

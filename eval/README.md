@@ -18,8 +18,11 @@ python3 scripts/agentteams_eval.py \
   --base-url http://127.0.0.1:18081 \
   --token-env AGENTTEAMS_EVAL_TOKEN \
   --cases eval/cases/core.yaml \
-  --report /tmp/agentteams-evaluation.json
+  --report /tmp/agentteams-evaluation.json \
+  --deepeval-export-dir /tmp/agentteams-deepeval
 ```
+
+`--deepeval-export-dir` 是可选参数。启用后，Runner 会为每个成功采集到 observation 的用例写入一个已脱敏的 `case-id.json`，可以直接交给 DeepEval 适配层继续做语义评测。
 
 进程退出码约定：`0` 表示所有用例通过，`1` 表示至少一个确定性断言失败，`2` 表示配置、网络或响应格式错误。报告可以提交到评测归档，但必须确认其中没有 Token、API Key、Cookie 或其他凭证。
 
@@ -69,7 +72,7 @@ source /tmp/agentteams-deepeval/bin/activate
 python -m pip install pyyaml deepeval
 ```
 
-适配器的输入是 Runner 采集的原始 observation JSON。导出不包含凭证或预签名 URL：
+也可以把其他受控流程采集的 observation JSON 交给适配器。导出不包含凭证或预签名 URL：
 
 ```bash
 python3 eval/deepeval_adapter.py \
@@ -89,7 +92,8 @@ L5 主机可以直接运行受控入口。它会检查 Worker CR 是否全部 Re
 export AGENTTEAMS_EVAL_TOKEN='短期 Bearer Token'
 python3 scripts/run-l5-agentteams-eval.py \
   --cases eval/cases/core.yaml \
-  --report eval/reports/l5-core-latest.json
+  --report eval/reports/l5-core-latest.json \
+  --deepeval-export-dir /tmp/agentteams-l5-deepeval
 ```
 
 入口不会创建身份映射、修改 Kubernetes 资源或保存 Token。运行身份必须已经具备目标租户、项目和团队的读取、创建及执行权限。当前环境没有 GitHub self-hosted L5 Runner，因此没有把私网 L5 地址直接写入 GitHub 定时 Job；未来配置 self-hosted Runner 或主机 cron 时，复用此入口即可。

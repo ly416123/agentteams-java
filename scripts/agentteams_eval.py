@@ -339,8 +339,24 @@ def _redact(value: Any, secret: str) -> Any:
     return value
 
 
+def _write_deepeval_export(case: EvalCase, observation: Mapping[str, Any], directory: Path) -> None:
+    """Write an optional, credential-free semantic-evaluation input."""
+    try:
+        # Import lazily so the deterministic Runner never depends on DeepEval.
+        from eval.deepeval_adapter import render_export
+    except ImportError as exc:
+        raise EvalError(f"cannot load DeepEval export adapter: {exc}") from exc
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / f"{case.case_id}.json"
+        target.write_text(json.dumps(render_export(case, observation), ensure_ascii=False, indent=2) + "\n",
+                          encoding="utf-8")
+    except OSError as exc:
+        raise EvalError(f"cannot write DeepEval export for {case.case_id}: {exc}") from exc
+
+
 def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: float,
-              poll_seconds: float) -> dict[str, Any]:
+              poll_seconds: float, deepeval_export_dir: Path | None = None) -> dict[str, Any]:
     started = _now()
     report_cases: list[dict[str, Any]] = []
     for case in cases:
@@ -358,7 +374,10 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
             if not run_id:
                 raise EvalError(f"task {task_id} run response has no run id")
             item["runId"] = run_id
-            assertion_results = evaluate_observation(case, client.get_observation(task_id, run_id))
+            observation = client.get_observation(task_id, run_id)
+            if deepeval_export_dir is not None:
+                _write_deepeval_export(case, observation, deepeval_export_dir)
+            assertion_results = evaluate_observation(case, observation)
             item["assertions"] = [_redact(result.as_dict(), client.token) for result in assertion_results]
             item["score"] = (sum(result.passed for result in assertion_results) / len(assertion_results)
                               if assertion_results else 0.0)
@@ -378,6 +397,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token-env", default="AGENTTEAMS_EVAL_TOKEN")
     parser.add_argument("--cases", required=True)
     parser.add_argument("--report", required=True)
+    parser.add_argument("--deepeval-export-dir", type=Path,
+                        help="optional directory for credential-free DeepEval case exports")
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--poll-seconds", type=float, default=3.0)
     return parser
@@ -392,7 +413,8 @@ def main(argv: list[str] | None = None) -> int:
             raise EvalError(f"environment variable {args.token_env} is not set")
         cases = load_cases(args.cases)
         report = run_suite(AgentTeamsClient(args.base_url, token), cases,
-                           args.timeout_seconds, args.poll_seconds)
+                           args.timeout_seconds, args.poll_seconds,
+                           deepeval_export_dir=args.deepeval_export_dir)
         Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return 0 if report["passed"] else 1
     except (EvalError, OSError, ValueError) as exc:
