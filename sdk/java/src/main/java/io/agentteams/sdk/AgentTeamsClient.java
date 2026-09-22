@@ -69,6 +69,11 @@ public final class AgentTeamsClient {
         return queueTask(taskId, expectedVersion, idempotencyKey, false);
     }
     public Task getTask(UUID taskId) { requireId(taskId); return send("GET", "/api/v1/tasks/" + taskId, null, Task.class, true, null); }
+    public List<TaskRun> listTaskRuns(UUID taskId) {
+        requireId(taskId);
+        TaskRun[] runs = send("GET", "/api/v1/tasks/" + taskId + "/runs", null, TaskRun[].class, true, null);
+        return List.of(runs);
+    }
     public Task cancelTask(UUID taskId, LifecycleRequest request) { return cancelTask(taskId, request, false); }
     public Task cancelTask(UUID taskId, LifecycleRequest request, boolean retrySafe) { requireId(taskId); return send("POST", "/api/v1/tasks/" + taskId + "/cancel", request, Task.class, retrySafe, null); }
     public TaskProgressSnapshot getTaskProgress(UUID taskId, UUID runId) { requireId(taskId); requireId(runId); return send("GET", "/api/v1/tasks/" + taskId + "/runs/" + runId + "/progress?phase=EXECUTION", null, TaskProgressSnapshot.class, true, null); }
@@ -116,7 +121,7 @@ public final class AgentTeamsClient {
     public record CreateAgentRequest(String name, String runtime, String workerType, JsonNode capabilities, JsonNode metadata) { }
     public record CreateAgentSpecRequest(String name, String runtime, String modelProvider, String modelName,
                                          String teamRef, String desiredState, String workerType, JsonNode spec) { }
-    public record Project(UUID id, String tenantId, String name, String status, String createdBy) { } public record Task(UUID id, String title, String description, String phase, int priority, java.time.Instant createdAt, java.time.Instant updatedAt, long version) { } public record TaskProgressSnapshot(String phase, long completed, long total, int progress, String waitingReason) { } public record TaskProcessEvent(UUID eventId, UUID taskId, UUID runId, long sequence, String eventType, String visibility, java.time.Instant occurredAt, String correlationId, String payload, String payloadRef) { } public record TaskResultManifest(UUID taskId, UUID runId, String status, String summary, java.util.List<ArtifactMetadata> artifacts) { } public record ArtifactMetadata(String name, String storageRef, String contentType, long sizeBytes, String sha256, long version, String stage, String visibility) { }
+    public record Project(UUID id, String tenantId, String name, String status, String createdBy) { } public record Task(UUID id, String title, String description, String phase, int priority, java.time.Instant createdAt, java.time.Instant updatedAt, long version) { } public record TaskRun(UUID id, UUID taskId, String status, java.time.Instant startedAt, java.time.Instant completedAt, java.time.Instant createdAt, java.time.Instant updatedAt, long version, String resultStatus, String resultSummary) { } public record TaskProgressSnapshot(String phase, long completed, long total, int progress, String waitingReason) { } public record TaskProcessEvent(UUID eventId, UUID taskId, UUID runId, long sequence, String eventType, String visibility, java.time.Instant occurredAt, String correlationId, JsonNode payload, String payloadRef) { } public record TaskResultManifest(UUID taskId, UUID runId, String status, String summary, java.util.List<ArtifactMetadata> artifacts) { } public record ArtifactMetadata(String name, String storageRef, String contentType, long sizeBytes, String sha256, long version, String stage, String visibility) { }
     public record Agent(UUID id, String name, String workerType, String phase, String runtime,
                         java.time.Instant createdAt, java.time.Instant updatedAt, long version, String templateName) { }
     public record AgentSpec(UUID id, String name, String runtime, String modelProvider, String modelName,

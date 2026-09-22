@@ -84,6 +84,8 @@ class AgentTeamsClientTest {
 
     @Test
     void readsTaskProgressResultAndProcessEvents() {
+        server.createContext("/api/v1/tasks/00000000-0000-0000-0000-000000000001/runs", exchange ->
+                respond(exchange, 200, "[{\"id\":\"00000000-0000-0000-0000-000000000002\",\"taskId\":\"00000000-0000-0000-0000-000000000001\",\"status\":\"SUCCEEDED\",\"version\":1,\"resultStatus\":\"SUCCEEDED\",\"resultSummary\":\"done\"}]"));
         server.createContext("/api/v1/tasks/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000002/progress", exchange ->
                 respond(exchange, 200, "{\"phase\":\"EXECUTION\",\"completed\":2,\"total\":4,\"progress\":50,\"waitingReason\":\"\"}"));
         server.createContext("/api/v1/tasks/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000002/result", exchange ->
@@ -93,6 +95,7 @@ class AgentTeamsClientTest {
 
         AgentTeamsClient client = new AgentTeamsClient(baseUrl, "ak-1", "secret-1", "org-1").asUser("user-1");
 
+        assertThat(client.listTaskRuns(UUID.fromString("00000000-0000-0000-0000-000000000001"))).hasSize(1);
         assertThat(client.getTaskProgress(UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 UUID.fromString("00000000-0000-0000-0000-000000000002")).progress()).isEqualTo(50);
         assertThat(client.getTaskResult(UUID.fromString("00000000-0000-0000-0000-000000000001"),
