@@ -143,14 +143,28 @@ def psql(namespace: str, password: str, statement: str) -> str:
 
 def ensure_project_membership(namespace: str, subject: str, tenant: str,
                               project: str) -> str | None:
-    """review 需要 project_memberships 上的 TASK_APPROVE 授权（ADMIN 含该动作）；
-    返回原 role 供结束后还原（None=原本不存在）。"""
+    """补齐评审流程所需的组织、租户、项目三层身份范围。
+
+    review 需要 project_memberships 上的 TASK_APPROVE 授权（ADMIN 含该动作）；
+    返回原 role 供结束后还原（None=原本不存在）。组织和租户关系按真实
+    L5 subject 幂等写入 MEMBER，并保留到验收环境供后续接口读取。
+    """
     password = database_password(namespace)
     previous = psql(namespace, password,
                     "SELECT role FROM project_memberships "
                     f"WHERE subject={sql_literal(subject)} AND tenant_id={sql_literal(tenant)} AND project_id="
                     f"(SELECT id FROM projects WHERE tenant_id={sql_literal(tenant)} AND name={sql_literal(project)}) LIMIT 1;").strip()
     psql(namespace, password, f"""
+        INSERT INTO organization_memberships(organization_id, subject, role, created_at, updated_at)
+        SELECT organization_id, {sql_literal(subject)}, 'MEMBER', now(), now()
+          FROM legacy_tenant_mappings WHERE legacy_tenant_key = {sql_literal(tenant)}
+        ON CONFLICT (organization_id, subject) DO UPDATE
+            SET role = 'MEMBER', updated_at = now();
+        INSERT INTO tenant_memberships(organization_id, tenant_id, subject, role, created_at, updated_at)
+        SELECT organization_id, tenant_id, {sql_literal(subject)}, 'MEMBER', now(), now()
+          FROM legacy_tenant_mappings WHERE legacy_tenant_key = {sql_literal(tenant)}
+        ON CONFLICT (tenant_id, subject) DO UPDATE
+            SET role = 'MEMBER', updated_at = now();
         INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
         SELECT {sql_literal(tenant)}, id, {sql_literal(subject)}, 'ADMIN', 'ACTIVE', now(), now(), 0
           FROM projects WHERE tenant_id = {sql_literal(tenant)} AND name = {sql_literal(project)}
