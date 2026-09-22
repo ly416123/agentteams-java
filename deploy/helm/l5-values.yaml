@@ -55,6 +55,7 @@ controlPlane:
     # endpoint; the current L5 key is valid for the China endpoint.
 
 manager:
+  image: ghcr.io/ly416123/agentteams-manager:l5-g05-files-20260922
   security:
     enabled: true
     issuerUri: http://192.168.122.55:30082/realms/agentteams
