@@ -57,6 +57,17 @@ public final class AgentTeamsClient {
         return send("POST", path, null, AgentSpecDeployment.class, false, null,
                 actor == null || actor.isBlank() ? Map.of() : Map.of("X-Actor", actor));
     }
+    public Task createTask(CreateTaskRequest request, String idempotencyKey, boolean retrySafe) {
+        return send("POST", "/api/v1/tasks", request, Task.class, retrySafe, idempotencyKey);
+    }
+    public Task queueTask(UUID taskId, long expectedVersion, String idempotencyKey, boolean retrySafe) {
+        requireId(taskId);
+        return send("POST", "/api/v1/tasks/" + taskId + "/queue",
+                new QueueTaskRequest(expectedVersion), Task.class, retrySafe, idempotencyKey);
+    }
+    public Task queueTask(UUID taskId, long expectedVersion, String idempotencyKey) {
+        return queueTask(taskId, expectedVersion, idempotencyKey, false);
+    }
     public Task getTask(UUID taskId) { requireId(taskId); return send("GET", "/api/v1/tasks/" + taskId, null, Task.class, true, null); }
     public Task cancelTask(UUID taskId, LifecycleRequest request) { return cancelTask(taskId, request, false); }
     public Task cancelTask(UUID taskId, LifecycleRequest request, boolean retrySafe) { requireId(taskId); return send("POST", "/api/v1/tasks/" + taskId + "/cancel", request, Task.class, retrySafe, null); }
@@ -101,7 +112,7 @@ public final class AgentTeamsClient {
         public List<Membership> listMemberships(String targetExternalUserId) { requireExternal(targetExternalUserId); Membership[] result = send("GET", "/api/v1/provisioning/users/" + targetExternalUserId + "/memberships", null, Membership[].class, true, null); return List.of(result); }
         private void requireExternal(String id) { if (blank(id)) throw new IllegalArgumentException("externalUserId must not be blank"); }
     }
-    public record CreateProjectRequest(String name) { } public record LifecycleRequest(Long expectedVersion, String actor, String source) { } public record ProvisioningRequest(String externalUserId, String displayName) { } public record ProvisioningUser(String externalUserId, String status) { } public record Membership(String projectId, String role) { }
+    public record CreateProjectRequest(String name) { } public record LifecycleRequest(Long expectedVersion, String actor, String source) { } public record QueueTaskRequest(Long expectedVersion) { } public record CreateTaskRequest(String title, String description, JsonNode spec, String actor, String source, String taskType) { } public record ProvisioningRequest(String externalUserId, String displayName) { } public record ProvisioningUser(String externalUserId, String status) { } public record Membership(String projectId, String role) { }
     public record CreateAgentRequest(String name, String runtime, String workerType, JsonNode capabilities, JsonNode metadata) { }
     public record CreateAgentSpecRequest(String name, String runtime, String modelProvider, String modelName,
                                          String teamRef, String desiredState, String workerType, JsonNode spec) { }

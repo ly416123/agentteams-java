@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -101,6 +102,37 @@ class AgentTeamsClientTest {
     }
 
     @Test
+    void createsAndQueuesTaskWithIdempotencyAndExpectedVersion() throws Exception {
+        UUID taskId = UUID.fromString("00000000-0000-0000-0000-000000000021");
+        server.createContext("/api/v1/tasks", exchange -> {
+            assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+            assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("Bearer token-1");
+            assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo("task-create-1");
+            assertThat(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("\"taskType\":\"CHAT\"");
+            respond(exchange, 201, taskJsonFor(taskId, "DRAFT", 0));
+        });
+        server.createContext("/api/v1/tasks/" + taskId + "/queue", exchange -> {
+            assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+            assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo("task-queue-1");
+            assertThat(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8))
+                    .contains("\"expectedVersion\":0");
+            respond(exchange, 200, taskJsonFor(taskId, "QUEUED", 1));
+        });
+
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+        AgentTeamsClient.Task created = client.createTask(
+                new AgentTeamsClient.CreateTaskRequest("chat", "hello", new ObjectMapper().createObjectNode()
+                        .put("projectId", "project-a"), "user-1", "corp-agent", "CHAT"),
+                "task-create-1", false);
+        AgentTeamsClient.Task queued = client.queueTask(taskId, created.version(), "task-queue-1", false);
+
+        assertThat(created.phase()).isEqualTo("DRAFT");
+        assertThat(queued.phase()).isEqualTo("QUEUED");
+        assertThat(queued.version()).isEqualTo(1);
+    }
+
+    @Test
     void createsPublishesAndDeploysAgentSpecWithOidcHeaders() {
         UUID specId = UUID.fromString("00000000-0000-0000-0000-000000000011");
         UUID agentId = UUID.fromString("00000000-0000-0000-0000-000000000012");
@@ -140,6 +172,13 @@ class AgentTeamsClientTest {
         return "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"title\":\"Demo\","
                 + "\"description\":\"Task\",\"phase\":\"DRAFT\",\"priority\":0,"
                 + "\"createdAt\":\"2026-08-31T00:00:00Z\",\"updatedAt\":\"2026-08-31T00:00:00Z\",\"version\":0}";
+    }
+
+    private static String taskJsonFor(UUID taskId, String phase, long version) {
+        return "{\"id\":\"" + taskId + "\",\"title\":\"chat\",\"description\":\"hello\","
+                + "\"phase\":\"" + phase + "\",\"priority\":0,"
+                + "\"createdAt\":\"2026-08-31T00:00:00Z\",\"updatedAt\":\"2026-08-31T00:00:00Z\","
+                + "\"version\":" + version + "}";
     }
 
     private static void respond(HttpExchange exchange, int status, String body) throws IOException {
