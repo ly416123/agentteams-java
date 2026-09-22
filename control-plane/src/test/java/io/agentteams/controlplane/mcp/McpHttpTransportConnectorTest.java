@@ -16,8 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -27,10 +29,12 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 class McpHttpTransportConnectorTest {
     private HttpServer server;
+    private ExecutorService serverExecutor;
 
     @AfterEach
     void stopServer() {
         if (server != null) server.stop(0);
+        if (serverExecutor != null) serverExecutor.shutdownNow();
     }
 
     @Test
@@ -95,9 +99,50 @@ class McpHttpTransportConnectorTest {
                     + request.path("id").asLong() + ",\"result\":{\"tools\":[{\"name\":\"search\","
                     + "\"description\":\"Search\",\"inputSchema\":{\"type\":\"object\"}}]}}");
         });
+        assertThat(connector().discoverTools(target(McpTransport.STREAMABLE_HTTP), Duration.ofSeconds(1)))
+                .extracting(McpToolDescriptor::name).containsExactly("search");
+    }
+
+    @Test
+    void reinitializesStreamableSessionOnceWhenServerReturnsNotFound() throws Exception {
+        AtomicInteger initializeCount = new AtomicInteger();
+        AtomicInteger toolsListCount = new AtomicInteger();
+        ObjectMapper mapper = new ObjectMapper();
+        Handler handler = exchange -> {
+            JsonNode request = mapper.readTree(exchange.getRequestBody());
+            String method = request.path("method").asText();
+            if ("initialize".equals(method)) {
+                int attempt = initializeCount.incrementAndGet();
+                exchange.getResponseHeaders().set("Mcp-Session-Id", "session-" + attempt);
+                respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                        + request.path("id").asLong() + ",\"result\":{\"protocolVersion\":\"2025-06-18\","
+                        + "\"capabilities\":{},\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}}");
+                return;
+            }
+            if ("notifications/initialized".equals(method)) {
+                respond(exchange, 202, "application/json", "");
+                return;
+            }
+            assertThat(method).isEqualTo("tools/list");
+            if (toolsListCount.incrementAndGet() == 1) {
+                respond(exchange, 404, "text/plain", "session expired");
+                return;
+            }
+            assertThat(exchange.getRequestHeaders().getFirst("Mcp-Session-Id")).isEqualTo("session-2");
+            respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                    + request.path("id").asLong() + ",\"result\":{\"tools\":[{\"name\":\"search\","
+                    + "\"description\":\"Search\",\"inputSchema\":{\"type\":\"object\"}}]}}");
+        };
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/mcp", handler::handle);
+        serverExecutor = Executors.newCachedThreadPool();
+        server.setExecutor(serverExecutor);
+        server.start();
 
         assertThat(connector().discoverTools(target(McpTransport.STREAMABLE_HTTP), Duration.ofSeconds(1)))
                 .extracting(McpToolDescriptor::name).containsExactly("search");
+        assertThat(initializeCount).hasValue(2);
+        assertThat(toolsListCount).hasValue(2);
     }
 
     @Test

@@ -104,6 +104,11 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
     }
 
     private JsonNode exchangeStreamable(URI endpoint, long id, String body, Duration timeout) {
+        return exchangeStreamable(endpoint, id, body, timeout, true);
+    }
+
+    private JsonNode exchangeStreamable(URI endpoint, long id, String body, Duration timeout,
+            boolean retryOnNotFound) {
         try {
             long initializeId = requestIds.incrementAndGet();
             HttpResponse<String> initialized = httpClient.send(
@@ -119,6 +124,9 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
                     request(endpoint, body, timeout, sessionId, protocolVersion), bodyHandler());
             return parseEnvelope(classify(response), id);
         } catch (McpHttpConnectorException error) {
+            if (retryOnNotFound && error.statusCode() == 404) {
+                return exchangeStreamable(endpoint, id, body, timeout, false);
+            }
             throw error;
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
