@@ -166,7 +166,7 @@ public class McpServerService {
             }
             McpServerRecord updated = new McpServerRecord(current.id(), current.name(), current.transport(), current.endpoint(),
                     current.credentialRef(), current.enabled(), status, checkedAt, current.createdAt(), now,
-                    current.version() + 1);
+                    current.version() + 1, current.outboundPolicy());
             record(actor, "UPDATE_MCP_SERVER_HEALTH", id, "SUCCESS");
             return updated;
         } catch (RuntimeException error) {

@@ -11,11 +11,14 @@ import static org.mockito.Mockito.when;
 
 import io.agentteams.controlplane.audit.AuditEvent;
 import io.agentteams.controlplane.audit.AuditRecorder;
+import io.agentteams.controlplane.security.OutboundPolicy;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
@@ -117,6 +120,22 @@ class McpServerServiceTest {
         assertThat(updated.lastCheckedAt()).isEqualTo(NOW);
         assertThat(updated.version()).isEqualTo(2);
         assertAudit("UPDATE_MCP_SERVER_HEALTH", id, "SUCCESS");
+    }
+
+    @Test
+    void healthUpdatePreservesTheExistingOutboundPolicy() {
+        UUID id = UUID.randomUUID();
+        OutboundPolicy policy = new OutboundPolicy(Set.of("http"), Set.of("agentteams-mcp-tools"),
+                Duration.ofSeconds(30), Set.of("*"));
+        McpServerRecord current = new McpServerRecord(id, "agentteams-mcp-tools", McpTransport.STREAMABLE_HTTP,
+                "http://agentteams-mcp-tools:8090/mcp", "MCP_TOOLS_TOKEN", true, McpHealthStatus.UNKNOWN, null,
+                NOW, NOW, 1, policy);
+        when(repository.findById(id)).thenReturn(Optional.of(current));
+        when(repository.updateHealth(id, McpHealthStatus.HEALTHY, NOW, NOW, 1)).thenReturn(1);
+
+        McpServerRecord updated = service.updateHealth(id, new McpServerService.HealthInput("healthy", null));
+
+        assertThat(updated.outboundPolicy()).isEqualTo(policy);
     }
 
     @Test
