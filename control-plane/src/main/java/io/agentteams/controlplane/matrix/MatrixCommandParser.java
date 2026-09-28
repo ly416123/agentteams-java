@@ -1,10 +1,17 @@
 package io.agentteams.controlplane.matrix;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.agentteams.application.api.CommandActor;
+import io.agentteams.application.api.CommandEnvelope;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 
 public final class MatrixCommandParser {
     private static final String PREFIX = "!agentteams";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     public boolean isCommand(String body) {
         if (body == null || body.isBlank()) {
@@ -53,5 +60,47 @@ public final class MatrixCommandParser {
         } catch (IllegalArgumentException error) {
             throw new MatrixCommandException("task id must be a UUID", error);
         }
+    }
+
+    public CommandEnvelope toEnvelope(MatrixIdentity identity, MatrixRoomBinding binding, MatrixCommand command,
+            String transactionId, String eventId, long aggregateVersion) {
+        if (identity == null || binding == null || command == null) {
+            throw new IllegalArgumentException("identity, binding and command are required");
+        }
+        required(transactionId, "transactionId");
+        required(eventId, "eventId");
+        if (binding.status() != MatrixRoomBindingStatus.ACTIVE) {
+            throw new MatrixCommandException("Matrix room binding is not active");
+        }
+        ObjectNode payload = JSON.createObjectNode();
+        payload.put("roomId", binding.roomId());
+        payload.put("contextType", binding.primaryContextType().name());
+        payload.put("contextId", binding.primaryContextId().toString());
+        UUID conversationId = binding.primaryContextType() == MatrixRoomContextType.CONVERSATION
+                ? binding.primaryContextId() : null;
+        UUID taskId = null;
+        String commandType;
+        if (command instanceof MatrixCommand.Start start) {
+            commandType = "task.start";
+            payload.put("title", start.title());
+        } else {
+            MatrixCommand.TaskAction action = (MatrixCommand.TaskAction) command;
+            taskId = action.taskId();
+            if (binding.primaryContextType() == MatrixRoomContextType.TASK
+                    && !binding.primaryContextId().equals(taskId)) {
+                throw new MatrixCommandException("task is outside the bound Matrix room");
+            }
+            commandType = "task." + action.action().name().toLowerCase(Locale.ROOT);
+            payload.put("action", action.action().name().toLowerCase(Locale.ROOT));
+        }
+        String idempotencyKey = "matrix:" + transactionId + ":" + eventId;
+        UUID commandId = UUID.nameUUIDFromBytes(idempotencyKey.getBytes(StandardCharsets.UTF_8));
+        return new CommandEnvelope(commandId, commandType, binding.tenantId(),
+                new CommandActor(identity.actorType(), identity.subject(), "MATRIX"), conversationId, taskId, "TASK",
+                aggregateVersion, payload, idempotencyKey, "matrix:" + transactionId, Instant.now());
+    }
+
+    private static void required(String value, String field) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
     }
 }

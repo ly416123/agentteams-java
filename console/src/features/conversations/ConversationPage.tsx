@@ -4,9 +4,11 @@ import {
   cancelConversation,
   createConversation,
   getConversationHistory,
+  getConversationTimeline,
   getConversation,
   sendConversationMessage,
   type Conversation,
+  type TimelineItem,
 } from '../../api/conversations';
 import { apiClient } from '../../api/httpClient';
 import { listTeams } from '../../api/teams';
@@ -20,6 +22,7 @@ import { ErrorState } from '../../components/ErrorState';
 import { labelRole, labelType } from '../../i18n/labels';
 import { labelStatus } from '../../i18n/labels';
 import { createUuid } from '../../utils/uuid';
+import { Timeline } from '../../components/Timeline';
 
 type TranscriptItem = {
   key: string;
@@ -102,6 +105,7 @@ export function ConversationPage({
   const [conversation, setConversation] = useState<Conversation>();
   const conversationRef = useRef<Conversation>();
   const [events, setEvents] = useState<ConversationEvent[]>([]);
+  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [content, setContent] = useState('');
   const pendingMessages = useRef<{ content: string; idempotencyKey: string }[]>([]);
   const sendingMessages = useRef(false);
@@ -165,6 +169,14 @@ export function ConversationPage({
                 return eventOrder(left) - eventOrder(right);
               });
             });
+          })
+          .catch((nextError) => active && setLoadError(nextError));
+        void Promise.resolve(
+          getConversationTimeline(conversationId, { after: 0, limit: 1000 }, apiClient),
+        )
+          .then((items) => {
+            if (active && items)
+              setTimeline(items.filter((item) => item.visibility !== 'INTERNAL'));
           })
           .catch((nextError) => active && setLoadError(nextError));
         void streamConversationEvents(conversationId, {
@@ -351,6 +363,18 @@ export function ConversationPage({
             <p>{item.text}</p>
           </div>
         ))}
+      </section>
+      <section className="panel conversation-timeline" aria-label="统一时间线">
+        <p className="eyebrow">统一时间线</p>
+        <Timeline
+          items={timeline.map((item) => ({
+            id: item.itemId,
+            title: item.summary,
+            description: `${item.itemType} · ${item.actorId}${item.payloadRef ? ` · ${item.payloadRef}` : ''}`,
+            time: item.occurredAt,
+            tone: item.itemType === 'CONVERSATION_MESSAGE' ? 'info' : 'neutral',
+          }))}
+        />
       </section>
       {status === 'CANCELLED' && <div className="info-box">会话已取消</div>}
       {Boolean(sendError) && (

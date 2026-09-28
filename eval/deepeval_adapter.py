@@ -341,6 +341,29 @@ def evaluate_with_deepeval(test_case: Any, metrics: Sequence[Any]) -> Any:
     return evaluate(test_cases=[test_case], metrics=list(metrics))
 
 
+def summarize_metric_results(metric_results: Sequence[Mapping[str, Any]],
+                            evidence_refs: Sequence[str]) -> dict[str, Any]:
+    """Convert optional judge scores into the durable Evaluation Result shape."""
+    results: list[dict[str, Any]] = []
+    for metric in metric_results:
+        name = str(metric.get("metric", metric.get("name", "semantic")))
+        score = _number(metric, ("score", "value"))
+        threshold = _number(metric, ("threshold", "minimum"))
+        if score is None or threshold is None:
+            status = "INCONCLUSIVE"
+        else:
+            status = "PASSED" if score >= threshold else "FAILED"
+        results.append({"metric": name, "score": score, "threshold": threshold,
+                        "status": status, "evidenceRefs": list(evidence_refs)})
+    if not results or any(item["status"] == "INCONCLUSIVE" for item in results):
+        status = "INCONCLUSIVE"
+    elif any(item["status"] == "FAILED" for item in results):
+        status = "FAILED"
+    else:
+        status = "PASSED"
+    return {"evaluationStatus": status, "results": results}
+
+
 def load_observation(path: str | Path) -> dict[str, Any]:
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8"))

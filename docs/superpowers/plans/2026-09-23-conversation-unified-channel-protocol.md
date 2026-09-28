@@ -44,7 +44,7 @@
 
 **文件：** application-contracts 四个新 record 文件及 UnifiedProtocolTest.java。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖 actor、租户、幂等键、版本号、occurredAt 的校验，以及 Jackson 字段名和命令状态。
 
@@ -58,7 +58,7 @@ assertThatThrownBy(() -> new CommandEnvelope(
         .isInstanceOf(IllegalArgumentException.class);
 ~~~
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -68,7 +68,7 @@ mvn -q -pl application-contracts -am -Dtest=UnifiedProtocolTest test
 
 预期：FAIL，原因是协议类型尚不存在。
 
-- [ ] **步骤 3：实现最小协议类型**
+- [x] **步骤 3：实现最小协议类型**
 
 保持以下稳定签名：
 
@@ -101,11 +101,11 @@ public record TimelineItem(
 
 用 Jackson 注解固定公共 JSON 字段名，不把 Spring、JDBC 或数据库记录类型放进 application-contracts。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期 UnifiedProtocolTest 全部 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add application-contracts/src/main/java/io/agentteams/application/api application-contracts/src/test/java/io/agentteams/application/api/UnifiedProtocolTest.java
@@ -116,7 +116,7 @@ git commit -m "feat(协议): 增加统一命令事件和时间线合同"
 
 **文件：** V96、ConversationRecord、ConversationMessageRecord、两个 Repository 及 JDBC 测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖：
 
@@ -126,7 +126,7 @@ git commit -m "feat(协议): 增加统一命令事件和时间线合同"
 4. Task source conversation 可为空，写入后可反查。
 5. 不同 tenant 不能读到对方 Conversation。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -136,7 +136,7 @@ mvn -q -pl control-plane -Dtest='Conversation*RepositoryTest' test
 
 预期：FAIL，原因是迁移、记录类型和 Repository 尚不存在。
 
-- [ ] **步骤 3：编写迁移**
+- [x] **步骤 3：编写迁移**
 
 V96 创建 Conversation、Message 和 Task 关联；Message 表若与 manager 同库，使用不冲突的物理名 conversation_messages_cp。
 
@@ -179,7 +179,7 @@ CREATE INDEX conversation_messages_cp_timeline_idx
 CREATE INDEX tasks_source_conversation_idx ON tasks (source_conversation_id);
 ~~~
 
-- [ ] **步骤 4：实现 Repository 和 tenant 过滤**
+- [x] **步骤 4：实现 Repository 和 tenant 过滤**
 
 固定接口：
 
@@ -192,11 +192,11 @@ List<ConversationMessageRecord> messages(ExecutionContext context, UUID conversa
 
 appendMessage 使用数据库唯一约束实现幂等；重放只返回原记录，不生成新 sequence。
 
-- [ ] **步骤 5：运行测试验证通过**
+- [x] **步骤 5：运行测试验证通过**
 
 运行同一条 Maven 命令，预期 Repository、tenant 隔离和幂等测试 PASS。
 
-- [ ] **步骤 6：提交**
+- [x] **步骤 6：提交**
 
 ~~~bash
 git add control-plane/src/main/resources/db/migration/V96__conversation_unified_protocol.sql control-plane/src/main/java/io/agentteams/controlplane/conversation
@@ -207,7 +207,7 @@ git commit -m "feat(conversation): persist conversations and messages"
 
 **文件：** ConversationService.java、ConversationTimelineService.java、Task 持久层映射及服务测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 测试一个 Conversation 创建两个 Task；一个 Task 第二次绑定 Conversation 被拒绝；时间线包含 Message 和 Task Event；事件乱序时稳定排序；跨 tenant 查询被拒绝。
 
@@ -223,7 +223,7 @@ assertThat(timelineService.list(context, conversation.id(), 0, 100))
         .contains("CONVERSATION_MESSAGE", "TASK_EVENT");
 ~~~
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -233,17 +233,17 @@ mvn -q -pl control-plane -Dtest='ConversationServiceTest,ConversationTimelineSer
 
 预期：FAIL，原因是服务、Task 字段和 Timeline 查询尚未实现。
 
-- [ ] **步骤 3：实现服务和查询投影**
+- [x] **步骤 3：实现服务和查询投影**
 
 ConversationService 负责创建、归档、追加 Message 和校验 Task 关联；不得改变 Task phase。
 
 ConversationTimelineService 读取 conversation_messages_cp、DomainEventRepository、TaskProcessEventRepository、TaskResultManifestRepository，映射为 TimelineItem。过滤 visibility 后按 occurredAt、sequence、itemId 稳定排序；payload 只返回 payloadRef 或安全 summary。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期关联、授权、排序和可见性测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/conversation control-plane/src/main/java/io/agentteams/controlplane/persistence
@@ -254,11 +254,11 @@ git commit -m "feat(conversation): add service and unified timeline"
 
 **文件：** UnifiedCommandController.java、幂等存储、现有 audit/outbox 组件和 UnifiedCommandControllerTest.java。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 MockMvc 覆盖合法 task.start、重复命令返回 DUPLICATE、aggregateVersion 冲突 409、无权限 403、命令接收/拒绝审计和敏感 payload 拒绝。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -268,7 +268,7 @@ mvn -q -pl control-plane -Dtest=UnifiedCommandControllerTest test
 
 预期：FAIL，原因是统一入口和幂等存储尚不存在。
 
-- [ ] **步骤 3：实现入口**
+- [x] **步骤 3：实现入口**
 
 新增 POST /api/v1/commands：
 
@@ -281,11 +281,11 @@ public CommandResult execute(@Valid @RequestBody CommandEnvelope command) {
 
 CommandDispatcher 先校验 actor/tenant/scope，再按 tenant_id + command_type + idempotency_key 去重，最后调用现有 TaskService/ConversationService，并写入 DomainEventRepository、OutboxEventRepository 和审计记录。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期命令、授权、幂等和审计测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/api control-plane/src/main/java/io/agentteams/controlplane/command control-plane/src/test/java/io/agentteams/controlplane/api/UnifiedCommandControllerTest.java
@@ -296,11 +296,11 @@ git commit -m "feat(command): unify channel commands and idempotency"
 
 **文件：** Manager ConversationController、ConversationService、兼容层及测试。
 
-- [ ] **步骤 1：扩展现有测试**
+- [x] **步骤 1：扩展现有测试**
 
 验证旧 POST /api/v1/conversations 仍返回旧字段；创建结果保留 sessionId/taskId；旧消息转换为 channel=INTERNAL、messageType=TEXT；Task 带 sourceConversationId；runtime 重放不重复创建 Task。
 
-- [ ] **步骤 2：运行基线测试**
+- [x] **步骤 2：运行基线测试**
 
 运行：
 
@@ -310,13 +310,13 @@ mvn -q -pl manager -Dtest='ConversationControllerTest,ConversationServiceTest' t
 
 预期：基线通过；基线失败时先记录根因，不将无关修复混入兼容桥接。
 
-- [ ] **步骤 3：实现兼容桥接**
+- [x] **步骤 3：实现兼容桥接**
 
 Manager 保留 conversation_sessions 和旧游标；通过 ControlPlaneConversationPort 写入新 Conversation、Message 和 sourceConversationId。旧 DTO 继续输出旧字段，新领域 ID 由映射保存。
 
 桥接使用原请求 idempotency key，并将 manager session version 映射到 CommandEnvelope.aggregateVersion，防止 runtime 重放重复创建 Task。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：
 
@@ -326,7 +326,7 @@ mvn -q -pl manager -Dtest='ConversationControllerTest,ConversationServiceTest,Co
 
 预期：旧 API 和桥接测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add manager/src/main/java/io/agentteams/manager manager/src/test/java/io/agentteams/manager
@@ -337,11 +337,11 @@ git commit -m "feat(manager): bridge legacy conversation to control plane"
 
 **文件：** AgentTeamsClient.java、Conversation TypeScript API、ConversationPage.tsx、对应测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 SDK 测试验证 createConversation、sendConversationMessage、getConversationTimeline 的路径、Idempotency-Key、Authorization 和响应解码。Console 测试验证 TimelineItem、visibility、payloadRef 和 409 版本冲突。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -352,7 +352,7 @@ npm --prefix console test -- --run console/tests/api/conversations.test.ts
 
 预期：新 API 测试 FAIL。
 
-- [ ] **步骤 3：实现 SDK 和 Console API**
+- [x] **步骤 3：实现 SDK 和 Console API**
 
 SDK 增加：
 
@@ -364,7 +364,7 @@ public List<TimelineItem> getConversationTimeline(UUID conversationId, long afte
 
 Console 增加 create/send/timeline API；ConversationPage 用统一 TimelineItem 渲染 Message、Task Event、Result 和 Artifact，并复用现有错误与版本冲突组件。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：
 
@@ -375,7 +375,7 @@ npm --prefix console test -- --run
 
 预期：SDK、Console API 和页面测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add sdk/java console/src/api console/src/features/conversations console/tests
@@ -384,8 +384,8 @@ git commit -m "feat(channel): expose conversation timeline through sdk and conso
 
 ### 完成定义
 
-- [ ] application-contracts、control-plane、manager、sdk/java、console 定向测试通过。
-- [ ] Flyway V96 在空库和现有库成功执行。
-- [ ] 旧 Manager Conversation API 的字段和幂等语义不回归。
-- [ ] unified timeline 不暴露 INTERNAL visibility 和敏感 payload。
-- [ ] 计划 B 可只依赖本计划已提交的协议类型和 Conversation 查询接口。
+- [x] application-contracts、control-plane、manager、sdk/java、console 定向测试通过。
+- [x] Flyway V96 在空库和现有库成功执行。
+- [x] 旧 Manager Conversation API 的字段和幂等语义不回归。
+- [x] unified timeline 不暴露 INTERNAL visibility 和敏感 payload。
+- [x] 计划 B 可只依赖本计划已提交的协议类型和 Conversation 查询接口。

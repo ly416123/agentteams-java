@@ -39,32 +39,40 @@ public final class MatrixAppServiceHttpAdapter {
     private final MatrixCommandHandler commandHandler;
     private final MatrixIdentityBinder identityBinder;
     private final MatrixAppServiceProperties properties;
+    private final MatrixRoomBindingRepository roomBindings;
 
     public MatrixAppServiceHttpAdapter(MatrixAppService appService, MatrixCommandHandler commandHandler) {
-        this(appService, commandHandler, null, new MatrixAppServiceProperties());
+        this(appService, commandHandler, null, new MatrixAppServiceProperties(), null);
     }
 
     public MatrixAppServiceHttpAdapter(MatrixAppService appService, MatrixCommandHandler commandHandler,
             MatrixIdentityBinder identityBinder) {
-        this(appService, commandHandler, identityBinder, new MatrixAppServiceProperties());
+        this(appService, commandHandler, identityBinder, new MatrixAppServiceProperties(), null);
     }
 
     MatrixAppServiceHttpAdapter(MatrixAppService appService, MatrixCommandHandler commandHandler,
             MatrixIdentityBinder identityBinder, MatrixAppServiceProperties properties) {
+        this(appService, commandHandler, identityBinder, properties, null);
+    }
+
+    MatrixAppServiceHttpAdapter(MatrixAppService appService, MatrixCommandHandler commandHandler,
+            MatrixIdentityBinder identityBinder, MatrixAppServiceProperties properties,
+            MatrixRoomBindingRepository roomBindings) {
         this.appService = Objects.requireNonNull(appService, "appService");
         this.commandHandler = Objects.requireNonNull(commandHandler, "commandHandler");
         this.identityBinder = identityBinder;
         this.properties = Objects.requireNonNull(properties, "properties");
+        this.roomBindings = roomBindings;
     }
 
     @Autowired
     public MatrixAppServiceHttpAdapter(MatrixAppService appService,
             ObjectProvider<MatrixCommandHandler> commandHandlers,
             MatrixIdentityBinder identityBinder,
-            MatrixAppServiceProperties properties) {
+            MatrixAppServiceProperties properties, MatrixRoomBindingRepository roomBindings) {
         this(appService, commandHandlers.getIfAvailable(() -> (sender, command) -> {
             throw new MatrixCommandHandlingException("no Matrix command handler is configured");
-        }), identityBinder, properties);
+        }), identityBinder, properties, roomBindings);
     }
 
     public ResponseEntity<HttpResponse> receive(String transactionId, TransactionRequest request) {
@@ -99,7 +107,7 @@ public final class MatrixAppServiceHttpAdapter {
                 MatrixAppService.Result result;
                 try {
                     result = appService.receive(transactionId, event.eventId(), event.roomId(), event.sender(), body,
-                            (sender, command) -> handleCommand(sender, command));
+                            (sender, command) -> handleCommand(sender, command, transactionId, event));
                 } catch (MatrixIdentityBindingException error) {
                     // A permanent authorization rejection must not leave the transaction retryable forever.
                     appService.completeTransaction(transactionId);
@@ -124,6 +132,9 @@ public final class MatrixAppServiceHttpAdapter {
         } catch (MatrixIdentityBindingException error) {
             return error(HttpStatus.FORBIDDEN, transactionId, "IDENTITY_NOT_BOUND",
                     "Matrix sender is not bound to a platform identity");
+        } catch (MatrixRoomNotBoundException error) {
+            return error(HttpStatus.FORBIDDEN, transactionId, "ROOM_NOT_BOUND",
+                    "Matrix room is not bound to an active platform context");
         } catch (AuthorizationException error) {
             return error(HttpStatus.FORBIDDEN, transactionId, "PERMISSION_DENIED",
                     "Matrix sender is not authorized for this command");
@@ -139,11 +150,15 @@ public final class MatrixAppServiceHttpAdapter {
         }
     }
 
-    private String handleCommand(String sender, MatrixCommand command) {
+    private String handleCommand(String sender, MatrixCommand command, String transactionId,
+            EventRequest event) {
         if (identityBinder == null) return commandHandler.handle(sender, command);
         MatrixIdentity identity = identityBinder.bind(sender)
                 .orElseThrow(() -> new MatrixIdentityBindingException("Matrix sender is not bound"));
-        return commandHandler.handle(identity, command);
+        if (roomBindings == null) return commandHandler.handle(identity, command);
+        MatrixRoomBinding binding = roomBindings.findActiveByRoom(identity.tenantId(), event.roomId())
+                .orElseThrow(() -> new MatrixRoomNotBoundException(event.roomId()));
+        return commandHandler.handle(identity, binding, command, transactionId, event.eventId());
     }
 
     private static void validateTransaction(String transactionId, TransactionRequest request) {

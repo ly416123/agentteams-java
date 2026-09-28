@@ -7,4 +7,9 @@ public interface MatrixCommandHandler {
     default String handle(MatrixIdentity identity, MatrixCommand command) {
         return handle(identity.matrixUserId(), command);
     }
+
+    default String handle(MatrixIdentity identity, MatrixRoomBinding binding, MatrixCommand command,
+            String transactionId, String eventId) {
+        return handle(identity, command);
+    }
 }

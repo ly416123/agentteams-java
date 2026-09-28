@@ -51,17 +51,24 @@ public final class ConversationService {
 
     private final ConversationRuntimePort runtime;
     private final ConversationRepository repository;
+    private final ControlPlaneConversationPort controlPlane;
     private final Map<UUID, SessionState> sessions = new ConcurrentHashMap<>();
     private final ScheduledExecutorService eventSynchronizer = Executors.newScheduledThreadPool(2,
             daemonThreadFactory());
 
     public ConversationService(ConversationRuntimePort runtime) {
-        this(runtime, new InMemoryConversationRepository());
+        this(runtime, new InMemoryConversationRepository(), ControlPlaneConversationPort.noop());
     }
 
     public ConversationService(ConversationRuntimePort runtime, ConversationRepository repository) {
+        this(runtime, repository, ControlPlaneConversationPort.noop());
+    }
+
+    public ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
+            ControlPlaneConversationPort controlPlane) {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.controlPlane = Objects.requireNonNull(controlPlane, "controlPlane");
     }
 
     public Conversation create(ConversationRuntimePort.Context context) {
@@ -85,6 +92,13 @@ public final class ConversationService {
         if (owner != null && state.owner != null && !owner.equals(state.owner)) {
             throw new ConversationRuntimeException(ConversationRuntimeException.Code.IDEMPOTENCY_CONFLICT,
                     "conversation session already exists with different owner");
+        }
+        if (owner != null && idempotencyKey != null && !state.controlPlaneCreated) {
+            controlPlane.create(new ControlPlaneConversationPort.CreateRequest(
+                    context.sessionId(), owner.tenantId(), context.project(), context.team(),
+                    "Manager conversation " + context.sessionId(), owner.subject(), idempotencyKey,
+                    state.version, record.createdAt()));
+            state.controlPlaneCreated = true;
         }
         return snapshot(state);
     }
@@ -209,6 +223,7 @@ public final class ConversationService {
                     throw new ConversationRuntimeException(ConversationRuntimeException.Code.RECOVERY_REQUIRED,
                             "conversation message requires operator recovery before retry");
                 }
+                bridgeMessage(state, previous.content, idempotencyKey, previous.createdAt, state.version);
                 List<ConversationEvent> replay = previous.responseCaptured && !previous.responseEvents.isEmpty()
                         ? previous.responseEvents : eventsFor(previous, state, repository.findEvents(sessionId));
                 if (!replay.isEmpty()) {
@@ -235,6 +250,7 @@ public final class ConversationService {
                         "conversation has a message requiring operator recovery");
             }
             requireVersion(sessionId, state, expectedVersion);
+            long managerVersion = state.version;
             long startCursor = lastCursor(repository.findEvents(sessionId));
             ConversationRepository.MessageRecord requested = new ConversationRepository.MessageRecord(
                     sessionId, idempotencyKey, content, startCursor, null, Instant.now(),
@@ -260,6 +276,7 @@ public final class ConversationService {
                 record.responseCaptured = !replay.isEmpty();
                 return new SendResult(sessionId, idempotencyKey, replay);
             }
+            bridgeMessage(state, content, idempotencyKey, requested.createdAt(), managerVersion);
             dispatchPendingMessages(state);
             syncRuntimeEvents(state);
             List<ConversationEvent> produced = repository.findEvents(sessionId, startCursor);
@@ -606,14 +623,27 @@ public final class ConversationService {
         }
     }
 
+    private void bridgeMessage(SessionState state, String content, String idempotencyKey, Instant occurredAt,
+            long managerVersion) {
+        if (state.owner == null || state.controlPlaneMessageKeys.contains(idempotencyKey)) return;
+        ConversationRuntimePort.Context context = state.context;
+        controlPlane.appendMessage(new ControlPlaneConversationPort.MessageRequest(
+                context.sessionId(), state.owner.tenantId(), context.project(), context.team(),
+                state.owner.subject(), "INTERNAL", "TEXT", content, "PUBLIC", idempotencyKey,
+                managerVersion, occurredAt));
+        state.controlPlaneMessageKeys.add(idempotencyKey);
+    }
+
     private static final class SessionState {
         private final ConversationRuntimePort.Context context;
         private final ConversationOwner owner;
         private final Map<String, SendRecord> messages = new ConcurrentHashMap<>();
         private final Map<String, Boolean> cancelKeys = new ConcurrentHashMap<>();
+        private final java.util.Set<String> controlPlaneMessageKeys = ConcurrentHashMap.newKeySet();
         private Status status;
         private long version;
         private boolean runtimeStarted;
+        private boolean controlPlaneCreated;
         private long runtimeLastCursor;
         private long lastPersistentCursor;
 

@@ -43,6 +43,7 @@ class ControlPlaneCreateTaskToolTest {
                 input.title().equals("Login")
                         && input.specJson().contains("requiredCapabilities")
                         && input.specJson().contains("managerSessionId")
+                        && input.specJson().contains("sourceConversationId")
                         && input.specJson().contains("\"tenant\":\"tenant-a\"")
                         && input.specJson().contains("\"project\":\"project-a\"")
                         && input.specJson().contains("\"team\":\"team-a\"")));

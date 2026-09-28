@@ -238,6 +238,12 @@ Runtime、Gateway 和 Control Plane 必须在以下边界执行校验：
 
 冻结期间可以修复阻塞构建或安全问题，但必须单独说明原因，不能借机扩展 SDK 能力。OpenAPI、Control Plane API、Console 和领域模型可以正常演进，但新增接口不得反向要求 Java SDK 立即同步。
 
+### 9.1.1 当前任务范围约束（2026-09-28）
+
+经本任务明确确认，当前统一 `task.start` 适配只维护 Java SDK。TypeScript SDK 暂不维护、不新增对等接口，也不把 TypeScript SDK 的实现或测试纳入本任务完成条件。Console、Matrix 和 Control Plane 只作为既有协议的验证边界，不因本任务扩展为新的客户端交付面。
+
+本条是当前任务的范围约束，不代表 TypeScript SDK 已具备新的统一命令能力；未来如需维护 TypeScript SDK，必须另行确认范围并建立独立实现计划。
+
 ### 9.2 管理端能力覆盖原则
 
 能力集合遵循单向包含关系：

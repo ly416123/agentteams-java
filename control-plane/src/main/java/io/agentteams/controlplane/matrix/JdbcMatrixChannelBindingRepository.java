@@ -25,7 +25,8 @@ public final class JdbcMatrixChannelBindingRepository implements MatrixChannelBi
     public Optional<MatrixChannelBinding> findById(UUID id) {
         if (id == null) return Optional.empty();
         List<MatrixChannelBinding> bindings = jdbc.query("""
-                SELECT id, organization_id, tenant_id, project_id, room_id, event_types::text, enabled
+                SELECT id, organization_id, tenant_id, project_id, room_id, event_types::text, enabled,
+                       room_binding_id, context_type
                   FROM matrix_channel_bindings
                  WHERE id = ?
                 """, this::map, id);
@@ -35,7 +36,10 @@ public final class JdbcMatrixChannelBindingRepository implements MatrixChannelBi
     private MatrixChannelBinding map(ResultSet rs, int row) throws SQLException {
         return new MatrixChannelBinding(rs.getObject("id", UUID.class), rs.getString("organization_id"),
                 rs.getString("tenant_id"), rs.getString("project_id"), rs.getString("room_id"),
-                SetSupport.copy(JdbcSupport.stringArray(rs.getString("event_types"))), rs.getBoolean("enabled"));
+                SetSupport.copy(JdbcSupport.stringArray(rs.getString("event_types"))), rs.getBoolean("enabled"),
+                rs.getObject("room_binding_id", UUID.class),
+                rs.getString("context_type") == null ? null
+                        : MatrixRoomContextType.valueOf(rs.getString("context_type")));
     }
 
     private static final class SetSupport {

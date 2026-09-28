@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "evaluation-report-v1",
+  "suite": "core",
+  "environment": "l5",
+  "evaluationStatus": "PASSED",
+  "passed": true,
+  "taskSuccess": true,
+  "cases": [
+    {
+      "caseId": "mcp-web-search-title",
+      "status": "PASSED",
+      "taskSuccess": true,
+      "score": 1.0,
+      "taskId": "131b2962-d6cc-4fb1-a15f-7a8d2ec8fa4e",
+      "runId": "acce17bf-ee9b-4b3f-ac81-38d810b09c05",
+      "evidenceRefs": [
+        {
+          "type": "task",
+          "id": "131b2962-d6cc-4fb1-a15f-7a8d2ec8fa4e"
+        },
+        {
+          "type": "execution-run",
+          "id": "acce17bf-ee9b-4b3f-ac81-38d810b09c05"
+        },
+        {
+          "type": "artifact",
+          "storageRef": "tasks/131b2962-d6cc-4fb1-a15f-7a8d2ec8fa4e/attempts/acce17bf-ee9b-4b3f-ac81-38d810b09c05/artifacts/output.md"
+        },
+        {
+          "type": "artifact",
+          "storageRef": "tasks/131b2962-d6cc-4fb1-a15f-7a8d2ec8fa4e/attempts/acce17bf-ee9b-4b3f-ac81-38d810b09c05/artifacts/result.json"
+        }
+      ]
+    },
+    {
+      "caseId": "no-tool-simple-answer",
+      "status": "PASSED",
+      "taskSuccess": true,
+      "score": 1.0,
+      "taskId": "12f93249-88ea-431f-a467-8413452d97b1",
+      "runId": "78cdffda-0cea-4fc8-ac60-272f544ad4fb",
+      "evidenceRefs": [
+        {
+          "type": "task",
+          "id": "12f93249-88ea-431f-a467-8413452d97b1"
+        },
+        {
+          "type": "execution-run",
+          "id": "78cdffda-0cea-4fc8-ac60-272f544ad4fb"
+        },
+        {
+          "type": "artifact",
+          "storageRef": "tasks/12f93249-88ea-431f-a467-8413452d97b1/attempts/78cdffda-0cea-4fc8-ac60-272f544ad4fb/artifacts/output.md"
+        },
+        {
+          "type": "artifact",
+          "storageRef": "tasks/12f93249-88ea-431f-a467-8413452d97b1/attempts/78cdffda-0cea-4fc8-ac60-272f544ad4fb/artifacts/result.json"
+        }
+      ]
+    },
+    {
+      "caseId": "artifact-integrity",
+      "status": "PASSED",
+      "taskSuccess": true,
+      "score": 1.0,
+      "taskId": "c2cb79f3-9261-4593-b3e5-0cd2eb2957ee",
+      "runId": "43ed96a3-5134-47fb-a09d-b04a3fa607f1",
+      "evidenceRefs": [
+        {
+          "type": "task",
+          "id": "c2cb79f3-9261-4593-b3e5-0cd2eb2957ee"
+        },
+        {
+          "type": "execution-run",
+          "id": "43ed96a3-5134-47fb-a09d-b04a3fa607f1"
+        },
+        {
+          "type": "artifact",
+          "storageRef": "tasks/c2cb79f3-9261-4593-b3e5-0cd2eb2957ee/attempts/43ed96a3-5134-47fb-a09d-b04a3fa607f1/artifacts/output.md"
+        },
+        {
+          "type": "artifact",
+          "storageRef": "tasks/c2cb79f3-9261-4593-b3e5-0cd2eb2957ee/attempts/43ed96a3-5134-47fb-a09d-b04a3fa607f1/artifacts/result.json"
+        }
+      ]
+    }
+  ]
+}

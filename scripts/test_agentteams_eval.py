@@ -1,4 +1,6 @@
 import json
+import runpy
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +8,7 @@ from pathlib import Path
 from scripts.agentteams_eval import (
     AgentTeamsClient,
     EvalCase,
+    build_evidence_bundle,
     evaluate_observation,
     load_cases,
     run_suite,
@@ -13,6 +16,31 @@ from scripts.agentteams_eval import (
 
 
 class EvaluationCoreTest(unittest.TestCase):
+    def test_builds_sanitized_evidence_bundle_with_independent_input_status(self):
+        bundle = build_evidence_bundle(
+            {"id": "task-1", "phase": "SUCCEEDED", "spec": {"apiKey": "secret"}},
+            {"id": "run-1"},
+            [{"eventId": "event-1", "eventType": "tool.called", "payload": {"tool": "web_search", "token": "secret"}}],
+            [{"taskId": "task-1"}],
+            [],
+            {"status": "SUCCEEDED", "summary": "ok", "artifacts": [{
+                "name": "answer.md", "storageRef": "https://minio.invalid/result?X-Amz-Signature=secret",
+                "sizeBytes": 10, "sha256": "a" * 64,
+            }]},
+        )
+
+        serialized = json.dumps(bundle, ensure_ascii=False).lower()
+        self.assertEqual("COMPLETE", bundle["inputStatus"])
+        self.assertEqual("artifact:" + "a" * 64, bundle["artifactRefs"][0]["storageRef"])
+        self.assertNotIn("secret", serialized)
+        self.assertNotIn("x-amz-signature", serialized)
+        self.assertNotIn("downloadurl", serialized)
+
+    def test_missing_result_manifest_marks_evidence_inconclusive(self):
+        bundle = build_evidence_bundle({"id": "task-1"}, {"id": "run-1"}, [], [], [], None)
+
+        self.assertEqual("INCONCLUSIVE", bundle["inputStatus"])
+
     def test_loads_yaml_case_with_task_and_assertions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cases.yaml"
@@ -226,6 +254,42 @@ cases:
         serialized = json.dumps(exported, ensure_ascii=False).lower()
         self.assertNotIn("downloadurl", serialized)
         self.assertNotIn("x-amz-signature", serialized)
+
+    def test_script_path_can_load_deepeval_export_adapter(self):
+        repository = Path(__file__).parents[1]
+        script_directory = repository / "scripts"
+        original_path = sys.path[:]
+        loaded_eval_modules = {
+            name: module for name, module in sys.modules.items()
+            if name == "eval" or name.startswith("eval.")
+        }
+        try:
+            sys.path = [str(script_directory)] + [
+                entry for entry in original_path
+                if Path(entry or ".").resolve() != repository.resolve()
+            ]
+            for name in list(loaded_eval_modules):
+                sys.modules.pop(name, None)
+            namespace = runpy.run_path(str(repository / "scripts/agentteams_eval.py"),
+                                       run_name="agentteams_eval_cli")
+            case = namespace["EvalCase"]("sample", "Sample", {
+                "scope": {"tenant": "tenant-a", "project": "project-a", "team": "team-a"},
+                "taskType": "qwenpaw",
+                "inputJson": {"prompt": "Return ok"},
+            }, [{"type": "phase", "expected": "SUCCEEDED"}], {})
+            with tempfile.TemporaryDirectory() as directory:
+                namespace["_write_deepeval_export"](
+                    case,
+                    {"task": {"phase": "SUCCEEDED"}, "result": {"summary": "ok"}},
+                    Path(directory),
+                )
+                self.assertTrue((Path(directory) / "sample.json").exists())
+        finally:
+            sys.path = original_path
+            for name in list(sys.modules):
+                if name == "eval" or name.startswith("eval."):
+                    sys.modules.pop(name, None)
+            sys.modules.update(loaded_eval_modules)
 
 
 if __name__ == "__main__":

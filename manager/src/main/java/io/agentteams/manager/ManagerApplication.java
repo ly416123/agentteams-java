@@ -9,6 +9,8 @@ import io.agentteams.manager.conversation.ConversationRuntimeConfiguration;
 import io.agentteams.manager.conversation.ConversationRuntimePort;
 import io.agentteams.manager.conversation.ConversationService;
 import io.agentteams.manager.conversation.ConversationRepository;
+import io.agentteams.manager.conversation.ControlPlaneConversationPort;
+import io.agentteams.manager.conversation.HttpControlPlaneConversationPort;
 import io.agentteams.manager.conversation.JdbcConversationRepository;
 import io.agentteams.manager.conversation.FakeConversationRuntime;
 import io.agentteams.manager.conversation.QwenPawConversationRuntime;
@@ -60,6 +62,13 @@ public class ManagerApplication {
             @Value("${AGENTTEAMS_CONTROL_PLANE_URL:}") String controlPlaneUrl,
             ObjectMapper mapper) {
         return new HttpTaskCommandPort(controlPlaneUrl, HttpClient.newHttpClient(), mapper);
+    }
+
+    @Bean
+    ControlPlaneConversationPort controlPlaneConversationPort(
+            @Value("${AGENTTEAMS_CONTROL_PLANE_URL:}") String controlPlaneUrl,
+            ObjectMapper mapper) {
+        return new HttpControlPlaneConversationPort(controlPlaneUrl, HttpClient.newHttpClient(), mapper);
     }
 
     @Bean
@@ -152,8 +161,9 @@ public class ManagerApplication {
     }
 
     @Bean(destroyMethod = "close")
-    ConversationService conversationService(ConversationRuntimePort runtime, ConversationRepository repository) {
-        return new ConversationService(runtime, repository);
+    ConversationService conversationService(ConversationRuntimePort runtime, ConversationRepository repository,
+            ControlPlaneConversationPort controlPlane) {
+        return new ConversationService(runtime, repository, controlPlane);
     }
 
     @Bean

@@ -7,10 +7,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.agentteams.application.api.CommandResult;
+import io.agentteams.application.api.CommandStatus;
+import io.agentteams.controlplane.command.CommandDispatcher;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.ExecutionContext;
+import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.domain.task.TaskPhase;
@@ -135,6 +140,39 @@ class MatrixTaskCommandHandlerTest {
         handler.handle(identity(Set.of("task:create")), new MatrixCommand.Start("scoped"));
 
         assertThat(io.agentteams.controlplane.security.PrincipalContext.current()).isEmpty();
+    }
+
+    @Test
+    void dispatchesTaskRoomPauseWithCurrentAggregateVersionAndStableMatrixKey() {
+        CommandDispatcher dispatcher = mock(CommandDispatcher.class);
+        ExecutionContextResolver contexts = mock(ExecutionContextResolver.class);
+        TaskService taskService = mock(TaskService.class);
+        UUID taskId = UUID.fromString("00000000-0000-0000-0000-000000000004");
+        Principal principal = new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of("task:pause"));
+        MatrixIdentity identity = new MatrixIdentity("@alice:agentteams.test", principal);
+        MatrixRoomBinding binding = new MatrixRoomBinding(UUID.randomUUID(), "org-a", "tenant-a",
+                "!task:example.org", MatrixRoomContextType.TASK, taskId,
+                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("00000000-0000-0000-0000-000000000002"), MatrixRoomBindingStatus.ACTIVE,
+                "alice", Instant.parse("2026-09-28T04:00:00Z"), Instant.parse("2026-09-28T04:00:00Z"), 0);
+        when(taskService.get(taskId)).thenReturn(task(taskId, TaskPhase.QUEUED, 7));
+        when(contexts.resolve(principal)).thenReturn(new ExecutionContext("org-a", "tenant-a", "project-a",
+                "team-a", "alice"));
+        when(dispatcher.dispatch(any(), any())).thenReturn(new CommandResult(UUID.randomUUID(),
+                CommandStatus.ACCEPTED, false, taskId, 8, "trace"));
+        MatrixTaskCommandHandler handler = new MatrixTaskCommandHandler(dispatcher, contexts, taskService);
+
+        String response = handler.handle(identity, binding,
+                new MatrixCommand.TaskAction(MatrixCommand.TaskAction.Action.PAUSE, taskId), "txn-1", "event-1");
+
+        assertThat(response).contains(taskId.toString());
+        var captured = org.mockito.ArgumentCaptor.forClass(io.agentteams.application.api.CommandEnvelope.class);
+        verify(dispatcher).dispatch(any(ExecutionContext.class), captured.capture());
+        assertThat(captured.getValue().commandType()).isEqualTo("task.pause");
+        assertThat(captured.getValue().aggregateVersion()).isEqualTo(7);
+        assertThat(captured.getValue().idempotencyKey()).isEqualTo("matrix:txn-1:event-1");
+        verify(taskService).get(taskId);
     }
 
     private static TaskRecord task(UUID id, TaskPhase phase, long version) {

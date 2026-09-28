@@ -2,6 +2,8 @@ package io.agentteams.controlplane.persistence;
 
 import io.agentteams.domain.agent.AgentPhase;
 import io.agentteams.domain.task.TaskPhase;
+import io.agentteams.controlplane.conversation.ConversationTaskRepository;
+import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.service.ModelCatalogDependencyException;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.nio.charset.StandardCharsets;
@@ -20,7 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-public final class FoundationPersistenceService {
+public final class FoundationPersistenceService implements ConversationTaskRepository {
 
     private static final String CREATE_TASK = "CREATE_TASK";
     private static final String CREATE_AGENT = "CREATE_AGENT";
@@ -84,6 +86,11 @@ public final class FoundationPersistenceService {
 
     public Optional<AgentRecord> findAgent(UUID id) {
         return inTransaction(tx -> tx.agents().findById(id));
+    }
+
+    @Override
+    public TaskRecord bindSourceConversation(ExecutionContext context, UUID taskId, UUID conversationId) {
+        return inTransaction(tx -> tx.tasks().bindSourceConversation(context, taskId, conversationId));
     }
 
     public TeamRecord createTeam(TeamRecord team, TeamPolicyRecord policy, String idempotencyKey,

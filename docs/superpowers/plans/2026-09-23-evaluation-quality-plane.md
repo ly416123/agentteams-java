@@ -12,7 +12,7 @@
 
 ## 文件清单
 
-- 创建：control-plane/src/main/resources/db/migration/V98__evaluation_quality_plane.sql
+- 创建：control-plane/src/main/resources/db/migration/V100__evaluation_quality_plane.sql
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/evaluation/EvaluationSuiteRecord.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/evaluation/EvaluationCaseRecord.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/evaluation/EvaluationRunRecord.java
@@ -34,13 +34,13 @@
 
 ### 任务 1：定义 Evaluation 领域数据结构和迁移
 
-**文件：** V98、五个 Record、EvidenceBundle、Repository 和测试。
+**文件：** V100、五个 Record、EvidenceBundle、Repository 和测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖 Suite version、Case id、evaluatorVersion、Task/ExecutionRun 关联、metric/score/threshold/evidenceRefs、Report 维度分数，以及 Evaluation 状态约束。验证 Task success 与 Evaluation status 同时存在且互不覆盖。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -50,7 +50,7 @@ mvn -q -pl control-plane -Dtest='Evaluation*Test' test
 
 预期：FAIL，因为记录、迁移和 Repository 尚不存在。
 
-- [ ] **步骤 3：创建 V98**
+- [x] **步骤 3：创建 V100**
 
 V98 创建 evaluation_suites、evaluation_cases、evaluation_runs、evaluation_results、evaluation_reports；所有 JSON 字段校验 object/array 类型；evaluation_runs 唯一键为 suite_id + case_id + execution_run_id + evaluator_version；为 tenant、task、execution_run、status 建索引。
 
@@ -82,7 +82,7 @@ CREATE TABLE evaluation_results (
 );
 ~~~
 
-- [ ] **步骤 4：实现 Repository 和记录类型**
+- [x] **步骤 4：实现 Repository 和记录类型**
 
 固定接口：
 
@@ -95,11 +95,11 @@ EvaluationReportRecord saveReport(ExecutionContext context, EvaluationReportReco
 
 createRun 依赖数据库唯一键保证同一执行证据和评测版本不重复创建。
 
-- [ ] **步骤 5：运行测试验证通过**
+- [x] **步骤 5：运行测试验证通过**
 
 运行同一条 Maven 命令，预期领域校验、状态和 Repository 测试 PASS。
 
-- [ ] **步骤 6：提交**
+- [x] **步骤 6：提交**
 
 ~~~bash
 git add control-plane/src/main/resources/db/migration/V98__evaluation_quality_plane.sql control-plane/src/main/java/io/agentteams/controlplane/evaluation control-plane/src/test/java/io/agentteams/controlplane/evaluation
@@ -110,7 +110,7 @@ git commit -m "feat(eval): add evaluation quality plane persistence"
 
 **文件：** EvidenceBundle.java、EvidenceBundleAssembler.java、现有 TaskProcessEventService、TaskTreeService、TaskDecisionRecordService、TaskResultManifestService 和测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 使用 fake repositories 验证：
 
@@ -120,7 +120,7 @@ git commit -m "feat(eval): add evaluation quality plane persistence"
 - token、cookie、api key、预签名 URL 不进入 bundle；
 - 缺少 Result Manifest 时返回 INCONCLUSIVE 输入标记。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -130,7 +130,7 @@ mvn -q -pl control-plane -Dtest=EvidenceBundleAssemblerTest test
 
 预期：FAIL，因为 EvidenceBundleAssembler 尚不存在。
 
-- [ ] **步骤 3：实现证据对象和脱敏规则**
+- [x] **步骤 3：实现证据对象和脱敏规则**
 
 固定 EvidenceBundle：
 
@@ -153,11 +153,11 @@ public record EvidenceBundle(
 
 Assembler 只接受 ExecutionContext；每个 Repository 查询都带 context。敏感字段通过现有 SensitiveFieldPolicy 和 Artifact 下载策略过滤，禁止把预签名 URL写入评测持久化。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期证据完整性、可见性和脱敏测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/evaluation control-plane/src/test/java/io/agentteams/controlplane/evaluation
@@ -168,11 +168,11 @@ git commit -m "feat(eval): assemble sanitized execution evidence"
 
 **文件：** EvaluationService、EvaluationController、EvaluationServiceTest、EvaluationControllerTest。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖创建 QUEUED、phase/tool/artifact/schema 断言、PASSED、FAILED、INCONCLUSIVE、evidenceRefs 脱敏，以及 EvaluationService 不调用 TaskService 状态转移。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -182,7 +182,7 @@ mvn -q -pl control-plane -Dtest='EvaluationServiceTest,EvaluationControllerTest'
 
 预期：FAIL，因为服务和端点尚不存在。
 
-- [ ] **步骤 3：实现服务和端点**
+- [x] **步骤 3：实现服务和端点**
 
 固定端点：
 
@@ -202,11 +202,11 @@ createRun → assembleEvidence → deterministic assertions
 
 语义评测不在本任务自动调用；请求声明 semanticRequested 但没有受控 evaluator 时返回 INCONCLUSIVE。只有显式 Quality Gate 才能调用 Task 操作，默认实现完全只读。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期评分、权限、脱敏和“不改变 Task 状态”测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/evaluation control-plane/src/main/java/io/agentteams/controlplane/api/EvaluationController.java control-plane/src/test/java/io/agentteams/controlplane
@@ -217,7 +217,7 @@ git commit -m "feat(eval): expose deterministic evaluation runs"
 
 **文件：** scripts/agentteams_eval.py、scripts/test_agentteams_eval.py、eval/deepeval_adapter.py、eval/rubrics/core.yaml、eval/README.md、scripts/test_evaluation_quality_contract.py。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 Python 测试覆盖：
 
@@ -228,7 +228,7 @@ Python 测试覆盖：
 5. DeepEval 只在显式配置时加载，未安装时返回明确错误。
 6. rubric 阈值不满足时输出 INCONCLUSIVE/FAILED 及证据引用。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -239,7 +239,7 @@ python3 -m unittest scripts/test_evaluation_quality_contract.py -v
 
 预期：新增 Evidence Bundle 和 report 状态断言 FAIL。
 
-- [ ] **步骤 3：实现归一化和提交接口**
+- [x] **步骤 3：实现归一化和提交接口**
 
 新增：
 
@@ -262,7 +262,7 @@ CLI 增加 --evaluation-run-id 和 --evidence-output；默认仍运行离线确�
 
 DeepEval 适配器保持现有公共函数输入兼容；将 metric score、threshold 和 evidenceRefs 写入 EvaluationResult 结构。
 
-- [ ] **步骤 4：运行测试和编译检查**
+- [x] **步骤 4：运行测试和编译检查**
 
 运行：
 
@@ -274,7 +274,7 @@ python3 scripts/agentteams_eval.py --help
 
 预期：测试、编译和 CLI 帮助全部 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add scripts/agentteams_eval.py scripts/test_agentteams_eval.py eval/deepeval_adapter.py eval/rubrics/core.yaml eval/README.md scripts/test_evaluation_quality_contract.py
@@ -285,11 +285,11 @@ git commit -m "feat(eval): normalize evidence and report quality results"
 
 **文件：** console/src/api/evaluations.ts、console/src/api/types.ts、console/src/features/management/ManagementEvaluationPage.tsx、实际路由配置文件和测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 测试页面显示 Evaluation Run 与 Task success 两个独立状态、aggregateScore、维度分数、finding、evidenceRefs，并拒绝渲染 token、cookie、预签名 URL；无权限时只显示 ErrorState。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -299,11 +299,11 @@ npm --prefix console test -- --run
 
 预期：新 API 和页面测试 FAIL。
 
-- [ ] **步骤 3：实现 API 和页面**
+- [x] **步骤 3：实现 API 和页面**
 
 evaluations.ts 提供 list/get/run/report API；页面只请求当前管理用户有权访问的 tenant/project 范围。报告详情通过 evidenceRefs 跳转到现有 Task Process/Result/Artifact 页面，不复制原始敏感内容。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：
 
@@ -314,7 +314,7 @@ npm --prefix console run build
 
 预期：Console 单测和生产构建 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add console/src/api/evaluations.ts console/src/api/types.ts console/src/features/management console/tests
@@ -325,7 +325,7 @@ git commit -m "feat(console): add evaluation quality view"
 
 **文件：** evaluation 测试、eval/README.md、验收报告。
 
-- [ ] **步骤 1：编写集成测试**
+- [x] **步骤 1：编写集成测试**
 
 流程：
 
@@ -337,7 +337,7 @@ git commit -m "feat(console): add evaluation quality view"
 6. 重复相同 evaluatorVersion 返回同一 Evaluation Run。
 7. 未配置语义评测时返回 INCONCLUSIVE，不阻断确定性结果。
 
-- [ ] **步骤 2：运行定向测试**
+- [x] **步骤 2：运行定向测试**
 
 运行：
 
@@ -349,15 +349,17 @@ npm --prefix console test -- --run
 
 预期：全部 PASS。
 
-- [ ] **步骤 3：执行离线和受控 L5 评测**
+- [x] **步骤 3：执行离线和受控 L5 评测**
 
 报告只提交 suite/case/status/score/evidenceRefs，不提交 Token、Cookie、预签名 URL 或原始工具响应。
+
+> 离线质量契约和受控 L5 评测均通过。2026-09-28 在受控 L5 集群执行核心套件，三个 case 均成功且 score=1.0；验收报告见 `eval/reports/2026-09-28-l5-core.json`。报告只保留任务/运行标识、状态、分数和证据引用，不包含 Token、Cookie、预签名 URL 或原始工具响应。
 
 ~~~bash
 python3 scripts/agentteams_eval.py --cases eval/cases/core.yaml --report /tmp/agentteams-evaluation.json
 ~~~
 
-- [ ] **步骤 4：运行项目级回归**
+- [x] **步骤 4：运行项目级回归**
 
 运行：
 
@@ -370,7 +372,7 @@ git diff --check
 
 预期：全部命令退出码为 0。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/test integration-tests eval scripts console
@@ -379,9 +381,9 @@ git commit -m "test(eval): accept quality plane and evidence boundaries"
 
 ### 完成定义
 
-- [ ] Evaluation Suite、Case、Run、Result、Report 可持久化并按 tenant 授权查询。
-- [ ] Evidence Bundle 覆盖 Task、Run、事件、拆分、决策、工具、结果和 Artifact 引用。
-- [ ] 确定性评测可独立运行；DeepEval 仍是显式可选能力。
-- [ ] Evaluation Pass 不自动修改 Task 状态。
-- [ ] Console 能查看评测状态、分数、Finding 和证据引用。
-- [ ] 离线、Java、Console 和项目级回归全部通过。
+- [x] Evaluation Suite、Case、Run、Result、Report 可持久化并按 tenant 授权查询。
+- [x] Evidence Bundle 覆盖 Task、Run、事件、拆分、决策、工具、结果和 Artifact 引用。
+- [x] 确定性评测可独立运行；DeepEval 仍是显式可选能力。
+- [x] Evaluation Pass 不自动修改 Task 状态。
+- [x] Console 能查看评测状态、分数、Finding 和证据引用。
+- [x] 离线、Java、Console、项目级回归和受控 L5 复验全部通过。

@@ -24,7 +24,17 @@ from urllib.request import Request, urlopen
 import yaml
 
 
+# Keep the optional ``eval`` package importable when this module is launched as
+# ``python3 scripts/agentteams_eval.py``. Python puts ``scripts/`` (rather than
+# the repository root) first on sys.path for that invocation.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+
 TERMINAL_PHASES = {"SUCCEEDED", "FAILED", "CANCELLED"}
+MAX_EVIDENCE_PAYLOAD_BYTES = 16 * 1024
+SENSITIVE_KEYS = {"token", "api_key", "apikey", "password", "cookie", "secret", "authorization"}
 
 
 class EvalError(RuntimeError):
@@ -143,9 +153,95 @@ def _output_text(observation: Mapping[str, Any]) -> str:
 
 def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     """Keep report metadata free of presigned URLs and downloaded content."""
-    return {key: artifact.get(key) for key in (
+    metadata = {key: artifact.get(key) for key in (
         "name", "storageRef", "contentType", "sizeBytes", "sha256", "version", "stage", "visibility"
     ) if key in artifact}
+    storage_ref = str(metadata.get("storageRef", ""))
+    if "?" in storage_ref or "x-amz-" in storage_ref.lower() or not storage_ref.startswith("tasks/"):
+        digest = str(metadata.get("sha256", ""))
+        metadata["storageRef"] = f"artifact:{digest}" if digest else "artifact:metadata-only"
+    return metadata
+
+
+def _contains_sensitive(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(str(key).lower().replace("-", "_") in SENSITIVE_KEYS or _contains_sensitive(item)
+                   for key, item in value.items())
+    if isinstance(value, list):
+        return any(_contains_sensitive(item) for item in value)
+    if isinstance(value, str):
+        normalized = value.lower().replace("-", "_")
+        return any(marker in normalized for marker in ("bearer ", "api_key=", "token=", "password=", "x-amz-"))
+    return False
+
+
+def _sanitize_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized_key = str(key).lower().replace("-", "_")
+            if normalized_key in SENSITIVE_KEYS:
+                continue
+            sanitized[str(key)] = _sanitize_value(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_value(item) for item in value]
+    if isinstance(value, str) and ("x-amz-" in value.lower() or "?signature=" in value.lower()):
+        return "[REDACTED_URL]"
+    return value
+
+
+def _sanitize_event(event: Mapping[str, Any]) -> dict[str, Any]:
+    safe = {key: event.get(key) for key in (
+        "eventId", "taskId", "runId", "sequence", "eventType", "visibility", "occurredAt", "correlationId"
+    ) if key in event}
+    payload = event.get("payload", event.get("data"))
+    payload_ref = event.get("payloadRef")
+    serialized = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, separators=(",", ":")) if payload is not None else ""
+    if payload is not None and (len(serialized.encode("utf-8")) > MAX_EVIDENCE_PAYLOAD_BYTES or _contains_sensitive(payload)):
+        safe["payload"] = None
+        safe["payloadRef"] = payload_ref or f"task-process:{event.get('eventId', 'unknown')}"
+    else:
+        safe["payload"] = _sanitize_value(payload)
+        if payload_ref:
+            safe["payloadRef"] = _sanitize_value(payload_ref)
+    return safe
+
+
+def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], events: list[Any],
+                          tree: list[Any] | None, decisions: list[Any] | None,
+                          result: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize an observation into a credential-free, metadata-first Evidence Bundle."""
+    task_value = _sanitize_value(dict(task))
+    run_value = _sanitize_value(dict(run))
+    safe_events = [_sanitize_event(event) for event in events if isinstance(event, Mapping)]
+    raw_result = dict(result) if isinstance(result, Mapping) else None
+    safe_result = None
+    artifact_refs: list[dict[str, Any]] = []
+    if raw_result is not None:
+        safe_result = _sanitize_value({key: value for key, value in raw_result.items() if key != "artifacts"})
+        raw_artifacts = raw_result.get("artifacts", [])
+        artifact_refs = [_safe_artifact_metadata(item) for item in raw_artifacts if isinstance(item, Mapping)]
+        safe_result["artifacts"] = artifact_refs
+    task_id = task_value.get("id") if isinstance(task_value, Mapping) else None
+    run_id = run_value.get("id") or run_value.get("runId") if isinstance(run_value, Mapping) else None
+    return {
+        "schemaVersion": "evidence-bundle-v1",
+        "taskId": task_id,
+        "executionRunId": run_id,
+        "taskSnapshot": task_value,
+        "taskEvents": safe_events,
+        "processEvents": safe_events,
+        "taskTree": _sanitize_value(tree or []),
+        "decisions": _sanitize_value(decisions or []),
+        "toolCallSummaries": [{"name": name} for name in sorted(_tool_names({"events": safe_events}))],
+        "resultManifest": safe_result,
+        "artifactRefs": artifact_refs,
+        "approvalHistory": [],
+        "agentMetadata": {},
+        "policyOutcomes": [],
+        "inputStatus": "COMPLETE" if safe_result is not None else "INCONCLUSIVE",
+    }
 
 
 def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dict[str, Any]]]:
@@ -356,7 +452,8 @@ def _write_deepeval_export(case: EvalCase, observation: Mapping[str, Any], direc
 
 
 def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: float,
-              poll_seconds: float, deepeval_export_dir: Path | None = None) -> dict[str, Any]:
+              poll_seconds: float, deepeval_export_dir: Path | None = None,
+              evaluation_run_id: str | None = None, evidence_output: Path | None = None) -> dict[str, Any]:
     started = _now()
     report_cases: list[dict[str, Any]] = []
     for case in cases:
@@ -375,6 +472,17 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
                 raise EvalError(f"task {task_id} run response has no run id")
             item["runId"] = run_id
             observation = client.get_observation(task_id, run_id)
+            evidence = build_evidence_bundle(observation.get("task") or {}, observation.get("run") or run,
+                                             observation.get("events") or [], observation.get("taskTree"),
+                                             observation.get("decisions"), observation.get("result") or {})
+            item["evidenceBundle"] = evidence
+            item["taskSuccess"] = str((observation.get("task") or {}).get("phase", "")) == "SUCCEEDED"
+            if evaluation_run_id:
+                item["evaluationRunId"] = evaluation_run_id
+            if evidence_output is not None:
+                evidence_output.mkdir(parents=True, exist_ok=True)
+                (evidence_output / f"{case.case_id}.json").write_text(
+                    json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             if deepeval_export_dir is not None:
                 _write_deepeval_export(case, observation, deepeval_export_dir)
             assertion_results = evaluate_observation(case, observation)
@@ -382,13 +490,16 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
             item["score"] = (sum(result.passed for result in assertion_results) / len(assertion_results)
                               if assertion_results else 0.0)
             item["passed"] = bool(assertion_results) and all(result.passed for result in assertion_results)
+            item["evaluationStatus"] = "PASSED" if item["passed"] else "INCONCLUSIVE" if evidence["inputStatus"] == "INCONCLUSIVE" else "FAILED"
         except EvalTransportError:
             raise
         except EvalError as exc:
             item["error"] = _redact(str(exc), client.token)
         report_cases.append(item)
-    return {"suite": "core", "startedAt": started, "finishedAt": _now(),
-            "passed": all(item["passed"] for item in report_cases), "cases": report_cases}
+    passed = all(item["passed"] for item in report_cases)
+    return {"schemaVersion": "evaluation-report-v1", "suite": "core", "startedAt": started, "finishedAt": _now(),
+            "passed": passed, "taskSuccess": bool(report_cases) and all(item.get("taskSuccess", False) for item in report_cases),
+            "evaluationStatus": "PASSED" if passed else "FAILED", "cases": report_cases}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -399,6 +510,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--report", required=True)
     parser.add_argument("--deepeval-export-dir", type=Path,
                         help="optional directory for credential-free DeepEval case exports")
+    parser.add_argument("--evaluation-run-id", help="associate the report with a persisted Evaluation Run")
+    parser.add_argument("--evidence-output", type=Path,
+                        help="optional directory for normalized Evidence Bundle JSON files")
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--poll-seconds", type=float, default=3.0)
     return parser
@@ -414,7 +528,9 @@ def main(argv: list[str] | None = None) -> int:
         cases = load_cases(args.cases)
         report = run_suite(AgentTeamsClient(args.base_url, token), cases,
                            args.timeout_seconds, args.poll_seconds,
-                           deepeval_export_dir=args.deepeval_export_dir)
+                           deepeval_export_dir=args.deepeval_export_dir,
+                           evaluation_run_id=args.evaluation_run_id,
+                           evidence_output=args.evidence_output)
         Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return 0 if report["passed"] else 1
     except (EvalError, OSError, ValueError) as exc:

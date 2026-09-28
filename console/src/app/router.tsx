@@ -37,6 +37,7 @@ import { ManagementAlertPage } from '../features/management/ManagementAlertPage'
 import { ManagementAuditPage } from '../features/management/ManagementAuditPage';
 import { ManagementMemoryPage } from '../features/management/ManagementMemoryPage';
 import { ManagementSandboxPage } from '../features/management/ManagementSandboxPage';
+import { ManagementEvaluationPage } from '../features/management/ManagementEvaluationPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 15_000 } },
@@ -114,6 +115,8 @@ function ProtectedProjectRoutes() {
             <Route path="memory" element={<ManagementMemoryPage projectId={projectId} />} />
             <Route path="sandboxes" element={<ManagementSandboxPage projectId={projectId} />} />
             <Route path="artifacts" element={<ManagementArtifactPage projectId={projectId} />} />
+            <Route path="evaluations" element={<ManagementEvaluationPage projectId={projectId} />} />
+            <Route path="evaluations/:runId" element={<EvaluationDetailRoute projectId={projectId} />} />
             <Route path="conversations" element={<ConversationListPage projectId={projectId} />} />
             <Route path="conversations/new" element={<ConversationPage projectId={projectId} />} />
             <Route
@@ -141,4 +144,8 @@ function WorkerDetailRoute({ projectId }: { projectId: string }) {
 function ConversationDetailRoute({ projectId }: { projectId: string }) {
   const { conversationId = '' } = useParams();
   return <ConversationPage projectId={projectId} conversationId={conversationId} />;
+}
+function EvaluationDetailRoute({ projectId }: { projectId: string }) {
+  const { runId = '' } = useParams();
+  return <ManagementEvaluationPage projectId={projectId} runId={runId} />;
 }
