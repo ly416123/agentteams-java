@@ -15,7 +15,7 @@
 - 修改：`sdk/java/src/main/java/io/agentteams/sdk/AgentTeamsClient.java`，增加 Java SDK 的统一命令请求类型、响应类型和 `startTask` 方法。
 - 修改：`sdk/java/src/test/java/io/agentteams/sdk/AgentTeamsClientTest.java`，验证统一命令 JSON、鉴权、幂等键、响应和结构化错误。
 - 修改：`sdk/typescript/src/client.ts`，增加 TypeScript SDK 的统一命令类型和 `startTask` 方法。
-- 修改：`sdk/typescript/test/client.test.ts`，验证请求路径、请求体、重试和响应解码。
+- 修改：`sdk/typescript/tests/client.test.ts`，验证请求路径、请求体、重试和响应解码。
 - 创建：`console/src/api/commands.ts`，封装 Console 的 `task.start` API。
 - 修改：`console/src/queries/useTaskQueries.ts`，提供 Console 的 `useStartTask` mutation。
 - 修改：`console/src/features/tasks/TaskCreatePage.tsx`，保留草稿创建并增加统一入口创建操作。
@@ -113,7 +113,7 @@ git commit -m "feat(SDK): 增加统一 task.start 客户端"
 
 ### 任务 2：增加 TypeScript SDK 统一命令适配
 
-**文件：** 修改 `sdk/typescript/src/client.ts`、`sdk/typescript/test/client.test.ts`。
+**文件：** 修改 `sdk/typescript/src/client.ts`、`sdk/typescript/tests/client.test.ts`。
 
 - [ ] **步骤 1：编写失败测试**
 
