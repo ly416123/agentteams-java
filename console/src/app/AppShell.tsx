@@ -50,6 +50,7 @@ const navItems = [
   { to: 'memory', label: 'Memory', icon: '◌' },
   { to: 'sandboxes', label: 'Sandboxes', icon: '□' },
   { to: 'artifacts', label: 'Artifacts', icon: '◇' },
+  { to: 'evaluations', label: 'Evaluations', icon: '◎' },
 ];
 
 export function ConsoleLayout() {

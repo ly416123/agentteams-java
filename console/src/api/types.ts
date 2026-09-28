@@ -1,6 +1,64 @@
 export type ProjectId = string;
 export type WorkerType = 'LEADER' | 'EXECUTOR';
 
+export type EvaluationStatus = 'QUEUED' | 'RUNNING' | 'PASSED' | 'FAILED' | 'INCONCLUSIVE' | string;
+
+export type EvaluationRun = {
+  id: string;
+  suiteId: string;
+  caseId: string;
+  taskId: string;
+  executionRunId: string;
+  evaluatorVersion: string;
+  status: EvaluationStatus;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+};
+
+export type EvaluationResult = {
+  id: string;
+  evaluationRunId: string;
+  metric: string;
+  score: number | null;
+  threshold: number | null;
+  status: 'PASSED' | 'FAILED' | 'INCONCLUSIVE' | string;
+  evidenceRefs: string[];
+  findingSummary: string;
+  createdAt: string;
+};
+
+export type EvaluationReport = {
+  id: string;
+  evaluationRunId: string;
+  aggregateScore: number | null;
+  dimensionScores: Record<string, number | null>;
+  evaluationStatus: EvaluationStatus;
+  taskSuccess: boolean;
+  createdAt: string;
+};
+
+export type EvaluationReportResponse =
+  | EvaluationReport
+  | { report: EvaluationReport; results: EvaluationResult[] };
+
+export type EvaluationRunRequest = {
+  id?: string;
+  suiteId: string;
+  caseId: string;
+  taskId: string;
+  executionRunId: string;
+  evaluatorVersion: string;
+  semanticRequested?: boolean;
+  createdAt?: string;
+};
+
+export type EvaluationRunResponse = {
+  run: EvaluationRun;
+  results: EvaluationResult[];
+  report: EvaluationReport;
+};
+
 export type ApiErrorShape = {
   status?: number;
   code?: string;

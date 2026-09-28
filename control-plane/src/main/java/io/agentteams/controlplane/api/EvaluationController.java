@@ -3,6 +3,7 @@ package io.agentteams.controlplane.api;
 import io.agentteams.controlplane.evaluation.EvaluationReportRecord;
 import io.agentteams.controlplane.evaluation.EvaluationRepository;
 import io.agentteams.controlplane.evaluation.EvaluationRunRecord;
+import io.agentteams.controlplane.evaluation.EvaluationResultRecord;
 import io.agentteams.controlplane.evaluation.EvaluationService;
 import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.security.ExecutionContextResolver;
@@ -41,6 +42,11 @@ public final class EvaluationController {
         return ResponseEntity.accepted().body(EvaluationResponse.from(outcome));
     }
 
+    @GetMapping("/runs")
+    public List<EvaluationRunRecord> runs() {
+        return repository.listRuns(context());
+    }
+
     @GetMapping("/runs/{runId}")
     public EvaluationRunRecord run(@PathVariable UUID runId) {
         return repository.findRun(context(), runId)
@@ -48,9 +54,11 @@ public final class EvaluationController {
     }
 
     @GetMapping("/runs/{runId}/report")
-    public EvaluationReportRecord report(@PathVariable UUID runId) {
-        return repository.findReport(context(), runId)
+    public EvaluationReportResponse report(@PathVariable UUID runId) {
+        ExecutionContext context = context();
+        EvaluationReportRecord report = repository.findReport(context, runId)
                 .orElseThrow(() -> new IllegalArgumentException("evaluation report is not available"));
+        return new EvaluationReportResponse(report, repository.findResults(context, runId));
     }
 
     private ExecutionContext context() {
@@ -71,4 +79,6 @@ public final class EvaluationController {
             return new EvaluationResponse(outcome.run(), outcome.results(), outcome.report());
         }
     }
+
+    public record EvaluationReportResponse(EvaluationReportRecord report, List<EvaluationResultRecord> results) { }
 }

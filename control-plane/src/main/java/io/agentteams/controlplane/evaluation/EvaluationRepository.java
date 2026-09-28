@@ -20,7 +20,11 @@ public interface EvaluationRepository {
 
     Optional<EvaluationRunRecord> findRun(ExecutionContext context, UUID runId);
 
+    List<EvaluationRunRecord> listRuns(ExecutionContext context);
+
     void saveResults(ExecutionContext context, UUID runId, List<EvaluationResultRecord> results);
+
+    List<EvaluationResultRecord> findResults(ExecutionContext context, UUID runId);
 
     EvaluationReportRecord saveReport(ExecutionContext context, EvaluationReportRecord report);
 

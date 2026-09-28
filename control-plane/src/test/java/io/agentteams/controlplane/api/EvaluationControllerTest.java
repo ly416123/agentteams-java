@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.evaluation.EvaluationReportRecord;
+import io.agentteams.controlplane.evaluation.EvaluationResultRecord;
 import io.agentteams.controlplane.evaluation.EvaluationRepository;
 import io.agentteams.controlplane.evaluation.EvaluationRunRecord;
 import io.agentteams.controlplane.evaluation.EvaluationService;
@@ -88,5 +89,33 @@ class EvaluationControllerTest {
         mvc.perform(get("/api/v1/evaluations/runs/{id}", RUN_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("QUEUED"));
+    }
+
+    @Test
+    void listsRunsWithinTheCurrentProjectScope() throws Exception {
+        EvaluationRunRecord run = EvaluationRunRecord.queued(RUN_ID, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "evaluator-1", Instant.now());
+        when(repository.listRuns(CONTEXT)).thenReturn(List.of(run));
+
+        mvc.perform(get("/api/v1/evaluations/runs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("QUEUED"));
+        verify(repository).listRuns(CONTEXT);
+    }
+
+    @Test
+    void readsReportWithScopedResults() throws Exception {
+        EvaluationReportRecord report = new EvaluationReportRecord(UUID.randomUUID(), RUN_ID, BigDecimal.ONE,
+                JSON.createObjectNode(), EvaluationRunRecord.Status.PASSED, true, Instant.now());
+        EvaluationResultRecord result = new EvaluationResultRecord(UUID.randomUUID(), RUN_ID, "phase",
+                BigDecimal.ONE, BigDecimal.ONE, EvaluationResultRecord.Status.PASSED,
+                List.of("task-snapshot:task-1"), "phase matched", Instant.now());
+        when(repository.findReport(CONTEXT, RUN_ID)).thenReturn(Optional.of(report));
+        when(repository.findResults(CONTEXT, RUN_ID)).thenReturn(List.of(result));
+
+        mvc.perform(get("/api/v1/evaluations/runs/{id}/report", RUN_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.report.taskSuccess").value(true))
+                .andExpect(jsonPath("$.results[0].evidenceRefs[0]").value("task-snapshot:task-1"));
     }
 }

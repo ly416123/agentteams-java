@@ -123,6 +123,14 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
     }
 
     @Override
+    public List<EvaluationRunRecord> listRuns(ExecutionContext context) {
+        Objects.requireNonNull(context, "context");
+        return jdbc.query(selectRun() + " WHERE run.organization_id = ? AND run.tenant_id = ?"
+                        + " AND run.project_id = ? ORDER BY run.created_at DESC",
+                this::mapRun, context.organizationId(), context.tenantId(), context.projectId());
+    }
+
+    @Override
     public void saveResults(ExecutionContext context, UUID runId, List<EvaluationResultRecord> results) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(runId, "runId");
@@ -145,6 +153,20 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
                     JdbcSupport.json(JdbcSupport.jsonArray(result.evidenceRefs())), result.findingSummary(),
                     JdbcSupport.timestamp(result.createdAt()), runId, context.organizationId(), context.tenantId());
         }
+    }
+
+    @Override
+    public List<EvaluationResultRecord> findResults(ExecutionContext context, UUID runId) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(runId, "runId");
+        return jdbc.query("""
+                SELECT result.id, result.evaluation_run_id, result.metric, result.score, result.threshold,
+                       result.status, result.evidence_refs::text, result.finding_summary, result.created_at
+                  FROM evaluation_results result
+                  JOIN evaluation_runs run ON run.id = result.evaluation_run_id
+                 WHERE result.evaluation_run_id = ? AND run.organization_id = ? AND run.tenant_id = ?
+                 ORDER BY result.metric
+                """, this::mapResult, runId, context.organizationId(), context.tenantId());
     }
 
     @Override
@@ -215,6 +237,19 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
                 rs.getObject("execution_run_id", UUID.class), rs.getString("evaluator_version"),
                 EvaluationRunRecord.Status.valueOf(rs.getString("status")), nullableInstant(rs, "started_at"),
                 nullableInstant(rs, "completed_at"), JdbcSupport.instant(rs, "created_at"));
+    }
+
+    private EvaluationResultRecord mapResult(ResultSet rs, int row) throws SQLException {
+        try {
+            return new EvaluationResultRecord(rs.getObject("id", UUID.class),
+                    rs.getObject("evaluation_run_id", UUID.class), rs.getString("metric"),
+                    rs.getBigDecimal("score"), rs.getBigDecimal("threshold"),
+                    EvaluationResultRecord.Status.valueOf(rs.getString("status")),
+                    JdbcSupport.stringArray(rs.getString("evidence_refs")), rs.getString("finding_summary"),
+                    JdbcSupport.instant(rs, "created_at"));
+        } catch (IllegalArgumentException error) {
+            throw new SQLException("invalid evaluation result", error);
+        }
     }
 
     private EvaluationReportRecord mapReport(ResultSet rs, int row) throws SQLException {
