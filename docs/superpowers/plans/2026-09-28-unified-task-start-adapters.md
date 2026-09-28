@@ -29,7 +29,7 @@
 
 **文件：** 修改 `sdk/java/src/test/java/io/agentteams/sdk/AgentTeamsClientTest.java`。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在现有本地 `HttpServer` 测试中增加命令端点，断言 SDK 发送以下业务字段：
 
@@ -58,7 +58,7 @@ AgentTeamsClient.CommandResult result = client.startTask(
 assertThat(result.status()).isEqualTo("ACCEPTED");
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：
 
@@ -68,7 +68,7 @@ mvn -q -pl sdk/java -Dtest=AgentTeamsClientTest test
 
 预期：编译失败，提示 `StartTaskRequest`、`CommandResult` 或 `startTask` 尚不存在。
 
-- [ ] **步骤 3：实现最小 Java SDK 适配**
+- [x] **步骤 3：实现最小 Java SDK 适配**
 
 在 `AgentTeamsClient` 中新增：
 
@@ -94,7 +94,7 @@ public CommandResult startTask(StartTaskRequest request, String idempotencyKey, 
 
 `StartTaskRequest` 校验租户、主体、标题、说明和 Spec 非空；`CommandResult` 只描述统一命令响应。旧 `createTask` 方法不改动。
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：
 
@@ -104,7 +104,7 @@ mvn -q -pl sdk/java -Dtest=AgentTeamsClientTest test
 
 预期：全部 Java SDK 测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git add sdk/java/src/main/java/io/agentteams/sdk/AgentTeamsClient.java sdk/java/src/test/java/io/agentteams/sdk/AgentTeamsClientTest.java
