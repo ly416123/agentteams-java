@@ -38,6 +38,25 @@ class ConversationServiceTest {
     }
 
     @Test
+    void bridgesLegacyConversationAndMessageFactsToControlPlane() {
+        RecordingControlPlanePort port = new RecordingControlPlanePort();
+        ConversationService service = new ConversationService(new FakeConversationRuntime(),
+                new InMemoryConversationRepository(), port);
+        ConversationOwner owner = new ConversationOwner("tenant-a", "manager-a");
+
+        service.createAndStart(CONTEXT, "create-key", owner);
+        service.send(SESSION_ID, "message-key", "hello", null, owner);
+        service.send(SESSION_ID, "message-key", "hello", null, owner);
+
+        assertThat(port.creates).hasSize(1);
+        assertThat(port.messages).hasSize(1);
+        assertThat(port.creates.get(0).conversationId()).isEqualTo(SESSION_ID);
+        assertThat(port.messages.get(0).channel()).isEqualTo("INTERNAL");
+        assertThat(port.messages.get(0).messageType()).isEqualTo("TEXT");
+        assertThat(port.messages.get(0).content()).isEqualTo("hello");
+    }
+
+    @Test
     void getReturnsTheConversationSnapshotAndRejectsUnknownSessions() {
         ConversationService service = new ConversationService(new FakeConversationRuntime());
         service.create(CONTEXT);
@@ -309,6 +328,21 @@ class ConversationServiceTest {
         service.create(CONTEXT);
         service.start(SESSION_ID);
         return service;
+    }
+
+    private static final class RecordingControlPlanePort implements ControlPlaneConversationPort {
+        private final List<ControlPlaneConversationPort.CreateRequest> creates = new ArrayList<>();
+        private final List<ControlPlaneConversationPort.MessageRequest> messages = new ArrayList<>();
+
+        @Override
+        public void create(ControlPlaneConversationPort.CreateRequest request) {
+            creates.add(request);
+        }
+
+        @Override
+        public void appendMessage(ControlPlaneConversationPort.MessageRequest request) {
+            messages.add(request);
+        }
     }
 
     private static final class DelayedRuntime implements ConversationRuntimePort {

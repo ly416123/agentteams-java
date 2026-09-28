@@ -234,10 +234,15 @@ public final class ConversationController {
     }
     public record CancelRequest(Long expectedVersion) { }
 
-    public record SessionResponse(UUID sessionId, ConversationRuntimePort.Context context, String status, long version) {
+    public record SessionResponse(UUID sessionId, ConversationRuntimePort.Context context, String status, long version,
+            String taskId) {
+        public SessionResponse(UUID sessionId, ConversationRuntimePort.Context context, String status, long version) {
+            this(sessionId, context, status, version, context == null ? null : context.task());
+        }
+
         static SessionResponse from(ConversationService.Conversation conversation) {
             return new SessionResponse(conversation.sessionId(), conversation.context(), conversation.status().name(),
-                    conversation.version());
+                    conversation.version(), conversation.context().task());
         }
     }
     public record ConversationPageResponse(List<ConversationSummaryResponse> items, String nextCursor,

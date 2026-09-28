@@ -74,6 +74,7 @@ class ConversationControllerTest {
                 .andExpect(jsonPath("$.context.worker").value("worker-a"))
                 .andExpect(jsonPath("$.context.task").value("task-a"))
                 .andExpect(jsonPath("$.context.sessionId").value(SESSION_ID.toString()))
+                .andExpect(jsonPath("$.taskId").value("task-a"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
         mvc.perform(get("/api/v1/conversations/{sessionId}", SESSION_ID))

@@ -12,6 +12,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Objects;
 import java.util.HexFormat;
+import java.util.UUID;
 
 /** Typed Manager tool: model output becomes a Task only after validation and idempotent persistence. */
 public final class ControlPlaneCreateTaskTool {
@@ -44,6 +45,12 @@ public final class ControlPlaneCreateTaskTool {
             // The session identifier is metadata only; the user prompt remains outside the task spec.
             // It lets Control Plane correlate Manager planning facts with the first execution run.
             root.put("managerSessionId", context.sessionId());
+            try {
+                UUID.fromString(context.sessionId());
+                root.put("sourceConversationId", context.sessionId());
+            } catch (IllegalArgumentException ignored) {
+                // Compatibility callers may use a non-UUID manager session identifier.
+            }
         }
         ObjectNode input = root.putObject("inputJson");
         input.put("description", intent.description());

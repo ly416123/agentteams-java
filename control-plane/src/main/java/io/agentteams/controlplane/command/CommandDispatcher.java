@@ -88,7 +88,7 @@ public final class CommandDispatcher {
                         new CreateConversationCommand(command.commandId(), title, command.occurredAt()));
                 yield accepted(command, null, conversation.version());
             }
-            case "conversation.message" -> {
+            case "conversation.message", "conversation.send_message" -> {
                 UUID conversationId = requireId(command.conversationId(), "conversationId");
                 String content = text(command.payload(), "content");
                 String messageType = optionalText(command.payload(), "messageType", "TEXT");

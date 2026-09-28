@@ -296,11 +296,11 @@ git commit -m "feat(command): unify channel commands and idempotency"
 
 **文件：** Manager ConversationController、ConversationService、兼容层及测试。
 
-- [ ] **步骤 1：扩展现有测试**
+- [x] **步骤 1：扩展现有测试**
 
 验证旧 POST /api/v1/conversations 仍返回旧字段；创建结果保留 sessionId/taskId；旧消息转换为 channel=INTERNAL、messageType=TEXT；Task 带 sourceConversationId；runtime 重放不重复创建 Task。
 
-- [ ] **步骤 2：运行基线测试**
+- [x] **步骤 2：运行基线测试**
 
 运行：
 
@@ -310,13 +310,13 @@ mvn -q -pl manager -Dtest='ConversationControllerTest,ConversationServiceTest' t
 
 预期：基线通过；基线失败时先记录根因，不将无关修复混入兼容桥接。
 
-- [ ] **步骤 3：实现兼容桥接**
+- [x] **步骤 3：实现兼容桥接**
 
 Manager 保留 conversation_sessions 和旧游标；通过 ControlPlaneConversationPort 写入新 Conversation、Message 和 sourceConversationId。旧 DTO 继续输出旧字段，新领域 ID 由映射保存。
 
 桥接使用原请求 idempotency key，并将 manager session version 映射到 CommandEnvelope.aggregateVersion，防止 runtime 重放重复创建 Task。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：
 
@@ -326,7 +326,7 @@ mvn -q -pl manager -Dtest='ConversationControllerTest,ConversationServiceTest,Co
 
 预期：旧 API 和桥接测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add manager/src/main/java/io/agentteams/manager manager/src/test/java/io/agentteams/manager

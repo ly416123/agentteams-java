@@ -14,6 +14,7 @@ import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.persistence.TaskListRecord;
 import io.agentteams.observability.TaskMetricsPort;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.security.ResourceAction;
 import io.agentteams.controlplane.security.ResourceAuthorizationService;
 import io.agentteams.controlplane.security.ResourceScopeRepository;
@@ -113,6 +114,14 @@ public final class TaskService {
         TaskRecord created = persistence.createTask(new CreateTaskCommand(key, title, description, actor, source,
                 spec, now, taskType));
         bindIfAuthenticated(created.id());
+        UUID sourceConversationId = sourceConversationId(spec);
+        if (sourceConversationId != null) {
+            TaskRecord persisted = created;
+            created = PrincipalContext.current().map(principal -> persistence.bindSourceConversation(
+                    new ExecutionContext("control-plane", principal.scope().tenant(), principal.scope().project(),
+                            principal.scope().team(), principal.subject()), persisted.id(), sourceConversationId))
+                    .orElse(persisted);
+        }
         requireVisible(created.id());
         metrics.taskCreated();
         return created;
@@ -519,6 +528,18 @@ public final class TaskService {
             JsonNode node = JSON.readTree(spec);
             String value = node == null ? null : node.path("taskType").asText(null);
             return value == null || value.isBlank() ? "NORMAL" : value;
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("task spec is invalid JSON", error);
+        }
+    }
+
+    private static UUID sourceConversationId(String spec) {
+        try {
+            JsonNode node = JSON.readTree(spec);
+            JsonNode value = node == null ? null : node.get("sourceConversationId");
+            if (value == null || value.isNull()) return null;
+            if (!value.isTextual()) throw new IllegalArgumentException("sourceConversationId must be a UUID");
+            return UUID.fromString(value.asText());
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("task spec is invalid JSON", error);
         }
