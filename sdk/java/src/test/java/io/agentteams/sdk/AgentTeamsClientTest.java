@@ -136,6 +136,45 @@ class AgentTeamsClientTest {
     }
 
     @Test
+    void exposesConversationCreateMessageAndUnifiedTimeline() {
+        UUID conversationId = UUID.fromString("00000000-0000-0000-0000-000000000031");
+        server.createContext("/api/v1/conversations", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo("conversation-create-1");
+                respond(exchange, 201, "{\"sessionId\":\"" + conversationId
+                        + "\",\"status\":\"ACTIVE\",\"version\":0}");
+            }
+        });
+        server.createContext("/api/v1/conversations/" + conversationId + "/messages", exchange -> {
+            assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo("conversation-message-1");
+            respond(exchange, 200, "{\"sessionId\":\"" + conversationId
+                    + "\",\"idempotencyKey\":\"conversation-message-1\"}");
+        });
+        server.createContext("/api/v1/conversations/" + conversationId + "/timeline", exchange -> {
+            assertThat(exchange.getRequestURI().getQuery()).isEqualTo("after=2&limit=50");
+            respond(exchange, 200, "[{\"itemId\":\"message-1\",\"itemType\":\"CONVERSATION_MESSAGE\","
+                    + "\"conversationId\":\"" + conversationId
+                    + "\",\"eventType\":\"TEXT\",\"actorId\":\"alice\","
+                    + "\"occurredAt\":\"2026-09-28T03:00:00Z\",\"sequence\":3,"
+                    + "\"visibility\":\"PUBLIC\",\"payloadRef\":\"conversation-message:1\","
+                    + "\"summary\":\"hello\",\"sourceVersion\":3}]");
+        });
+
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+        assertThat(client.createConversation(new AgentTeamsClient.CreateConversationRequest(
+                "project-a", "team-a", null, null, conversationId), "conversation-create-1").sessionId())
+                .isEqualTo(conversationId);
+        assertThat(client.sendConversationMessage(conversationId,
+                new AgentTeamsClient.SendMessageRequest("hello", 0L), "conversation-message-1")
+                .idempotencyKey()).isEqualTo("conversation-message-1");
+        assertThat(client.getConversationTimeline(conversationId, 2, 50)).singleElement()
+                .satisfies(item -> {
+                    assertThat(item.itemType()).isEqualTo("CONVERSATION_MESSAGE");
+                    assertThat(item.payloadRef()).isEqualTo("conversation-message:1");
+                });
+    }
+
+    @Test
     void createsPublishesAndDeploysAgentSpecWithOidcHeaders() {
         UUID specId = UUID.fromString("00000000-0000-0000-0000-000000000011");
         UUID agentId = UUID.fromString("00000000-0000-0000-0000-000000000012");

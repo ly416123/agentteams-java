@@ -8,6 +8,7 @@ import { ConversationPage } from '../../src/features/conversations/ConversationP
 const mocks = vi.hoisted(() => ({
   getConversation: vi.fn(),
   getConversationHistory: vi.fn(),
+  getConversationTimeline: vi.fn(),
   createConversation: vi.fn(),
   sendConversationMessage: vi.fn(),
   cancelConversation: vi.fn(),
@@ -86,6 +87,52 @@ describe('ConversationPage', () => {
       expect.anything(),
       expect.any(String),
     );
+  });
+
+  it('renders safe unified timeline items while filtering internal visibility', async () => {
+    mocks.getConversation.mockResolvedValue({
+      id: 'c-1',
+      projectId: 'p-1',
+      teamId: 'team-1',
+      status: 'ACTIVE',
+      version: 1,
+    });
+    mocks.getConversationTimeline.mockResolvedValue([
+      {
+        itemId: 'm-1',
+        itemType: 'CONVERSATION_MESSAGE',
+        conversationId: 'c-1',
+        eventType: 'TEXT',
+        actorId: 'alice',
+        occurredAt: '2026-09-28T03:00:00Z',
+        sequence: 1,
+        visibility: 'PUBLIC',
+        payloadRef: 'conversation-message:m-1',
+        summary: '用户消息',
+        sourceVersion: 1,
+      },
+      {
+        itemId: 'secret-1',
+        itemType: 'TASK_EVENT',
+        conversationId: 'c-1',
+        eventType: 'DEBUG',
+        actorId: 'worker',
+        occurredAt: '2026-09-28T03:01:00Z',
+        sequence: 2,
+        visibility: 'INTERNAL',
+        payloadRef: 'secret:debug',
+        summary: '隐藏调试信息',
+        sourceVersion: 2,
+      },
+    ]);
+    mocks.getConversationHistory.mockResolvedValue({ messages: [], events: [] });
+    mocks.streamConversationEvents.mockResolvedValue(undefined);
+
+    renderPage('c-1');
+
+    expect(await screen.findByText('用户消息')).toBeInTheDocument();
+    expect(screen.queryByText('隐藏调试信息')).not.toBeInTheDocument();
+    expect(screen.getByText(/conversation-message:m-1/)).toBeInTheDocument();
   });
 
   it('shows the final assistant response when the stream has no delta event', async () => {

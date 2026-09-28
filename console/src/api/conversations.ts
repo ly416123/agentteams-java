@@ -40,6 +40,21 @@ export type ConversationHistory = {
   events: Array<{ id: number; event: string; data: unknown }>;
 };
 
+export type TimelineItem = {
+  itemId: string;
+  itemType: string;
+  conversationId: string;
+  taskId?: string | null;
+  eventType: string;
+  actorId: string;
+  occurredAt: string;
+  sequence: number;
+  visibility: 'PUBLIC' | 'TEAM' | 'PRIVATE' | 'INTERNAL' | string;
+  payloadRef?: string | null;
+  summary: string;
+  sourceVersion: number;
+};
+
 export function createConversation(
   context: {
     projectId: string;
@@ -76,6 +91,16 @@ export function listConversations(
 
 export function getConversationHistory(id: string, client: HttpClient = apiClient) {
   return client.request<ConversationHistory>(`/api/v1/conversations/${id}/history`);
+}
+
+export function getConversationTimeline(
+  id: string,
+  options: { after?: number; limit?: number } = {},
+  client: HttpClient = apiClient,
+) {
+  return client.request<TimelineItem[]>(`/api/v1/conversations/${id}/timeline`, {
+    query: { after: options.after ?? 0, limit: options.limit ?? 100 },
+  });
 }
 
 export function sendConversationMessage(

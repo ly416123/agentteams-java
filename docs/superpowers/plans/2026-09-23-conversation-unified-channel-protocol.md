@@ -337,11 +337,11 @@ git commit -m "feat(manager): bridge legacy conversation to control plane"
 
 **文件：** AgentTeamsClient.java、Conversation TypeScript API、ConversationPage.tsx、对应测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 SDK 测试验证 createConversation、sendConversationMessage、getConversationTimeline 的路径、Idempotency-Key、Authorization 和响应解码。Console 测试验证 TimelineItem、visibility、payloadRef 和 409 版本冲突。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -352,7 +352,7 @@ npm --prefix console test -- --run console/tests/api/conversations.test.ts
 
 预期：新 API 测试 FAIL。
 
-- [ ] **步骤 3：实现 SDK 和 Console API**
+- [x] **步骤 3：实现 SDK 和 Console API**
 
 SDK 增加：
 
@@ -364,7 +364,7 @@ public List<TimelineItem> getConversationTimeline(UUID conversationId, long afte
 
 Console 增加 create/send/timeline API；ConversationPage 用统一 TimelineItem 渲染 Message、Task Event、Result 和 Artifact，并复用现有错误与版本冲突组件。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：
 
@@ -375,7 +375,7 @@ npm --prefix console test -- --run
 
 预期：SDK、Console API 和页面测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add sdk/java console/src/api console/src/features/conversations console/tests
