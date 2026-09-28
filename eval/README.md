@@ -161,4 +161,6 @@ python3 scripts/run-l5-agentteams-eval.py \
 
 同日又在 L5 运行了带 `--deepeval-export-dir` 的核心套件，3 个用例仍全部 `SUCCEEDED`，并保存了脱敏的 DeepEval 输入样本。汇总记录见 [`eval/reports/2026-09-21-l5-deepeval-summary.json`](reports/2026-09-21-l5-deepeval-summary.json)，样本位于 [`eval/reports/2026-09-21-l5-deepeval/`](reports/2026-09-21-l5-deepeval/)。临时项目成员关系、Token、脚本和 L5 临时目录均已清理；人工语义标注和阈值校准仍待独立评测环境执行。
 
+2026-09-28 在受控 L5 集群重新执行核心套件，`mcp-web-search-title`、`no-tool-simple-answer` 和 `artifact-integrity` 均通过，确定性分数均为 `1.0`。脱敏验收报告见 [`eval/reports/2026-09-28-l5-core.json`](reports/2026-09-28-l5-core.json)；报告不包含 Token、Cookie、预签名 URL 或原始工具响应。
+
 随后发现 AgentScope 最终结果曾被事件安全摘要限制为 128 字符，导致语义 Judge 只能看到截断答案。Worker 现已将最终结果改为脱敏后最多 16 KiB，过程事件仍保持 128 字符上限。2026-09-21 的 L5 MCP 复验确定性门禁通过，输出 2257 字符，`ToolCorrectnessMetric=1.0`；同一次抽样的 `AnswerRelevancyMetric=0.7931`（候选阈值 0.8），Faithfulness 因当前事件协议不提供 `retrieval_context` 暂不执行。记录见 [`eval/reports/2026-09-21-l5-deepeval/mcp-web-search-title-latest.json`](reports/2026-09-21-l5-deepeval/mcp-web-search-title-latest.json) 和 [`eval/reports/2026-09-21-l5-deepeval/mcp-web-search-title-judge.json`](reports/2026-09-21-l5-deepeval/mcp-web-search-title-judge.json)。

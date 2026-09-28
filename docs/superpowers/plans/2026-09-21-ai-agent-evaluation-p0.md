@@ -225,17 +225,19 @@ git commit -m "feat(eval): add core evaluation cases and usage guide"
 - 修改：`eval/README.md`
 - 创建：`eval/reports/.gitkeep`
 
-- [ ] **步骤 1：在 L5 执行核心套件**
+- [x] **步骤 1：在 L5 执行核心套件**
 
-使用短期 Token 执行 3 个 case，确认任务真实经过 Worker 和 MCP。报告只保留任务 ID、运行 ID、断言、分数和失败原因。
+使用短期 Token 执行 3 个 case，确认任务真实经过 Worker 和 MCP。2026-09-28 三个 case 均通过，验收报告为 `eval/reports/2026-09-28-l5-core.json`；报告只保留任务 ID、运行 ID、断言、分数和证据引用。
 
-- [ ] **步骤 2：核对平台证据**
+- [x] **步骤 2：核对平台证据**
 
 逐个确认：
 
 - `mcp-web-search-title` 有 `tool.called` 和 `tool.finished`。
 - `no-tool-simple-answer` 没有工具调用。
 - `artifact-integrity` 的制品有 `tasks/` storageRef，下载内容 SHA-256 匹配。
+
+以上三项在受控 L5 环境均已核对通过。
 
 - [x] **步骤 3：运行项目现有 Python 合约测试**
 
@@ -248,9 +250,9 @@ python3 scripts/validate-kind-manifests.py
 
 预期：评测测试和现有清单校验均通过。
 
-- [ ] **步骤 4：提交验收记录**
+- [x] **步骤 4：提交验收记录**
 
 ```bash
 git add eval
-git commit -m "test(eval): record p0 evaluation acceptance"
+git commit -m "test(评测): 记录 L5 核心套件验收"
 ```

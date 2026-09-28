@@ -349,11 +349,11 @@ npm --prefix console test -- --run
 
 预期：全部 PASS。
 
-- [ ] **步骤 3：执行离线和受控 L5 评测**
+- [x] **步骤 3：执行离线和受控 L5 评测**
 
 报告只提交 suite/case/status/score/evidenceRefs，不提交 Token、Cookie、预签名 URL 或原始工具响应。
 
-> 离线质量契约和历史受控报告均通过；2026-09-28 在当前 Kind 集群重跑时，Task API 在读取新建任务阶段返回 `HTTP 401 authentication required`，因此本次受控 L5 结果未形成有效报告，待集群身份入口修复后复验。
+> 离线质量契约和受控 L5 评测均通过。2026-09-28 在受控 L5 集群执行核心套件，三个 case 均成功且 score=1.0；验收报告见 `eval/reports/2026-09-28-l5-core.json`。报告只保留任务/运行标识、状态、分数和证据引用，不包含 Token、Cookie、预签名 URL 或原始工具响应。
 
 ~~~bash
 python3 scripts/agentteams_eval.py --cases eval/cases/core.yaml --report /tmp/agentteams-evaluation.json
@@ -386,4 +386,4 @@ git commit -m "test(eval): accept quality plane and evidence boundaries"
 - [x] 确定性评测可独立运行；DeepEval 仍是显式可选能力。
 - [x] Evaluation Pass 不自动修改 Task 状态。
 - [x] Console 能查看评测状态、分数、Finding 和证据引用。
-- [ ] 离线、Java、Console 和项目级回归全部通过；当前受控 L5 复验仍受集群 401 阻塞。
+- [x] 离线、Java、Console、项目级回归和受控 L5 复验全部通过。
