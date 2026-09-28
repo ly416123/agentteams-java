@@ -24,6 +24,14 @@ from urllib.request import Request, urlopen
 import yaml
 
 
+# Keep the optional ``eval`` package importable when this module is launched as
+# ``python3 scripts/agentteams_eval.py``. Python puts ``scripts/`` (rather than
+# the repository root) first on sys.path for that invocation.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+
 TERMINAL_PHASES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 MAX_EVIDENCE_PAYLOAD_BYTES = 16 * 1024
 SENSITIVE_KEYS = {"token", "api_key", "apikey", "password", "cookie", "secret", "authorization"}

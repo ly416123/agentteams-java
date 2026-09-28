@@ -1,4 +1,6 @@
 import json
+import runpy
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -252,6 +254,42 @@ cases:
         serialized = json.dumps(exported, ensure_ascii=False).lower()
         self.assertNotIn("downloadurl", serialized)
         self.assertNotIn("x-amz-signature", serialized)
+
+    def test_script_path_can_load_deepeval_export_adapter(self):
+        repository = Path(__file__).parents[1]
+        script_directory = repository / "scripts"
+        original_path = sys.path[:]
+        loaded_eval_modules = {
+            name: module for name, module in sys.modules.items()
+            if name == "eval" or name.startswith("eval.")
+        }
+        try:
+            sys.path = [str(script_directory)] + [
+                entry for entry in original_path
+                if Path(entry or ".").resolve() != repository.resolve()
+            ]
+            for name in list(loaded_eval_modules):
+                sys.modules.pop(name, None)
+            namespace = runpy.run_path(str(repository / "scripts/agentteams_eval.py"),
+                                       run_name="agentteams_eval_cli")
+            case = namespace["EvalCase"]("sample", "Sample", {
+                "scope": {"tenant": "tenant-a", "project": "project-a", "team": "team-a"},
+                "taskType": "qwenpaw",
+                "inputJson": {"prompt": "Return ok"},
+            }, [{"type": "phase", "expected": "SUCCEEDED"}], {})
+            with tempfile.TemporaryDirectory() as directory:
+                namespace["_write_deepeval_export"](
+                    case,
+                    {"task": {"phase": "SUCCEEDED"}, "result": {"summary": "ok"}},
+                    Path(directory),
+                )
+                self.assertTrue((Path(directory) / "sample.json").exists())
+        finally:
+            sys.path = original_path
+            for name in list(sys.modules):
+                if name == "eval" or name.startswith("eval."):
+                    sys.modules.pop(name, None)
+            sys.modules.update(loaded_eval_modules)
 
 
 if __name__ == "__main__":
