@@ -49,6 +49,11 @@ public class MatrixAppServiceConfiguration {
     }
 
     @Bean
+    MatrixRoomBindingService matrixRoomBindingService(MatrixRoomBindingRepository repository) {
+        return new MatrixRoomBindingService(repository);
+    }
+
+    @Bean
     MatrixChannelAdapter matrixChannelAdapter(MatrixChannelBindingRepository bindings,
             MatrixOutboundRepository outbound, Clock clock) {
         return new MatrixChannelAdapter(bindings, outbound, clock);

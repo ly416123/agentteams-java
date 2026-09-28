@@ -160,11 +160,11 @@ git commit -m "feat(matrix): normalize room commands through control plane"
 
 **文件：** MatrixRoomBindingController、MatrixRoomBindingService、ResourceAuthorizationMatrix 及测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 MockMvc 覆盖创建、查询、迁移、撤销；非管理员拒绝；Task Room 只能继承同一 Conversation/Team/Project 的边界；解绑后只保留 Inbox 记录，不执行命令或投影。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -174,7 +174,7 @@ mvn -q -pl control-plane -Dtest='MatrixRoomBindingControllerTest,MatrixRoomBindi
 
 预期：FAIL，因为管理接口和迁移逻辑尚不存在。
 
-- [ ] **步骤 3：实现 REST 端点**
+- [x] **步骤 3：实现 REST 端点**
 
 固定端点：
 
@@ -187,11 +187,11 @@ POST /api/v1/matrix/rooms/bindings/{id}/revoke
 
 端点通过 PrincipalContext、ExecutionContextResolver 和管理权限校验；绑定变更写入 audit/outbox，响应返回 binding version。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期绑定创建、迁移、撤销和权限测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/api/MatrixRoomBindingController.java control-plane/src/main/java/io/agentteams/controlplane/matrix control-plane/src/main/java/io/agentteams/controlplane/security control-plane/src/test/java/io/agentteams/controlplane/api

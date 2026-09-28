@@ -48,6 +48,38 @@ public final class JdbcMatrixRoomBindingRepository implements MatrixRoomBindingR
     }
 
     @Override
+    public List<MatrixRoomBinding> findByTenant(String tenantId, MatrixRoomContextType contextType, UUID contextId) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT id, organization_id, tenant_id, room_id, primary_context_type, primary_context_id,
+                       project_id, team_id, status, created_by, created_at, updated_at, version
+                  FROM matrix_room_bindings
+                 WHERE tenant_id = ?
+                """);
+        List<Object> arguments = new java.util.ArrayList<>();
+        arguments.add(tenantId);
+        if (contextType != null) {
+            sql.append(" AND primary_context_type = ?");
+            arguments.add(contextType.name());
+        }
+        if (contextId != null) {
+            sql.append(" AND primary_context_id = ?");
+            arguments.add(contextId);
+        }
+        sql.append(" ORDER BY updated_at DESC, id");
+        return jdbc.query(sql.toString(), this::map, arguments.toArray());
+    }
+
+    @Override
+    public Optional<MatrixRoomBinding> findById(String tenantId, UUID id) {
+        return query("""
+                SELECT id, organization_id, tenant_id, room_id, primary_context_type, primary_context_id,
+                       project_id, team_id, status, created_by, created_at, updated_at, version
+                  FROM matrix_room_bindings
+                 WHERE tenant_id = ? AND id = ?
+                """, tenantId, id);
+    }
+
+    @Override
     public MatrixRoomBinding save(MatrixRoomBinding binding) {
         jdbc.update("""
                 INSERT INTO matrix_room_bindings
@@ -60,6 +92,19 @@ public final class JdbcMatrixRoomBindingRepository implements MatrixRoomBindingR
                 binding.primaryContextType() == MatrixRoomContextType.TASK ? binding.primaryContextId() : null,
                 binding.status().name(), binding.createdBy(), JdbcSupport.timestamp(binding.createdAt()),
                 JdbcSupport.timestamp(binding.updatedAt()), binding.version());
+        return binding;
+    }
+
+    @Override
+    public MatrixRoomBinding update(MatrixRoomBinding binding, long expectedVersion) {
+        int updated = jdbc.update("""
+                UPDATE matrix_room_bindings
+                   SET status = ?, updated_at = ?, version = ?
+                 WHERE tenant_id = ? AND id = ? AND version = ?
+                """, binding.status().name(), JdbcSupport.timestamp(binding.updatedAt()), binding.version(),
+                binding.tenantId(), binding.id(), expectedVersion);
+        if (updated != 1) throw new io.agentteams.controlplane.persistence.OptimisticLockFailure(
+                "matrix_room_binding", binding.id(), expectedVersion, expectedVersion + 1);
         return binding;
     }
 

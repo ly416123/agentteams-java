@@ -83,6 +83,43 @@ class MatrixRoomBindingServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void migratesWithinTheSameScopeAndRevokesThePreviousBinding() {
+        InMemoryRepository repository = new InMemoryRepository();
+        MatrixRoomBindingService service = new MatrixRoomBindingService(repository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        MatrixRoomBinding initial = service.bind("org-1", "tenant-1", "!room:example.org",
+                MatrixRoomContextType.CONVERSATION, CONVERSATION_ID, PROJECT_ID, TEAM_ID, "alice");
+
+        MatrixRoomBinding migrated = service.migrate("tenant-1", initial.id(), MatrixRoomContextType.TASK, TASK_ID,
+                PROJECT_ID, TEAM_ID, 0, "alice");
+
+        assertThat(migrated.primaryContextType()).isEqualTo(MatrixRoomContextType.TASK);
+        assertThat(migrated.primaryContextId()).isEqualTo(TASK_ID);
+        assertThat(repository.findById("tenant-1", initial.id()).orElseThrow().status())
+                .isEqualTo(MatrixRoomBindingStatus.REVOKED);
+        assertThat(repository.findActiveByRoom("tenant-1", "!room:example.org").orElseThrow().id())
+                .isEqualTo(migrated.id());
+
+        MatrixRoomBinding revoked = service.revoke("tenant-1", migrated.id(), 0, "alice");
+        assertThat(revoked.status()).isEqualTo(MatrixRoomBindingStatus.REVOKED);
+        assertThat(repository.findActiveByRoom("tenant-1", "!room:example.org")).isEmpty();
+    }
+
+    @Test
+    void rejectsMigrationThatCrossesProjectOrTeamScope() {
+        InMemoryRepository repository = new InMemoryRepository();
+        MatrixRoomBindingService service = new MatrixRoomBindingService(repository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        MatrixRoomBinding initial = service.bind("org-1", "tenant-1", "!room:example.org",
+                MatrixRoomContextType.CONVERSATION, CONVERSATION_ID, PROJECT_ID, TEAM_ID, "alice");
+
+        assertThatThrownBy(() -> service.migrate("tenant-1", initial.id(), MatrixRoomContextType.TASK, TASK_ID,
+                UUID.randomUUID(), TEAM_ID, 0, "alice"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("preserve project and team scope");
+    }
+
     private static final class InMemoryRepository implements MatrixRoomBindingRepository {
         private final List<MatrixRoomBinding> values = new ArrayList<>();
 
@@ -101,8 +138,28 @@ class MatrixRoomBindingServiceTest {
         }
 
         @Override
+        public List<MatrixRoomBinding> findByTenant(String tenantId, MatrixRoomContextType type, UUID contextId) {
+            return values.stream().filter(item -> item.tenantId().equals(tenantId)
+                    && (type == null || item.primaryContextType() == type)
+                    && (contextId == null || item.primaryContextId().equals(contextId))).toList();
+        }
+
+        @Override
+        public Optional<MatrixRoomBinding> findById(String tenantId, UUID id) {
+            return values.stream().filter(item -> item.tenantId().equals(tenantId) && item.id().equals(id)).findFirst();
+        }
+
+        @Override
         public MatrixRoomBinding save(MatrixRoomBinding binding) {
             values.add(binding);
+            return binding;
+        }
+
+        @Override
+        public MatrixRoomBinding update(MatrixRoomBinding binding, long expectedVersion) {
+            MatrixRoomBinding current = findById(binding.tenantId(), binding.id()).orElseThrow();
+            if (current.version() != expectedVersion) throw new IllegalStateException("stale version");
+            replace(binding);
             return binding;
         }
 

@@ -71,6 +71,27 @@ class JdbcMatrixRoomBindingRepositoryTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM matrix_room_bindings", Integer.class)).isEqualTo(2);
     }
 
+    @Test
+    void listsByContextAndUpdatesStatusWithOptimisticVersion() {
+        JdbcMatrixRoomBindingRepository repository = new JdbcMatrixRoomBindingRepository(jdbc);
+        MatrixRoomBinding active = binding(MatrixRoomBindingStatus.ACTIVE, "tenant-1", "!room:example.org",
+                CONVERSATION_ID);
+        repository.save(active);
+
+        assertThat(repository.findByTenant("tenant-1", MatrixRoomContextType.CONVERSATION, CONVERSATION_ID))
+                .containsExactly(active);
+        assertThat(repository.findById("tenant-1", active.id())).contains(active);
+
+        MatrixRoomBinding revoked = active.withStatus(MatrixRoomBindingStatus.REVOKED);
+        revoked = new MatrixRoomBinding(revoked.id(), revoked.organizationId(), revoked.tenantId(), revoked.roomId(),
+                revoked.primaryContextType(), revoked.primaryContextId(), revoked.projectId(), revoked.teamId(),
+                revoked.status(), revoked.createdBy(), revoked.createdAt(), NOW.plusSeconds(1), 1);
+        repository.update(revoked, 0);
+
+        assertThat(repository.findActiveByRoom("tenant-1", "!room:example.org")).isEmpty();
+        assertThat(repository.findById("tenant-1", active.id())).contains(revoked);
+    }
+
     private static MatrixRoomBinding binding(MatrixRoomBindingStatus status, String tenantId, String roomId,
             UUID contextId) {
         return new MatrixRoomBinding(UUID.randomUUID(), "org-1", tenantId, roomId,
