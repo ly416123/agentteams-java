@@ -44,7 +44,7 @@
 
 **文件：** application-contracts 四个新 record 文件及 UnifiedProtocolTest.java。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖 actor、租户、幂等键、版本号、occurredAt 的校验，以及 Jackson 字段名和命令状态。
 
@@ -58,7 +58,7 @@ assertThatThrownBy(() -> new CommandEnvelope(
         .isInstanceOf(IllegalArgumentException.class);
 ~~~
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -68,7 +68,7 @@ mvn -q -pl application-contracts -am -Dtest=UnifiedProtocolTest test
 
 预期：FAIL，原因是协议类型尚不存在。
 
-- [ ] **步骤 3：实现最小协议类型**
+- [x] **步骤 3：实现最小协议类型**
 
 保持以下稳定签名：
 
@@ -101,11 +101,11 @@ public record TimelineItem(
 
 用 Jackson 注解固定公共 JSON 字段名，不把 Spring、JDBC 或数据库记录类型放进 application-contracts。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期 UnifiedProtocolTest 全部 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add application-contracts/src/main/java/io/agentteams/application/api application-contracts/src/test/java/io/agentteams/application/api/UnifiedProtocolTest.java
