@@ -103,6 +103,22 @@ export type CreateTaskRequest = {
   actor?: string;
   source?: string;
 };
+export type StartTaskRequest = {
+  tenantId: string;
+  actorId: string;
+  title: string;
+  description: string;
+  spec: Record<string, unknown>;
+  conversationId?: string;
+};
+export type CommandResult = {
+  commandId: string;
+  status: string;
+  deduplicated: boolean;
+  taskId?: string | null;
+  aggregateVersion: number;
+  traceId: string;
+};
 export type LifecycleRequest = {
   expectedVersion?: number;
   actor?: string;
@@ -167,6 +183,33 @@ export class AgentTeamsClient {
       method: 'POST',
       body,
       idempotencyKey: options.idempotencyKey,
+      retrySafe: options.retrySafe,
+    });
+  }
+
+  startTask(body: StartTaskRequest, options: { idempotencyKey?: string; retrySafe?: boolean } = {}) {
+    const idempotencyKey = options.idempotencyKey || `sdk-${crypto.randomUUID()}`;
+    return this.request<CommandResult>('/api/v1/commands', {
+      method: 'POST',
+      body: {
+        commandId: crypto.randomUUID(),
+        commandType: 'task.start',
+        tenantId: body.tenantId,
+        actor: { type: 'USER', id: body.actorId, channel: 'SDK' },
+        conversationId: body.conversationId ?? null,
+        taskId: null,
+        aggregateType: 'TASK',
+        aggregateVersion: 0,
+        payload: {
+          title: body.title,
+          description: body.description,
+          spec: body.spec,
+        },
+        idempotencyKey,
+        traceId: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+      },
+      idempotencyKey,
       retrySafe: options.retrySafe,
     });
   }
