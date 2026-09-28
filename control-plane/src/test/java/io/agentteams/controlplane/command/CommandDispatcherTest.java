@@ -55,6 +55,28 @@ class CommandDispatcherTest {
     }
 
     @Test
+    void dispatchesTaskPauseWithTheExpectedVersionAndDeduplicatesReplay() {
+        TaskService tasks = mock(TaskService.class);
+        InMemoryCommandIdempotencyStore store = new InMemoryCommandIdempotencyStore();
+        AuditRecorder audit = mock(AuditRecorder.class);
+        UUID taskId = UUID.randomUUID();
+        when(tasks.pause(taskId, 7, "matrix:txn-1:event-1", "alice", "matrix"))
+                .thenReturn(task(taskId, TaskPhase.PAUSED, 8));
+        CommandDispatcher dispatcher = new CommandDispatcher(tasks, mock(ConversationService.class), store, audit, JSON);
+        CommandEnvelope command = new CommandEnvelope(UUID.randomUUID(), "task.pause", "tenant-1",
+                new CommandActor("USER", "alice", "MATRIX"), null, taskId, "TASK", 7,
+                JSON.createObjectNode().put("action", "pause"), "matrix:txn-1:event-1", "matrix:txn-1", NOW);
+
+        CommandResult accepted = dispatcher.dispatch(CONTEXT, command);
+        CommandResult duplicate = dispatcher.dispatch(CONTEXT, command);
+
+        assertThat(accepted.status()).isEqualTo(io.agentteams.application.api.CommandStatus.ACCEPTED);
+        assertThat(accepted.aggregateVersion()).isEqualTo(8);
+        assertThat(duplicate.status()).isEqualTo(io.agentteams.application.api.CommandStatus.DUPLICATE);
+        verify(tasks).pause(taskId, 7, "matrix:txn-1:event-1", "alice", "matrix");
+    }
+
+    @Test
     void replaysTheSameCommandAsDuplicateWithoutExecutingItAgain() {
         TaskService tasks = mock(TaskService.class);
         InMemoryCommandIdempotencyStore store = new InMemoryCommandIdempotencyStore();

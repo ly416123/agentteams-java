@@ -58,7 +58,7 @@ mvn -q -pl control-plane -Dtest='MatrixRoomBinding*Test' test
 
 预期：FAIL，因为类型、表和 Repository 尚不存在。
 
-- [ ] **步骤 3：实现类型和表**
+- [x] **步骤 3：实现类型和表**
 
 固定类型：
 
@@ -111,7 +111,7 @@ git commit -m "feat(matrix): add room primary context binding"
 
 **文件：** MatrixAppServiceHttpAdapter、MatrixCommandParser、MatrixTaskCommandHandler、统一命令适配器及测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖：
 
@@ -122,7 +122,7 @@ git commit -m "feat(matrix): add room primary context binding"
 5. AppService Bot 映射 actor.type=SERVICE。
 6. 同一 transaction id + event id 重放不产生第二条命令。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -132,7 +132,7 @@ mvn -q -pl control-plane -Dtest='MatrixAppServiceHttpAdapterTest,MatrixCommandPa
 
 预期：新 Envelope、Room context 和去重断言 FAIL。
 
-- [ ] **步骤 3：实现上下文解析和命令映射**
+- [x] **步骤 3：实现上下文解析和命令映射**
 
 入站流程固定为：
 
@@ -145,11 +145,11 @@ return commandDispatcher.dispatch(contextResolver.resolve(actor), command);
 
 Parser 只转换 commandType 和 payload，不直接调用 TaskService。MatrixTaskCommandHandler 使用共享 CommandDispatcher，不再生成随机 source；幂等键使用 Matrix transaction id + event id。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期身份、Room、命令幂等和版本冲突测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/matrix control-plane/src/test/java/io/agentteams/controlplane/matrix control-plane/src/main/java/io/agentteams/controlplane/command

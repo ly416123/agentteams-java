@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.time.Instant;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.Principal;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +68,31 @@ class MatrixAppServiceHttpAdapterTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().duplicate()).isTrue();
         assertThat(handled).hasValue(0);
+    }
+
+    @Test
+    void replaysTheSameTransactionAndEventWithoutCallingTheHandlerAgain() {
+        MatrixInboxRepository inbox = mock(MatrixInboxRepository.class);
+        when(inbox.claimTransaction(anyString(), any(Instant.class))).thenReturn(true);
+        when(inbox.claim(anyString(), anyString(), anyString(), anyString(), anyString(), any(Instant.class)))
+                .thenReturn(true, false);
+        MatrixAppService appService = new MatrixAppService(inbox);
+        adapter = new MatrixAppServiceHttpAdapter(appService, (sender, command) -> {
+            handled.incrementAndGet();
+            return "accepted";
+        });
+        MatrixAppServiceHttpAdapter.TransactionRequest request = new MatrixAppServiceHttpAdapter.TransactionRequest(
+                List.of(event("$event-replay", "!agentteams start once")));
+
+        var first = adapter.receive("transaction-replay", request);
+        var replay = adapter.receive("transaction-replay", request);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(replay.getBody()).isNotNull();
+        assertThat(replay.getBody().events().get(0).status())
+                .isEqualTo(MatrixAppServiceHttpAdapter.EventStatus.DUPLICATE);
+        assertThat(handled).hasValue(1);
     }
 
     @Test
@@ -166,6 +192,33 @@ class MatrixAppServiceHttpAdapterTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().events().get(0).response()).isEqualTo("bound");
         assertThat(received).hasValue(bound);
+    }
+
+    @Test
+    void rejectsCommandFromRoomWithoutActiveBindingBeforeCallingHandler() {
+        Principal principal = new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                java.util.Set.of("task:create"));
+        MatrixIdentityBinder binder = sender -> java.util.Optional.of(
+                new MatrixIdentity("@alice:example.org", principal));
+        MatrixRoomBindingRepository roomBindings = mock(MatrixRoomBindingRepository.class);
+        when(roomBindings.findActiveByRoom("tenant-a", "!room:example.org"))
+                .thenReturn(java.util.Optional.empty());
+        AtomicInteger called = new AtomicInteger();
+        adapter = new MatrixAppServiceHttpAdapter(new MatrixAppService(new MatrixInboxRepository(jdbc)),
+                (sender, command) -> {
+                    called.incrementAndGet();
+                    return "unexpected";
+                }, binder, new MatrixAppServiceProperties(), roomBindings);
+
+        var response = adapter.receive("transaction-room-unbound", new MatrixAppServiceHttpAdapter.TransactionRequest(
+                List.of(event("$event-room-unbound", "!agentteams start blocked"))));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody()).isEqualTo(MatrixAppServiceHttpAdapter.HttpResponse.error(
+                "transaction-room-unbound", "ROOM_NOT_BOUND",
+                "Matrix room is not bound to an active platform context"));
+        assertThat(called).hasValue(0);
     }
 
     @Test

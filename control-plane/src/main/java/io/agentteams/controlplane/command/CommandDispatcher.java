@@ -3,6 +3,7 @@ package io.agentteams.controlplane.command;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.application.api.CommandEnvelope;
 import io.agentteams.application.api.CommandResult;
 import io.agentteams.application.api.CommandStatus;
@@ -78,10 +79,28 @@ public final class CommandDispatcher {
     private CommandResult execute(ExecutionContext context, CommandEnvelope command) {
         return switch (command.commandType()) {
             case "task.start" -> {
-                TaskRecord task = tasks.queue(requireId(command.taskId(), "taskId"), command.aggregateVersion(),
-                        command.idempotencyKey(), command.actor().id());
+                TaskRecord task;
+                if (command.taskId() == null) {
+                    task = tasks.create(command.idempotencyKey(), new TaskService.TaskInput(
+                            text(command.payload(), "title"),
+                            optionalText(command.payload(), "description", "Started from Matrix"),
+                            taskSpec(command), command.actor().id(), source(command), null));
+                } else {
+                    task = tasks.queue(command.taskId(), command.aggregateVersion(), command.idempotencyKey(),
+                            command.actor().id());
+                }
                 yield accepted(command, task.id(), task.version());
             }
+            case "task.cancel" -> accepted(command, tasks.cancel(requireId(command.taskId(), "taskId"),
+                    command.aggregateVersion(), command.idempotencyKey(), command.actor().id(), source(command)));
+            case "task.retry" -> accepted(command, tasks.retry(requireId(command.taskId(), "taskId"),
+                    command.aggregateVersion(), command.idempotencyKey(), command.actor().id(), source(command)));
+            case "task.pause" -> accepted(command, tasks.pause(requireId(command.taskId(), "taskId"),
+                    command.aggregateVersion(), command.idempotencyKey(), command.actor().id(), source(command)));
+            case "task.approve" -> accepted(command, tasks.approve(requireId(command.taskId(), "taskId"),
+                    command.aggregateVersion(), command.idempotencyKey(), command.actor().id(), source(command)));
+            case "task.reject" -> accepted(command, tasks.reject(requireId(command.taskId(), "taskId"),
+                    command.aggregateVersion(), command.idempotencyKey(), command.actor().id(), source(command)));
             case "conversation.create" -> {
                 String title = text(command.payload(), "title");
                 ConversationRecord conversation = conversations.create(context,
@@ -114,7 +133,8 @@ public final class CommandDispatcher {
         if (containsSensitiveField(command.payload())) {
             throw new IllegalArgumentException("command payload contains sensitive material");
         }
-        if (!command.commandType().contains(".") || !command.aggregateType().equals(command.commandType().split("\\.", 2)[0])) {
+        if (!command.commandType().contains(".")
+                || !command.aggregateType().equalsIgnoreCase(command.commandType().split("\\.", 2)[0])) {
             throw new IllegalArgumentException("command type and aggregate type do not match");
         }
     }
@@ -143,6 +163,23 @@ public final class CommandDispatcher {
 
     private static CommandResult accepted(CommandEnvelope command, UUID taskId, long version) {
         return new CommandResult(command.commandId(), CommandStatus.ACCEPTED, false, taskId, version, command.traceId());
+    }
+
+    private static CommandResult accepted(CommandEnvelope command, TaskRecord task) {
+        return accepted(command, task.id(), task.version());
+    }
+
+    private String taskSpec(CommandEnvelope command) {
+        ObjectNode spec = command.payload().deepCopy();
+        if (command.conversationId() != null) {
+            spec.put("sourceConversationId", command.conversationId().toString());
+        }
+        spec.put("commandSource", source(command));
+        return spec.toString();
+    }
+
+    private static String source(CommandEnvelope command) {
+        return command.actor().channel().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static UUID requireId(UUID value, String field) {

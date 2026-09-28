@@ -5,10 +5,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.controlplane.service.TaskService;
+import io.agentteams.controlplane.command.CommandDispatcher;
+import io.agentteams.controlplane.security.ExecutionContextResolver;
 import java.time.Clock;
 import java.time.Duration;
 
@@ -41,6 +44,11 @@ public class MatrixAppServiceConfiguration {
     }
 
     @Bean
+    MatrixRoomBindingRepository matrixRoomBindingRepository(JdbcTemplate jdbcTemplate) {
+        return new JdbcMatrixRoomBindingRepository(jdbcTemplate);
+    }
+
+    @Bean
     MatrixChannelAdapter matrixChannelAdapter(MatrixChannelBindingRepository bindings,
             MatrixOutboundRepository outbound, Clock clock) {
         return new MatrixChannelAdapter(bindings, outbound, clock);
@@ -59,7 +67,13 @@ public class MatrixAppServiceConfiguration {
     @Bean
     @ConditionalOnBean(TaskCommandPort.class)
     @ConditionalOnMissingBean(MatrixCommandHandler.class)
-    MatrixCommandHandler matrixCommandHandler(TaskCommandPort tasks, TaskService taskService) {
+    MatrixCommandHandler matrixCommandHandler(TaskCommandPort tasks, TaskService taskService,
+            ObjectProvider<CommandDispatcher> dispatcher, ObjectProvider<ExecutionContextResolver> contexts) {
+        CommandDispatcher unified = dispatcher.getIfAvailable();
+        ExecutionContextResolver resolver = contexts.getIfAvailable();
+        if (unified != null && resolver != null) {
+            return new MatrixTaskCommandHandler(unified, resolver, taskService);
+        }
         return new MatrixTaskCommandHandler(tasks, taskService);
     }
 }

@@ -4,8 +4,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.application.api.TaskCommandPort;
+import io.agentteams.application.api.CommandEnvelope;
+import io.agentteams.application.api.CommandResult;
+import io.agentteams.controlplane.command.CommandDispatcher;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.controlplane.security.Permission;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -19,14 +23,30 @@ public final class MatrixTaskCommandHandler implements MatrixCommandHandler {
 
     private final TaskCommandPort tasks;
     private final TaskService taskService;
+    private final CommandDispatcher dispatcher;
+    private final ExecutionContextResolver contexts;
 
     public MatrixTaskCommandHandler(TaskCommandPort tasks) {
-        this(tasks, null);
+        this(tasks, null, null, null);
     }
 
     public MatrixTaskCommandHandler(TaskCommandPort tasks, TaskService taskService) {
-        this.tasks = Objects.requireNonNull(tasks, "tasks");
+        this(tasks, taskService, null, null);
+    }
+
+    public MatrixTaskCommandHandler(CommandDispatcher dispatcher, ExecutionContextResolver contexts,
+            TaskService taskService) {
+        this(null, taskService, dispatcher, contexts);
+    }
+
+    private MatrixTaskCommandHandler(TaskCommandPort tasks, TaskService taskService, CommandDispatcher dispatcher,
+            ExecutionContextResolver contexts) {
+        if (tasks == null && dispatcher == null) throw new IllegalArgumentException("a command boundary is required");
+        this.tasks = tasks;
         this.taskService = taskService;
+        this.dispatcher = dispatcher;
+        this.contexts = contexts;
+        if (dispatcher != null) Objects.requireNonNull(contexts, "contexts");
     }
 
     @Override
@@ -42,6 +62,32 @@ public final class MatrixTaskCommandHandler implements MatrixCommandHandler {
         PrincipalContext.set(identity.principal());
         try {
             return handleBound(identity, command);
+        } finally {
+            previous.ifPresentOrElse(PrincipalContext::set, PrincipalContext::clear);
+        }
+    }
+
+    public String handle(MatrixIdentity identity, MatrixRoomBinding binding, MatrixCommand command,
+            String transactionId, String eventId) {
+        if (dispatcher == null || contexts == null) {
+            throw new MatrixCommandHandlingException("unified Matrix command dispatcher is not configured");
+        }
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(binding, "binding");
+        java.util.Optional<Principal> previous = PrincipalContext.current();
+        PrincipalContext.set(identity.principal());
+        try {
+            long aggregateVersion = 0;
+            if (command instanceof MatrixCommand.TaskAction action) {
+                if (taskService == null) throw new MatrixCommandHandlingException("task query service is not configured");
+                aggregateVersion = taskService.get(action.taskId()).version();
+            }
+            CommandEnvelope envelope = new MatrixCommandParser().toEnvelope(identity, binding, command, transactionId,
+                    eventId, aggregateVersion);
+            CommandResult result = dispatcher.dispatch(contexts.resolve(identity.principal()), envelope);
+            return result.taskId() == null ? result.status().name().toLowerCase(java.util.Locale.ROOT)
+                    : result.status().name().toLowerCase(java.util.Locale.ROOT) + " task " + result.taskId()
+                            + " v" + result.aggregateVersion();
         } finally {
             previous.ifPresentOrElse(PrincipalContext::set, PrincipalContext::clear);
         }
