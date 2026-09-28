@@ -149,8 +149,18 @@ class AgentTeamsClientTest {
             assertThat(command.get("commandType").asText()).isEqualTo("task.start");
             assertThat(command.get("aggregateType").asText()).isEqualTo("TASK");
             assertThat(command.get("tenantId").asText()).isEqualTo("tenant-a");
+            assertThat(command.get("actor").get("type").asText()).isEqualTo("USER");
+            assertThat(command.get("actor").get("id").asText()).isEqualTo("user-1");
             assertThat(command.get("actor").get("channel").asText()).isEqualTo("SDK");
             assertThat(command.get("conversationId").asText()).isEqualTo(conversationId.toString());
+            assertThat(command.get("taskId").isNull()).isTrue();
+            assertThat(command.get("aggregateVersion").asInt()).isZero();
+            assertThat(command.get("payload").get("title").asText()).isEqualTo("生成周报");
+            assertThat(command.get("payload").get("description").asText()).isEqualTo("汇总数据");
+            assertThat(command.get("payload").get("spec").get("scope").asText()).isEqualTo("weekly");
+            assertThat(command.get("idempotencyKey").asText()).isEqualTo("start-1");
+            assertThat(command.get("traceId").asText()).isNotBlank();
+            assertThat(command.get("occurredAt").asText()).isNotBlank();
             respond(exchange, 202, "{\"commandId\":\"00000000-0000-0000-0000-000000000033\","
                     + "\"status\":\"ACCEPTED\",\"duplicate\":false,\"taskId\":\"" + taskId
                     + "\",\"aggregateVersion\":0,\"traceId\":\"trace-1\"}");
@@ -164,6 +174,28 @@ class AgentTeamsClientTest {
 
         assertThat(result.status()).isEqualTo("ACCEPTED");
         assertThat(result.taskId()).isEqualTo(taskId);
+    }
+
+    @Test
+    void generatesOneIdempotencyKeyForCommandBodyAndHeaderAndAllowsMissingConversation() {
+        server.createContext("/api/v1/commands", exchange -> {
+            var command = new ObjectMapper().readTree(exchange.getRequestBody().readAllBytes());
+            String bodyKey = command.get("idempotencyKey").asText();
+            assertThat(bodyKey).startsWith("sdk-");
+            assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo(bodyKey);
+            assertThat(command.get("conversationId").isNull()).isTrue();
+            respond(exchange, 202, "{\"commandId\":\"00000000-0000-0000-0000-000000000034\","
+                    + "\"status\":\"ACCEPTED\",\"duplicate\":false,\"taskId\":null,"
+                    + "\"aggregateVersion\":0,\"traceId\":\"trace-2\"}");
+        });
+
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+        AgentTeamsClient.CommandResult result = client.startTask(
+                new AgentTeamsClient.StartTaskRequest("tenant-a", "user-1", "生成周报", "汇总数据",
+                        new ObjectMapper().createObjectNode().put("scope", "weekly"), null),
+                null, false);
+
+        assertThat(result.status()).isEqualTo("ACCEPTED");
     }
 
     @Test

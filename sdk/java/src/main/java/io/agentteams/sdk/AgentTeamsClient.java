@@ -62,6 +62,7 @@ public final class AgentTeamsClient {
         return send("POST", "/api/v1/tasks", request, Task.class, retrySafe, idempotencyKey);
     }
     public CommandResult startTask(StartTaskRequest request, String idempotencyKey, boolean retrySafe) {
+        String effectiveKey = blank(idempotencyKey) ? "sdk-" + UUID.randomUUID() : idempotencyKey;
         Map<String, Object> actor = Map.of("type", "USER", "id", request.actorId(), "channel", "SDK");
         Map<String, Object> payload = Map.of("title", request.title(), "description", request.description(), "spec", request.spec());
         Map<String, Object> command = new LinkedHashMap<>();
@@ -74,10 +75,10 @@ public final class AgentTeamsClient {
         command.put("aggregateType", "TASK");
         command.put("aggregateVersion", 0);
         command.put("payload", payload);
-        command.put("idempotencyKey", idempotencyKey);
+        command.put("idempotencyKey", effectiveKey);
         command.put("traceId", UUID.randomUUID().toString());
         command.put("occurredAt", Instant.now());
-        return send("POST", "/api/v1/commands", command, CommandResult.class, retrySafe, idempotencyKey);
+        return send("POST", "/api/v1/commands", command, CommandResult.class, retrySafe, effectiveKey);
     }
     public Task queueTask(UUID taskId, long expectedVersion, String idempotencyKey, boolean retrySafe) {
         requireId(taskId);
