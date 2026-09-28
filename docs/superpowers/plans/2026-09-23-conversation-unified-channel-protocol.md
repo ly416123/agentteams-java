@@ -254,11 +254,11 @@ git commit -m "feat(conversation): add service and unified timeline"
 
 **文件：** UnifiedCommandController.java、幂等存储、现有 audit/outbox 组件和 UnifiedCommandControllerTest.java。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 MockMvc 覆盖合法 task.start、重复命令返回 DUPLICATE、aggregateVersion 冲突 409、无权限 403、命令接收/拒绝审计和敏感 payload 拒绝。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -268,7 +268,7 @@ mvn -q -pl control-plane -Dtest=UnifiedCommandControllerTest test
 
 预期：FAIL，原因是统一入口和幂等存储尚不存在。
 
-- [ ] **步骤 3：实现入口**
+- [x] **步骤 3：实现入口**
 
 新增 POST /api/v1/commands：
 
@@ -281,11 +281,11 @@ public CommandResult execute(@Valid @RequestBody CommandEnvelope command) {
 
 CommandDispatcher 先校验 actor/tenant/scope，再按 tenant_id + command_type + idempotency_key 去重，最后调用现有 TaskService/ConversationService，并写入 DomainEventRepository、OutboxEventRepository 和审计记录。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期命令、授权、幂等和审计测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/api control-plane/src/main/java/io/agentteams/controlplane/command control-plane/src/test/java/io/agentteams/controlplane/api/UnifiedCommandControllerTest.java
