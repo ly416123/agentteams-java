@@ -159,11 +159,13 @@ export function useTaskProcessEvents(projectId: string, taskId: string, runId: s
       connectionState: 'connecting',
     });
 
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (showReconnectState: boolean) => {
       if (!active) return;
       const delay = taskEventReconnectDelay(retryAttempt);
       retryAttempt += 1;
-      setState((current) => ({ ...current, connectionState: 'reconnecting' }));
+      if (showReconnectState) {
+        setState((current) => ({ ...current, connectionState: 'reconnecting' }));
+      }
       reconnectTimer = setTimeout(connect, delay);
     };
     const connect = async () => {
@@ -197,7 +199,7 @@ export function useTaskProcessEvents(projectId: string, taskId: string, runId: s
           isError: false,
           connectionState: 'connected',
         }));
-        scheduleReconnect();
+        scheduleReconnect(false);
       } catch (error) {
         if (!active || controller.signal.aborted) return;
         setState((current) => ({
@@ -207,7 +209,7 @@ export function useTaskProcessEvents(projectId: string, taskId: string, runId: s
           error,
           connectionState: 'reconnecting',
         }));
-        scheduleReconnect();
+        scheduleReconnect(true);
       }
     };
     void connect();
@@ -258,11 +260,13 @@ export function useTaskEvents(projectId: string, taskId: string) {
       connectionState: 'connecting',
     });
 
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (showReconnectState: boolean) => {
       if (!active) return;
       const delay = taskEventReconnectDelay(retryAttempt);
       retryAttempt += 1;
-      setState((current) => ({ ...current, connectionState: 'reconnecting' }));
+      if (showReconnectState) {
+        setState((current) => ({ ...current, connectionState: 'reconnecting' }));
+      }
       reconnectTimer = setTimeout(connect, delay);
     };
     const connect = async () => {
@@ -286,7 +290,7 @@ export function useTaskEvents(projectId: string, taskId: string) {
             });
           },
         });
-        scheduleReconnect();
+        scheduleReconnect(false);
       } catch (error) {
         if (!active || controller.signal.aborted) return;
         setState((current) => ({
@@ -296,7 +300,7 @@ export function useTaskEvents(projectId: string, taskId: string) {
           error,
           connectionState: 'reconnecting',
         }));
-        scheduleReconnect();
+        scheduleReconnect(true);
       }
     };
     void connect();

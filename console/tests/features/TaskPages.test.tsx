@@ -9,6 +9,7 @@ import {
   getTaskExecution,
   getTaskRecovery,
   listTasks,
+  streamTaskProcessEvents,
   streamTaskEvents,
   taskAction,
 } from '../../src/api/tasks';
@@ -382,6 +383,45 @@ describe('Task pages', () => {
     await waitFor(() => expect(stream).toHaveBeenCalledTimes(2), { timeout: 1000 });
     expect(screen.getAllByText('已完成').length).toBeGreaterThan(0);
     expect(screen.getAllByText('已排队')).toHaveLength(1);
+  });
+
+  it('keeps successful replay streams connected after normal EOF', async () => {
+    const taskStream = vi.mocked(streamTaskEvents);
+    const processStream = vi.mocked(streamTaskProcessEvents);
+    taskStream.mockReset();
+    processStream.mockReset();
+    taskStream.mockImplementation(async (_taskId, options) => {
+      options.onEvents([
+        { id: 'cursor-1', cursor: 'cursor-1', type: 'task.updated', message: '已排队' },
+      ]);
+    });
+    processStream.mockImplementation(async (_taskId, _runId, options) => {
+      options.onEvents([
+        {
+          eventId: 'process-1',
+          taskId: 'task-1',
+          runId: 'run-1',
+          sequence: 1,
+          eventType: 'PROGRESS',
+          visibility: 'REQUESTER',
+          occurredAt: '2026-08-29T02:00:00Z',
+          correlationId: 'corr-1',
+          payload: '{"message":"Worker 已开始执行"}',
+          payloadRef: null,
+        },
+      ]);
+    });
+
+    renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+    expect(await screen.findByText('已排队')).toBeInTheDocument();
+    expect(await screen.findByText('Worker 已开始执行')).toBeInTheDocument();
+    await waitFor(
+      () => {
+        expect(screen.queryByText('事件流已断开，正在重连')).not.toBeInTheDocument();
+        expect(screen.queryByText('过程事件流已断开，正在重连')).not.toBeInTheDocument();
+      },
+      { timeout: 100 },
+    );
   });
 
   it('shows a visible reconnecting state after the task event stream disconnects', async () => {
