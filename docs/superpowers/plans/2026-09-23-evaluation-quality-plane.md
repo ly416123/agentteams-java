@@ -285,11 +285,11 @@ git commit -m "feat(eval): normalize evidence and report quality results"
 
 **文件：** console/src/api/evaluations.ts、console/src/api/types.ts、console/src/features/management/ManagementEvaluationPage.tsx、实际路由配置文件和测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 测试页面显示 Evaluation Run 与 Task success 两个独立状态、aggregateScore、维度分数、finding、evidenceRefs，并拒绝渲染 token、cookie、预签名 URL；无权限时只显示 ErrorState。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -299,11 +299,11 @@ npm --prefix console test -- --run
 
 预期：新 API 和页面测试 FAIL。
 
-- [ ] **步骤 3：实现 API 和页面**
+- [x] **步骤 3：实现 API 和页面**
 
 evaluations.ts 提供 list/get/run/report API；页面只请求当前管理用户有权访问的 tenant/project 范围。报告详情通过 evidenceRefs 跳转到现有 Task Process/Result/Artifact 页面，不复制原始敏感内容。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：
 
@@ -314,7 +314,7 @@ npm --prefix console run build
 
 预期：Console 单测和生产构建 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add console/src/api/evaluations.ts console/src/api/types.ts console/src/features/management console/tests
@@ -325,7 +325,7 @@ git commit -m "feat(console): add evaluation quality view"
 
 **文件：** evaluation 测试、eval/README.md、验收报告。
 
-- [ ] **步骤 1：编写集成测试**
+- [x] **步骤 1：编写集成测试**
 
 流程：
 
@@ -337,7 +337,7 @@ git commit -m "feat(console): add evaluation quality view"
 6. 重复相同 evaluatorVersion 返回同一 Evaluation Run。
 7. 未配置语义评测时返回 INCONCLUSIVE，不阻断确定性结果。
 
-- [ ] **步骤 2：运行定向测试**
+- [x] **步骤 2：运行定向测试**
 
 运行：
 
@@ -353,11 +353,13 @@ npm --prefix console test -- --run
 
 报告只提交 suite/case/status/score/evidenceRefs，不提交 Token、Cookie、预签名 URL 或原始工具响应。
 
+> 离线质量契约和历史受控报告均通过；2026-09-28 在当前 Kind 集群重跑时，Task API 在读取新建任务阶段返回 `HTTP 401 authentication required`，因此本次受控 L5 结果未形成有效报告，待集群身份入口修复后复验。
+
 ~~~bash
 python3 scripts/agentteams_eval.py --cases eval/cases/core.yaml --report /tmp/agentteams-evaluation.json
 ~~~
 
-- [ ] **步骤 4：运行项目级回归**
+- [x] **步骤 4：运行项目级回归**
 
 运行：
 
@@ -370,7 +372,7 @@ git diff --check
 
 预期：全部命令退出码为 0。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/test integration-tests eval scripts console
@@ -379,9 +381,9 @@ git commit -m "test(eval): accept quality plane and evidence boundaries"
 
 ### 完成定义
 
-- [ ] Evaluation Suite、Case、Run、Result、Report 可持久化并按 tenant 授权查询。
-- [ ] Evidence Bundle 覆盖 Task、Run、事件、拆分、决策、工具、结果和 Artifact 引用。
-- [ ] 确定性评测可独立运行；DeepEval 仍是显式可选能力。
-- [ ] Evaluation Pass 不自动修改 Task 状态。
-- [ ] Console 能查看评测状态、分数、Finding 和证据引用。
-- [ ] 离线、Java、Console 和项目级回归全部通过。
+- [x] Evaluation Suite、Case、Run、Result、Report 可持久化并按 tenant 授权查询。
+- [x] Evidence Bundle 覆盖 Task、Run、事件、拆分、决策、工具、结果和 Artifact 引用。
+- [x] 确定性评测可独立运行；DeepEval 仍是显式可选能力。
+- [x] Evaluation Pass 不自动修改 Task 状态。
+- [x] Console 能查看评测状态、分数、Finding 和证据引用。
+- [ ] 离线、Java、Console 和项目级回归全部通过；当前受控 L5 复验仍受集群 401 阻塞。

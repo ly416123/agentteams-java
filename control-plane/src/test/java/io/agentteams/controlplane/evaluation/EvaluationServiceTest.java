@@ -83,6 +83,69 @@ class EvaluationServiceTest {
                 .isEqualTo(EvaluationResultRecord.Status.INCONCLUSIVE);
     }
 
+    @Test
+    void passesWithACompleteResultManifestWithoutChangingTaskSuccess() throws Exception {
+        EvaluationRepository repository = mock(EvaluationRepository.class);
+        EvidenceBundleAssembler assembler = mock(EvidenceBundleAssembler.class);
+        EvaluationRunRecord queued = EvaluationRunRecord.queued(EVALUATION_RUN_ID, SUITE_ID, CASE_ID, TASK_ID,
+                EXECUTION_RUN_ID, "evaluator-1", NOW);
+        EvaluationRunRecord running = new EvaluationRunRecord(EVALUATION_RUN_ID, SUITE_ID, CASE_ID, TASK_ID,
+                EXECUTION_RUN_ID, "evaluator-1", EvaluationRunRecord.Status.RUNNING, NOW, null, NOW);
+        EvaluationRunRecord passed = new EvaluationRunRecord(EVALUATION_RUN_ID, SUITE_ID, CASE_ID, TASK_ID,
+                EXECUTION_RUN_ID, "evaluator-1", EvaluationRunRecord.Status.PASSED, NOW, NOW, NOW);
+        EvaluationCaseRecord evaluationCase = new EvaluationCaseRecord(CASE_ID, SUITE_ID, "case-1", "Case 1",
+                JSON.createObjectNode(), JSON.readTree("[{\"type\":\"phase\",\"expected\":\"SUCCEEDED\"},{\"type\":\"artifact_integrity\"}]"), NOW);
+        EvidenceBundle bundle = bundle("SUCCEEDED", List.of());
+        bundle = new EvidenceBundle(bundle.taskId(), bundle.executionRunId(), bundle.taskSnapshot(), bundle.taskEvents(),
+                bundle.taskTree(), bundle.decisions(), bundle.toolCallSummaries(),
+                bundle.resultManifest(), List.of(new EvidenceBundle.ArtifactRef("artifact:abc", "artifact:abc",
+                        "application/json", 12, "a".repeat(64))), bundle.approvalHistory(), bundle.agentMetadata(),
+                bundle.policyOutcomes());
+        EvaluationReportRecord report = new EvaluationReportRecord(UUID.randomUUID(), EVALUATION_RUN_ID,
+                BigDecimal.ONE, JSON.createObjectNode(), EvaluationRunRecord.Status.PASSED, true, NOW);
+        when(repository.createRun(CONTEXT, command())).thenReturn(queued);
+        when(repository.findCase(CONTEXT, CASE_ID)).thenReturn(java.util.Optional.of(evaluationCase));
+        when(assembler.assemble(any(), any(), any(), any())).thenReturn(bundle);
+        when(repository.updateRunStatus(any(), any(), any(), any(), any())).thenReturn(running, passed);
+        when(repository.saveReport(any(), any())).thenReturn(report);
+
+        EvaluationService.EvaluationOutcome outcome = new EvaluationService(repository, assembler,
+                Clock.fixed(NOW, ZoneOffset.UTC)).evaluate(CONTEXT, command(), false);
+
+        assertThat(outcome.run().status()).isEqualTo(EvaluationRunRecord.Status.PASSED);
+        assertThat(outcome.report().taskSuccess()).isTrue();
+        assertThat(bundle.taskSnapshot().phase()).isEqualTo("SUCCEEDED");
+        assertThat(outcome.results()).extracting(EvaluationResultRecord::status)
+                .containsOnly(EvaluationResultRecord.Status.PASSED);
+    }
+
+    @Test
+    void repeatsTheSameEvaluationIdentityForTheSameEvaluatorVersion() throws Exception {
+        EvaluationRepository repository = mock(EvaluationRepository.class);
+        EvidenceBundleAssembler assembler = mock(EvidenceBundleAssembler.class);
+        EvaluationRunRecord queued = EvaluationRunRecord.queued(EVALUATION_RUN_ID, SUITE_ID, CASE_ID, TASK_ID,
+                EXECUTION_RUN_ID, "evaluator-1", NOW);
+        EvaluationRunRecord running = new EvaluationRunRecord(EVALUATION_RUN_ID, SUITE_ID, CASE_ID, TASK_ID,
+                EXECUTION_RUN_ID, "evaluator-1", EvaluationRunRecord.Status.RUNNING, NOW, null, NOW);
+        EvaluationRunRecord passed = new EvaluationRunRecord(EVALUATION_RUN_ID, SUITE_ID, CASE_ID, TASK_ID,
+                EXECUTION_RUN_ID, "evaluator-1", EvaluationRunRecord.Status.PASSED, NOW, NOW, NOW);
+        EvaluationCaseRecord evaluationCase = new EvaluationCaseRecord(CASE_ID, SUITE_ID, "case-1", "Case 1",
+                JSON.createObjectNode(), JSON.readTree("[{\"type\":\"phase\",\"expected\":\"SUCCEEDED\"}]"), NOW);
+        when(repository.createRun(CONTEXT, command())).thenReturn(queued);
+        when(repository.findCase(CONTEXT, CASE_ID)).thenReturn(java.util.Optional.of(evaluationCase));
+        when(assembler.assemble(any(), any(), any(), any())).thenReturn(bundle("SUCCEEDED", List.of()));
+        when(repository.updateRunStatus(any(), any(), any(), any(), any())).thenReturn(running, passed, running, passed);
+        when(repository.saveReport(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        EvaluationService service = new EvaluationService(repository, assembler, Clock.fixed(NOW, ZoneOffset.UTC));
+        EvaluationService.EvaluationOutcome first = service.evaluate(CONTEXT, command(), false);
+        EvaluationService.EvaluationOutcome second = service.evaluate(CONTEXT, command(), false);
+
+        assertThat(second.run().id()).isEqualTo(first.run().id());
+        assertThat(second.run().evaluatorVersion()).isEqualTo(first.run().evaluatorVersion());
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.times(2)).createRun(CONTEXT, command());
+    }
+
     private static EvaluationRepository.CreateEvaluationRun command() {
         return new EvaluationRepository.CreateEvaluationRun(EVALUATION_RUN_ID, SUITE_ID, CASE_ID, TASK_ID,
                 EXECUTION_RUN_ID, "evaluator-1", NOW);
