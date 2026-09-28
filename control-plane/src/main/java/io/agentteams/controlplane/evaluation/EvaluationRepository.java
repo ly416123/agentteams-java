@@ -11,13 +11,20 @@ public interface EvaluationRepository {
 
     EvaluationCaseRecord saveCase(ExecutionContext context, EvaluationCaseRecord evaluationCase);
 
+    Optional<EvaluationCaseRecord> findCase(ExecutionContext context, UUID caseId);
+
     EvaluationRunRecord createRun(ExecutionContext context, CreateEvaluationRun command);
+
+    EvaluationRunRecord updateRunStatus(ExecutionContext context, UUID runId, EvaluationRunRecord.Status status,
+            Instant startedAt, Instant completedAt);
 
     Optional<EvaluationRunRecord> findRun(ExecutionContext context, UUID runId);
 
     void saveResults(ExecutionContext context, UUID runId, List<EvaluationResultRecord> results);
 
     EvaluationReportRecord saveReport(ExecutionContext context, EvaluationReportRecord report);
+
+    Optional<EvaluationReportRecord> findReport(ExecutionContext context, UUID runId);
 
     record CreateEvaluationRun(UUID id, UUID suiteId, UUID caseId, UUID taskId, UUID executionRunId,
             String evaluatorVersion, Instant createdAt) {

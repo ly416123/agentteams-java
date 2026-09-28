@@ -65,6 +65,19 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
     }
 
     @Override
+    public Optional<EvaluationCaseRecord> findCase(ExecutionContext context, UUID caseId) {
+        Objects.requireNonNull(context, "context");
+        return jdbc.query("""
+                SELECT evaluation_case.id, evaluation_case.suite_id, evaluation_case.case_key,
+                       evaluation_case.name, evaluation_case.task_spec::text, evaluation_case.assertions::text,
+                       evaluation_case.created_at
+                  FROM evaluation_cases evaluation_case
+                  JOIN evaluation_suites suite ON suite.id = evaluation_case.suite_id
+                 WHERE evaluation_case.id = ? AND suite.organization_id = ? AND suite.tenant_id = ?
+                """, this::mapCase, caseId, context.organizationId(), context.tenantId()).stream().findFirst();
+    }
+
+    @Override
     public EvaluationRunRecord createRun(ExecutionContext context, CreateEvaluationRun command) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(command, "command");
@@ -84,6 +97,22 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
                 JdbcSupport.timestamp(command.createdAt()), command.suiteId(), context.organizationId(), context.tenantId());
         return findRun(context, command.id()).orElseGet(() -> findByIdentity(context, command)
                 .orElseThrow(() -> new IllegalStateException("evaluation run was not persisted")));
+    }
+
+    @Override
+    public EvaluationRunRecord updateRunStatus(ExecutionContext context, UUID runId, EvaluationRunRecord.Status status,
+            java.time.Instant startedAt, java.time.Instant completedAt) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(runId, "runId");
+        Objects.requireNonNull(status, "status");
+        jdbc.update("""
+                UPDATE evaluation_runs
+                   SET status = ?, started_at = ?, completed_at = ?
+                 WHERE id = ? AND organization_id = ? AND tenant_id = ?
+                """, status.name(), startedAt == null ? null : JdbcSupport.timestamp(startedAt),
+                completedAt == null ? null : JdbcSupport.timestamp(completedAt), runId,
+                context.organizationId(), context.tenantId());
+        return findRun(context, runId).orElseThrow(() -> new IllegalArgumentException("evaluation run is not available"));
     }
 
     @Override
@@ -139,11 +168,28 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
                 .findFirst().orElseThrow(() -> new IllegalStateException("evaluation report was not persisted"));
     }
 
+    @Override
+    public Optional<EvaluationReportRecord> findReport(ExecutionContext context, UUID runId) {
+        Objects.requireNonNull(context, "context");
+        return jdbc.query(selectReport() + " WHERE report.evaluation_run_id = ? AND run.organization_id = ? AND run.tenant_id = ?",
+                this::mapReport, runId, context.organizationId(), context.tenantId()).stream().findFirst();
+    }
+
     private Optional<EvaluationRunRecord> findByIdentity(ExecutionContext context, CreateEvaluationRun command) {
         return jdbc.query(selectRun() + " WHERE run.suite_id = ? AND run.case_id = ? AND run.execution_run_id = ?"
                         + " AND run.evaluator_version = ? AND run.organization_id = ? AND run.tenant_id = ?",
                 this::mapRun, command.suiteId(), command.caseId(), command.executionRunId(), command.evaluatorVersion(),
                 context.organizationId(), context.tenantId()).stream().findFirst();
+    }
+
+    private EvaluationCaseRecord mapCase(ResultSet rs, int row) throws SQLException {
+        try {
+            return new EvaluationCaseRecord(rs.getObject("id", UUID.class), rs.getObject("suite_id", UUID.class),
+                    rs.getString("case_key"), rs.getString("name"), JSON.readTree(rs.getString("task_spec")),
+                    JSON.readTree(rs.getString("assertions")), JdbcSupport.instant(rs, "created_at"));
+        } catch (java.io.IOException error) {
+            throw new SQLException("invalid evaluation case JSON", error);
+        }
     }
 
     private static String selectRun() {

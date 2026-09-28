@@ -168,11 +168,11 @@ git commit -m "feat(eval): assemble sanitized execution evidence"
 
 **文件：** EvaluationService、EvaluationController、EvaluationServiceTest、EvaluationControllerTest。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖创建 QUEUED、phase/tool/artifact/schema 断言、PASSED、FAILED、INCONCLUSIVE、evidenceRefs 脱敏，以及 EvaluationService 不调用 TaskService 状态转移。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -182,7 +182,7 @@ mvn -q -pl control-plane -Dtest='EvaluationServiceTest,EvaluationControllerTest'
 
 预期：FAIL，因为服务和端点尚不存在。
 
-- [ ] **步骤 3：实现服务和端点**
+- [x] **步骤 3：实现服务和端点**
 
 固定端点：
 
@@ -202,11 +202,11 @@ createRun → assembleEvidence → deterministic assertions
 
 语义评测不在本任务自动调用；请求声明 semanticRequested 但没有受控 evaluator 时返回 INCONCLUSIVE。只有显式 Quality Gate 才能调用 Task 操作，默认实现完全只读。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期评分、权限、脱敏和“不改变 Task 状态”测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/evaluation control-plane/src/main/java/io/agentteams/controlplane/api/EvaluationController.java control-plane/src/test/java/io/agentteams/controlplane
