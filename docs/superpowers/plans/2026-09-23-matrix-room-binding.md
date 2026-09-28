@@ -12,7 +12,7 @@
 
 ## 文件清单
 
-- 创建：control-plane/src/main/resources/db/migration/V97__matrix_room_context_binding.sql
+- 创建：control-plane/src/main/resources/db/migration/V98__matrix_room_context_binding.sql
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/matrix/MatrixRoomContextType.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/matrix/MatrixRoomBinding.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/matrix/MatrixRoomBindingRepository.java
@@ -34,9 +34,9 @@
 
 ### 任务 1：定义 Room 主上下文模型和迁移
 
-**文件：** V97、MatrixRoomContextType、MatrixRoomBinding、Repository 及测试。
+**文件：** V98、MatrixRoomContextType、MatrixRoomBinding、Repository 及测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖四种主上下文、Room 唯一、ACTIVE 绑定唯一、REVOKED 历史保留和 tenant 隔离。构造非法 binding 时断言 IllegalArgumentException。
 
@@ -48,7 +48,7 @@ assertThat(new MatrixRoomBinding(
         .isEqualTo(MatrixRoomContextType.CONVERSATION);
 ~~~
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -67,7 +67,7 @@ public enum MatrixRoomContextType { PROJECT, TEAM, CONVERSATION, TASK }
 public enum MatrixRoomBindingStatus { ACTIVE, REVOKED, MIGRATING }
 ~~~
 
-V97 创建：
+V98 创建：
 
 ~~~sql
 CREATE TABLE matrix_room_bindings (
@@ -96,14 +96,14 @@ CREATE INDEX matrix_room_bindings_context_idx
 
 服务构造函数校验 primary_context_id 与具体 context 字段一致，Conversation/Task 绑定校验同一 tenant/project/team。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期类型、Repository 和数据库约束测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
-git add control-plane/src/main/resources/db/migration/V97__matrix_room_context_binding.sql control-plane/src/main/java/io/agentteams/controlplane/matrix control-plane/src/test/java/io/agentteams/controlplane/matrix/MatrixRoomBindingServiceTest.java
+git add control-plane/src/main/resources/db/migration/V98__matrix_room_context_binding.sql control-plane/src/main/java/io/agentteams/controlplane/matrix control-plane/src/test/java/io/agentteams/controlplane/matrix/MatrixRoomBindingServiceTest.java
 git commit -m "feat(matrix): add room primary context binding"
 ~~~
 
