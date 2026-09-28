@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.nio.charset.StandardCharsets;
@@ -62,6 +63,7 @@ public final class AgentTeamsClient {
         return send("POST", "/api/v1/tasks", request, Task.class, retrySafe, idempotencyKey);
     }
     public CommandResult startTask(StartTaskRequest request, String idempotencyKey, boolean retrySafe) {
+        Objects.requireNonNull(request, "request");
         String effectiveKey = blank(idempotencyKey) ? "sdk-" + UUID.randomUUID() : idempotencyKey;
         Map<String, Object> actor = Map.of("type", "USER", "id", request.actorId(), "channel", "SDK");
         Map<String, Object> payload = Map.of("title", request.title(), "description", request.description(), "spec", request.spec());

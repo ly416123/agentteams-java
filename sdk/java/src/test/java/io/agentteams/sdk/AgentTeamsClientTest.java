@@ -177,6 +177,15 @@ class AgentTeamsClientTest {
     }
 
     @Test
+    void rejectsNullStartTaskRequestWithExplicitMessage() {
+        AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
+
+        assertThatThrownBy(() -> client.startTask(null, "start-1", false))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("request");
+    }
+
+    @Test
     void generatesOneIdempotencyKeyForCommandBodyAndHeaderAndAllowsMissingConversation() {
         server.createContext("/api/v1/commands", exchange -> {
             var command = new ObjectMapper().readTree(exchange.getRequestBody().readAllBytes());
