@@ -16,6 +16,7 @@
 
 - 修改：`sdk/java/src/main/java/io/agentteams/sdk/AgentTeamsClient.java`，增加 Java SDK 的统一命令请求类型、响应类型和 `startTask` 方法。
 - 修改：`sdk/java/src/test/java/io/agentteams/sdk/AgentTeamsClientTest.java`，验证统一命令 JSON、鉴权、幂等键、响应和结构化错误。
+- 修改：`sdk/java/README.md`，记录 `startTask`、`deduplicated` 和旧草稿创建接口的兼容边界。
 - 暂缓：`sdk/typescript/src/client.ts`、`sdk/typescript/tests/client.test.ts`，当前不维护 TypeScript SDK。
 - 暂缓：`console/src/api/commands.ts`、`console/src/queries/useTaskQueries.ts`、`console/src/features/tasks/TaskCreatePage.tsx` 及对应测试，当前不扩展 Console。
 - 暂缓：Control Plane/Matrix 跨渠道同构测试和整体集成清单，当前只验证 Java SDK 对既有统一命令协议的调用。

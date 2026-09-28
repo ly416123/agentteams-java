@@ -12,6 +12,19 @@ AgentTeamsClient client = new AgentTeamsClient(
 AgentTeamsClient.Task task = client.getTask(taskId);
 ```
 
+统一命令入口可以创建带 Conversation 关联的 Task。`actorId` 必须与当前认证主体一致；返回的
+`CommandResult.deduplicated()` 用于识别幂等重放。旧的 `createTask` 仍保留，用于兼容草稿创建接口。
+
+```java
+ObjectMapper mapper = new ObjectMapper();
+AgentTeamsClient.CommandResult started = client.startTask(
+        new AgentTeamsClient.StartTaskRequest(
+                "tenant-a", "external-user-1", "生成周报", "汇总数据",
+                mapper.readTree("{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}}"),
+                conversationId),
+        "task-start-1", true);
+```
+
 管理端适配器还可以使用 OIDC Bearer Token 创建 Agent、创建/发布 AgentSpec，并把已发布
 配置部署到 Agent：
 
