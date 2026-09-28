@@ -1,5 +1,6 @@
 package io.agentteams.sdk;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.sdk.signing.Canonicalizer;
@@ -146,7 +147,7 @@ public final class AgentTeamsClient {
             }
             if (spec == null) throw new IllegalArgumentException("spec must not be null");
         }
-    } public record CommandResult(UUID commandId, String status, boolean duplicate, UUID taskId, long aggregateVersion, String traceId) { } public record ProvisioningRequest(String externalUserId, String displayName) { } public record ProvisioningUser(String externalUserId, String status) { } public record Membership(String projectId, String role) { }
+    } public record CommandResult(UUID commandId, String status, @JsonProperty("deduplicated") boolean deduplicated, UUID taskId, long aggregateVersion, String traceId) { } public record ProvisioningRequest(String externalUserId, String displayName) { } public record ProvisioningUser(String externalUserId, String status) { } public record Membership(String projectId, String role) { }
     public record CreateAgentRequest(String name, String runtime, String workerType, JsonNode capabilities, JsonNode metadata) { }
     public record CreateAgentSpecRequest(String name, String runtime, String modelProvider, String modelName,
                                          String teamRef, String desiredState, String workerType, JsonNode spec) { }

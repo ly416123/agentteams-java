@@ -162,7 +162,7 @@ class AgentTeamsClientTest {
             assertThat(command.get("traceId").asText()).isNotBlank();
             assertThat(command.get("occurredAt").asText()).isNotBlank();
             respond(exchange, 202, "{\"commandId\":\"00000000-0000-0000-0000-000000000033\","
-                    + "\"status\":\"ACCEPTED\",\"duplicate\":false,\"taskId\":\"" + taskId
+                    + "\"status\":\"ACCEPTED\",\"deduplicated\":false,\"taskId\":\"" + taskId
                     + "\",\"aggregateVersion\":0,\"traceId\":\"trace-1\"}");
         });
 
@@ -173,6 +173,7 @@ class AgentTeamsClientTest {
                 "start-1", false);
 
         assertThat(result.status()).isEqualTo("ACCEPTED");
+        assertThat(result.deduplicated()).isFalse();
         assertThat(result.taskId()).isEqualTo(taskId);
     }
 
@@ -194,7 +195,7 @@ class AgentTeamsClientTest {
             assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo(bodyKey);
             assertThat(command.get("conversationId").isNull()).isTrue();
             respond(exchange, 202, "{\"commandId\":\"00000000-0000-0000-0000-000000000034\","
-                    + "\"status\":\"ACCEPTED\",\"duplicate\":false,\"taskId\":null,"
+                    + "\"status\":\"ACCEPTED\",\"deduplicated\":true,\"taskId\":null,"
                     + "\"aggregateVersion\":0,\"traceId\":\"trace-2\"}");
         });
 
@@ -205,6 +206,7 @@ class AgentTeamsClientTest {
                 null, false);
 
         assertThat(result.status()).isEqualTo("ACCEPTED");
+        assertThat(result.deduplicated()).isTrue();
     }
 
     @Test
