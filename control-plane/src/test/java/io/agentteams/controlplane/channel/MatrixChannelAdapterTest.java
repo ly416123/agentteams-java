@@ -5,11 +5,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.agentteams.controlplane.matrix.MatrixChannelBinding;
 import io.agentteams.controlplane.matrix.MatrixChannelBindingRepository;
 import io.agentteams.controlplane.matrix.MatrixOutboundRepository;
+import io.agentteams.controlplane.matrix.MatrixRoomBinding;
+import io.agentteams.controlplane.matrix.MatrixRoomBindingRepository;
+import io.agentteams.controlplane.matrix.MatrixRoomBindingStatus;
+import io.agentteams.controlplane.matrix.MatrixRoomContextType;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -93,6 +98,30 @@ class MatrixChannelAdapterTest {
 
         assertThat(health.status()).isEqualTo(ChannelHealthStatus.UNAVAILABLE);
         assertThat(health.errorCategory()).isEqualTo(ChannelErrorCategory.AUTH_REJECTED);
+    }
+
+    @Test
+    void doesNotSendWhenTheLinkedRoomBindingWasRevoked() {
+        MatrixChannelBindingRepository bindings = mock(MatrixChannelBindingRepository.class);
+        MatrixRoomBindingRepository roomBindings = mock(MatrixRoomBindingRepository.class);
+        MatrixOutboundRepository outbound = mock(MatrixOutboundRepository.class);
+        UUID bindingId = UUID.randomUUID();
+        UUID roomBindingId = UUID.randomUUID();
+        when(bindings.findById(bindingId)).thenReturn(Optional.of(new MatrixChannelBinding(bindingId, "org-1",
+                "tenant-1", "project-1", "!room:example.org", Set.of("task.completed"), true, roomBindingId,
+                MatrixRoomContextType.TASK)));
+        MatrixRoomBinding revoked = new MatrixRoomBinding(roomBindingId, "org-1", "tenant-1", "!room:example.org",
+                MatrixRoomContextType.TASK, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                MatrixRoomBindingStatus.REVOKED, "admin", NOW, NOW, 1);
+        when(roomBindings.findById("tenant-1", roomBindingId)).thenReturn(Optional.of(revoked));
+        MatrixChannelAdapter adapter = new MatrixChannelAdapter(bindings, outbound, roomBindings, fixedClock());
+
+        assertThatThrownBy(() -> adapter.send(new ChannelMessage(UUID.randomUUID(), "org-1", "tenant-1", "project-1",
+                bindingId.toString(), "task.completed", "done", "corr-1", ChannelType.MATRIX)))
+                .isInstanceOf(ChannelDeliveryException.class)
+                .extracting(error -> ((ChannelDeliveryException) error).category())
+                .isEqualTo(ChannelErrorCategory.PERMANENT_REJECTION);
+        verifyNoInteractions(outbound);
     }
 
     private static MatrixChannelBinding binding(UUID id, boolean enabled) {

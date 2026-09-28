@@ -13,6 +13,7 @@
 ## 文件清单
 
 - 创建：control-plane/src/main/resources/db/migration/V98__matrix_room_context_binding.sql
+- 创建：control-plane/src/main/resources/db/migration/V99__matrix_channel_room_binding_reference.sql
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/matrix/MatrixRoomContextType.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/matrix/MatrixRoomBinding.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/matrix/MatrixRoomBindingRepository.java
@@ -202,11 +203,11 @@ git commit -m "feat(matrix): manage room binding lifecycle"
 
 **文件：** MatrixEventProjector、MatrixChannelAdapter、MatrixChannelBinding、JdbcMatrixChannelBindingRepository 及测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖 Conversation Event 到默认 Room、Task Event 到 Task/Conversation Room、eventId + roomId 去重、INTERNAL 不投影、撤销绑定不发送、Outbox 重试不回滚事实。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -216,13 +217,13 @@ mvn -q -pl control-plane -Dtest='MatrixChannelAdapterTest,MatrixEventProjectorTe
 
 预期：投影路由和 visibility 测试 FAIL。
 
-- [ ] **步骤 3：实现兼容适配**
+- [x] **步骤 3：实现兼容适配**
 
 MatrixChannelBinding 保留 V69 project/eventTypes 读取兼容，新增 roomBindingId 和 contextType；旧记录没有新绑定时继续使用 project binding。
 
 MatrixEventProjector 以 eventId + roomId 作为 Outbox 幂等键，按 visibility、actor 授权和 binding status 过滤；房间消息只发送安全 summary 和 payloadRef，不发送原始 payload。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：
 
@@ -233,7 +234,7 @@ python3 scripts/test_matrix_room_binding_contract.py
 
 预期：Java Matrix 测试和 Python 合约检查 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/matrix control-plane/src/main/java/io/agentteams/controlplane/channel control-plane/src/test/java/io/agentteams/controlplane/matrix scripts/test_matrix_room_binding_contract.py
@@ -242,8 +243,8 @@ git commit -m "feat(matrix): project unified events with room authorization"
 
 ### 完成定义
 
-- [ ] Matrix Room 四种主上下文均能创建、查询、迁移和撤销。
-- [ ] Matrix 用户和 AppService 服务主体都能生成统一 CommandEnvelope。
-- [ ] Room、tenant、project、team、conversation、task 权限边界有单元和 MockMvc 覆盖。
-- [ ] Inbox/Outbox 重放和投影失败不改变 Control Plane 事实。
-- [ ] 旧 V6/V69 数据迁移和现有 Matrix smoke/contract 测试通过。
+- [x] Matrix Room 四种主上下文均能创建、查询、迁移和撤销。
+- [x] Matrix 用户和 AppService 服务主体都能生成统一 CommandEnvelope。
+- [x] Room、tenant、project、team、conversation、task 权限边界有单元和 MockMvc 覆盖。
+- [x] Inbox/Outbox 重放和投影失败不改变 Control Plane 事实。
+- [x] 旧 V6/V69 数据迁移和现有 Matrix smoke/contract 测试通过。

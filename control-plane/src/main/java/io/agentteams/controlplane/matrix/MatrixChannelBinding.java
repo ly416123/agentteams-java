@@ -6,7 +6,12 @@ import java.util.UUID;
 
 /** Tenant-scoped Matrix room binding used by the generic outbound Channel port. */
 public record MatrixChannelBinding(UUID id, String organizationId, String tenantId, String projectId, String roomId,
-        Set<String> eventTypes, boolean enabled) {
+        Set<String> eventTypes, boolean enabled, UUID roomBindingId, MatrixRoomContextType contextType) {
+    public MatrixChannelBinding(UUID id, String organizationId, String tenantId, String projectId, String roomId,
+            Set<String> eventTypes, boolean enabled) {
+        this(id, organizationId, tenantId, projectId, roomId, eventTypes, enabled, null, null);
+    }
+
     public MatrixChannelBinding {
         Objects.requireNonNull(id, "id");
         organizationId = required(organizationId, "organizationId");
@@ -15,6 +20,9 @@ public record MatrixChannelBinding(UUID id, String organizationId, String tenant
         roomId = required(roomId, "roomId");
         eventTypes = Set.copyOf(Objects.requireNonNull(eventTypes, "eventTypes"));
         if (eventTypes.isEmpty()) throw new IllegalArgumentException("eventTypes must not be empty");
+        if ((roomBindingId == null) != (contextType == null)) {
+            throw new IllegalArgumentException("roomBindingId and contextType must be supplied together");
+        }
     }
 
     public boolean matchesScope(String organizationId, String tenantId, String projectId) {

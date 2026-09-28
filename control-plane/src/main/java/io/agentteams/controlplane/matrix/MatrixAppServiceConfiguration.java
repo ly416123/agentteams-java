@@ -55,13 +55,14 @@ public class MatrixAppServiceConfiguration {
 
     @Bean
     MatrixChannelAdapter matrixChannelAdapter(MatrixChannelBindingRepository bindings,
-            MatrixOutboundRepository outbound, Clock clock) {
-        return new MatrixChannelAdapter(bindings, outbound, clock);
+            MatrixOutboundRepository outbound, MatrixRoomBindingRepository roomBindings, Clock clock) {
+        return new MatrixChannelAdapter(bindings, outbound, roomBindings, clock);
     }
 
     @Bean
-    MatrixEventProjector matrixEventProjector(MatrixOutboundRepository outbound, Clock clock) {
-        return new MatrixEventProjector(outbound, clock);
+    MatrixEventProjector matrixEventProjector(MatrixRoomBindingRepository bindings,
+            MatrixOutboundRepository outbound, Clock clock) {
+        return new MatrixEventProjector(bindings, outbound, clock);
     }
 
     @Bean

@@ -3,6 +3,9 @@ package io.agentteams.controlplane.channel;
 import io.agentteams.controlplane.matrix.MatrixChannelBinding;
 import io.agentteams.controlplane.matrix.MatrixChannelBindingRepository;
 import io.agentteams.controlplane.matrix.MatrixOutboundRepository;
+import io.agentteams.controlplane.matrix.MatrixRoomBinding;
+import io.agentteams.controlplane.matrix.MatrixRoomBindingRepository;
+import io.agentteams.controlplane.matrix.MatrixRoomBindingStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -16,12 +19,19 @@ import java.util.UUID;
 public final class MatrixChannelAdapter implements ChannelPort {
     private final MatrixChannelBindingRepository bindings;
     private final MatrixOutboundRepository outbound;
+    private final MatrixRoomBindingRepository roomBindings;
     private final Clock clock;
 
     public MatrixChannelAdapter(MatrixChannelBindingRepository bindings, MatrixOutboundRepository outbound,
             Clock clock) {
+        this(bindings, outbound, null, clock);
+    }
+
+    public MatrixChannelAdapter(MatrixChannelBindingRepository bindings, MatrixOutboundRepository outbound,
+            MatrixRoomBindingRepository roomBindings, Clock clock) {
         this.bindings = Objects.requireNonNull(bindings, "bindings");
         this.outbound = Objects.requireNonNull(outbound, "outbound");
+        this.roomBindings = roomBindings;
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -52,6 +62,20 @@ public final class MatrixChannelAdapter implements ChannelPort {
         if (!binding.eventTypes().contains(message.eventType())) {
             throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
                     "channel event type is not enabled");
+        }
+        if (binding.roomBindingId() != null) {
+            if (roomBindings == null) {
+                throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
+                        "room binding repository is not available");
+            }
+            MatrixRoomBinding roomBinding = roomBindings.findById(message.tenantId(), binding.roomBindingId())
+                    .filter(value -> value.status() == MatrixRoomBindingStatus.ACTIVE)
+                    .orElseThrow(() -> new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
+                            "room binding is not active"));
+            if (!roomBinding.roomId().equals(binding.roomId())) {
+                throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
+                        "room binding does not match channel room");
+            }
         }
         Instant now = clock.instant();
         boolean queued = outbound.enqueue(message.messageId(), binding.roomId(), message.eventType(),
