@@ -37,7 +37,7 @@
 
 **文件：** 无新增代码；只读 L5 API。
 
-- [ ] **步骤 1：获取 Alice Token。** 通过 Keycloak password grant 获取 Token，写入当前 shell 变量，不打印 Token。
+- [x] **步骤 1：获取 Alice Token。** 通过 Keycloak password grant 获取 Token，写入当前 shell 变量，不打印 Token。
 
 ```bash
 export L5_BASE_URL='http://192.168.122.55:30080'
@@ -50,7 +50,7 @@ export L5_TOKEN="$(curl -fsS "$L5_KEYCLOAK/realms/agentteams/protocol/openid-con
 test -n "$L5_TOKEN" && test "$L5_TOKEN" != null
 ```
 
-- [ ] **步骤 2：保存脱敏目录快照。** 只输出数量、名称、版本、启用状态和生命周期，不输出凭证字段。
+- [x] **步骤 2：保存脱敏目录快照。** 只输出数量、名称、版本、启用状态和生命周期，不输出凭证字段。
 
 ```bash
 auth=(-H "Authorization: Bearer $L5_TOKEN")
@@ -86,11 +86,18 @@ POST /api/v1/skills/{skillId}/versions/{versionId}/publish
 
 **文件：** 无仓库文件；使用已有 MCP 管理和 Discovery API。
 
-- [ ] **步骤 1：读取 9 个 MCP 运行元数据。** 确认 transport、endpoint、revision、credentialRef 元数据完整；只保留脱敏摘要。
+- [x] **步骤 1：读取 9 个 MCP 运行元数据。** 确认 transport、endpoint、revision、credentialRef 元数据完整；只保留脱敏摘要。
 
-- [ ] **步骤 2：执行连接/Discovery 检查。** 对每个 MCP 调用现有连接测试或 Discovery 查询，等待状态稳定；成功条件是有当前 revision、健康实例数大于 0、工具摘要可读取，且错误分类为空或为已知可接受分类。
+- [x] **步骤 2：执行连接/Discovery 检查。** 对每个 MCP 调用现有连接测试或 Discovery 查询，等待状态稳定；成功条件是有当前 revision、健康实例数大于 0、工具摘要可读取，且错误分类为空或为已知可接受分类。
 
 - [ ] **步骤 3：设置 MCP 门禁。** 任何 MCP 仍为 `UNKNOWN`、健康实例数为 0、凭证缺失或 endpoint 不可达时停止。不得通过 PostgreSQL 伪造生产 MCP Discovery 快照来绕过此门禁。
+
+## 执行记录（2026-09-28）
+
+- 任务 1 步骤 1、2 已完成：目录数量为 MCP 9、Skill 13、启用 Model Provider 1；Skill 版本共 15 个，上传状态均为 `COMPLETED`，已发布数量为 0。
+- 任务 3 步骤 1、2 已完成：对 9 个 MCP 执行了连接测试和 Discovery 查询；7 个为 `AVAILABLE`，2 个为 `UNAVAILABLE`。
+- 阻塞资源：`agentteams-mcp-tools`（`HTTP_ERROR`）和 `agentteams-web-search`（`HTTP_ERROR`）。两者健康实例数均为 0，因此未执行 Skill 发布、AgentSpec 创建、Team 创建或真实模型调用。
+- 不通过修改 endpoint、凭证或 PostgreSQL 快照绕过门禁；需要先恢复这两个 MCP 的真实 HTTP 服务，或明确批准将它们从“全量覆盖”范围中排除。
 
 ### 任务 4：创建全能力 Team 和 AgentSpec
 
