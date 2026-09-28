@@ -6,6 +6,7 @@ from pathlib import Path
 from scripts.agentteams_eval import (
     AgentTeamsClient,
     EvalCase,
+    build_evidence_bundle,
     evaluate_observation,
     load_cases,
     run_suite,
@@ -13,6 +14,31 @@ from scripts.agentteams_eval import (
 
 
 class EvaluationCoreTest(unittest.TestCase):
+    def test_builds_sanitized_evidence_bundle_with_independent_input_status(self):
+        bundle = build_evidence_bundle(
+            {"id": "task-1", "phase": "SUCCEEDED", "spec": {"apiKey": "secret"}},
+            {"id": "run-1"},
+            [{"eventId": "event-1", "eventType": "tool.called", "payload": {"tool": "web_search", "token": "secret"}}],
+            [{"taskId": "task-1"}],
+            [],
+            {"status": "SUCCEEDED", "summary": "ok", "artifacts": [{
+                "name": "answer.md", "storageRef": "https://minio.invalid/result?X-Amz-Signature=secret",
+                "sizeBytes": 10, "sha256": "a" * 64,
+            }]},
+        )
+
+        serialized = json.dumps(bundle, ensure_ascii=False).lower()
+        self.assertEqual("COMPLETE", bundle["inputStatus"])
+        self.assertEqual("artifact:" + "a" * 64, bundle["artifactRefs"][0]["storageRef"])
+        self.assertNotIn("secret", serialized)
+        self.assertNotIn("x-amz-signature", serialized)
+        self.assertNotIn("downloadurl", serialized)
+
+    def test_missing_result_manifest_marks_evidence_inconclusive(self):
+        bundle = build_evidence_bundle({"id": "task-1"}, {"id": "run-1"}, [], [], [], None)
+
+        self.assertEqual("INCONCLUSIVE", bundle["inputStatus"])
+
     def test_loads_yaml_case_with_task_and_assertions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cases.yaml"

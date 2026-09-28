@@ -217,7 +217,7 @@ git commit -m "feat(eval): expose deterministic evaluation runs"
 
 **文件：** scripts/agentteams_eval.py、scripts/test_agentteams_eval.py、eval/deepeval_adapter.py、eval/rubrics/core.yaml、eval/README.md、scripts/test_evaluation_quality_contract.py。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 Python 测试覆盖：
 
@@ -228,7 +228,7 @@ Python 测试覆盖：
 5. DeepEval 只在显式配置时加载，未安装时返回明确错误。
 6. rubric 阈值不满足时输出 INCONCLUSIVE/FAILED 及证据引用。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -239,7 +239,7 @@ python3 -m unittest scripts/test_evaluation_quality_contract.py -v
 
 预期：新增 Evidence Bundle 和 report 状态断言 FAIL。
 
-- [ ] **步骤 3：实现归一化和提交接口**
+- [x] **步骤 3：实现归一化和提交接口**
 
 新增：
 
@@ -262,7 +262,7 @@ CLI 增加 --evaluation-run-id 和 --evidence-output；默认仍运行离线确�
 
 DeepEval 适配器保持现有公共函数输入兼容；将 metric score、threshold 和 evidenceRefs 写入 EvaluationResult 结构。
 
-- [ ] **步骤 4：运行测试和编译检查**
+- [x] **步骤 4：运行测试和编译检查**
 
 运行：
 
@@ -274,7 +274,7 @@ python3 scripts/agentteams_eval.py --help
 
 预期：测试、编译和 CLI 帮助全部 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add scripts/agentteams_eval.py scripts/test_agentteams_eval.py eval/deepeval_adapter.py eval/rubrics/core.yaml eval/README.md scripts/test_evaluation_quality_contract.py
