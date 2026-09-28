@@ -12,7 +12,7 @@
 
 ## 文件清单
 
-- 创建：control-plane/src/main/resources/db/migration/V98__evaluation_quality_plane.sql
+- 创建：control-plane/src/main/resources/db/migration/V100__evaluation_quality_plane.sql
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/evaluation/EvaluationSuiteRecord.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/evaluation/EvaluationCaseRecord.java
 - 创建：control-plane/src/main/java/io/agentteams/controlplane/evaluation/EvaluationRunRecord.java
@@ -34,13 +34,13 @@
 
 ### 任务 1：定义 Evaluation 领域数据结构和迁移
 
-**文件：** V98、五个 Record、EvidenceBundle、Repository 和测试。
+**文件：** V100、五个 Record、EvidenceBundle、Repository 和测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖 Suite version、Case id、evaluatorVersion、Task/ExecutionRun 关联、metric/score/threshold/evidenceRefs、Report 维度分数，以及 Evaluation 状态约束。验证 Task success 与 Evaluation status 同时存在且互不覆盖。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -50,7 +50,7 @@ mvn -q -pl control-plane -Dtest='Evaluation*Test' test
 
 预期：FAIL，因为记录、迁移和 Repository 尚不存在。
 
-- [ ] **步骤 3：创建 V98**
+- [x] **步骤 3：创建 V100**
 
 V98 创建 evaluation_suites、evaluation_cases、evaluation_runs、evaluation_results、evaluation_reports；所有 JSON 字段校验 object/array 类型；evaluation_runs 唯一键为 suite_id + case_id + execution_run_id + evaluator_version；为 tenant、task、execution_run、status 建索引。
 
@@ -82,7 +82,7 @@ CREATE TABLE evaluation_results (
 );
 ~~~
 
-- [ ] **步骤 4：实现 Repository 和记录类型**
+- [x] **步骤 4：实现 Repository 和记录类型**
 
 固定接口：
 
@@ -95,11 +95,11 @@ EvaluationReportRecord saveReport(ExecutionContext context, EvaluationReportReco
 
 createRun 依赖数据库唯一键保证同一执行证据和评测版本不重复创建。
 
-- [ ] **步骤 5：运行测试验证通过**
+- [x] **步骤 5：运行测试验证通过**
 
 运行同一条 Maven 命令，预期领域校验、状态和 Repository 测试 PASS。
 
-- [ ] **步骤 6：提交**
+- [x] **步骤 6：提交**
 
 ~~~bash
 git add control-plane/src/main/resources/db/migration/V98__evaluation_quality_plane.sql control-plane/src/main/java/io/agentteams/controlplane/evaluation control-plane/src/test/java/io/agentteams/controlplane/evaluation
