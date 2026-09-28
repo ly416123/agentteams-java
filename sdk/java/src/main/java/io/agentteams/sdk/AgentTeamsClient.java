@@ -13,6 +13,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -60,22 +61,23 @@ public final class AgentTeamsClient {
     public Task createTask(CreateTaskRequest request, String idempotencyKey, boolean retrySafe) {
         return send("POST", "/api/v1/tasks", request, Task.class, retrySafe, idempotencyKey);
     }
-    public Conversation createConversation(CreateConversationRequest request, String idempotencyKey) {
-        return send("POST", "/api/v1/conversations", request, Conversation.class, false, idempotencyKey);
-    }
-    public ConversationMessage sendConversationMessage(UUID conversationId, SendMessageRequest request,
-            String idempotencyKey) {
-        requireId(conversationId);
-        return send("POST", "/api/v1/conversations/" + conversationId + "/messages", request,
-                ConversationMessage.class, false, idempotencyKey);
-    }
-    public List<TimelineItem> getConversationTimeline(UUID conversationId, long after, int limit) {
-        requireId(conversationId);
-        if (after < 0) throw new IllegalArgumentException("after cursor must be non-negative");
-        if (limit < 1 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
-        TimelineItem[] items = send("GET", "/api/v1/conversations/" + conversationId + "/timeline?after="
-                + after + "&limit=" + limit, null, TimelineItem[].class, true, null);
-        return List.of(items);
+    public CommandResult startTask(StartTaskRequest request, String idempotencyKey, boolean retrySafe) {
+        Map<String, Object> actor = Map.of("type", "USER", "id", request.actorId(), "channel", "SDK");
+        Map<String, Object> payload = Map.of("title", request.title(), "description", request.description(), "spec", request.spec());
+        Map<String, Object> command = new LinkedHashMap<>();
+        command.put("commandId", UUID.randomUUID());
+        command.put("commandType", "task.start");
+        command.put("tenantId", request.tenantId());
+        command.put("actor", actor);
+        command.put("conversationId", request.conversationId());
+        command.put("taskId", null);
+        command.put("aggregateType", "TASK");
+        command.put("aggregateVersion", 0);
+        command.put("payload", payload);
+        command.put("idempotencyKey", idempotencyKey);
+        command.put("traceId", UUID.randomUUID().toString());
+        command.put("occurredAt", Instant.now());
+        return send("POST", "/api/v1/commands", command, CommandResult.class, retrySafe, idempotencyKey);
     }
     public Task queueTask(UUID taskId, long expectedVersion, String idempotencyKey, boolean retrySafe) {
         requireId(taskId);
@@ -134,16 +136,14 @@ public final class AgentTeamsClient {
         public List<Membership> listMemberships(String targetExternalUserId) { requireExternal(targetExternalUserId); Membership[] result = send("GET", "/api/v1/provisioning/users/" + targetExternalUserId + "/memberships", null, Membership[].class, true, null); return List.of(result); }
         private void requireExternal(String id) { if (blank(id)) throw new IllegalArgumentException("externalUserId must not be blank"); }
     }
-    public record CreateProjectRequest(String name) { }
-    public record CreateConversationRequest(String projectId, String teamId, String workerId, String taskId,
-                                            UUID sessionId) { }
-    public record SendMessageRequest(String content, Long expectedVersion) { }
-    public record LifecycleRequest(Long expectedVersion, String actor, String source) { }
-    public record QueueTaskRequest(Long expectedVersion) { }
-    public record CreateTaskRequest(String title, String description, JsonNode spec, String actor, String source, String taskType) { }
-    public record ProvisioningRequest(String externalUserId, String displayName) { }
-    public record ProvisioningUser(String externalUserId, String status) { }
-    public record Membership(String projectId, String role) { }
+    public record CreateProjectRequest(String name) { } public record LifecycleRequest(Long expectedVersion, String actor, String source) { } public record QueueTaskRequest(Long expectedVersion) { } public record CreateTaskRequest(String title, String description, JsonNode spec, String actor, String source, String taskType) { } public record StartTaskRequest(String tenantId, String actorId, String title, String description, JsonNode spec, UUID conversationId) {
+        public StartTaskRequest {
+            if (blank(tenantId) || blank(actorId) || blank(title) || blank(description)) {
+                throw new IllegalArgumentException("tenantId, actorId, title and description must not be blank");
+            }
+            if (spec == null) throw new IllegalArgumentException("spec must not be null");
+        }
+    } public record CommandResult(UUID commandId, String status, boolean duplicate, UUID taskId, long aggregateVersion, String traceId) { } public record ProvisioningRequest(String externalUserId, String displayName) { } public record ProvisioningUser(String externalUserId, String status) { } public record Membership(String projectId, String role) { }
     public record CreateAgentRequest(String name, String runtime, String workerType, JsonNode capabilities, JsonNode metadata) { }
     public record CreateAgentSpecRequest(String name, String runtime, String modelProvider, String modelName,
                                          String teamRef, String desiredState, String workerType, JsonNode spec) { }
@@ -156,12 +156,5 @@ public final class AgentTeamsClient {
                             String tenantId, String projectId) { }
     public record AgentSpecDeployment(UUID bindingId, UUID agentId, UUID snapshotId, long configVersion,
                                       UUID eventId, String phase) { }
-    public record Conversation(UUID id, UUID sessionId, String status, long version, String taskId,
-                               JsonNode context) { }
-    public record ConversationMessage(UUID sessionId, String idempotencyKey, List<JsonNode> events,
-                                      Conversation session) { }
-    public record TimelineItem(String itemId, String itemType, UUID conversationId, UUID taskId,
-                               String eventType, String actorId, Instant occurredAt, long sequence,
-                               String visibility, String payloadRef, String summary, long sourceVersion) { }
     public static final class ApiErrorException extends RuntimeException { private final int status; private final String code; private final String correlationId; private final JsonNode details; private ApiErrorException(int status, String code, String message, String correlationId, JsonNode details, Throwable cause) { super(message, cause); this.status = status; this.code = code; this.correlationId = correlationId; this.details = details; } public int status() { return status; } public String code() { return code; } public String correlationId() { return correlationId; } public JsonNode details() { return details; } }
 }

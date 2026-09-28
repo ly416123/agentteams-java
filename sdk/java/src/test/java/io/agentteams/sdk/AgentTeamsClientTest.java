@@ -136,42 +136,34 @@ class AgentTeamsClientTest {
     }
 
     @Test
-    void exposesConversationCreateMessageAndUnifiedTimeline() {
+    void startsTaskThroughUnifiedCommandEndpoint() throws Exception {
         UUID conversationId = UUID.fromString("00000000-0000-0000-0000-000000000031");
-        server.createContext("/api/v1/conversations", exchange -> {
-            if ("POST".equals(exchange.getRequestMethod())) {
-                assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo("conversation-create-1");
-                respond(exchange, 201, "{\"sessionId\":\"" + conversationId
-                        + "\",\"status\":\"ACTIVE\",\"version\":0}");
-            }
-        });
-        server.createContext("/api/v1/conversations/" + conversationId + "/messages", exchange -> {
-            assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo("conversation-message-1");
-            respond(exchange, 200, "{\"sessionId\":\"" + conversationId
-                    + "\",\"idempotencyKey\":\"conversation-message-1\"}");
-        });
-        server.createContext("/api/v1/conversations/" + conversationId + "/timeline", exchange -> {
-            assertThat(exchange.getRequestURI().getQuery()).isEqualTo("after=2&limit=50");
-            respond(exchange, 200, "[{\"itemId\":\"message-1\",\"itemType\":\"CONVERSATION_MESSAGE\","
-                    + "\"conversationId\":\"" + conversationId
-                    + "\",\"eventType\":\"TEXT\",\"actorId\":\"alice\","
-                    + "\"occurredAt\":\"2026-09-28T03:00:00Z\",\"sequence\":3,"
-                    + "\"visibility\":\"PUBLIC\",\"payloadRef\":\"conversation-message:1\","
-                    + "\"summary\":\"hello\",\"sourceVersion\":3}]");
+        UUID taskId = UUID.fromString("00000000-0000-0000-0000-000000000032");
+        ObjectMapper mapper = new ObjectMapper();
+        server.createContext("/api/v1/commands", exchange -> {
+            assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+            assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("Bearer token-1");
+            assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isEqualTo("start-1");
+
+            var command = mapper.readTree(exchange.getRequestBody().readAllBytes());
+            assertThat(command.get("commandType").asText()).isEqualTo("task.start");
+            assertThat(command.get("aggregateType").asText()).isEqualTo("TASK");
+            assertThat(command.get("tenantId").asText()).isEqualTo("tenant-a");
+            assertThat(command.get("actor").get("channel").asText()).isEqualTo("SDK");
+            assertThat(command.get("conversationId").asText()).isEqualTo(conversationId.toString());
+            respond(exchange, 202, "{\"commandId\":\"00000000-0000-0000-0000-000000000033\","
+                    + "\"status\":\"ACCEPTED\",\"duplicate\":false,\"taskId\":\"" + taskId
+                    + "\",\"aggregateVersion\":0,\"traceId\":\"trace-1\"}");
         });
 
         AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
-        assertThat(client.createConversation(new AgentTeamsClient.CreateConversationRequest(
-                "project-a", "team-a", null, null, conversationId), "conversation-create-1").sessionId())
-                .isEqualTo(conversationId);
-        assertThat(client.sendConversationMessage(conversationId,
-                new AgentTeamsClient.SendMessageRequest("hello", 0L), "conversation-message-1")
-                .idempotencyKey()).isEqualTo("conversation-message-1");
-        assertThat(client.getConversationTimeline(conversationId, 2, 50)).singleElement()
-                .satisfies(item -> {
-                    assertThat(item.itemType()).isEqualTo("CONVERSATION_MESSAGE");
-                    assertThat(item.payloadRef()).isEqualTo("conversation-message:1");
-                });
+        AgentTeamsClient.CommandResult result = client.startTask(
+                new AgentTeamsClient.StartTaskRequest("tenant-a", "user-1", "生成周报", "汇总数据",
+                        mapper.createObjectNode().put("scope", "weekly"), conversationId),
+                "start-1", false);
+
+        assertThat(result.status()).isEqualTo("ACCEPTED");
+        assertThat(result.taskId()).isEqualTo(taskId);
     }
 
     @Test
