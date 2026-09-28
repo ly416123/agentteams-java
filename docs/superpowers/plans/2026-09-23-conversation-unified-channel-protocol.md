@@ -384,8 +384,8 @@ git commit -m "feat(channel): expose conversation timeline through sdk and conso
 
 ### 完成定义
 
-- [ ] application-contracts、control-plane、manager、sdk/java、console 定向测试通过。
-- [ ] Flyway V96 在空库和现有库成功执行。
-- [ ] 旧 Manager Conversation API 的字段和幂等语义不回归。
-- [ ] unified timeline 不暴露 INTERNAL visibility 和敏感 payload。
-- [ ] 计划 B 可只依赖本计划已提交的协议类型和 Conversation 查询接口。
+- [x] application-contracts、control-plane、manager、sdk/java、console 定向测试通过。
+- [x] Flyway V96 在空库和现有库成功执行。
+- [x] 旧 Manager Conversation API 的字段和幂等语义不回归。
+- [x] unified timeline 不暴露 INTERNAL visibility 和敏感 payload。
+- [x] 计划 B 可只依赖本计划已提交的协议类型和 Conversation 查询接口。

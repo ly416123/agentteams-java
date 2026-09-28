@@ -12,8 +12,8 @@
 
 ## 子计划
 
-- [ ] 执行计划 A：Conversation 与统一渠道协议
-- [ ] 执行计划 B：Matrix Room 绑定与 Matrix 命令适配
+- [x] 执行计划 A：Conversation 与统一渠道协议
+- [x] 执行计划 B：Matrix Room 绑定与 Matrix 命令适配
 - [ ] 执行计划 C：Evaluation / Quality Plane
 
 文件：
