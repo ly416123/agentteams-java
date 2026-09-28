@@ -2,11 +2,13 @@
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
-**目标：** 让 Console、Java SDK、TypeScript SDK 和 Matrix 使用同一语义的 `task.start` 统一命令，同时保留旧 Task API 的草稿创建兼容性。
+**目标：** 当前只为 Java SDK 增加统一语义的 `task.start` 命令适配，同时保留旧 Task API 的草稿创建兼容性；TypeScript SDK、Console 和 Matrix 的新增适配暂不纳入本计划。
 
-**架构：** Control Plane 继续作为唯一命令事实源，复用现有 `/api/v1/commands`、`UnifiedCommandController` 和 `CommandDispatcher`。各客户端只负责构造并发送 `CommandEnvelope`，不复制授权、幂等或审计逻辑。Console 同时保留“创建草稿”和新增的“统一入口创建”两条明确流程。
+**架构：** Control Plane 继续作为唯一命令事实源，Java SDK 复用现有 `/api/v1/commands`、`UnifiedCommandController` 和 `CommandDispatcher`。SDK 只负责构造并发送 `CommandEnvelope`，不复制授权、幂等或审计逻辑。其他客户端适配只记录为未来范围，不在当前计划执行。
 
 **技术栈：** Java 21、JUnit 5、TypeScript、React、Vitest、现有 HTTP 客户端和 OIDC 用户上下文。
+
+**当前执行约束：** 只修改和验证 `sdk/java`；不得因本计划修改 TypeScript SDK、Console、Matrix 或新增跨渠道 UI。未来恢复其他客户端时，必须另行确认范围并建立独立计划。
 
 ---
 
@@ -14,16 +16,9 @@
 
 - 修改：`sdk/java/src/main/java/io/agentteams/sdk/AgentTeamsClient.java`，增加 Java SDK 的统一命令请求类型、响应类型和 `startTask` 方法。
 - 修改：`sdk/java/src/test/java/io/agentteams/sdk/AgentTeamsClientTest.java`，验证统一命令 JSON、鉴权、幂等键、响应和结构化错误。
-- 修改：`sdk/typescript/src/client.ts`，增加 TypeScript SDK 的统一命令类型和 `startTask` 方法。
-- 修改：`sdk/typescript/tests/client.test.ts`，验证请求路径、请求体、重试和响应解码。
-- 创建：`console/src/api/commands.ts`，封装 Console 的 `task.start` API。
-- 修改：`console/src/queries/useTaskQueries.ts`，提供 Console 的 `useStartTask` mutation。
-- 修改：`console/src/features/tasks/TaskCreatePage.tsx`，保留草稿创建并增加统一入口创建操作。
-- 修改：`console/tests/api/contracts.test.ts`，增加 Console 命令 API 合同测试。
-- 创建：`console/tests/features/tasks/TaskCreatePage.test.tsx`，验证两种创建模式的调用和错误状态。
-- 修改：`control-plane/src/test/java/io/agentteams/controlplane/command/CommandDispatcherTest.java`，补充跨渠道稳定字段和 `sourceConversationId` 断言。
-- 修改：`control-plane/src/test/java/io/agentteams/controlplane/matrix/MatrixCommandParserTest.java`，固定 Matrix 与客户端命令在业务字段上的同构约束。
-- 修改：`docs/superpowers/plans/2026-09-23-conversation-evaluation-rollout.md`，在全部集成验收通过后更新复选框和证据。
+- 暂缓：`sdk/typescript/src/client.ts`、`sdk/typescript/tests/client.test.ts`，当前不维护 TypeScript SDK。
+- 暂缓：`console/src/api/commands.ts`、`console/src/queries/useTaskQueries.ts`、`console/src/features/tasks/TaskCreatePage.tsx` 及对应测试，当前不扩展 Console。
+- 暂缓：Control Plane/Matrix 跨渠道同构测试和整体集成清单，当前只验证 Java SDK 对既有统一命令协议的调用。
 
 ### 任务 1：先为 Java SDK 编写失败测试
 
@@ -111,7 +106,7 @@ git add sdk/java/src/main/java/io/agentteams/sdk/AgentTeamsClient.java sdk/java/
 git commit -m "feat(SDK): 增加统一 task.start 客户端"
 ```
 
-### 任务 2：增加 TypeScript SDK 统一命令适配
+### 任务 2（暂缓）：增加 TypeScript SDK 统一命令适配
 
 **文件：** 修改 `sdk/typescript/src/client.ts`、`sdk/typescript/tests/client.test.ts`。
 
@@ -196,7 +191,7 @@ git add sdk/typescript/src/client.ts sdk/typescript/test/client.test.ts
 git commit -m "feat(SDK): 增加 TypeScript 统一 task.start"
 ```
 
-### 任务 3：增加 Console API 和显式统一入口创建
+### 任务 3（暂缓）：增加 Console API 和显式统一入口创建
 
 **文件：** 创建 `console/src/api/commands.ts`；修改 `console/src/queries/useTaskQueries.ts`、`console/src/features/tasks/TaskCreatePage.tsx`、`console/tests/api/contracts.test.ts`；创建 `console/tests/features/tasks/TaskCreatePage.test.tsx`。
 
@@ -268,7 +263,7 @@ git add console/src/api/commands.ts console/src/queries/useTaskQueries.ts consol
 git commit -m "feat(Console): 增加统一 task.start 入口"
 ```
 
-### 任务 4：补齐 Control Plane 跨渠道契约测试
+### 任务 4（暂缓）：补齐 Control Plane 跨渠道契约测试
 
 **文件：** 修改 `control-plane/src/test/java/io/agentteams/controlplane/command/CommandDispatcherTest.java`、`control-plane/src/test/java/io/agentteams/controlplane/matrix/MatrixCommandParserTest.java`。
 
@@ -301,7 +296,7 @@ git add control-plane/src/test/java/io/agentteams/controlplane/command/CommandDi
 git commit -m "test(协议): 验证跨渠道 task.start 语义一致"
 ```
 
-### 任务 5：执行项目级集成验收并更新计划
+### 任务 5（暂缓）：执行项目级集成验收并更新计划
 
 **文件：** 修改 `docs/superpowers/plans/2026-09-23-conversation-evaluation-rollout.md`。
 
@@ -341,9 +336,8 @@ git add docs/superpowers/plans/2026-09-23-conversation-evaluation-rollout.md
 git commit -m "test(集成): 完成跨渠道 task.start 验收"
 ```
 
-## 完成定义
+## 当前阶段完成定义
 
-- [ ] Console、Java SDK、TypeScript SDK 和 Matrix 都能提交同构的 `task.start` 命令。
-- [ ] Control Plane 统一产生命令审计、Task Event 和 `sourceConversationId`。
-- [ ] 旧 `/api/v1/tasks` 创建、Manager Conversation API 和 Matrix 兼容路径不回归。
-- [ ] Java、TypeScript、Console、Control Plane 和项目级回归全部通过。
+- [x] Java SDK 能提交符合统一协议的 `task.start` 命令，并正确解码 `deduplicated`。
+- [x] Java SDK 复用现有鉴权、幂等、重试和结构化错误处理，旧 `createTask` 不变。
+- [ ] TypeScript SDK、Console、Matrix 跨渠道同构适配：暂不属于当前阶段，需另行确认。

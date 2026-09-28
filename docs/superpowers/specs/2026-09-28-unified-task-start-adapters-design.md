@@ -1,10 +1,12 @@
 # Console、SDK 与 Matrix 统一 task.start 适配设计
 
+> **当前范围变更（2026-09-28）：** 本任务当前只落地 Java SDK。TypeScript SDK、Console 和 Matrix 的新增适配暂缓，不纳入本次实现和验收；它们仅作为协议兼容边界保留在设计中。
+
 ## 背景与目标
 
 当前 Matrix 在绑定上下文模式下已经通过 `/api/v1/commands` 提交 `task.start`，由 Control Plane 统一完成授权、幂等、命令审计和 Task 创建。Console 与 SDK 仍主要调用旧的 `/api/v1/tasks` 创建接口，因此同一语义的任务创建不会产生统一命令审计。
 
-本次补齐跨渠道的显式 `task.start` 适配：Console、Java SDK、TypeScript SDK 和 Matrix 都使用同一份 `CommandEnvelope` 语义，由 Control Plane 产生一致的命令审计和 Task 事实。旧的 `/api/v1/tasks` 创建接口继续保留，避免破坏已有草稿创建流程。
+本次只落地 Java SDK 的显式 `task.start` 适配，使用现有 `CommandEnvelope` 语义，由 Control Plane 产生统一命令审计和 Task 事实。旧的 `/api/v1/tasks` 创建接口继续保留，避免破坏已有草稿创建流程。其他渠道的对等适配留待另行确认。
 
 ## 方案比较
 
@@ -41,13 +43,13 @@
 
 响应统一解码为 `CommandResult`，包含 `commandId`、`status`、`duplicate`、`taskId`、`aggregateVersion` 和 `traceId`。客户端不复制 Control Plane 的审计逻辑。
 
-### 2. Console 适配
+### 2. Console 适配（暂缓）
 
 新增 `console/src/api/commands.ts`，提供 `startTask` API 和请求/响应类型。任务创建页面保留现有“创建草稿”流程，并增加显式“统一入口创建”操作；该操作只调用 `/api/v1/commands`，成功后按返回的 `taskId` 跳转任务详情。两条流程共享表单校验和错误展示。
 
 ### 3. Java 与 TypeScript SDK 适配
 
-两个 SDK 均新增 `startTask` 方法、请求类型和 `CommandResult` 类型。方法支持显式幂等键和安全重试，鉴权、结构化错误和重试策略复用现有客户端实现。原有 `createTask` 保持原路径和返回类型不变。
+当前阶段只为 Java SDK 新增 `startTask` 方法、请求类型和 `CommandResult` 类型。方法支持显式幂等键和安全重试，鉴权、结构化错误和重试策略复用现有客户端实现。原有 `createTask` 保持原路径和返回类型不变。TypeScript SDK 的对等改动暂缓，不能作为当前阶段的实现要求。
 
 ### 4. Matrix 与服务端边界
 
@@ -66,8 +68,8 @@ Control Plane 继续由现有 `UnifiedCommandController` 与 `CommandDispatcher`
 
 - Control Plane：统一命令入口、Dispatcher、Task source Conversation 和 Matrix 适配回归测试。
 - Java SDK：请求路径、统一 JSON 字段、鉴权、幂等键、响应解码和结构化错误测试。
-- TypeScript SDK：同上，并验证安全重试只对显式安全写请求生效。
-- Console：API 合同测试、统一入口创建页面操作和错误状态测试。
+- TypeScript SDK：暂缓，不纳入当前阶段。
+- Console：暂缓，不纳入当前阶段。
 - 项目级回归：Maven、Python、Console 测试与构建，最后更新整体集成验收清单。
 
 ## 非目标

@@ -73,6 +73,9 @@ Java SDK 同步。完整实施顺序、
 能力矩阵、记忆隔离和无生产 Secret Manager Credential 时的验收边界见
 [管理端优先与 Java SDK 冻结实施方案](docs/superpowers/plans/2026-09-01-management-first-console-completion-plan.md)。
 
+当前 `task.start` 适配任务另有明确范围约束：只维护 Java SDK；TypeScript SDK 暂不维护，
+不要求与 Java SDK 同步新增接口或测试。任何 TypeScript SDK 更新都必须另行确认并制定独立计划。
+
 当前阶段已完成管理端 Usage（含 Organization/Tenant/Project/Team/User 聚合）、预算评估、Project 作用域告警规则/自动重试详情、人工重试幂等、告警历史和审计入口的首轮页面闭环；验证结果与
 OIDC/生产凭据限制记录在[管理端阶段验证报告](docs/acceptance/2026-09-01-management-verification-report.md)。
 
