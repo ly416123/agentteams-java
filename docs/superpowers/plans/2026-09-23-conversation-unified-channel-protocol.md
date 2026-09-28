@@ -116,7 +116,7 @@ git commit -m "feat(协议): 增加统一命令事件和时间线合同"
 
 **文件：** V96、ConversationRecord、ConversationMessageRecord、两个 Repository 及 JDBC 测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 覆盖：
 
@@ -126,7 +126,7 @@ git commit -m "feat(协议): 增加统一命令事件和时间线合同"
 4. Task source conversation 可为空，写入后可反查。
 5. 不同 tenant 不能读到对方 Conversation。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -136,7 +136,7 @@ mvn -q -pl control-plane -Dtest='Conversation*RepositoryTest' test
 
 预期：FAIL，原因是迁移、记录类型和 Repository 尚不存在。
 
-- [ ] **步骤 3：编写迁移**
+- [x] **步骤 3：编写迁移**
 
 V96 创建 Conversation、Message 和 Task 关联；Message 表若与 manager 同库，使用不冲突的物理名 conversation_messages_cp。
 
@@ -179,7 +179,7 @@ CREATE INDEX conversation_messages_cp_timeline_idx
 CREATE INDEX tasks_source_conversation_idx ON tasks (source_conversation_id);
 ~~~
 
-- [ ] **步骤 4：实现 Repository 和 tenant 过滤**
+- [x] **步骤 4：实现 Repository 和 tenant 过滤**
 
 固定接口：
 
@@ -192,11 +192,11 @@ List<ConversationMessageRecord> messages(ExecutionContext context, UUID conversa
 
 appendMessage 使用数据库唯一约束实现幂等；重放只返回原记录，不生成新 sequence。
 
-- [ ] **步骤 5：运行测试验证通过**
+- [x] **步骤 5：运行测试验证通过**
 
 运行同一条 Maven 命令，预期 Repository、tenant 隔离和幂等测试 PASS。
 
-- [ ] **步骤 6：提交**
+- [x] **步骤 6：提交**
 
 ~~~bash
 git add control-plane/src/main/resources/db/migration/V96__conversation_unified_protocol.sql control-plane/src/main/java/io/agentteams/controlplane/conversation

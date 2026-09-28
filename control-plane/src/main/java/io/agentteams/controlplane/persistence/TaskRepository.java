@@ -2,8 +2,10 @@ package io.agentteams.controlplane.persistence;
 
 import io.agentteams.controlplane.api.CursorPageRequest;
 import io.agentteams.controlplane.security.Principal;
+import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
@@ -15,7 +17,12 @@ public final class TaskRepository {
     private static final String TASK_COLUMNS = """
             id, title, description, phase, priority, spec::text, actor, source,
             failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
-            archive_status, archived_at, archive_actor, parent_task_id, kind
+            archive_status, archived_at, archive_actor, parent_task_id, kind, source_conversation_id
+            """;
+    private static final String TASK_COLUMNS_ALIASED = """
+            t.id, t.title, t.description, t.phase, t.priority, t.spec::text, t.actor, t.source,
+            t.failure_code, t.redacted_failure_message, t.created_at, t.updated_at, t.version, t.task_type,
+            t.archive_status, t.archived_at, t.archive_actor, t.parent_task_id, t.kind, t.source_conversation_id
             """;
 
     private final JdbcTemplate jdbc;
@@ -29,14 +36,14 @@ public final class TaskRepository {
                 INSERT INTO tasks
                     (id, title, description, phase, priority, spec, actor, source,
                      failure_code, redacted_failure_message, created_at, updated_at, version, task_type,
-                     archive_status, archived_at, archive_actor, parent_task_id, kind)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     archive_status, archived_at, archive_actor, parent_task_id, kind, source_conversation_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, task.id(), task.title(), task.description(), task.phase().name(), task.priority(),
                 JdbcSupport.json(task.specJson()), task.actor(), task.source(), task.failureCode(),
                 JdbcSupport.failureMessage(task.redactedFailureMessage()), JdbcSupport.timestamp(task.createdAt()),
                 JdbcSupport.timestamp(task.updatedAt()), task.version(), task.taskType(),
                 task.archiveStatus(), task.archivedAt() == null ? null : JdbcSupport.timestamp(task.archivedAt()),
-                task.archiveActor(), task.parentTaskId(), task.kind());
+                task.archiveActor(), task.parentTaskId(), task.kind(), task.sourceConversationId());
     }
 
     public Optional<TaskRecord> findById(UUID id) {
@@ -60,7 +67,7 @@ public final class TaskRepository {
                 ? " AND (t.updated_at, t.id) > (?, ?)" : " AND (t.updated_at, t.id) < (?, ?)";
         StringBuilder sql = new StringBuilder("""
                 SELECT t.id, t.title, t.phase, t.priority, t.actor, t.source, t.task_type,
-                       t.created_at, t.updated_at, t.version, t.archive_status,
+                       t.created_at, t.updated_at, t.version, t.archive_status, t.source_conversation_id,
                        s.tenant_id, s.project_id, s.team,
                        team_ref.team_id, worker_ref.agent_id
                   FROM tasks t JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id
@@ -164,6 +171,19 @@ public final class TaskRepository {
     public long count() {
         Long count = jdbc.queryForObject("SELECT count(*) FROM tasks", Long.class);
         return count == null ? 0 : count;
+    }
+
+    public List<TaskRecord> findBySourceConversation(ExecutionContext context, UUID conversationId) {
+        Objects.requireNonNull(context, "context");
+        if (conversationId == null) {
+            return List.of();
+        }
+        return jdbc.query("SELECT " + TASK_COLUMNS_ALIASED
+                        + " FROM tasks t JOIN resource_scopes s"
+                        + " ON s.resource_type = 'TASK' AND s.resource_id = t.id"
+                        + " WHERE t.source_conversation_id = ? AND s.tenant_id = ?"
+                        + " AND s.project_id = ? AND s.team = ? ORDER BY t.created_at, t.id",
+                this::map, conversationId, context.tenantId(), context.projectId(), context.teamId());
     }
 
     public TaskRecord updatePhase(UUID id, TaskPhase phase, long expectedVersion, Instant updatedAt) {
@@ -324,7 +344,8 @@ public final class TaskRepository {
                 JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"), rs.getString("task_type"),
                 rs.getString("archive_status"),
                 archivedAt == null ? null : archivedAt.toInstant(), rs.getString("archive_actor"),
-                rs.getObject("parent_task_id", UUID.class), rs.getString("kind"));
+                rs.getObject("parent_task_id", UUID.class), rs.getString("kind"),
+                rs.getObject("source_conversation_id", UUID.class));
     }
 
     private TaskListRecord mapListItem(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
@@ -333,6 +354,7 @@ public final class TaskRepository {
                 rs.getString("project_id"), rs.getString("team"), rs.getString("actor"), rs.getString("source"),
                 rs.getObject("team_id", UUID.class), rs.getObject("agent_id", UUID.class),
                 JdbcSupport.instant(rs, "created_at"), JdbcSupport.instant(rs, "updated_at"), rs.getLong("version"),
-                rs.getString("task_type"), rs.getString("archive_status"));
+                rs.getString("task_type"), rs.getString("archive_status"),
+                rs.getObject("source_conversation_id", UUID.class));
     }
 }
