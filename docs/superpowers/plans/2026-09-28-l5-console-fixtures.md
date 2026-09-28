@@ -45,7 +45,7 @@ token=$(curl -fsS "$KEYCLOAK/realms/agentteams/protocol/openid-connect/token" \
 
 **文件：** 无仓库文件变更；使用 L5 Control Plane API。
 
-- [ ] **步骤 1：创建一个启用的定时任务。** 请求 `POST /api/v1/scheduled-tasks`，使用组织 UUID、`tenant-a`、Project UUID、`0 0 * * *`、`Asia/Shanghai` 和前缀标题；使用唯一 `Idempotency-Key`。
+- [ ] **步骤 1：创建一个启用的定时任务。** 请求 `POST /api/v1/scheduled-tasks`，使用组织 UUID、`tenant-a`、Project UUID、Spring 六段 Cron `0 0 0 * * *`、`Asia/Shanghai` 和前缀标题；使用唯一 `Idempotency-Key`。
 
 - [ ] **步骤 2：创建 Project 预算。** 请求 `PUT /api/v1/usage/budgets/<固定 UUID>`，设置 `USD`、30 天周期、软阈值 `100`、硬阈值 `200`、7 天预测窗口和 `ACTIVE`。
 
