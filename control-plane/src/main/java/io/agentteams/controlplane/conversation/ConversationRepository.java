@@ -11,6 +11,8 @@ public interface ConversationRepository {
 
     Optional<ConversationRecord> find(ExecutionContext context, UUID id);
 
+    ConversationRecord archive(ExecutionContext context, UUID id, long expectedVersion);
+
     static void requireContext(ExecutionContext context) {
         Objects.requireNonNull(context, "context");
     }

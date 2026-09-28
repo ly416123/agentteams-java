@@ -55,6 +55,22 @@ public final class JdbcConversationRepository implements ConversationRepository 
                 .stream().findFirst();
     }
 
+    @Override
+    public ConversationRecord archive(ExecutionContext context, UUID id, long expectedVersion) {
+        ConversationRepository.requireContext(context);
+        Objects.requireNonNull(id, "id");
+        int updated = jdbc.update("""
+                UPDATE conversations
+                   SET status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP, version = version + 1
+                 WHERE id = ? AND tenant_id = ? AND project_id = ?
+                   AND team_id IS NOT DISTINCT FROM ? AND version = ?
+                """, id, context.tenantId(), context.projectId(), context.teamId(), expectedVersion);
+        if (updated == 0) {
+            throw new IllegalStateException("conversation version mismatch or conversation is not in scope: " + id);
+        }
+        return find(context, id).orElseThrow();
+    }
+
     private ConversationRecord map(ResultSet rs, int row) throws SQLException {
         return new ConversationRecord(rs.getObject("id", UUID.class), rs.getString("tenant_id"),
                 rs.getString("project_id"), rs.getString("team_id"), rs.getString("title"),

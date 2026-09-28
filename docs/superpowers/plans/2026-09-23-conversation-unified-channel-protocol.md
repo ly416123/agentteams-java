@@ -207,7 +207,7 @@ git commit -m "feat(conversation): persist conversations and messages"
 
 **文件：** ConversationService.java、ConversationTimelineService.java、Task 持久层映射及服务测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 测试一个 Conversation 创建两个 Task；一个 Task 第二次绑定 Conversation 被拒绝；时间线包含 Message 和 Task Event；事件乱序时稳定排序；跨 tenant 查询被拒绝。
 
@@ -223,7 +223,7 @@ assertThat(timelineService.list(context, conversation.id(), 0, 100))
         .contains("CONVERSATION_MESSAGE", "TASK_EVENT");
 ~~~
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -233,17 +233,17 @@ mvn -q -pl control-plane -Dtest='ConversationServiceTest,ConversationTimelineSer
 
 预期：FAIL，原因是服务、Task 字段和 Timeline 查询尚未实现。
 
-- [ ] **步骤 3：实现服务和查询投影**
+- [x] **步骤 3：实现服务和查询投影**
 
 ConversationService 负责创建、归档、追加 Message 和校验 Task 关联；不得改变 Task phase。
 
 ConversationTimelineService 读取 conversation_messages_cp、DomainEventRepository、TaskProcessEventRepository、TaskResultManifestRepository，映射为 TimelineItem。过滤 visibility 后按 occurredAt、sequence、itemId 稳定排序；payload 只返回 payloadRef 或安全 summary。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期关联、授权、排序和可见性测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/conversation control-plane/src/main/java/io/agentteams/controlplane/persistence
