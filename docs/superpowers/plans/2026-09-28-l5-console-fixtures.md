@@ -28,7 +28,7 @@
 
 **文件：** 无仓库文件变更；仅操作 L5 Keycloak 和读取接口。
 
-- [ ] **步骤 1：获取 `alice` 新 Token。** 使用 password grant，不打印 Token 内容。
+- [x] **步骤 1：获取 `alice` 新 Token。** 使用 password grant，不打印 Token 内容。
 
 ```bash
 token=$(curl -fsS "$KEYCLOAK/realms/agentteams/protocol/openid-connect/token" \
@@ -37,57 +37,71 @@ token=$(curl -fsS "$KEYCLOAK/realms/agentteams/protocol/openid-connect/token" \
   | jq -r .access_token)
 ```
 
-- [ ] **步骤 2：验证权限接口。** 请求 `management/users`、`management/organizations`、`model-providers`、`mcp-servers`、`skills`、`audit-events` 和 `agent-specs`，每个接口必须返回 HTTP 200。
+- [x] **步骤 2：验证权限接口。** 请求 `management/users`、`management/organizations`、`model-providers`、`mcp-servers`、`skills`、`audit-events` 和 `agent-specs`，每个接口必须返回 HTTP 200。
 
-- [ ] **步骤 3：记录已有资源数量。** 记录 projects、teams、workers、tasks、conversations、templates、agentspecs、models、MCP、skills、artifacts 和 usage 的当前数量，后续只比较前缀夹具增加量。
+- [x] **步骤 3：记录已有资源数量。** 记录 projects、teams、workers、tasks、conversations、templates、agentspecs、models、MCP、skills、artifacts 和 usage 的当前数量，后续只比较前缀夹具增加量。
 
 ### 任务 2：通过正式 API 创建页面数据
 
 **文件：** 无仓库文件变更；使用 L5 Control Plane API。
 
-- [ ] **步骤 1：创建一个启用的定时任务。** 请求 `POST /api/v1/scheduled-tasks`，使用组织 UUID、`tenant-a`、Project UUID、Spring 六段 Cron `0 0 0 * * *`、`Asia/Shanghai` 和前缀标题；使用唯一 `Idempotency-Key`。
+- [x] **步骤 1：创建一个启用的定时任务。** 请求 `POST /api/v1/scheduled-tasks`，使用组织 UUID、`tenant-a`、Project UUID、Spring 六段 Cron `0 0 0 * * *`、`Asia/Shanghai` 和前缀标题；使用唯一 `Idempotency-Key`。
 
-- [ ] **步骤 2：创建 Project 预算。** 请求 `PUT /api/v1/usage/budgets/<固定 UUID>`，设置 `USD`、30 天周期、软阈值 `100`、硬阈值 `200`、7 天预测窗口和 `ACTIVE`。
+- [x] **步骤 2：创建 Project 预算。** 请求 `PUT /api/v1/usage/budgets/<固定 UUID>`，设置 `USD`、30 天周期、软阈值 `100`、硬阈值 `200`、7 天预测窗口和 `ACTIVE`。
 
-- [ ] **步骤 3：写入 Project 告警规则。** 对 `FAILURE_RATE`、`AVERAGE_LATENCY`、`COST` 分别请求 `PUT /api/v1/dashboard/alert-rules/<rule>`，首次版本使用 `expectedVersion=0`，并保留接口产生的审计记录。
+- [x] **步骤 3：写入 Project 告警规则。** 对 `FAILURE_RATE`、`AVERAGE_LATENCY`、`COST` 分别请求 `PUT /api/v1/dashboard/alert-rules/<rule>`，首次版本使用 `expectedVersion=0`，并保留接口产生的审计记录。
 
-- [ ] **步骤 4：补齐身份管理展示。** 查询现有组织和内部用户；如果集成列表为空，通过管理 API 创建前缀集成、测试凭据元数据和组织成员关系，凭据只写 `credentialRef`，不写明文 Secret。
+- [x] **步骤 4：补齐身份管理展示。** 查询现有组织和内部用户；如果集成列表为空，通过管理 API 创建前缀集成、测试凭据元数据和组织成员关系，凭据只写 `credentialRef`，不写明文 Secret。
 
 ### 任务 3：补齐无创建 API 的只读投影
 
 **文件：** 无仓库文件变更；通过 L5 PostgreSQL `psql` 幂等写入。
 
-- [ ] **步骤 1：写入审计事件。** 在 `operation_audit_events` 插入 2 条带前缀的 `CONSOLE_FIXTURE_CREATED` 记录，属性包含 tenant、project 和 fixture 前缀。
+- [x] **步骤 1：写入审计事件。** 在 `operation_audit_events` 插入 2 条带前缀的 `CONSOLE_FIXTURE_CREATED` 记录，属性包含 tenant、project 和 fixture 前缀。
 
-- [ ] **步骤 2：写入 Memory 元数据。** 在 `memories` 插入 1 条 `PROJECT_SHARED`、`CONFIRMED`、`NORMAL` 记录，`project_id` 使用 Project UUID，`content_ref` 使用前缀引用，保留正常的租户和组织字段。
+- [x] **步骤 2：写入 Memory 元数据。** 在 `memories` 插入 1 条 `PROJECT_SHARED`、`CONFIRMED`、`NORMAL` 记录，`project_id` 使用 Project UUID，`content_ref` 使用前缀引用，保留正常的租户和组织字段。
 
-- [ ] **步骤 3：写入 Sandbox 元数据。** 先读取已有任务和 `task_attempts` 的有效 ID，再在 `task_sandboxes` 插入 1 条 `DESTROYED` 或 `FAILED` 记录；`attempt_id` 必须使用未被占用的真实 Attempt，禁止伪造外键。
+- [x] **步骤 3：写入 Sandbox 元数据。** 先读取已有任务和 `task_attempts` 的有效 ID，再在 `task_sandboxes` 插入 1 条 `DESTROYED` 或 `FAILED` 记录；`attempt_id` 必须使用未被占用的真实 Attempt，禁止伪造外键。
 
-- [ ] **步骤 4：写入告警事件。** 在 `dashboard_alert_events` 插入 1 条前缀指纹的 `SENT` 事件，关联 `tenant-a/project UUID` 和已存在的告警规则。
+- [x] **步骤 4：写入告警事件。** 在 `dashboard_alert_events` 插入 1 条前缀指纹的 `SENT` 事件，关联 `tenant-a/project UUID` 和已存在的告警规则。
 
-- [ ] **步骤 5：创建评测 Suite/Case。** 在 `evaluation_suites` 和 `evaluation_cases` 插入 1 条前缀 Suite/Case，断言使用已成功任务的 `phase=SUCCEEDED`；随后通过 `POST /api/v1/evaluations/runs` 使用已成功任务和 Run 生成正式 Evaluation Run、Result 和 Report。
+- [x] **步骤 5：创建评测 Suite/Case。** 在 `evaluation_suites` 和 `evaluation_cases` 插入 1 条前缀 Suite/Case，断言使用已成功任务的 `phase=SUCCEEDED`；随后通过 `POST /api/v1/evaluations/runs` 使用已成功任务和 Run 生成正式 Evaluation Run、Result 和 Report。
 
 ### 任务 4：逐页面接口回归
 
 **文件：** 无仓库文件变更；只读 L5 API 验证。
 
-- [ ] **步骤 1：验证项目菜单。** 对 `/overview`、`/tasks`、`/scheduled-tasks`、`/teams`、`/workers`、`/conversations`、`/templates`、`/agentspecs`、`/models`、`/mcp`、`/skills`、`/usage`、`/budgets`、`/alerts`、`/audit`、`/memory`、`/sandboxes`、`/artifacts` 和 `/evaluations` 对应接口请求。
+- [x] **步骤 1：验证项目菜单。** 对 `/overview`、`/tasks`、`/scheduled-tasks`、`/teams`、`/workers`、`/conversations`、`/templates`、`/agentspecs`、`/models`、`/mcp`、`/skills`、`/usage`、`/budgets`、`/alerts`、`/audit`、`/memory`、`/sandboxes`、`/artifacts` 和 `/evaluations` 对应接口请求。
 
-- [ ] **步骤 2：验证设置菜单。** 请求 `/api/v1/management/users`、`/api/v1/management/organizations`、组织 tenants、integrations、credentials、memberships、projects、project members 和 authorization roles。
+- [x] **步骤 2：验证设置菜单。** 请求 `/api/v1/management/users`、`/api/v1/management/organizations`、组织 tenants、integrations、credentials、memberships、projects、project members 和 authorization roles。
 
-- [ ] **步骤 3：检查每个接口。** 状态必须为 200；列表页面至少返回 1 条已有记录或本次前缀夹具；Evaluation 详情和 Task/Conversation 详情使用真实 ID。
+- [x] **步骤 3：检查每个接口。** 状态必须为 200；列表页面至少返回 1 条已有记录或本次前缀夹具；Evaluation 详情和 Task/Conversation 详情使用真实 ID。
 
-- [ ] **步骤 4：保存证据。** 输出脱敏的模块、HTTP 状态、数量和夹具 ID 清单，不输出 Token、密码或 Secret 引用值。
+- [x] **步骤 4：保存证据。** 输出脱敏的模块、HTTP 状态、数量和夹具 ID 清单，不输出 Token、密码或 Secret 引用值。
 
 ### 任务 5：部署健康和可清理性检查
 
 **文件：** 无仓库文件变更；只读 L5 Kubernetes 和数据库检查。
 
-- [ ] **步骤 1：确认服务健康。** 检查 Console、Control Plane、Manager、Worker 和 PostgreSQL Deployment/StatefulSet 为 Ready。
+- [x] **步骤 1：确认服务健康。** 检查 Console、Control Plane、Manager、Worker 和 PostgreSQL Deployment/StatefulSet 为 Ready。
 
-- [ ] **步骤 2：确认前缀边界。** 查询本次创建记录，只返回 `l5-console-fixture-20260928` 前缀或明确记录的固定 UUID；确认没有修改历史任务、模型 Provider、MCP Server 和已有 Worker。
+- [x] **步骤 2：确认前缀边界。** 查询本次创建记录，只返回 `l5-console-fixture-20260928` 前缀或明确记录的固定 UUID；确认没有修改历史任务、模型 Provider、MCP Server 和已有 Worker。
 
-- [ ] **步骤 3：记录清理命令。** 生成按前缀和固定 ID 定向删除的 SQL/API 清单，但本次不执行清理。
+- [x] **步骤 3：记录清理命令。** 生成按前缀和固定 ID 定向删除的 SQL/API 清单，但本次不执行清理。
+
+## 执行结果（2026-09-28）
+
+- L5 项目菜单和设置菜单的接口回归均为 HTTP 200；列表接口均有业务记录，详情接口使用真实任务、Run 和评测 ID。
+- 关键页面数据：定时任务 1 条、定时任务运行 1 条、预算 1 条、预算评估 1 条、告警规则 3 条、告警事件 1 条、Memory 1 条、Sandbox 1 条、评测 1 条、评测结果 2 条、评测报告 1 条。
+- 权限已补齐：`alice` 可访问身份管理、组织管理、模型 Provider、MCP、Skill、审计和 Agent Spec 等接口。
+- L5 Console、Control Plane、Manager、Gateway、Operator、Worker、Keycloak、PostgreSQL、NATS 和 MinIO 均为 Ready。
+- 前缀边界检查通过：`l5-console-fixture-20260928` 相关记录数量符合预期，未修改历史任务、模型 Provider、MCP Server 和 Worker。
+- 本地回归通过：`python3 -m unittest discover -s scripts -p 'test_*.py'`，共 377 个测试通过；`git diff --check` 通过。
+- 内置浏览器导航 L5 Console 入口时超时，但命令行访问入口返回 HTTP 200；因此本次保留 API 回归为验收证据，浏览器级页面点击冒烟待环境解锁或浏览器恢复后补测。
+
+### 清理边界
+
+本次不执行清理。清理时按评测报告、评测结果、评测运行、Case、Suite、定时任务运行、Sandbox、告警事件、预算评估、Memory、审计事件、预算及管理 API 资源的依赖顺序，使用固定 UUID 或 `l5-console-fixture-20260928` 前缀定向删除；禁止按租户、Project 或全表删除。
 
 ## 验证命令
 
