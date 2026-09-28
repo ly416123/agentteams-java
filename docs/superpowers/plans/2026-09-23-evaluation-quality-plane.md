@@ -110,7 +110,7 @@ git commit -m "feat(eval): add evaluation quality plane persistence"
 
 **文件：** EvidenceBundle.java、EvidenceBundleAssembler.java、现有 TaskProcessEventService、TaskTreeService、TaskDecisionRecordService、TaskResultManifestService 和测试。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 使用 fake repositories 验证：
 
@@ -120,7 +120,7 @@ git commit -m "feat(eval): add evaluation quality plane persistence"
 - token、cookie、api key、预签名 URL 不进入 bundle；
 - 缺少 Result Manifest 时返回 INCONCLUSIVE 输入标记。
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：
 
@@ -130,7 +130,7 @@ mvn -q -pl control-plane -Dtest=EvidenceBundleAssemblerTest test
 
 预期：FAIL，因为 EvidenceBundleAssembler 尚不存在。
 
-- [ ] **步骤 3：实现证据对象和脱敏规则**
+- [x] **步骤 3：实现证据对象和脱敏规则**
 
 固定 EvidenceBundle：
 
@@ -153,11 +153,11 @@ public record EvidenceBundle(
 
 Assembler 只接受 ExecutionContext；每个 Repository 查询都带 context。敏感字段通过现有 SensitiveFieldPolicy 和 Artifact 下载策略过滤，禁止把预签名 URL写入评测持久化。
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行同一条 Maven 命令，预期证据完整性、可见性和脱敏测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ~~~bash
 git add control-plane/src/main/java/io/agentteams/controlplane/evaluation control-plane/src/test/java/io/agentteams/controlplane/evaluation

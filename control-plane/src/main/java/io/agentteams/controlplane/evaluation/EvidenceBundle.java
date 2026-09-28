@@ -31,6 +31,12 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
         }
     }
 
+    public InputStatus inputStatus() {
+        return resultManifest == null ? InputStatus.INCONCLUSIVE : InputStatus.COMPLETE;
+    }
+
+    public enum InputStatus { COMPLETE, INCONCLUSIVE }
+
     public record TaskSnapshot(UUID taskId, String phase, String taskType, String sourceConversationId) {
         public TaskSnapshot {
             Objects.requireNonNull(taskId, "taskId");
