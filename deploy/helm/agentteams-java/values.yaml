@@ -135,6 +135,15 @@ controlPlane:
       authEnabled: false
       hsTokenSecret: ""
       hsTokenKey: hs-token
+    delivery:
+      enabled: false
+      homeserverUrl: ""
+      accessTokenSecret: ""
+      accessTokenKey: access-token
+      pollInterval: 5s
+      requestTimeout: 10s
+      batchSize: 20
+      maxResponseBytes: 8192
   tokenLedger:
     # Required only when a separately deployed Manager/Worker settlement bridge
     # is enabled. Keep empty by default so the internal API fails closed.

@@ -15,6 +15,8 @@ public interface MatrixRoomBindingRepository {
 
     Optional<MatrixRoomBinding> findById(String tenantId, UUID id);
 
+    Optional<MatrixRoomBinding> findByIdForUpdate(String tenantId, UUID id);
+
     MatrixRoomBinding save(MatrixRoomBinding binding);
 
     MatrixRoomBinding update(MatrixRoomBinding binding, long expectedVersion);

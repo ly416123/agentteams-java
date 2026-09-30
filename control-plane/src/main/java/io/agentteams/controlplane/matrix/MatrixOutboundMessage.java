@@ -5,7 +5,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record MatrixOutboundMessage(UUID id, String roomId, String eventType, String body,
-        String status, int attempts, Instant nextAttemptAt, String lastError) {
+        String status, int attempts, Instant nextAttemptAt, String lastError,
+        String tenantId, UUID roomBindingId) {
+    public MatrixOutboundMessage(UUID id, String roomId, String eventType, String body,
+            String status, int attempts, Instant nextAttemptAt, String lastError) {
+        this(id, roomId, eventType, body, status, attempts, nextAttemptAt, lastError, null, null);
+    }
     public MatrixOutboundMessage {
         Objects.requireNonNull(id, "id");
         requireText(roomId, "roomId");

@@ -18,6 +18,7 @@ import io.agentteams.controlplane.matrix.MatrixRoomContextType;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -29,31 +30,43 @@ class MatrixChannelAdapterTest {
     @Test
     void queuesScopedMessageThroughMatrixOutbox() {
         MatrixChannelBindingRepository bindings = mock(MatrixChannelBindingRepository.class);
+        MatrixRoomBindingRepository roomBindings = mock(MatrixRoomBindingRepository.class);
         MatrixOutboundRepository outbound = mock(MatrixOutboundRepository.class);
         UUID bindingId = UUID.randomUUID();
         UUID messageId = UUID.randomUUID();
-        when(bindings.findById(bindingId)).thenReturn(Optional.of(binding(bindingId, true)));
-        when(outbound.enqueue(any(UUID.class), any(String.class), any(String.class), any(String.class), any(Instant.class)))
+        MatrixChannelBinding channelBinding = binding(bindingId, true);
+        when(bindings.findById(bindingId)).thenReturn(Optional.of(channelBinding));
+        when(roomBindings.findById("tenant-1", channelBinding.roomBindingId()))
+                .thenReturn(Optional.of(roomBinding(channelBinding.roomBindingId(), MatrixRoomBindingStatus.ACTIVE)));
+        when(outbound.enqueue(any(UUID.class), any(String.class), any(), any(String.class), any(String.class),
+                any(String.class), any(Instant.class)))
                 .thenReturn(true);
-        MatrixChannelAdapter adapter = new MatrixChannelAdapter(bindings, outbound, fixedClock());
+        MatrixChannelAdapter adapter = new MatrixChannelAdapter(bindings, outbound, roomBindings, fixedClock());
 
         ChannelReceipt receipt = adapter.send(new ChannelMessage(messageId, "org-1", "tenant-1", "project-1",
                 bindingId.toString(), "task.completed", "done", "corr-1", ChannelType.MATRIX));
 
         assertThat(receipt).isEqualTo(new ChannelReceipt(messageId, bindingId.toString(), ChannelReceiptStatus.QUEUED,
                 null));
-        verify(outbound).enqueue(messageId, "!room:example.org", "task.completed", "done", NOW);
+        verify(outbound).enqueue(messageId, "tenant-1", channelBinding.roomBindingId(), "!room:example.org",
+                "task.completed", "done", NOW);
     }
 
     @Test
     void duplicateMessageIsReportedWithoutSecondDelivery() {
         MatrixChannelBindingRepository bindings = mock(MatrixChannelBindingRepository.class);
+        MatrixRoomBindingRepository roomBindings = mock(MatrixRoomBindingRepository.class);
         MatrixOutboundRepository outbound = mock(MatrixOutboundRepository.class);
         UUID bindingId = UUID.randomUUID();
         UUID messageId = UUID.randomUUID();
-        when(bindings.findById(bindingId)).thenReturn(Optional.of(binding(bindingId, true)));
-        when(outbound.enqueue(messageId, "!room:example.org", "task.completed", "done", NOW)).thenReturn(false);
-        MatrixChannelAdapter adapter = new MatrixChannelAdapter(bindings, outbound, fixedClock());
+        MatrixChannelBinding channelBinding = binding(bindingId, true);
+        when(bindings.findById(bindingId)).thenReturn(Optional.of(channelBinding));
+        when(roomBindings.findById("tenant-1", channelBinding.roomBindingId()))
+                .thenReturn(Optional.of(roomBinding(channelBinding.roomBindingId(), MatrixRoomBindingStatus.ACTIVE)));
+        when(outbound.enqueue(messageId, "tenant-1", channelBinding.roomBindingId(), "!room:example.org",
+                "task.completed", "done", NOW))
+                .thenReturn(false);
+        MatrixChannelAdapter adapter = new MatrixChannelAdapter(bindings, outbound, roomBindings, fixedClock());
 
         ChannelReceipt receipt = adapter.send(new ChannelMessage(messageId, "org-1", "tenant-1", "project-1",
                 bindingId.toString(), "task.completed", "done", "corr-1", ChannelType.MATRIX));
@@ -126,7 +139,16 @@ class MatrixChannelAdapterTest {
 
     private static MatrixChannelBinding binding(UUID id, boolean enabled) {
         return new MatrixChannelBinding(id, "org-1", "tenant-1", "project-1", "!room:example.org",
-                Set.of("task.completed"), enabled);
+                Set.of("task.completed"), enabled,
+                UUID.nameUUIDFromBytes(id.toString().getBytes(StandardCharsets.UTF_8)),
+                MatrixRoomContextType.TASK);
+    }
+
+    private static MatrixRoomBinding roomBinding(UUID id, MatrixRoomBindingStatus status) {
+        return new MatrixRoomBinding(id, "org-1", "tenant-1", "!room:example.org", MatrixRoomContextType.TASK,
+                UUID.nameUUIDFromBytes(id.toString().getBytes(StandardCharsets.UTF_8)), UUID.randomUUID(),
+                UUID.randomUUID(), status,
+                "admin", NOW, NOW, 1);
     }
 
     private static ChannelMessage message(UUID bindingId, String tenantId, String eventType) {

@@ -8,15 +8,21 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.command.CommandDispatcher;
 import io.agentteams.controlplane.security.ExecutionContextResolver;
 import java.time.Clock;
 import java.time.Duration;
+import java.net.URI;
+import java.net.http.HttpClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(MatrixAppServiceProperties.class)
+@EnableConfigurationProperties({MatrixAppServiceProperties.class, MatrixDeliveryProperties.class})
 public class MatrixAppServiceConfiguration {
     @Bean
     MatrixInboxRepository matrixInboxRepository(JdbcTemplate jdbcTemplate) {
@@ -66,8 +72,36 @@ public class MatrixAppServiceConfiguration {
     }
 
     @Bean
-    MatrixDeliveryService matrixDeliveryService(MatrixOutboundRepository outbound, Clock clock) {
-        return new MatrixDeliveryService(outbound, clock, Duration.ofSeconds(5));
+    MatrixDeliveryService matrixDeliveryService(MatrixOutboundRepository outbound, MatrixRoomBindingRepository bindings,
+            Clock clock, PlatformTransactionManager transactionManager) {
+        return new MatrixDeliveryService(outbound, clock, Duration.ofSeconds(5), bindings,
+                new TransactionTemplate(transactionManager));
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "agentteams.matrix.delivery", name = "enabled", havingValue = "true")
+    MatrixDeliveryService.MatrixTransport matrixHomeserverTransport(MatrixDeliveryProperties properties,
+            ObjectMapper mapper) {
+        if (properties.getRequestTimeout() == null || properties.getRequestTimeout().isZero()
+                || properties.getRequestTimeout().isNegative()
+                || properties.getRequestTimeout().compareTo(Duration.ofMinutes(2)) > 0) {
+            throw new IllegalArgumentException("Matrix request timeout must be positive and at most 2 minutes");
+        }
+        HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER)
+                .connectTimeout(properties.getRequestTimeout()).build();
+        return new MatrixHomeserverTransport(client, URI.create(properties.getHomeserverUrl()),
+                properties.getAccessToken(), properties.getRequestTimeout(), properties.getMaxResponseBytes(), mapper);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "agentteams.matrix.delivery", name = "enabled", havingValue = "true")
+    MatrixDeliveryScheduler matrixDeliveryScheduler(MatrixDeliveryService delivery,
+            MatrixDeliveryService.MatrixTransport transport, MatrixDeliveryProperties properties) {
+        if (properties.getBatchSize() < 1 || properties.getPollInterval() == null
+                || properties.getPollInterval().isZero() || properties.getPollInterval().isNegative()) {
+            throw new IllegalArgumentException("Matrix delivery batch size and poll interval must be positive");
+        }
+        return new MatrixDeliveryScheduler(delivery, transport, properties.getBatchSize());
     }
 
     @Bean

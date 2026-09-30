@@ -154,6 +154,28 @@ spec:
             - name: AGENTTEAMS_MATRIX_APPSERVICE_HS_TOKEN
               value: ""
 {{- end }}
+            - name: AGENTTEAMS_MATRIX_DELIVERY_ENABLED
+              value: {{ .Values.controlPlane.matrix.delivery.enabled | quote }}
+            - name: AGENTTEAMS_MATRIX_HOMESERVER_URL
+              value: {{ .Values.controlPlane.matrix.delivery.homeserverUrl | quote }}
+{{- if .Values.controlPlane.matrix.delivery.accessTokenSecret }}
+            - name: AGENTTEAMS_MATRIX_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.matrix.delivery.accessTokenSecret }}
+                  key: {{ .Values.controlPlane.matrix.delivery.accessTokenKey }}
+{{- else }}
+            - name: AGENTTEAMS_MATRIX_ACCESS_TOKEN
+              value: ""
+{{- end }}
+            - name: AGENTTEAMS_MATRIX_DELIVERY_POLL_INTERVAL
+              value: {{ .Values.controlPlane.matrix.delivery.pollInterval | quote }}
+            - name: AGENTTEAMS_MATRIX_DELIVERY_REQUEST_TIMEOUT
+              value: {{ .Values.controlPlane.matrix.delivery.requestTimeout | quote }}
+            - name: AGENTTEAMS_MATRIX_DELIVERY_BATCH_SIZE
+              value: {{ .Values.controlPlane.matrix.delivery.batchSize | quote }}
+            - name: AGENTTEAMS_MATRIX_DELIVERY_MAX_RESPONSE_BYTES
+              value: {{ .Values.controlPlane.matrix.delivery.maxResponseBytes | quote }}
             - name: AGENTTEAMS_TEAM_SYNC_ENABLED
               value: {{ .Values.controlPlane.teamSync.enabled | quote }}
             - name: AGENTTEAMS_TEAM_SYNC_NAMESPACE

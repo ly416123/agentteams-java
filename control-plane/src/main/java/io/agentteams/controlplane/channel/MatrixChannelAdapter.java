@@ -63,23 +63,21 @@ public final class MatrixChannelAdapter implements ChannelPort {
             throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
                     "channel event type is not enabled");
         }
-        if (binding.roomBindingId() != null) {
-            if (roomBindings == null) {
-                throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
-                        "room binding repository is not available");
-            }
-            MatrixRoomBinding roomBinding = roomBindings.findById(message.tenantId(), binding.roomBindingId())
-                    .filter(value -> value.status() == MatrixRoomBindingStatus.ACTIVE)
-                    .orElseThrow(() -> new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
-                            "room binding is not active"));
-            if (!roomBinding.roomId().equals(binding.roomId())) {
-                throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
-                        "room binding does not match channel room");
-            }
+        if (roomBindings == null || binding.roomBindingId() == null) {
+            throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
+                    "an authoritative room binding is required for Matrix delivery");
+        }
+        MatrixRoomBinding roomBinding = roomBindings.findById(message.tenantId(), binding.roomBindingId())
+                .filter(value -> value.status() == MatrixRoomBindingStatus.ACTIVE)
+                .orElseThrow(() -> new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
+                        "room binding is not active"));
+        if (!roomBinding.roomId().equals(binding.roomId())) {
+            throw new ChannelDeliveryException(ChannelErrorCategory.PERMANENT_REJECTION,
+                    "room binding does not match channel room");
         }
         Instant now = clock.instant();
-        boolean queued = outbound.enqueue(message.messageId(), binding.roomId(), message.eventType(),
-                message.renderedBody(), now);
+        boolean queued = outbound.enqueue(message.messageId(), message.tenantId(), binding.roomBindingId(),
+                binding.roomId(), message.eventType(), message.renderedBody(), now);
         return new ChannelReceipt(message.messageId(), message.bindingId(),
                 queued ? ChannelReceiptStatus.QUEUED : ChannelReceiptStatus.DUPLICATE, null);
     }

@@ -80,6 +80,17 @@ public final class JdbcMatrixRoomBindingRepository implements MatrixRoomBindingR
     }
 
     @Override
+    public Optional<MatrixRoomBinding> findByIdForUpdate(String tenantId, UUID id) {
+        return query("""
+                SELECT id, organization_id, tenant_id, room_id, primary_context_type, primary_context_id,
+                       project_id, team_id, status, created_by, created_at, updated_at, version
+                  FROM matrix_room_bindings
+                 WHERE tenant_id = ? AND id = ?
+                 FOR UPDATE
+                """, tenantId, id);
+    }
+
+    @Override
     public MatrixRoomBinding save(MatrixRoomBinding binding) {
         jdbc.update("""
                 INSERT INTO matrix_room_bindings

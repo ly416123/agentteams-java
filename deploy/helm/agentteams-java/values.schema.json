@@ -317,6 +317,20 @@
                 "hsTokenSecret": { "type": "string" },
                 "hsTokenKey": { "type": "string", "minLength": 1 }
               }
+            },
+            "delivery": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "homeserverUrl": { "type": "string" },
+                "accessTokenSecret": { "type": "string" },
+                "accessTokenKey": { "type": "string", "minLength": 1 },
+                "pollInterval": { "type": "string", "minLength": 1 },
+                "requestTimeout": { "type": "string", "minLength": 1 },
+                "batchSize": { "type": "integer", "minimum": 1 },
+                "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+              }
             }
           }
         },

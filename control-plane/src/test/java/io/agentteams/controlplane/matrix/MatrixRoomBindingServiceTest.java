@@ -150,6 +150,11 @@ class MatrixRoomBindingServiceTest {
         }
 
         @Override
+        public Optional<MatrixRoomBinding> findByIdForUpdate(String tenantId, UUID id) {
+            return findById(tenantId, id);
+        }
+
+        @Override
         public MatrixRoomBinding save(MatrixRoomBinding binding) {
             values.add(binding);
             return binding;

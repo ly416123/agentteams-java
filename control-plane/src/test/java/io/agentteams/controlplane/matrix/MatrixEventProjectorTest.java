@@ -35,8 +35,9 @@ class MatrixEventProjectorTest {
                 "!conversation:example.org");
         when(bindings.findActiveByContext("tenant-a", MatrixRoomContextType.CONVERSATION, CONVERSATION_ID))
                 .thenReturn(Optional.of(binding));
-        when(outbound.enqueue(any(UUID.class), eq(binding.roomId()), eq("TaskCreated"),
-                argThat(body -> body.contains("TaskCreated") && !body.contains("secret-payload")), eq(NOW)))
+        when(outbound.enqueue(any(UUID.class), eq(binding.tenantId()), eq(binding.id()), eq(binding.roomId()),
+                eq("TaskCreated"), argThat(body -> body.contains("TaskCreated") && !body.contains("secret-payload")),
+                eq(NOW)))
                 .thenReturn(true);
 
         MatrixEventProjector projector = new MatrixEventProjector(bindings, outbound,
@@ -55,7 +56,8 @@ class MatrixEventProjectorTest {
         MatrixRoomBinding binding = binding(MatrixRoomContextType.TASK, TASK_ID, "!task:example.org");
         when(bindings.findActiveByContext("tenant-a", MatrixRoomContextType.TASK, TASK_ID))
                 .thenReturn(Optional.of(binding));
-        when(outbound.enqueue(any(UUID.class), eq(binding.roomId()), anyString(), anyString(), eq(NOW)))
+        when(outbound.enqueue(any(UUID.class), eq(binding.tenantId()), eq(binding.id()), eq(binding.roomId()),
+                anyString(), anyString(), eq(NOW)))
                 .thenReturn(false);
 
         MatrixEventProjector projector = new MatrixEventProjector(bindings, outbound,

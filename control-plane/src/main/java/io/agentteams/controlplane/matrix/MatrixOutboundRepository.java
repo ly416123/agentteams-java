@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 public final class MatrixOutboundRepository {
+    private static final java.time.Duration CLAIM_TIMEOUT = java.time.Duration.ofMinutes(2);
     private final JdbcTemplate jdbc;
 
     public MatrixOutboundRepository(JdbcTemplate jdbc) { this.jdbc = java.util.Objects.requireNonNull(jdbc, "jdbc"); }
@@ -20,17 +21,29 @@ public final class MatrixOutboundRepository {
 
     /** Enqueues a caller-owned id so Channel retries remain idempotent across process restarts. */
     public boolean enqueue(UUID id, String roomId, String eventType, String body, Instant now) {
+        return enqueue(id, null, null, roomId, eventType, body, now);
+    }
+
+    public boolean enqueue(UUID id, String tenantId, UUID roomBindingId, String roomId,
+            String eventType, String body, Instant now) {
         return jdbc.update("""
                 INSERT INTO matrix_outbox_messages(id, room_id, event_type, body, status, attempts,
-                    next_attempt_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?)
+                    next_attempt_at, created_at, updated_at, tenant_id, room_binding_id)
+                VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO NOTHING
                 """, id, roomId, eventType, body, java.sql.Timestamp.from(now),
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now)) == 1;
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now), tenantId, roomBindingId) == 1;
     }
 
     public List<MatrixOutboundMessage> claimDue(Instant now, int limit) {
         if (limit < 1) throw new IllegalArgumentException("limit must be positive");
+        jdbc.update("""
+                UPDATE matrix_outbox_messages
+                   SET status = 'PENDING', next_attempt_at = ?,
+                       last_error = 'delivery claim expired; retrying with stable transaction id', updated_at = ?
+                 WHERE status = 'IN_FLIGHT' AND updated_at <= ?
+                """, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now),
+                java.sql.Timestamp.from(now.minus(CLAIM_TIMEOUT)));
         return jdbc.query("""
                 WITH due AS (
                     SELECT id FROM matrix_outbox_messages
@@ -41,7 +54,8 @@ public final class MatrixOutboundRepository {
                    SET status = 'IN_FLIGHT', attempts = message.attempts + 1, updated_at = ?
                   FROM due WHERE message.id = due.id
                 RETURNING message.id, message.room_id, message.event_type, message.body,
-                    message.status, message.attempts, message.next_attempt_at, message.last_error
+                    message.status, message.attempts, message.next_attempt_at, message.last_error,
+                    message.tenant_id, message.room_binding_id
                 """, this::map, java.sql.Timestamp.from(now), limit, java.sql.Timestamp.from(now));
     }
 
@@ -57,9 +71,16 @@ public final class MatrixOutboundRepository {
                 """, java.sql.Timestamp.from(nextAttemptAt), error, java.sql.Timestamp.from(now), id);
     }
 
+    public void suppress(UUID id, String error, Instant now) {
+        jdbc.update("""
+                UPDATE matrix_outbox_messages SET status = 'SUPPRESSED', last_error = ?, updated_at = ? WHERE id = ?
+                """, error, java.sql.Timestamp.from(now), id);
+    }
+
     private MatrixOutboundMessage map(ResultSet rs, int row) throws SQLException {
         return new MatrixOutboundMessage(rs.getObject("id", UUID.class), rs.getString("room_id"),
                 rs.getString("event_type"), rs.getString("body"), rs.getString("status"),
-                rs.getInt("attempts"), rs.getTimestamp("next_attempt_at").toInstant(), rs.getString("last_error"));
+                rs.getInt("attempts"), rs.getTimestamp("next_attempt_at").toInstant(), rs.getString("last_error"),
+                rs.getString("tenant_id"), rs.getObject("room_binding_id", UUID.class));
     }
 }

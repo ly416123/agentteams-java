@@ -3,15 +3,21 @@ package io.agentteams.controlplane.matrix;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
+import org.springframework.transaction.support.TransactionOperations;
 
 public final class MatrixDeliveryService {
     private final MatrixOutboundRepository outbound;
     private final Clock clock;
     private final Duration retryDelay;
+    private final MatrixRoomBindingRepository roomBindings;
+    private final TransactionOperations transactions;
 
-    public MatrixDeliveryService(MatrixOutboundRepository outbound, Clock clock, Duration retryDelay) {
+    public MatrixDeliveryService(MatrixOutboundRepository outbound, Clock clock, Duration retryDelay,
+            MatrixRoomBindingRepository roomBindings, TransactionOperations transactions) {
         this.outbound = Objects.requireNonNull(outbound, "outbound");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.roomBindings = Objects.requireNonNull(roomBindings, "roomBindings");
+        this.transactions = Objects.requireNonNull(transactions, "transactions");
         if (retryDelay == null || retryDelay.isZero() || retryDelay.isNegative()) {
             throw new IllegalArgumentException("retryDelay must be positive");
         }
@@ -22,9 +28,14 @@ public final class MatrixDeliveryService {
         int delivered = 0;
         for (MatrixOutboundMessage message : outbound.claimDue(clock.instant(), limit)) {
             try {
-                transport.send(message.roomId(), message.eventType(), message.body());
-                outbound.markSent(message.id(), clock.instant());
-                delivered++;
+                if (deliverOne(message, transport)) delivered++;
+            } catch (MatrixDeliveryException error) {
+                if (error.retryable()) {
+                    Duration delay = error.retryAfter().orElse(retryDelay);
+                    outbound.retry(message.id(), clock.instant().plus(delay), sanitize(error.getMessage()), clock.instant());
+                } else {
+                    outbound.suppress(message.id(), sanitize(error.getMessage()), clock.instant());
+                }
             } catch (RuntimeException error) {
                 outbound.retry(message.id(), clock.instant().plus(retryDelay),
                         sanitize(error.getMessage()), clock.instant());
@@ -33,9 +44,29 @@ public final class MatrixDeliveryService {
         return delivered;
     }
 
+    private boolean deliverOne(MatrixOutboundMessage message, MatrixTransport transport) {
+        return transactions.execute(status -> {
+            if (!isBindingActiveForUpdate(message)) {
+                outbound.suppress(message.id(), "Matrix room binding is missing, revoked, or mismatched",
+                        clock.instant());
+                return false;
+            }
+            transport.send(message);
+            outbound.markSent(message.id(), clock.instant());
+            return true;
+        });
+    }
+
+    private boolean isBindingActiveForUpdate(MatrixOutboundMessage message) {
+        if (message.tenantId() == null || message.tenantId().isBlank() || message.roomBindingId() == null) return false;
+        return roomBindings.findByIdForUpdate(message.tenantId(), message.roomBindingId())
+                .filter(binding -> binding.status() == MatrixRoomBindingStatus.ACTIVE)
+                .filter(binding -> binding.roomId().equals(message.roomId())).isPresent();
+    }
+
     @FunctionalInterface
     public interface MatrixTransport {
-        void send(String roomId, String eventType, String body);
+        void send(MatrixOutboundMessage message);
     }
 
     private static String sanitize(String message) {

@@ -40,7 +40,9 @@ public final class MatrixEventProjector {
         String roomId = binding.get().roomId();
         UUID outboxId = UUID.nameUUIDFromBytes((event.eventId() + ":" + roomId)
                 .getBytes(StandardCharsets.UTF_8));
-        boolean queued = outbound.enqueue(outboxId, roomId, event.eventType(), safeSummary(event), clock.instant());
+        MatrixRoomBinding roomBinding = binding.orElseThrow();
+        boolean queued = outbound.enqueue(outboxId, roomBinding.tenantId(), roomBinding.id(), roomId,
+                event.eventType(), safeSummary(event), clock.instant());
         return new ProjectionResult(queued ? ProjectionStatus.QUEUED : ProjectionStatus.DUPLICATE, roomId, outboxId);
     }
 

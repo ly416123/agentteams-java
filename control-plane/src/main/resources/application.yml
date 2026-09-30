@@ -182,3 +182,11 @@ agentteams:
     appservice:
       auth-enabled: false
       hs-token: ${AGENTTEAMS_MATRIX_APPSERVICE_HS_TOKEN:}
+    delivery:
+      enabled: ${AGENTTEAMS_MATRIX_DELIVERY_ENABLED:false}
+      homeserver-url: ${AGENTTEAMS_MATRIX_HOMESERVER_URL:}
+      access-token: ${AGENTTEAMS_MATRIX_ACCESS_TOKEN:}
+      poll-interval: ${AGENTTEAMS_MATRIX_DELIVERY_POLL_INTERVAL:5s}
+      request-timeout: ${AGENTTEAMS_MATRIX_DELIVERY_REQUEST_TIMEOUT:10s}
+      batch-size: ${AGENTTEAMS_MATRIX_DELIVERY_BATCH_SIZE:20}
+      max-response-bytes: ${AGENTTEAMS_MATRIX_DELIVERY_MAX_RESPONSE_BYTES:8192}
