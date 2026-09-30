@@ -94,7 +94,7 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             AgentRecord worker = agents.create("template-worker-" + instanceId,
                     new AgentService.AgentInput(name, runtime, revision.workerType(), "{}", scopeMetadata(principal)));
             workerCrdProvisioner.provision(new WorkerCrdProvisioner.Request(
-                    worker.id(), runtime, provider, model,
+                    worker.id(), runtime, provider, runtimeModelId(provider, model),
                     principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
                     revision.digest(), "template-" + revision.revision(), "",
                     workerImage, workerReplicas, gatewayHost, gatewayPort, configManifestBaseUrl,
@@ -104,6 +104,10 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             if (error instanceof RuntimeException runtime) throw runtime;
             throw new IllegalArgumentException("template spec must be valid JSON object", error);
         }
+    }
+
+    private static String runtimeModelId(String provider, String model) {
+        return model.contains(":") ? model : provider + ":" + model;
     }
 
     private static String scopeMetadata(io.agentteams.controlplane.security.Principal principal) {

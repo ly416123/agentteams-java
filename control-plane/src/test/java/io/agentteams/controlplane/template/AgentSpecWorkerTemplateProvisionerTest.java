@@ -67,6 +67,7 @@ class AgentSpecWorkerTemplateProvisionerTest {
         assertThat(request.getValue().tenantId()).isEqualTo("tenant-a");
         assertThat(request.getValue().projectId()).isEqualTo("project-a");
         assertThat(request.getValue().team()).isEqualTo("team-a");
+        assertThat(request.getValue().model()).isEqualTo("deepseek:deepseek-chat");
         assertThat(request.getValue().secretEnv()).isEmpty();
     }
 
