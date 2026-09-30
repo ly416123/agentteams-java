@@ -38,7 +38,7 @@ import uuid
 POLL_TIMEOUT_SECONDS = 240.0
 POLL_INTERVAL_SECONDS = 2.0
 TOKEN_TTL_SECONDS = 240.0
-# 拆解标记：与 scripts/qwenpaw-conversation-mock.py 的 DECOMPOSITION_MARKER 一致。
+# 拆解标记：与 scripts/agentscope-conversation-mock.py 的 DECOMPOSITION_MARKER 一致。
 DECOMPOSITION_MARKER = "SUBTASK_DECOMPOSITION_PROMPT"
 # 失败注入标记：C 的 title 携带它（title 随 inputJson.prompt 进入子任务会话），
 # mock 对该子任务的首个会话发 failed 终态——硬约束与 retry 恢复链的确定性 fixture。
@@ -167,7 +167,7 @@ def require_environment(namespace: str) -> None:
     if not clusters or "agentteams" not in clusters.splitlines():
         fail("Kind cluster agentteams is required; kind get clusters returned no matching cluster")
     deployments = json.loads(kubectl(namespace, "get", "deployments", "-o", "json"))
-    for required in ("agentteams-agentteams-java-control-plane", "qwenpaw-worker"):
+    for required in ("agentteams-agentteams-java-control-plane", "agentscope-worker"):
         items = [item for item in deployments.get("items", [])
                  if item["metadata"]["name"] == required]
         if not items:
@@ -250,9 +250,9 @@ def create_and_queue_task(base_url: str, tokens: TokenSource, tenant: str, proje
         "description": "Subtask delegation true scheduling acceptance (G03)",
         "spec": {
             "scope": {"tenant": tenant, "project": project, "team": team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": prompt},
-            "requiredCapabilities": ["qwenpaw"],
+            "requiredCapabilities": ["agentscope"],
         },
     }
     status, created = request_json(f"{base_url.rstrip('/')}/api/v1/tasks", "POST", body,

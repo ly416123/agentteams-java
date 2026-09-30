@@ -788,14 +788,14 @@ class FoundationRepositoryIT {
     void assignsUnscopedTasksFromTheGlobalReadyPoolAndKeepsScopedTasksIsolated() {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentRepository agents = new AgentRepository(jdbc);
-        String spec = "{\"requiredCapabilities\":[\"qwenpaw\"]}";
+        String spec = "{\"requiredCapabilities\":[\"agentscope\"]}";
 
         AgentRecord unscopedAgent = AgentRecord.create(UUID.randomUUID(), "unscoped-worker",
-                AgentPhase.READY, "qwenpaw", "{\"qwenpaw\":\"true\"}", now);
+                AgentPhase.READY, "agentscope", "{\"agentscope\":\"true\"}", now);
         AgentRecord otherProjectAgent = AgentRecord.create(UUID.randomUUID(), "other-project-worker",
-                AgentPhase.READY, "qwenpaw", "{\"qwenpaw\":\"true\"}", now);
+                AgentPhase.READY, "agentscope", "{\"agentscope\":\"true\"}", now);
         AgentRecord matchingAgent = AgentRecord.create(UUID.randomUUID(), "matching-worker",
-                AgentPhase.READY, "qwenpaw", "{\"qwenpaw\":\"true\"}", now);
+                AgentPhase.READY, "agentscope", "{\"agentscope\":\"true\"}", now);
         persistence.inTransaction(tx -> {
             tx.agents().insert(unscopedAgent);
             tx.agents().insert(otherProjectAgent);

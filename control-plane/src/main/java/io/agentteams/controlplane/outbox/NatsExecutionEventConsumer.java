@@ -538,7 +538,8 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
         return new io.agentteams.application.api.ExecutionEventPort.TaskExecutionCommand(command.eventId(),
                 command.expectedVersion(), command.attemptId(), command.leaseId(), command.occurredAt(),
                 command.agentId(), command.source(), command.phase(), command.failureCode(), command.failureMessage(),
-                context.correlationId(), context.traceparent(), context.tracestate(), command.modelCallUsage());
+                context.correlationId(), context.traceparent(), context.tracestate(), command.modelCallUsage(),
+                command.resultJson());
     }
 
     private static io.agentteams.application.api.ExecutionEventPort.LeaseRenewalCommand withContext(

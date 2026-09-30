@@ -13,6 +13,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import io.agentteams.manager.security.ManagerAuthorizationException;
+import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
 
 /** Application service for conversation lifecycle, durable replay and idempotency. */
 public final class ConversationService {
@@ -52,6 +53,8 @@ public final class ConversationService {
     private final ConversationRuntimePort runtime;
     private final ConversationRepository repository;
     private final ControlPlaneConversationPort controlPlane;
+    private final ConversationTaskBridge taskBridge;
+    private final boolean taskExecution;
     private final Map<UUID, SessionState> sessions = new ConcurrentHashMap<>();
     private final ScheduledExecutorService eventSynchronizer = Executors.newScheduledThreadPool(2,
             daemonThreadFactory());
@@ -66,9 +69,21 @@ public final class ConversationService {
 
     public ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
             ControlPlaneConversationPort controlPlane) {
+        this(runtime, repository, controlPlane, ConversationTaskBridge.noop(), false);
+    }
+
+    public ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
+            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge) {
+        this(runtime, repository, controlPlane, taskBridge, true);
+    }
+
+    private ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
+            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge, boolean taskExecution) {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.repository = Objects.requireNonNull(repository, "repository");
         this.controlPlane = Objects.requireNonNull(controlPlane, "controlPlane");
+        this.taskBridge = Objects.requireNonNull(taskBridge, "taskBridge");
+        this.taskExecution = taskExecution;
     }
 
     public Conversation create(ConversationRuntimePort.Context context) {
@@ -93,7 +108,11 @@ public final class ConversationService {
             throw new ConversationRuntimeException(ConversationRuntimeException.Code.IDEMPOTENCY_CONFLICT,
                     "conversation session already exists with different owner");
         }
-        if (owner != null && idempotencyKey != null && !state.controlPlaneCreated) {
+        // Task-backed conversations own their lifecycle in Manager and create the
+        // Control Plane task on the first message. Replaying the legacy
+        // conversation command here would duplicate the source record and also
+        // force Manager's legacy tenant key through the canonical CP context.
+        if (!taskExecution && owner != null && idempotencyKey != null && !state.controlPlaneCreated) {
             controlPlane.create(new ControlPlaneConversationPort.CreateRequest(
                     context.sessionId(), owner.tenantId(), context.project(), context.team(),
                     "Manager conversation " + context.sessionId(), owner.subject(), idempotencyKey,
@@ -167,7 +186,7 @@ public final class ConversationService {
         SessionState state = session(sessionId);
         synchronized (state) {
             if (state.status == Status.CANCELLED) return snapshot(state);
-            if (!state.runtimeStarted) {
+            if (!state.runtimeStarted && !taskExecution) {
                 runtime.start(state.context);
                 state.runtimeStarted = true;
                 reconcileRuntimeAfterStart(state);
@@ -201,7 +220,7 @@ public final class ConversationService {
         }
         synchronized (state) {
             authorize(state, caller);
-            if (state.status == Status.ACTIVE && !state.runtimeStarted) {
+            if (state.status == Status.ACTIVE && !state.runtimeStarted && !taskExecution) {
                 runtime.start(state.context);
                 state.runtimeStarted = true;
                 reconcileRuntimeAfterStart(state);
@@ -276,9 +295,17 @@ public final class ConversationService {
                 record.responseCaptured = !replay.isEmpty();
                 return new SendResult(sessionId, idempotencyKey, replay);
             }
-            bridgeMessage(state, content, idempotencyKey, requested.createdAt(), managerVersion);
-            dispatchPendingMessages(state);
-            syncRuntimeEvents(state);
+            if (taskExecution) {
+                if (state.owner == null) {
+                    throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
+                            "task-backed conversation requires an owner");
+                }
+                dispatchTask(state, record, content, idempotencyKey);
+            } else {
+                bridgeMessage(state, content, idempotencyKey, requested.createdAt(), managerVersion);
+                dispatchPendingMessages(state);
+                syncRuntimeEvents(state);
+            }
             List<ConversationEvent> produced = repository.findEvents(sessionId, startCursor);
             freezeTerminalCursors(state, produced);
             scheduleEventPersistence(state);
@@ -345,12 +372,12 @@ public final class ConversationService {
             if (state.status != Status.CANCELLED) {
                 try {
                     requireVersion(sessionId, state, expectedVersion);
-                    if (!state.runtimeStarted && state.status == Status.ACTIVE) {
-                        runtime.start(state.context);
+                    if (!state.runtimeStarted && state.status == Status.ACTIVE && !taskExecution) {
+                    runtime.start(state.context);
                         state.runtimeStarted = true;
                         reconcileRuntimeAfterStart(state);
                     }
-                    runtime.cancel(sessionId);
+                    if (!taskExecution) runtime.cancel(sessionId);
                     syncRuntimeEvents(state);
                     freezeTerminalCursors(state, repository.findEvents(sessionId));
                     ConversationRepository.ConversationRecord updated = repository.updateStatus(sessionId,
@@ -573,6 +600,33 @@ public final class ConversationService {
             repository.updateMessageStatus(state.context.sessionId(), next.idempotencyKey,
                     ConversationRepository.MessageStatus.RECOVERY_REQUIRED);
             next.status = ConversationRepository.MessageStatus.RECOVERY_REQUIRED;
+            throw error;
+        }
+    }
+
+    private void dispatchTask(SessionState state, SendRecord record, String content, String idempotencyKey) {
+        try {
+            TaskCreationResult task = taskBridge.createAndQueue(state.context, state.owner, content, idempotencyKey);
+            Instant now = Instant.now();
+            String data = "{\"taskId\":\"" + task.taskId() + "\",\"phase\":\"" + task.phase()
+                    + "\",\"version\":" + task.version() + "}";
+            ConversationEvent created = repository.appendEvent(state.context.sessionId(),
+                    ConversationEvent.of(state.context.sessionId(), 1, "task.created", data, now));
+            repository.appendEvent(state.context.sessionId(),
+                    ConversationEvent.of(state.context.sessionId(), created.cursor() + 1, "task.updated", data, now));
+            ConversationEvent completed = repository.appendEvent(state.context.sessionId(),
+                    ConversationEvent.of(state.context.sessionId(), created.cursor() + 2, "message.completed",
+                            "{\"taskId\":\"" + task.taskId() + "\",\"phase\":\"" + task.phase()
+                                    + "\",\"text\":\"task queued\"}", now));
+            record.dispatched = true;
+            record.freezeAt(completed.cursor());
+            record.status = ConversationRepository.MessageStatus.COMPLETED;
+            repository.updateMessageEnd(state.context.sessionId(), idempotencyKey, completed.cursor());
+        } catch (RuntimeException error) {
+            record.dispatched = false;
+            record.status = ConversationRepository.MessageStatus.RECOVERY_REQUIRED;
+            repository.updateMessageStatus(state.context.sessionId(), idempotencyKey,
+                    ConversationRepository.MessageStatus.RECOVERY_REQUIRED);
             throw error;
         }
     }

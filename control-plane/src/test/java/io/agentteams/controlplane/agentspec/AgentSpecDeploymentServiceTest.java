@@ -45,7 +45,7 @@ class AgentSpecDeploymentServiceTest {
         UUID snapshotId = UUID.randomUUID();
         UUID bindingId = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
-        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "agentscope", "deepseek", "deepseek-chat",
                 "research", "RUNNING", "DRAFT", "{\"skillRefs\":[\"search-v1\"]}", now, now, 2);
         ConfigSnapshot snapshot = new ConfigSnapshot(snapshotId, "agent-spec:" + specId, 1, "{}", "checksum",
                 "operator", now);
@@ -65,7 +65,7 @@ class AgentSpecDeploymentServiceTest {
         verify(snapshots).create("agent-spec:" + specId,
                 "{\"apiVersion\":\"agentteams.io/v1\",\"kind\":\"AgentSpec\",\"agentSpecId\":\""
                         + specId + "\",\"agentSpecVersion\":2,\"name\":\"analyst\","
-                        + "\"workerType\":\"EXECUTOR\",\"runtime\":\"qwenpaw\","
+                        + "\"workerType\":\"EXECUTOR\",\"runtime\":\"agentscope\","
                         + "\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\",\"teamRef\":\"research\","
                         + "\"scope\":{\"tenant\":\"default\",\"project\":\"default\",\"team\":\"research\"},"
                         + "\"desiredState\":\"RUNNING\",\"spec\":{\"skillRefs\":[\"search-v1\"]}}", "operator");
@@ -76,7 +76,7 @@ class AgentSpecDeploymentServiceTest {
         UUID specId = UUID.randomUUID();
         UUID agentId = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
-        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "agentscope", "deepseek", "deepseek-chat",
                 null, "RUNNING", "DRAFT", "{}", now, now, 1);
         when(specs.get(specId)).thenReturn(spec);
         doThrow(new AuthorizationException("resource is outside caller project"))
@@ -100,7 +100,7 @@ class AgentSpecDeploymentServiceTest {
         UUID workerId = UUID.randomUUID();
         UUID snapshotId = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
-        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "agentscope", "deepseek", "deepseek-chat",
                 "research", "RUNNING", "DRAFT",
                 "{\"skillRefs\":[\"review@2\"],\"mcpRefs\":[\"search\"]}", now, now, 2,
                 "tenant-a", "project-a");
@@ -175,7 +175,7 @@ class AgentSpecDeploymentServiceTest {
         UUID specId = UUID.randomUUID();
         UUID workerId = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
-        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+        AgentSpecRecord spec = new AgentSpecRecord(specId, "analyst", "agentscope", "deepseek", "deepseek-chat",
                 "research", "RUNNING", "DRAFT", "{\"skillRefs\":[\"private-skill\"]}", now, now, 1,
                 "tenant-a", "project-a");
         AgentSpecReferenceCatalog catalog = reference -> Optional.of(

@@ -103,7 +103,7 @@ class TeamRevisionRepositoryTest {
                 .executeWithoutResult(status -> {
                     jdbc.update("""
                             INSERT INTO agents(id, name, phase, runtime, capabilities, metadata, created_at, updated_at)
-                            VALUES (?, ?, 'READY', 'qwenpaw', '{}'::jsonb, '{}'::jsonb, ?, ?)
+                            VALUES (?, ?, 'READY', 'agentscope', '{}'::jsonb, '{}'::jsonb, ?, ?)
                             """, leaderAgentId, "agent-" + leaderAgentId, java.sql.Timestamp.from(NOW),
                             java.sql.Timestamp.from(NOW));
                     jdbc.update("""

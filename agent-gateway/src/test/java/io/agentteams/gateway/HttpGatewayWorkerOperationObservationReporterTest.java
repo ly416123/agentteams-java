@@ -53,7 +53,7 @@ class HttpGatewayWorkerOperationObservationReporterTest {
         assertThat(requestBody.get()).contains("\"expectedVersion\":4")
                 .contains("\"online\":true")
                 .contains("\"specDigest\":\"sha256:worker\"")
-                .contains("\"runtime\":\"qwenpaw\"")
+                .contains("\"runtime\":\"agentscope\"")
                 .contains("\"configRevision\":\"config-7\"")
                 .contains("\"secretGeneration\":\"secret-3\"");
     }
@@ -65,7 +65,7 @@ class HttpGatewayWorkerOperationObservationReporterTest {
                 exchange -> respond(exchange, 404, ""));
 
         reporter().report(connection(), false, Instant.parse("2030-01-01T00:01:00Z"));
-        reporter().report(new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), "legacy-agent", "qwenpaw",
+        reporter().report(new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), "legacy-agent", "agentscope",
                 "0.4.0", Map.of(), Instant.parse("2030-01-01T00:00:00Z"), 0), true,
                 Instant.parse("2030-01-01T00:01:00Z"));
 
@@ -94,7 +94,7 @@ class HttpGatewayWorkerOperationObservationReporterTest {
     }
 
     private static ConnectionRegistry.ConnectionSnapshot connection() {
-        return new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), AGENT_ID, "qwenpaw", "0.4.0",
+        return new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), AGENT_ID, "agentscope", "0.4.0",
                 "sha256:worker", "config-7", "secret-3", Map.of(), Instant.parse("2030-01-01T00:00:00Z"), 0);
     }
 

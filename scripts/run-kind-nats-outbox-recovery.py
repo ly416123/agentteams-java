@@ -93,13 +93,13 @@ def deployment_ready(namespace: str, name: str, expected: int) -> bool:
     return int(status.get("readyReplicas", 0)) == expected
 
 
-def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
+def agentscope_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
     rows = sql(namespace, postgres_pod, """
         select count(*)
           from agents
          where id = '{agent_id}'
            and phase = 'READY'
-           and capabilities ? 'qwenpaw';
+           and capabilities ? 'agentscope';
     """.format(agent_id=agent_id))
     return int(rows or "0") > 0
 
@@ -143,7 +143,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--agent-id", default=os.environ.get("AGENTTEAMS_AGENT_ID"))
-    parser.add_argument("--worker-deployment", default="qwenpaw-real")
+    parser.add_argument("--worker-deployment", default="agentscope-real")
     parser.add_argument("--postgres-pod", default="postgresql-0")
     parser.add_argument("--nats-statefulset", default="nats")
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
@@ -161,14 +161,14 @@ def main() -> int:
     if original_nats_replicas < 1:
         fail("NATS StatefulSet must have at least one replica before the test")
     if not deployment_ready(args.namespace, args.worker_deployment, 1):
-        fail("QwenPaw worker must be ready before the NATS outage test")
+        fail("AgentScope worker must be ready before the NATS outage test")
     wait_until(
-        f"QwenPaw Agent registration for {args.agent_id}",
-        lambda: qwenpaw_agent_ready(args.namespace, args.postgres_pod, args.agent_id),
+        f"AgentScope Agent registration for {args.agent_id}",
+        lambda: agentscope_agent_ready(args.namespace, args.postgres_pod, args.agent_id),
         args.timeout,
     )
     wait_until(
-        f"QwenPaw Gateway connection for {args.agent_id}",
+        f"AgentScope Gateway connection for {args.agent_id}",
         lambda: gateway_agent_online(args.namespace, args.postgres_pod, args.agent_id),
         args.timeout,
     )
@@ -185,8 +185,8 @@ def main() -> int:
             f"{base_url}/api/v1/tasks", "POST",
             {"title": "kind-nats-outbox-recovery", "description": "NATS outage Outbox recovery smoke test",
              "spec": {"scope": {"tenant": args.tenant, "project": args.project, "team": args.team},
-                      "taskType": "qwenpaw", "inputJson": {"prompt": "KIND_NATS_OUTBOX_RECOVERY_OK"},
-                      "requiredCapabilities": ["qwenpaw"]}},
+                      "taskType": "agentscope", "inputJson": {"prompt": "KIND_NATS_OUTBOX_RECOVERY_OK"},
+                      "requiredCapabilities": ["agentscope"]}},
             f"kind-nats-outbox-create-{uuid.uuid4()}")
         task_id = created["id"]
         api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},

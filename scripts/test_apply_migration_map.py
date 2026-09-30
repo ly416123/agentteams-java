@@ -142,7 +142,7 @@ MODEL_DRAFT = {"name": "qwen3.7-max", "model_id": "qwen3.7-max",
 AGENTSPEC_DRAFT = {
     "name": "bidding-worker", "worker_type": "EXECUTOR", "team_ref": "corp-map-algo-test",
     "desired_state": "RUNNING",
-    "registration": {"name": "bidding-worker", "runtime": "qwenpaw", "workerType": "EXECUTOR",
+    "registration": {"name": "bidding-worker", "runtime": "agentscope", "workerType": "EXECUTOR",
                      "modelProvider": "default", "modelName": "qwen3.7-max",
                      "teamRef": "corp-map-algo-test", "desiredState": "RUNNING",
                      "spec": {"modelRef": {"provider": "default", "model": "qwen3.7-max"},

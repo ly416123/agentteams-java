@@ -107,7 +107,7 @@ class ReconcilerStatusConflictTest {
         worker.setMetadata(new io.fabric8.kubernetes.api.model.ObjectMetaBuilder().withName("worker-a")
                 .withNamespace("agentteams").withGeneration(4L).withUid("worker-uid")
                 .withResourceVersion("7").build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:dev", 2,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker:dev", 2,
                 java.util.Map.of(), ""));
         return worker;
     }

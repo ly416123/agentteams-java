@@ -20,6 +20,7 @@ import io.agentteams.controlplane.task.TaskRecoveryCheckpoint;
 import io.agentteams.controlplane.task.TaskRecoveryCheckpointRepository;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
+import io.agentteams.controlplane.task.TeamOrchestrationService;
 import io.agentteams.controlplane.webhook.WebhookDeliveryService;
 import io.agentteams.controlplane.webhook.WebhookScope;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -52,14 +53,17 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
     private final TaskRecoveryCheckpointRepository checkpoints;
     /** Null when no meter registry is present; drop accounting is best effort. */
     private final MeterRegistry registry;
+    private final TeamOrchestrationService orchestration;
 
     @Autowired
     public ControlPlaneTaskExecutionObservationAdapter(JdbcTaskRunObservationRepository runs,
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions,
-            TaskRecoveryCheckpointRepository checkpoints, ObjectProvider<MeterRegistry> meterRegistry) {
+            TaskRecoveryCheckpointRepository checkpoints, ObjectProvider<MeterRegistry> meterRegistry,
+            ObjectProvider<TeamOrchestrationService> orchestration) {
         this((TaskRunObservationRepository) runs, processEvents, results, webhooks, taskTree, decisions,
-                checkpoints, meterRegistry != null ? meterRegistry.getIfAvailable() : null);
+                checkpoints, meterRegistry != null ? meterRegistry.getIfAvailable() : null,
+                orchestration != null ? orchestration.getIfAvailable() : null);
     }
 
     /** Compatibility constructor for composition tests that only exercise Worker lifecycle facts. */
@@ -85,6 +89,14 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
             TaskProcessEventService processEvents, TaskResultManifestService results,
             WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions,
             TaskRecoveryCheckpointRepository checkpoints, MeterRegistry registry) {
+        this(runs, processEvents, results, webhooks, taskTree, decisions, checkpoints, registry, null);
+    }
+
+    ControlPlaneTaskExecutionObservationAdapter(TaskRunObservationRepository runs,
+            TaskProcessEventService processEvents, TaskResultManifestService results,
+            WebhookDeliveryService webhooks, TaskTreeService taskTree, TaskDecisionRecordService decisions,
+            TaskRecoveryCheckpointRepository checkpoints, MeterRegistry registry,
+            TeamOrchestrationService orchestration) {
         this.runs = Objects.requireNonNull(runs, "runs");
         this.processEvents = Objects.requireNonNull(processEvents, "processEvents");
         this.results = Objects.requireNonNull(results, "results");
@@ -96,6 +108,7 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
         this.decisions = decisions;
         this.checkpoints = checkpoints;
         this.registry = registry;
+        this.orchestration = orchestration;
     }
 
     @Override
@@ -145,6 +158,17 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
         ExecutionContext context = recordProcess(taskId, runId, eventId, occurredAt, correlationId,
                 "task.completed", payload("status", "SUCCEEDED"), "SUCCEEDED");
         if (context == null) return;
+        if (orchestration != null) {
+            try {
+                orchestration.recordSubtaskResult(taskId, resultSummary, occurredAt);
+                orchestration.planLeaderResult(taskId, resultSummary);
+            } catch (RuntimeException error) {
+                // 非 Team 结果和不符合计划协议的结果仍按普通成功交付，避免
+                // 观测支路阻断终态结果；只有合法 Leader plan 才创建子任务。
+                java.util.logging.Logger.getLogger(getClass().getName()).warning(
+                        "Team orchestration skipped for task " + taskId + ": " + error.getMessage());
+            }
+        }
         TaskResultManifest manifest = manifest(taskId, runId, "SUCCEEDED", resultSummary, artifacts);
         results.publish(context, manifest);
         JsonNode resultPayload = manifestPayload(manifest);

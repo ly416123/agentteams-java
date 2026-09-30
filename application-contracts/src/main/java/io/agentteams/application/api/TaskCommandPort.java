@@ -8,6 +8,8 @@ public interface TaskCommandPort {
 
     TaskCreationResult create(String idempotencyKey, TaskCreateCommand command);
 
+    TaskCreationResult queue(UUID taskId, long expectedVersion, String idempotencyKey);
+
     record TaskCreateCommand(String title, String description, String specJson,
             String actor, String source) {
         public TaskCreateCommand {

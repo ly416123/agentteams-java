@@ -44,13 +44,13 @@ describe('worker domain API contracts: 20 cases', () => {
 
   it('filters workers by runtime', async () => {
     const http = client();
-    await listWorkers('project-1', { runtime: 'QWENPAW' }, http);
+    await listWorkers('project-1', { runtime: 'AGENTSCOPE' }, http);
     expect(http.request).toHaveBeenCalledWith('/api/v1/agents', {
       query: {
         projectId: 'project-1',
         q: undefined,
         status: undefined,
-        runtime: 'QWENPAW',
+        runtime: 'AGENTSCOPE',
         cursor: undefined,
       },
     });
@@ -129,10 +129,10 @@ describe('worker domain API contracts: 20 cases', () => {
     const body = {
       expectedVersion: 2,
       imageDigest: 'sha256:image',
-      runtime: 'QWENPAW',
+      runtime: 'AGENTSCOPE',
       configRevision: 'cfg-2',
       secretGeneration: 'secret-3',
-      previousStableSpec: '{"runtime":"QWENPAW"}',
+      previousStableSpec: '{"runtime":"AGENTSCOPE"}',
     };
     await rolloutWorker('project-1', 'worker-1', body, http);
     expect(http.request).toHaveBeenCalledWith('/api/v1/agents/worker-1/operations/rollout', {
@@ -199,7 +199,7 @@ describe('worker domain API contracts: 20 cases', () => {
     const body = {
       expectedVersion: 1,
       imageDigest: 'sha256:x',
-      runtime: 'QWENPAW',
+      runtime: 'AGENTSCOPE',
       configRevision: '1',
       secretGeneration: '1',
       previousStableSpec: '{}',

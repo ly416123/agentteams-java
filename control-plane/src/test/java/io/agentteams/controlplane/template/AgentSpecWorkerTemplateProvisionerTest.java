@@ -41,17 +41,16 @@ class AgentSpecWorkerTemplateProvisionerTest {
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
                 java.util.Set.of("agent:write")));
         when(specs.create(eq("template-spec-" + instanceId), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new AgentSpecRecord(UUID.randomUUID(), "worker", "qwenpaw", "deepseek",
+                .thenReturn(new AgentSpecRecord(UUID.randomUUID(), "worker", "agentscope", "deepseek",
                         "deepseek-chat", null, "RUNNING", "DRAFT", "{}", NOW, NOW, 1));
         when(agents.create(eq("template-worker-" + instanceId), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new AgentRecord(workerId, "template-worker-" + instanceId,
-                        io.agentteams.domain.agent.AgentPhase.PROVISIONING, "qwenpaw", "{}", "{}", NOW, NOW, 0));
+                        io.agentteams.domain.agent.AgentPhase.PROVISIONING, "agentscope", "{}", "{}", NOW, NOW, 0));
         AgentSpecWorkerTemplateProvisioner provisioner = new AgentSpecWorkerTemplateProvisioner(
-                specs, agents, crd, "worker:image", 1, "gateway", 9090, "http://control-plane",
-                "http://qwenpaw", "");
+                specs, agents, crd, "worker:image", 1, "gateway", 9090, "http://control-plane", "");
 
         provisioner.provision(new WorkerTemplateRevision(UUID.randomUUID(), 1,
-                "{\"runtime\":\"qwenpaw\",\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\"}",
+                "{\"runtime\":\"agentscope\",\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\"}",
                 "digest-1", WorkerType.LEADER, TemplateStatus.PUBLISHED, "subject-1", NOW, NOW, 1),
                 instanceId, "instance-key");
 
@@ -82,18 +81,17 @@ class AgentSpecWorkerTemplateProvisionerTest {
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
                 java.util.Set.of("agent:write")));
         when(specs.create(eq("template-spec-" + instanceId), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new AgentSpecRecord(UUID.randomUUID(), "worker", "qwenpaw", "deepseek",
+                .thenReturn(new AgentSpecRecord(UUID.randomUUID(), "worker", "agentscope", "deepseek",
                         "deepseek-chat", null, "RUNNING", "DRAFT", "{}", NOW, NOW, 1));
         when(agents.create(eq("template-worker-" + instanceId), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new AgentRecord(workerId, "template-worker-" + instanceId,
-                        io.agentteams.domain.agent.AgentPhase.PROVISIONING, "qwenpaw", "{}", "{}", NOW, NOW, 0));
+                        io.agentteams.domain.agent.AgentPhase.PROVISIONING, "agentscope", "{}", "{}", NOW, NOW, 0));
         AgentSpecWorkerTemplateProvisioner provisioner = new AgentSpecWorkerTemplateProvisioner(
-                specs, agents, crd, "worker:image", 1, "gateway", 9090, "http://control-plane",
-                "http://qwenpaw", "",
+                specs, agents, crd, "worker:image", 1, "gateway", 9090, "http://control-plane", "",
                 "{\"DASHSCOPE_API_KEY\":{\"secret\":\"dashscope-credentials\",\"key\":\"apiKey\"}}");
 
         provisioner.provision(new WorkerTemplateRevision(UUID.randomUUID(), 1,
-                "{\"runtime\":\"qwenpaw\",\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\"}",
+                "{\"runtime\":\"agentscope\",\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\"}",
                 "digest-1", WorkerType.LEADER, TemplateStatus.PUBLISHED, "subject-1", NOW, NOW, 1),
                 instanceId, "instance-key");
 
@@ -113,7 +111,7 @@ class AgentSpecWorkerTemplateProvisionerTest {
         org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
                 .isThrownBy(() -> new AgentSpecWorkerTemplateProvisioner(
                         specs, agents, crd, "worker:image", 1, "gateway", 9090, "http://control-plane",
-                        "http://qwenpaw", "", "{not-json"))
+                        "", "{not-json"))
                 .withMessageContaining("credential-secret-envs");
     }
 }

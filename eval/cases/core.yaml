@@ -32,7 +32,7 @@ cases:
         tenant: tenant-a
         project: project-a
         team: team-a
-      taskType: qwenpaw
+      taskType: agentscope
       inputJson:
         prompt: "Answer exactly with: 2 + 2 = 4"
       requiredCapabilities: []
@@ -53,7 +53,7 @@ cases:
         tenant: tenant-a
         project: project-a
         team: team-a
-      taskType: qwenpaw
+      taskType: agentscope
       inputJson:
         prompt: Return a short answer and produce one JSON result artifact.
       requiredCapabilities: []

@@ -60,7 +60,7 @@ describe('template domain API contracts: 20 cases', () => {
 
   it('creates a template revision with an actor', async () => {
     const http = client();
-    const body = { specJson: '{"runtime":"QWENPAW"}', actor: 'alice' };
+    const body = { specJson: '{"runtime":"AGENTSCOPE"}', actor: 'alice' };
     await createWorkerTemplateRevision('project-1', 'template-1', body, http);
     expect(http.request).toHaveBeenCalledWith('/api/v1/worker-templates/template-1/revisions', {
       method: 'POST',
@@ -112,7 +112,7 @@ describe('template domain API contracts: 20 cases', () => {
     const http = client();
     const body = {
       name: 'research',
-      runtime: 'QWENPAW',
+      runtime: 'AGENTSCOPE',
       workerType: 'EXECUTOR' as const,
       modelProvider: 'local',
       modelName: 'qwen',
@@ -131,7 +131,7 @@ describe('template domain API contracts: 20 cases', () => {
     const http = client();
     const body = {
       name: 'leader',
-      runtime: 'QWENPAW',
+      runtime: 'AGENTSCOPE',
       workerType: 'LEADER' as const,
       modelProvider: 'local',
       modelName: 'qwen',
@@ -147,7 +147,7 @@ describe('template domain API contracts: 20 cases', () => {
     const http = client();
     const body = {
       name: 'safe',
-      runtime: 'QWENPAW',
+      runtime: 'AGENTSCOPE',
       modelProvider: 'local',
       modelName: 'qwen',
       desiredState: 'STOPPED',

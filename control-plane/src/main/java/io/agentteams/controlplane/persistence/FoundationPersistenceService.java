@@ -404,7 +404,8 @@ public final class FoundationPersistenceService implements ConversationTaskRepos
 
             TaskRecord task = new TaskRecord(taskId, command.title(), command.description(), TaskPhase.DRAFT, 0,
                     command.specJson(), command.actor(), command.source(), null, null,
-                    command.createdAt(), command.createdAt(), 0, command.taskType());
+                    command.createdAt(), command.createdAt(), 0, command.taskType(), "ACTIVE", null, null,
+                    null, "MAIN", command.sourceConversationId());
             tx.tasks().insert(task);
             appendEvent(tx, "task", task.id(), "TaskCreated", idPayload(task.id()),
                     task.createdAt(), task.version());

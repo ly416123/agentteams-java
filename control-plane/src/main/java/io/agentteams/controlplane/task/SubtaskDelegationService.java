@@ -192,6 +192,7 @@ public class SubtaskDelegationService {
                 spec.requiredCapabilities().forEach(capabilities::add);
             }
             root.put("parentTaskId", parentTaskId.toString()).put("kind", "SUBTASK");
+            root.put("teamRole", "EXECUTOR").put("orchestrationPhase", "EXECUTE");
             // 依赖 id 落在子任务 spec 顶层（任务 3 gate 读取此处；投影 task_subtasks 仅作展示）
             if (spec.dependencyIds().isEmpty()) {
                 root.remove("dependencyIds");

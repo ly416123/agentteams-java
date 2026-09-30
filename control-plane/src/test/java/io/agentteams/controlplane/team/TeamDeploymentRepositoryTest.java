@@ -81,6 +81,20 @@ class TeamDeploymentRepositoryTest {
         assertThat(repository.find(second).orElseThrow().status()).isEqualTo("SUCCEEDED");
     }
 
+    @Test
+    void convergesMemberWhenApplyCompletedBeforeBindingWasRecorded() {
+        UUID deploymentId = UUID.randomUUID();
+        repository.create(TeamDeployment.create(deploymentId, teamId, 1L,
+                List.of(new TeamDeployment.Member(agentId, "{}", "{}", null, "PENDING", null)),
+                NOW, "deployment-mark-after-apply"));
+        jdbc.update("UPDATE config_apply_records SET phase = 'APPLIED', applied_at = ?, updated_at = ? WHERE id = ?",
+                Timestamp.from(NOW), Timestamp.from(NOW), applyEventId);
+
+        repository.markMember(deploymentId, agentId, bindingId, "PENDING", null);
+
+        assertThat(repository.find(deploymentId).orElseThrow().status()).isEqualTo("SUCCEEDED");
+    }
+
     /**
      * A Team revision deployment reuses the binding keyed by
      * {@code team-revision:<team>:<revision>:<agent>}, so repeated deployments of the same
@@ -102,7 +116,7 @@ class TeamDeploymentRepositoryTest {
     private void seedPublishedRevision() {
         jdbc.update("""
                 INSERT INTO agents(id, name, phase, runtime, capabilities, metadata, created_at, updated_at)
-                VALUES (?, ?, 'READY', 'qwenpaw', '{}'::jsonb, '{}'::jsonb, ?, ?)
+                VALUES (?, ?, 'READY', 'agentscope', '{}'::jsonb, '{}'::jsonb, ?, ?)
                 """, agentId, "agent-" + agentId, Timestamp.from(NOW), Timestamp.from(NOW));
         jdbc.update("""
                 INSERT INTO teams(id, name, display_name, status, created_at, updated_at, version)

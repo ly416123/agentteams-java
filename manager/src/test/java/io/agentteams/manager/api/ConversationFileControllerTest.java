@@ -45,7 +45,7 @@ class ConversationFileControllerTest {
                 .setControllerAdvice(new ManagerErrorHandler()).build();
         ManagerRequestContext.set(new ManagerPrincipal("user-1", "tenant-a", "project-a", "team-a", Set.of()));
         when(conversations.get(SESSION)).thenReturn(new ConversationService.Conversation(
-                SESSION, new ConversationRuntimePort.Context("project-a", "team-a", "qwenpaw", null, SESSION),
+                SESSION, new ConversationRuntimePort.Context("project-a", "team-a", "agentscope", null, SESSION),
                 ConversationService.Status.ACTIVE));
     }
 
@@ -118,7 +118,7 @@ class ConversationFileControllerTest {
     void contentEndpointRejectsOutOfScopePrincipal() throws Exception {
         UUID foreign = UUID.randomUUID();
         when(conversations.get(foreign)).thenReturn(new ConversationService.Conversation(
-                foreign, new ConversationRuntimePort.Context("other-project", "other-team", "qwenpaw", null, foreign),
+                foreign, new ConversationRuntimePort.Context("other-project", "other-team", "agentscope", null, foreign),
                 ConversationService.Status.ACTIVE));
         mvc.perform(get("/api/v1/conversations/{sessionId}/files/{fileId}/content", foreign,
                         UUID.randomUUID()))

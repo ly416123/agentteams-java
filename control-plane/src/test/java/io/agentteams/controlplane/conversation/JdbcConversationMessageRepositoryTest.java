@@ -6,14 +6,17 @@ import io.agentteams.controlplane.security.ExecutionContext;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import static org.mockito.Mockito.mock;
 
 @Testcontainers(disabledWithoutDocker = true)
 class JdbcConversationMessageRepositoryTest {
@@ -80,6 +83,16 @@ class JdbcConversationMessageRepositoryTest {
         ExecutionContext otherTenant = new ExecutionContext(
                 "org-1", "tenant-2", "project-1", "team-1", "alice");
         assertThat(repository.messages(otherTenant, conversationId, 0, 10)).isEmpty();
+    }
+
+    @Test
+    void remainsProxyableWhenSpringUsesClassBasedTransactionProxy() {
+        JdbcConversationMessageRepository target = new JdbcConversationMessageRepository(
+                new JdbcTemplate(mock(DataSource.class)));
+        ProxyFactory proxyFactory = new ProxyFactory(target);
+        proxyFactory.setProxyTargetClass(true);
+
+        assertThat(proxyFactory.getProxy()).isInstanceOf(JdbcConversationMessageRepository.class);
     }
 
     private AppendConversationMessageCommand message(String channel, String content, String idempotencyKey) {

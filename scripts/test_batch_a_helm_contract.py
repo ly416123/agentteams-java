@@ -37,9 +37,9 @@ class BatchAHelmContractTest(unittest.TestCase):
         self.assertEqual(
             json.loads(raw_mapping),
             {
-                "DASHSCOPE_API_KEY": {
-                    "secret": "agentteams-dashscope",
-                    "key": "api-key",
+                "DEEPSEEK_API_KEY": {
+                    "secret": "agentteams-manager",
+                    "key": "deepseek-api-key",
                 },
                 "MCP_TOOLS_TOKEN": {
                     "secret": "agentteams-mcp-tools",
@@ -72,19 +72,15 @@ class BatchAHelmContractTest(unittest.TestCase):
         self.assertEqual(
             sandbox["defaultProfile"]["enum"], ["NONE", "ISOLATED", "HARDENED"]
         )
-        self.assertEqual(runtime["default"]["enum"], ["QWENPAW", "AGENTSCOPE"])
-        self.assertEqual(
-            runtime["agentScope"]["properties"]["rolloutPercentage"]["maximum"],
-            100,
-        )
-        self.assertEqual(conversation["qwenpawEgressPort"]["maximum"], 65535)
+        self.assertNotIn("default", runtime)
+        self.assertNotIn("agentScope", runtime)
+        self.assertEqual(conversation["runtime"]["enum"], ["fake"])
 
     @unittest.skipUnless(HELM, "helm is unavailable")
-    def test_manager_qwenpaw_network_policy_uses_configured_endpoint_port(self):
+    def test_manager_model_network_policy_uses_configured_https_endpoint(self):
         docs = render_chart(
             "--set", "manager.enabled=true",
-            "--set", "manager.conversation.runtime=qwenpaw",
-            "--set", "manager.conversation.qwenpawEgressPort=18088",
+            "--set", "manager.modelEgressCIDR=192.0.2.0/24",
             "--set", "manager.security.enabled=true",
             "--set", "manager.security.issuerUri=http://keycloak/realms/agentteams",
             "--set", "manager.security.jwkSetUri=http://keycloak/realms/agentteams/protocol/openid-connect/certs",
@@ -101,7 +97,7 @@ class BatchAHelmContractTest(unittest.TestCase):
             for rule in policies[0]["spec"]["egress"]
             for port in rule.get("ports", [])
         }
-        self.assertIn(18088, egress_ports)
+        self.assertIn(443, egress_ports)
 
     @unittest.skipUnless(HELM, "helm is unavailable")
     def test_manager_network_policy_allows_console_proxy_ingress(self):
@@ -156,11 +152,7 @@ class BatchAHelmContractTest(unittest.TestCase):
         self.assertFalse(
             schema["properties"]["sandbox"]["additionalProperties"]
         )
-        self.assertFalse(
-            schema["properties"]["agentRuntime"]["properties"]["agentScope"][
-                "additionalProperties"
-            ]
-        )
+        self.assertNotIn("agentScope", schema["properties"]["agentRuntime"]["properties"])
 
     def test_common_values_define_secure_pod_defaults_and_spread(self):
         values = read_chart("values.yaml")
@@ -185,12 +177,7 @@ class BatchAHelmContractTest(unittest.TestCase):
         config = read_chart("templates/agent-runtime-config.yaml")
 
         for required in (
-            "AGENTTEAMS_RUNTIME_DEFAULT",
-            "AGENTTEAMS_AGENTSCOPE_ENABLED",
-            "AGENTTEAMS_AGENTSCOPE_ROLLOUT_PERCENTAGE",
-            "AGENTTEAMS_AGENTSCOPE_AGENT_ALLOWLIST",
-            "AGENTTEAMS_AGENTSCOPE_TEAM_ALLOWLIST",
-            "AGENTTEAMS_AGENTSCOPE_TENANT_ALLOWLIST",
+            "AGENTTEAMS_ARTIFACT_UPLOAD_ENABLED",
         ):
             self.assertIn(required, config)
         self.assertNotRegex(config, r"(?i)(password|token|secret|private[_-]?key)")

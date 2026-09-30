@@ -47,6 +47,13 @@ spec:
         - name: postgresql
           image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           ports:
             - name: postgres
               containerPort: 5432
@@ -121,6 +128,13 @@ spec:
         - name: nats
           image: nats:2.10-alpine
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
           args: ["--jetstream", "--store_dir", "/data/jetstream"]
           ports:
             - name: client
@@ -232,6 +246,13 @@ spec:
         - name: minio
           image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -326,120 +347,3 @@ spec:
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1;
               do sleep 2; done;
               mc mb --ignore-existing local/agentteams
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: qwenpaw-working
-  namespace: agentteams
-spec:
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 2Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: qwenpaw-secret
-  namespace: agentteams
-spec:
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 256Mi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: qwenpaw-backups
-  namespace: agentteams
-spec:
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 2Gi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: qwenpaw
-  namespace: agentteams
-  labels:
-    app.kubernetes.io/name: qwenpaw
-    app.kubernetes.io/part-of: agentteams
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: qwenpaw
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: qwenpaw
-        app.kubernetes.io/part-of: agentteams
-    spec:
-      containers:
-        - name: qwenpaw
-          image: agentscope/qwenpaw@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd
-          imagePullPolicy: IfNotPresent
-          # 官方镜像 entrypoint 在 K8s 下会把 Service 环境变量拼成绑定地址，
-          # 而 --port 只接受整数端口；显式覆盖为纯端口号。
-          env:
-            - name: QWENPAW_PORT
-              value: "8088"
-          ports:
-            - name: http
-              containerPort: 8088
-          readinessProbe:
-            tcpSocket:
-              port: http
-            periodSeconds: 10
-            timeoutSeconds: 3
-          livenessProbe:
-            tcpSocket:
-              port: http
-            initialDelaySeconds: 20
-            periodSeconds: 20
-            timeoutSeconds: 3
-          volumeMounts:
-            - name: working
-              mountPath: /app/working
-            - name: working-secret
-              mountPath: /app/working.secret
-            - name: working-backups
-              mountPath: /app/working.backups
-            # AgentTeams task tools MCP server, registered into QwenPaw via
-            # POST /api/mcp as a stdio client (see kind-qwenpaw-task-mcp.yaml).
-            - name: task-mcp
-              mountPath: /opt/agentteams-mcp
-              readOnly: true
-      volumes:
-        - name: working
-          persistentVolumeClaim:
-            claimName: qwenpaw-working
-        - name: working-secret
-          persistentVolumeClaim:
-            claimName: qwenpaw-secret
-        - name: working-backups
-          persistentVolumeClaim:
-            claimName: qwenpaw-backups
-        - name: task-mcp
-          configMap:
-            name: qwenpaw-task-mcp
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: qwenpaw
-  namespace: agentteams
-  labels:
-    app.kubernetes.io/name: qwenpaw
-    app.kubernetes.io/part-of: agentteams
-spec:
-  selector:
-    app.kubernetes.io/name: qwenpaw
-  ports:
-    - name: http
-      port: 8088
-      targetPort: http

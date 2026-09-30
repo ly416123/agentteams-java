@@ -57,6 +57,15 @@ class SubtaskGateServiceTest {
         return task.id();
     }
 
+    private UUID createTeamTask() {
+        TaskRecord task = persistence.createTask(new CreateTaskCommand(
+                "key-" + UUID.randomUUID(), "team-parent", "description", "alice", "test",
+                "{\"teamId\":\"team-1\",\"teamRole\":\"LEADER\",\"orchestrationPhase\":\"PLAN\"}",
+                Instant.now()));
+        persistence.updateTaskPhase(task.id(), TaskPhase.QUEUED, task.version(), Instant.now());
+        return task.id();
+    }
+
     private void setPhase(UUID taskId, TaskPhase phase) {
         TaskRecord current = persistence.findTask(taskId).orElseThrow();
         persistence.updateTaskPhase(taskId, phase, current.version(), Instant.now());
@@ -93,7 +102,7 @@ class SubtaskGateServiceTest {
         setPhase(a, TaskPhase.QUEUED);
         setPhase(a, TaskPhase.SUCCEEDED);
         setPhase(b, TaskPhase.QUEUED);
-        setPhase(taskId, TaskPhase.SUCCEEDED);  // 主任务第一跑（拆解轮）结束
+        setPhase(taskId, TaskPhase.SUCCEEDED);  // 普通主任务第一跑（拆解轮）结束
 
         // B 仍 QUEUED：不触发汇总
         assertThat(gate.releaseParentForAggregation(taskId)).isFalse();
@@ -128,6 +137,54 @@ class SubtaskGateServiceTest {
         assertThat(gate.releaseParentForAggregation(taskId)).isFalse();
         assertThat(persistence.findTask(taskId).orElseThrow().phase())
                 .isEqualTo(TaskPhase.SUCCEEDED);
+    }
+
+    @Test
+    void teamAggregationQueuesParentWithAggregateInput() {
+        UUID taskId = createTeamTask();
+        UUID child = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(child, "A", 1, List.of())));
+        setPhase(child, TaskPhase.SUCCEEDED);
+        setPhase(taskId, TaskPhase.WAITING_SUBTASKS);
+
+        assertThat(TeamOrchestrationService.hasTeam(persistence.findTask(taskId).orElseThrow().specJson()))
+                .isTrue();
+        assertThat(persistence.findTask(child).orElseThrow().phase()).isEqualTo(TaskPhase.SUCCEEDED);
+        assertThat(gate.releaseParentForAggregation(taskId)).isTrue();
+        TaskRecord parent = persistence.findTask(taskId).orElseThrow();
+        assertThat(parent.phase()).isEqualTo(TaskPhase.QUEUED);
+        assertThat(parent.specJson()).contains("\"orchestrationPhase\": \"AGGREGATE\"");
+    }
+
+    @Test
+    void teamAggregationQueuesParentFromWaitingForSubtasks() {
+        UUID taskId = createTeamTask();
+        UUID child = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(child, "A", 1, List.of())));
+        setPhase(child, TaskPhase.SUCCEEDED);
+        setPhase(taskId, TaskPhase.WAITING_SUBTASKS);
+
+        assertThat(gate.releaseParentForAggregation(taskId)).isTrue();
+        assertThat(persistence.findTask(taskId).orElseThrow().phase()).isEqualTo(TaskPhase.QUEUED);
+    }
+
+    @Test
+    void leaderPlanMovesParentToWaitingInsteadOfTerminalSuccess() {
+        UUID taskId = createTeamTask();
+        UUID child = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(child, "A", 1, List.of())));
+        setPhase(taskId, TaskPhase.SUCCEEDED);
+
+        TeamOrchestrationService orchestration = new TeamOrchestrationService(
+                persistence, org.mockito.Mockito.mock(SubtaskService.class), Clock.systemUTC());
+
+        assertThat(orchestration.markWaitingForSubtasks(taskId)).isTrue();
+        assertThat(persistence.findTask(taskId).orElseThrow().phase())
+                .isEqualTo(TaskPhase.WAITING_SUBTASKS);
+        assertThat(orchestration.markWaitingForSubtasks(taskId)).isFalse();
     }
 
     @Test

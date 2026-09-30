@@ -21,6 +21,8 @@ import io.fabric8.kubernetes.api.model.apps.DeploymentSpecBuilder;
 import io.fabric8.kubernetes.api.model.PodSpecBuilder;
 import io.fabric8.kubernetes.api.model.PodTemplateSpecBuilder;
 import io.fabric8.kubernetes.api.model.ProbeBuilder;
+import io.fabric8.kubernetes.api.model.Quantity;
+import io.fabric8.kubernetes.api.model.ResourceRequirementsBuilder;
 import io.fabric8.kubernetes.api.model.TCPSocketActionBuilder;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -36,6 +38,8 @@ public final class WorkerResourceFactory {
     static final String RUNTIME_ANNOTATION = "agentteams.io/runtime";
     static final String CONFIG_REVISION_ANNOTATION = "agentteams.io/config-revision";
     static final String SECRET_GENERATION_ANNOTATION = "agentteams.io/secret-generation";
+    private static final String DEFAULT_JAVA_TOOL_OPTIONS =
+            "-XX:MaxRAMPercentage=55 -XX:InitialRAMPercentage=15";
     // secretEnv must never shadow the identity and version facts injected below.
     private static final java.util.Set<String> PROTECTED_ENV = java.util.Set.of(
             "AGENTTEAMS_AGENT_ID", "AGENTTEAMS_RUNTIME", RUNTIME_CONFIG_MAP_ENV,
@@ -57,10 +61,17 @@ public final class WorkerResourceFactory {
         putOptionalEnvironment(environment, "AGENTTEAMS_SPEC_DIGEST", spec.specDigest());
         putOptionalEnvironment(environment, "AGENTTEAMS_CONFIG_REVISION", spec.configRevision());
         putOptionalEnvironment(environment, "AGENTTEAMS_SECRET_GENERATION", spec.secretGeneration());
+        environment.putIfAbsent("JAVA_TOOL_OPTIONS", DEFAULT_JAVA_TOOL_OPTIONS);
         ContainerBuilder container = new ContainerBuilder()
                 .withName("worker")
                 .withImage(spec.image())
                 .withImagePullPolicy("IfNotPresent")
+                .withResources(new ResourceRequirementsBuilder()
+                        .addToRequests("cpu", new Quantity("100m"))
+                        .addToRequests("memory", new Quantity("128Mi"))
+                        .addToLimits("cpu", new Quantity("500m"))
+                        .addToLimits("memory", new Quantity("512Mi"))
+                        .build())
                 .withEnvFrom(new EnvFromSourceBuilder()
                         .withConfigMapRef(new ConfigMapEnvSourceBuilder()
                                 .withName(runtimeConfigMap).build()).build())

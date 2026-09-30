@@ -89,4 +89,4 @@ for image in "${images[@]}"; do
   kind load docker-image "$tag" --name agentteams
 done
 
-echo "服务和 QwenPaw Worker 镜像已加载到 agentteams Kind 集群。"
+echo "服务和 AgentScope Worker 镜像已加载到 agentteams Kind 集群。"

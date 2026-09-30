@@ -6,7 +6,7 @@ import java.util.concurrent.Semaphore;
 /**
  * Small in-process admission implementation used by the Worker assembly.
  * A future control-plane adapter can implement the same runtime port without
- * changing the QwenPaw runtime or transport.
+ * changing the AgentScope runtime or model provider.
  */
 public final class SemaphoreRuntimeModelCallAdmission implements RuntimeModelCallAdmission {
     private final Semaphore permits;

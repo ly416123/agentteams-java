@@ -13,7 +13,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
-public final class TaskRepository implements ConversationTaskRepository {
+public class TaskRepository implements ConversationTaskRepository {
 
     /** 单一列清单：所有行级 SELECT 共用，G03 新列只在此处追加（消除列清单漂移）。 */
     private static final String TASK_COLUMNS = """
@@ -194,7 +194,7 @@ public final class TaskRepository implements ConversationTaskRepository {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(conversationId, "conversationId");
-        TaskRecord current = jdbc.query("SELECT " + TASK_COLUMNS + " FROM tasks t"
+        TaskRecord current = jdbc.query("SELECT " + TASK_COLUMNS_ALIASED + " FROM tasks t"
                 + " JOIN resource_scopes s ON s.resource_type = 'TASK' AND s.resource_id = t.id"
                 + " WHERE t.id = ? AND s.tenant_id = ? AND s.project_id = ? AND s.team = ?"
                 + " AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = ? AND c.tenant_id = ?"
@@ -345,13 +345,16 @@ public final class TaskRepository implements ConversationTaskRepository {
                 """, UUID.class, limit);
     }
 
-    /** G03 汇总轮：MAIN 已 SUCCEEDED 且存在子任务且全部子任务 SUCCEEDED 的 parent。
+    /** G03 汇总轮：Team MAIN 已 WAITING_SUBTASKS（普通 DAG 仍可为 SUCCEEDED）且存在子任务、
+     * 且全部子任务 SUCCEEDED 的 parent。
      * 已聚合过的 parent（存在 TaskChildrenCompleted）排除在外——否则调度 tick 会把
      * 汇总轮完成后重新 SUCCEEDED 的主任务无限重排（kind 验收实测 1s/run 循环）。 */
     public List<UUID> findParentIdsAllChildrenSucceeded(int limit) {
         return jdbc.queryForList("""
                 SELECT p.id FROM tasks p
-                 WHERE p.kind = 'MAIN' AND p.phase = 'SUCCEEDED'
+                 WHERE p.kind = 'MAIN'
+                   AND (p.phase = 'WAITING_SUBTASKS'
+                        OR (p.phase = 'SUCCEEDED' AND NOT jsonb_exists(p.spec, 'teamId')))
                    AND EXISTS (SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id)
                    AND NOT EXISTS (SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id AND c.phase <> 'SUCCEEDED')
                    AND NOT EXISTS (SELECT 1 FROM domain_events e

@@ -91,13 +91,13 @@ def deployment_agent_id(namespace: str, deployment: str) -> str:
         "agentteams.io/agent-id", "")
 
 
-def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
+def agentscope_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
     rows = sql(namespace, postgres_pod, """
         select count(*)
           from agents
          where id = '{agent_id}'
            and phase = 'READY'
-           and capabilities ? 'qwenpaw';
+           and capabilities ? 'agentscope';
     """.format(agent_id=agent_id))
     return int(rows or "0") > 0
 
@@ -105,7 +105,7 @@ def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> boo
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
-    parser.add_argument("--worker-deployment", default="qwenpaw-real")
+    parser.add_argument("--worker-deployment", default="agentscope-real")
     parser.add_argument("--postgres-pod", default="postgresql-0")
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
     parser.add_argument("--local-port", type=int, default=18083)
@@ -116,10 +116,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if not deployment_ready(args.namespace, args.worker_deployment):
-        fail("QwenPaw worker must be ready before the idempotency test")
+        fail("AgentScope worker must be ready before the idempotency test")
     worker_agent_id = deployment_agent_id(args.namespace, args.worker_deployment)
     if not worker_agent_id:
-        fail(f"QwenPaw worker deployment has no agentteams.io/agent-id label: {args.worker_deployment}")
+        fail(f"AgentScope worker deployment has no agentteams.io/agent-id label: {args.worker_deployment}")
 
     port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
     base_url = f"http://127.0.0.1:{args.local_port}"
@@ -130,9 +130,9 @@ def main() -> int:
         "description": "duplicate task creation idempotency smoke test",
         "spec": {
             "scope": {"tenant": args.tenant, "project": args.project, "team": args.team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": "KIND_IDEMPOTENCY_OK"},
-            "requiredCapabilities": ["qwenpaw"],
+            "requiredCapabilities": ["agentscope"],
         },
     }
     try:
@@ -158,7 +158,7 @@ def main() -> int:
         # Gateway stream and been marked READY in the Control Plane. Queue only
         # after that registration is visible, otherwise the short Kind lease
         # may expire before delivery and create a legitimate recovery attempt.
-        wait_until(f"QwenPaw Agent registration for {worker_agent_id}", lambda: qwenpaw_agent_ready(
+        wait_until(f"AgentScope Agent registration for {worker_agent_id}", lambda: agentscope_agent_ready(
             args.namespace, args.postgres_pod, worker_agent_id), args.timeout)
 
         queue_status, _ = api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},

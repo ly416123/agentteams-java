@@ -51,7 +51,7 @@ class ConfigDeploymentServiceTest {
         when(tx.outboxEvents()).thenReturn(outbox);
         when(tx.domainEvents()).thenReturn(domainEvents);
         when(agents.findById(agentId)).thenReturn(Optional.of(AgentRecord.create(agentId, "worker",
-                AgentPhase.PROVISIONING, "qwenpaw", "{}", NOW)));
+                AgentPhase.PROVISIONING, "agentscope", "{}", NOW)));
         when(lifecycle.findBinding("worker", agentId)).thenReturn(Optional.empty());
         when(lifecycle.findFiles(snapshot.id())).thenReturn(List.of(file));
         when(outbox.findByEventId(any())).thenReturn(Optional.empty());
@@ -165,6 +165,46 @@ class ConfigDeploymentServiceTest {
 
         assertThat(replay.eventId()).isEqualTo(first.eventId());
         org.mockito.Mockito.verify(keys).insertIfAbsent(any());
+    }
+
+    @Test
+    void retriesPendingApplySoAnAcknowledgementLostByTheConsumerCanBeReplayed() {
+        FoundationPersistenceService persistence = mock(FoundationPersistenceService.class);
+        FoundationTransaction tx = mock(FoundationTransaction.class);
+        ConfigLifecycleRepository lifecycle = mock(ConfigLifecycleRepository.class);
+        ConfigSnapshotRepository snapshots = mock(ConfigSnapshotRepository.class);
+        IdempotencyKeyRepository keys = mock(IdempotencyKeyRepository.class);
+        OutboxEventRepository outbox = mock(OutboxEventRepository.class);
+        UUID bindingId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        ConfigSnapshot snapshot = new ConfigSnapshot(UUID.randomUUID(), "worker", 3, "{}", "sha", "test", NOW);
+        ConfigBindingRecord binding = new ConfigBindingRecord(bindingId, "worker", agentId, snapshot.id(), NOW);
+        ConfigApplyRecord pending = new ConfigApplyRecord(UUID.randomUUID(), bindingId, agentId, snapshot.id(),
+                "PENDING", null, null, NOW.minusSeconds(1), snapshot.version(), null, false);
+        when(tx.configLifecycle()).thenReturn(lifecycle);
+        when(tx.idempotencyKeys()).thenReturn(keys);
+        when(tx.outboxEvents()).thenReturn(outbox);
+        when(tx.domainEvents()).thenReturn(mock(DomainEventRepository.class));
+        when(lifecycle.findBindingForUpdate(bindingId)).thenReturn(Optional.of(binding));
+        when(lifecycle.findApply(bindingId, snapshot.id())).thenReturn(Optional.of(pending));
+        when(snapshots.findById(snapshot.id())).thenReturn(Optional.of(snapshot));
+        when(lifecycle.findFiles(snapshot.id())).thenReturn(List.of());
+        when(outbox.findByEventId(any())).thenReturn(Optional.empty());
+        when(keys.findByKey("pending-retry-key")).thenReturn(Optional.empty());
+        when(keys.insertIfAbsent(any())).thenReturn(true);
+        when(persistence.inTransaction(any())).thenAnswer(invocation -> {
+            Function<FoundationTransaction, ?> work = invocation.getArgument(0);
+            return work.apply(tx);
+        });
+
+        ConfigDeploymentService service = new ConfigDeploymentService(persistence, snapshots,
+                Clock.fixed(NOW, ZoneOffset.UTC), MAPPER);
+
+        service.retry(bindingId, "pending-retry-key");
+
+        org.mockito.Mockito.verify(lifecycle).markApplyPending(eq(bindingId), eq(agentId), eq(snapshot.id()),
+                any(), eq(NOW), eq(snapshot.version()));
+        org.mockito.Mockito.verify(outbox).insert(any());
     }
 
     @Test

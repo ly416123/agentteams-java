@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a real QwenPaw Worker reserves and releases project quota in Kind."""
+"""Verify a real AgentScope Worker reserves and releases project quota in Kind."""
 
 from __future__ import annotations
 
@@ -54,8 +54,8 @@ def create_team(base_url: str, agent_id: str) -> str:
          "displayName": "Kind Worker quota admission",
          "maxConcurrentTasks": 1,
          "requireHumanApproval": False,
-         "allowedRuntimes": ["qwenpaw"],
-         "requiredCapabilities": ["qwenpaw"]},
+         "allowedRuntimes": ["agentscope"],
+         "requiredCapabilities": ["agentscope"]},
         f"kind-worker-quota-team-{uuid.uuid4()}"), 201, "create quota admission team")
     team_id = payload.get("id")
     if not team_id:
@@ -75,9 +75,9 @@ def create_task(base_url: str, tenant: str, project: str, team: str, team_id: st
          "description": "Real Worker project-quota admission smoke test",
          "spec": {"scope": {"tenant": tenant, "project": project, "team": team},
                   "teamId": team_id,
-                  "taskType": "qwenpaw",
+                  "taskType": "agentscope",
                   "inputJson": {"prompt": "KIND_WORKER_QUOTA_ADMISSION_OK"},
-                  "requiredCapabilities": ["qwenpaw"]}},
+                  "requiredCapabilities": ["agentscope"]}},
         f"kind-worker-quota-create-{uuid.uuid4()}"), 201, "create quota admission task")
     task_id = payload.get("id")
     if not task_id:

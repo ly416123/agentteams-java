@@ -3,11 +3,13 @@ package io.agentteams.controlplane.team;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.eq;
+import org.mockito.ArgumentCaptor;
 
 import io.agentteams.controlplane.config.ConfigDeploymentService;
 import io.agentteams.controlplane.config.ConfigBindingRecord;
@@ -229,6 +231,46 @@ class TeamDeploymentServiceTest {
     }
 
     @Test
+    void retryUsesASeparateConfigIdempotencyOperation() {
+        TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
+        ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
+        ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
+        TeamRevisionRepository revisions = mock(TeamRevisionRepository.class);
+        UUID deploymentId = UUID.randomUUID();
+        UUID teamId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        TeamDeployment deployment = TeamDeployment.create(deploymentId, teamId, 2,
+                List.of(new TeamDeployment.Member(agentId, "{}", "{}", null, "FAILED", "TEMPORARY_FAILURE")),
+                NOW, "deploy-key");
+        TeamRevision revision = new TeamRevision(teamId, 2, agentId, "{}", "digest",
+                TeamRevisionStatus.PUBLISHED, null, "alice", NOW, 1, List.of(agentId));
+        ConfigSnapshot snapshot = new ConfigSnapshot(UUID.randomUUID(),
+                "team-revision:" + teamId + ":2:" + agentId, 1, "{}", "sha", "alice", NOW);
+        ConfigBindingRecord binding = new ConfigBindingRecord(UUID.randomUUID(), snapshot.subject(), agentId,
+                snapshot.id(), NOW);
+        when(repository.find(deploymentId)).thenReturn(java.util.Optional.of(deployment));
+        when(repository.failedMembers(deploymentId)).thenReturn(deployment.members());
+        when(repository.claimRetry(eq(deploymentId), eq(List.of(agentId)), eq(0L), eq("retry-key"), anyString()))
+                .thenReturn(true);
+        when(revisions.find(teamId, 2)).thenReturn(java.util.Optional.of(revision));
+        when(snapshots.create(anyString(), anyString(), anyString(), anyString(), any())).thenReturn(snapshot);
+        when(deployments.deploy(eq(agentId), eq(snapshot.subject()), eq(snapshot), anyString()))
+                .thenReturn(new ConfigDeploymentService.ConfigDeployment(binding, snapshot, UUID.randomUUID()));
+
+        new TeamDeploymentService(repository, snapshots, deployments,
+                new io.agentteams.controlplane.config.EffectiveConfigComposer(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC), revisions, scopes)
+                .retry(deploymentId, "retry-key");
+
+        ArgumentCaptor<String> snapshotKey = ArgumentCaptor.forClass(String.class);
+        verify(snapshots).create(anyString(), anyString(), anyString(), snapshotKey.capture(), any());
+        assertThat(snapshotKey.getValue()).endsWith(":" + agentId + ":retry");
+        ArgumentCaptor<String> configKey = ArgumentCaptor.forClass(String.class);
+        verify(deployments).deploy(eq(agentId), eq(snapshot.subject()), eq(snapshot), configKey.capture());
+        assertThat(configKey.getValue()).endsWith(":retry");
+    }
+
+    @Test
     void retryClaimsFailedMembersWithDeploymentVersionCas() {
         TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
         ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
@@ -255,6 +297,23 @@ class TeamDeploymentServiceTest {
                 UUID.randomUUID(), 1, true, "", NOW, "worker");
         when(repository.findTeamIdByBinding(command.bindingId(), command.agentId()))
                 .thenReturn(java.util.Optional.of(UUID.randomUUID()));
+
+        service.recordAck(command);
+
+        verify(repository).recordConfigAppliedAck(command, 1L);
+    }
+
+    @Test
+    void configAppliedAckFromInternalConsumerDoesNotRequireHttpPrincipal() {
+        TeamDeploymentRepository repository = mock(TeamDeploymentRepository.class);
+        ConfigSnapshotService snapshots = mock(ConfigSnapshotService.class);
+        ConfigDeploymentService deployments = mock(ConfigDeploymentService.class);
+        TeamDeploymentService service = scopedService(repository, snapshots, deployments);
+        ConfigAppliedCommand command = new ConfigAppliedCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), 1, true, "", NOW, "worker");
+        when(repository.findTeamIdByBinding(command.bindingId(), command.agentId()))
+                .thenReturn(java.util.Optional.of(UUID.randomUUID()));
+        PrincipalContext.clear();
 
         service.recordAck(command);
 

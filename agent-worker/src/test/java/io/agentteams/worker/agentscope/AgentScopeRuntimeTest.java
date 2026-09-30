@@ -27,6 +27,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -50,6 +51,19 @@ class AgentScopeRuntimeTest {
             runtime.stop();
         }
         agents.forEach(HarnessAgent::close);
+    }
+
+    @Test
+    void placesTeamPhaseContractAfterOriginalPrompt() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class);
+        method.setAccessible(true);
+
+        String prompt = (String) method.invoke(null,
+                "{\"prompt\":\"请直接给出结论\",\"orchestrationPhase\":\"PLAN\"}", Set.of());
+
+        assertThat(prompt).startsWith("{\"prompt\":\"请直接给出结论\"");
+        assertThat(prompt).endsWith("Use dependsOn=[] for independent work.\n\n");
     }
 
     @Test

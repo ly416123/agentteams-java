@@ -88,7 +88,6 @@ public final class KubernetesWorkerCrdProvisioner implements WorkerCrdProvisione
         environment.putIfAbsent("AGENTTEAMS_GATEWAY_HOST", request.gatewayHost());
         environment.putIfAbsent("AGENTTEAMS_GATEWAY_PORT", Integer.toString(request.gatewayPort()));
         environment.putIfAbsent("AGENTTEAMS_CONFIG_MANIFEST_BASE_URL", request.configManifestBaseUrl());
-        environment.putIfAbsent("QWENPAW_ENDPOINT", request.qwenPawEndpoint());
         environment.putIfAbsent("AGENTTEAMS_MODEL_PROVIDER", request.modelProvider());
         environment.putIfAbsent("AGENTTEAMS_MODEL", request.model());
         environment.putIfAbsent("AGENTTEAMS_SCOPE_TENANT", request.tenantId());

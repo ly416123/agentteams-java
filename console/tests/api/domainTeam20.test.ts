@@ -122,7 +122,7 @@ describe('team domain API contracts: 20 cases', () => {
     const body = {
       maxConcurrentTasks: 8,
       requireHumanApproval: true,
-      allowedRuntimes: ['QWENPAW'],
+      allowedRuntimes: ['AGENTSCOPE'],
       requiredCapabilities: ['reports'],
       expectedVersion: 4,
     };

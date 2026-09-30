@@ -111,7 +111,7 @@ describe('conversation SSE client', () => {
     expect(requestStream).toHaveBeenCalledTimes(1);
   });
 
-  it('normalizes QwenPaw content blocks without exposing protocol booleans', () => {
+  it('normalizes AgentScope content blocks without exposing protocol booleans', () => {
     expect(
       conversationEventText({
         type: 'message.delta',

@@ -20,7 +20,7 @@ class ConnectionRegistryTest {
         ConnectionRegistry registry = new ConnectionRegistry();
         AgentConnection first = registry.open(sink(), "peer-1", Instant.parse("2026-08-16T00:00:00Z"));
         AgentConnection second = registry.open(sink(), "peer-2", Instant.parse("2026-08-16T00:01:00Z"));
-        AgentProfile profile = new AgentProfile("agent-1", "qwenpaw", "0.4.0", Map.of("tasks", "1"));
+        AgentProfile profile = new AgentProfile("agent-1", "agentscope", "0.4.0", Map.of("tasks", "1"));
         registry.register(first, profile, 3, Instant.parse("2026-08-16T00:00:00Z"));
         registry.register(second, profile, 3, Instant.parse("2026-08-16T00:01:00Z"));
 
@@ -30,7 +30,7 @@ class ConnectionRegistryTest {
         ConnectionRegistry.ConnectionSnapshot snapshot = registry.snapshot(second).orElseThrow();
         assertThat(snapshot.connectionId()).isInstanceOf(UUID.class);
         assertThat(snapshot.agentId()).isEqualTo("agent-1");
-        assertThat(snapshot.runtime()).isEqualTo("qwenpaw");
+        assertThat(snapshot.runtime()).isEqualTo("agentscope");
         assertThat(snapshot.capabilities()).containsEntry("tasks", "1");
         assertThat(snapshot.lastAckSequence()).isEqualTo(3);
         assertThat(Arrays.stream(ConnectionRegistry.ConnectionSnapshot.class.getRecordComponents())
@@ -74,7 +74,7 @@ class ConnectionRegistryTest {
         });
         AgentConnection first = registry.open(sink(), "peer-1", Instant.parse("2026-08-16T00:00:00Z"));
         AgentConnection second = registry.open(sink(), "peer-2", Instant.parse("2026-08-16T00:01:00Z"));
-        AgentProfile profile = new AgentProfile("agent-1", "qwenpaw", "0.4.0", Map.of());
+        AgentProfile profile = new AgentProfile("agent-1", "agentscope", "0.4.0", Map.of());
 
         registry.register(first, profile, 0, Instant.parse("2026-08-16T00:00:00Z"));
         registry.register(second, profile, 0, Instant.parse("2026-08-16T00:01:00Z"));
@@ -91,21 +91,21 @@ class ConnectionRegistryTest {
     @Test
     void normalizesOptionalWorkerVersionFactsAndEnforcesLimit() {
         String maximum = "x".repeat(512);
-        AgentProfile profile = new AgentProfile("agent-1", "qwenpaw", "0.4.0", Map.of(),
+        AgentProfile profile = new AgentProfile("agent-1", "agentscope", "0.4.0", Map.of(),
                 "  " + maximum + "  ", null, "  secret-9  ");
 
         assertThat(profile.specDigest()).isEqualTo(maximum);
         assertThat(profile.configRevision()).isEmpty();
         assertThat(profile.secretGeneration()).isEqualTo("secret-9");
-        assertThat(new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), "agent-1", "qwenpaw", "0.4.0",
+        assertThat(new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), "agent-1", "agentscope", "0.4.0",
                 "  " + maximum + "  ", null, "secret-9", Map.of(), Instant.EPOCH, 0).specDigest())
                 .isEqualTo(maximum);
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new AgentProfile("agent-1", "qwenpaw", "0.4.0",
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new AgentProfile("agent-1", "agentscope", "0.4.0",
                         Map.of(), "x".repeat(513), "", ""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("specDigest");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new ConnectionRegistry.ConnectionSnapshot(
-                        UUID.randomUUID(), "agent-1", "qwenpaw", "0.4.0", "", "x".repeat(513), "", Map.of(),
+                        UUID.randomUUID(), "agent-1", "agentscope", "0.4.0", "", "x".repeat(513), "", Map.of(),
                         Instant.EPOCH, 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("configRevision");

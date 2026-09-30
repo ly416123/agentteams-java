@@ -69,7 +69,6 @@ controlPlane:
     gatewayHost: agentteams-agentteams-java-gateway
     gatewayPort: 9090
     configManifestBaseUrl: ""
-    qwenpawEndpoint: http://qwenpaw:8088
     tlsSecretName: ""
     # Optional JSON map of worker credential environment variables backed by
     # Secret references, e.g. {"DASHSCOPE_API_KEY":{"secret":"dashscope-credentials","key":"apiKey"}}.
@@ -216,10 +215,6 @@ manager:
   model: deepseek-v4-flash
   conversation:
     runtime: fake
-    qwenpawEndpoint: http://127.0.0.1:8088
-    qwenpawAgentId: default
-    # The NetworkPolicy egress port for the selected QwenPaw endpoint.
-    qwenpawEgressPort: 8088
   env:
     AGENTTEAMS_VIRTUAL_THREADS_ENABLED: "false"
   autoscaling:
@@ -242,19 +237,12 @@ operator:
     enabled: true
     leaseName: agentteams-operator
 agentRuntime:
-  # Workers consume the rendered runtime ConfigMap. Keep the safe QwenPaw path
-  # as the default until an AgentScope-capable worker advertises its capability.
-  default: QWENPAW
+  # Workers consume the rendered runtime ConfigMap. AgentScope is the only
+  # execution runtime; the model provider remains independently configurable.
   # Workers upload artifacts straight to object storage through Gateway-brokered
   # presigned URLs when the worker image supports it; upload failures degrade to
   # the in-process memory:// artifact reference.
   artifactUploadEnabled: false
-  agentScope:
-    enabled: false
-    rolloutPercentage: 0
-    agentAllowlist: []
-    teamAllowlist: []
-    tenantAllowlist: []
 sandbox:
   # Sandbox is opt-in. Existing tasks keep the in-process/NONE execution path.
   enabled: false

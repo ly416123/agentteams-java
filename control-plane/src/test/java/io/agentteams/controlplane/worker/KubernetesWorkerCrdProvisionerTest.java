@@ -12,10 +12,10 @@ class KubernetesWorkerCrdProvisionerTest {
     void rendersAnExplicitWorkerCrdWithScopedRuntimeMetadata() {
         UUID workerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         WorkerCrdProvisioner.Request request = new WorkerCrdProvisioner.Request(
-                workerId, "qwenpaw", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
+                workerId, "agentscope", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
                 "sha256:template", "cfg-1", "secret-generation-1", "ghcr.io/ly416123/agentteams-agent-worker:latest",
                 1, "agentteams-agentteams-java-gateway", 9090,
-                "http://agentteams-agentteams-java-control-plane:8080", "http://qwenpaw:8088", "", Map.of());
+                "http://agentteams-agentteams-java-control-plane:8080", "", Map.of());
 
         GenericKubernetesResource resource = KubernetesWorkerCrdProvisioner.resource("agentteams", request);
 
@@ -25,7 +25,7 @@ class KubernetesWorkerCrdProvisionerTest {
         assertThat(resource.getMetadata().getNamespace()).isEqualTo("agentteams");
         assertThat(resource.<Map<String, Object>>get("spec"))
                 .containsEntry("agentId", workerId.toString())
-                .containsEntry("runtime", "qwenpaw")
+                .containsEntry("runtime", "agentscope")
                 .containsEntry("specDigest", "sha256:template")
                 .containsEntry("configRevision", "cfg-1")
                 .containsEntry("secretGeneration", "secret-generation-1");
@@ -41,10 +41,10 @@ class KubernetesWorkerCrdProvisionerTest {
     void forwardsSecretEnvReferencesIntoTheWorkerSpec() {
         UUID workerId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         WorkerCrdProvisioner.Request request = new WorkerCrdProvisioner.Request(
-                workerId, "qwenpaw", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
+                workerId, "agentscope", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
                 "sha256:template", "cfg-1", "", "ghcr.io/ly416123/agentteams-agent-worker:latest",
                 1, "agentteams-agentteams-java-gateway", 9090,
-                "http://agentteams-agentteams-java-control-plane:8080", "http://qwenpaw:8088", "", Map.of(),
+                "http://agentteams-agentteams-java-control-plane:8080", "", Map.of(),
                 Map.of("DASHSCOPE_API_KEY", new WorkerCrdProvisioner.SecretEnvRef("dashscope-credentials", "apiKey")));
 
         GenericKubernetesResource resource = KubernetesWorkerCrdProvisioner.resource("agentteams", request);
@@ -61,10 +61,10 @@ class KubernetesWorkerCrdProvisionerTest {
     void omitsSecretEnvWhenNoReferencesAreConfigured() {
         UUID workerId = UUID.fromString("33333333-3333-3333-3333-333333333333");
         WorkerCrdProvisioner.Request request = new WorkerCrdProvisioner.Request(
-                workerId, "qwenpaw", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
+                workerId, "agentscope", "deepseek", "deepseek-chat", "tenant-a", "project-a", "team-a",
                 "sha256:template", "cfg-1", "", "ghcr.io/ly416123/agentteams-agent-worker:latest",
                 1, "agentteams-agentteams-java-gateway", 9090,
-                "http://agentteams-agentteams-java-control-plane:8080", "http://qwenpaw:8088", "", Map.of());
+                "http://agentteams-agentteams-java-control-plane:8080", "", Map.of());
 
         GenericKubernetesResource resource = KubernetesWorkerCrdProvisioner.resource("agentteams", request);
 

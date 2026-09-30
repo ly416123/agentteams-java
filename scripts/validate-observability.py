@@ -47,7 +47,7 @@ def main():
                 "traceId", "spanId", "type: w3c"):
             if required not in application_text:
                 fail(f"{module} tracing configuration missing {required}")
-    worker_example = ROOT / "deploy" / "examples" / "qwenpaw-worker.yaml"
+    worker_example = ROOT / "deploy" / "examples" / "agentscope-worker.yaml"
     worker_text = worker_example.read_text(encoding="utf-8")
     for required in (
             "AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED",

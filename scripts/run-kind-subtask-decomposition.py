@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Run the Kind subtask decomposition acceptance against the deployed stack.
 
-Drives the deterministic chain end to end: create and queue a qwenpaw task,
+Drives the deterministic chain end to end: create and queue a agentscope task,
 let the Worker runtime hit the conversation mock's decomposition script
 (plan → RUNNING/SUCCEEDED/RUNNING/FAILED → summary), then assert the tree
 projection, the process-events chain and terminal-state isolation through the
-control-plane API. The Worker's QwenPaw endpoint is temporarily pointed at the
+control-plane API. The Worker's AgentScope endpoint is temporarily pointed at the
 conversation mock for the duration of the run and restored afterwards.
 
 Requires a Keycloak bearer token (alice) via --token or
@@ -84,7 +84,7 @@ def require_environment(namespace: str, token: str) -> None:
         fail("Kind cluster agentteams is required; kind get clusters returned no matching cluster")
     deployments = json.loads(kubectl(namespace, "get", "deployments", "-o", "json"))
     names = {item["metadata"]["name"] for item in deployments.get("items", [])}
-    for required in ("qwenpaw-worker", "qwenpaw-conversation-mock"):
+    for required in ("agentscope-worker", "agentscope-conversation-mock"):
         if required not in names:
             fail(f"deployment/{required} is required in namespace {namespace}")
     if not token:
@@ -93,18 +93,18 @@ def require_environment(namespace: str, token: str) -> None:
 
 def worker_endpoint(namespace: str, worker_name: str) -> str:
     return kubectl(namespace, "get", "worker", worker_name,
-                   "-o", "jsonpath={.spec.env.QWENPAW_ENDPOINT}")
+                   "-o", "jsonpath={.spec.env.AGENTSCOPE_ENDPOINT}")
 
 
 def patch_worker_endpoint(namespace: str, worker_name: str, endpoint: str) -> None:
-    patch = json.dumps({"spec": {"env": {"QWENPAW_ENDPOINT": endpoint}}})
+    patch = json.dumps({"spec": {"env": {"AGENTSCOPE_ENDPOINT": endpoint}}})
     kubectl(namespace, "patch", "worker", worker_name, "--type=merge", "-p", patch)
 
 
 def wait_for_worker_endpoint(namespace: str, worker_name: str, endpoint: str) -> None:
     """The Operator reconciles the deployment from the Worker CR; wait until the
     rendered deployment carries the patched endpoint AND the rollout finished,
-    otherwise an old pod still pointed at the real QwenPaw picks the task up."""
+    otherwise an old pod still pointed at the real AgentScope picks the task up."""
     deadline = time.monotonic() + 120.0
     while time.monotonic() < deadline:
         deployment = json.loads(kubectl(namespace, "get", "deployment", worker_name, "-o", "json"))
@@ -113,11 +113,11 @@ def wait_for_worker_endpoint(namespace: str, worker_name: str, endpoint: str) ->
             for container in deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
             for entry in container.get("env", [])
         }
-        if env_values.get("QWENPAW_ENDPOINT") == endpoint:
+        if env_values.get("AGENTSCOPE_ENDPOINT") == endpoint:
             kubectl(namespace, "rollout", "status", "deployment", worker_name, "--timeout=120s")
             return
         time.sleep(2.0)
-    fail(f"deployment/{worker_name} did not pick up QWENPAW_ENDPOINT={endpoint} within 120s")
+    fail(f"deployment/{worker_name} did not pick up AGENTSCOPE_ENDPOINT={endpoint} within 120s")
 
 
 def token_subject(token: str) -> str:
@@ -206,9 +206,9 @@ def create_and_queue_task(base_url: str, token: str, tenant: str, project: str, 
         "description": "Subtask decomposition end-to-end acceptance",
         "spec": {
             "scope": {"tenant": tenant, "project": project, "team": team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": "Execute the deterministic subtask decomposition script."},
-            "requiredCapabilities": ["qwenpaw"],
+            "requiredCapabilities": ["agentscope"],
         },
     }
     status, created = request_json(f"{base_url.rstrip('/')}/api/v1/tasks", "POST", body, token,
@@ -308,8 +308,8 @@ def main() -> int:
     parser.add_argument("--tenant", default=os.environ.get("AGENTTEAMS_SCOPE_TENANT", "tenant-a"))
     parser.add_argument("--project", default=os.environ.get("AGENTTEAMS_SCOPE_PROJECT", "project-a"))
     parser.add_argument("--team", default=os.environ.get("AGENTTEAMS_SCOPE_TEAM", "team-a"))
-    parser.add_argument("--worker", default=os.environ.get("AGENTTEAMS_WORKER_NAME", "qwenpaw-worker"))
-    parser.add_argument("--mock-endpoint", default="http://qwenpaw-conversation-mock:8080")
+    parser.add_argument("--worker", default=os.environ.get("AGENTTEAMS_WORKER_NAME", "agentscope-worker"))
+    parser.add_argument("--mock-endpoint", default="http://agentscope-conversation-mock:8080")
     parser.add_argument("--keep-worker-endpoint", action="store_true",
                         help="leave the Worker pointed at the conversation mock for debugging")
     args = parser.parse_args()
@@ -324,7 +324,7 @@ def main() -> int:
     try:
         print(f"memberships ensured for subject={subject} (previous project role: {previous_role!r})")
         original_endpoint = worker_endpoint(args.namespace, args.worker)
-        print(f"worker {args.worker} original QWENPAW_ENDPOINT={original_endpoint!r}")
+        print(f"worker {args.worker} original AGENTSCOPE_ENDPOINT={original_endpoint!r}")
         patch_worker_endpoint(args.namespace, args.worker, args.mock_endpoint)
         wait_for_worker_endpoint(args.namespace, args.worker, args.mock_endpoint)
 
@@ -354,7 +354,7 @@ def main() -> int:
             try:
                 patch_worker_endpoint(args.namespace, args.worker, original_endpoint)
                 wait_for_worker_endpoint(args.namespace, args.worker, original_endpoint)
-                print(f"worker {args.worker} restored to QWENPAW_ENDPOINT={original_endpoint!r}")
+                print(f"worker {args.worker} restored to AGENTSCOPE_ENDPOINT={original_endpoint!r}")
             except (RuntimeError, urllib.error.URLError) as error:
                 print(f"WARNING: worker endpoint restore failed: {error}", file=sys.stderr)
         try:

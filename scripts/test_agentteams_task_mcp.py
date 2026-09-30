@@ -231,7 +231,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertEqual(headers.get("Authorization"), "Bearer static-test-token")
         self.assertTrue(headers.get("Idempotency-Key"))
         self.assertEqual(body["title"], "500强名单")
-        self.assertEqual(body["spec"]["taskType"], "qwenpaw")
+        self.assertEqual(body["spec"]["taskType"], "agentscope")
         self.assertEqual(body["spec"]["scope"],
                          {"tenant": "tenant-a", "project": "project-a", "team": "team-a"})
         self.assertEqual(body["spec"]["inputJson"]["prompt"], "生成中国企业500强名单，PDF 格式")
@@ -684,7 +684,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
     def test_deploy_configmap_embeds_current_script(self):
         import yaml
         manifest = yaml.safe_load(
-            (ROOT / "deploy/kind-qwenpaw-task-mcp.yaml").read_text())
+            (ROOT / "deploy/kind-agentscope-task-mcp.yaml").read_text())
         embedded = manifest["data"]["agentteams-task-mcp.py"]
         self.assertEqual(embedded,
                          (ROOT / "scripts/agentteams-task-mcp.py").read_text())

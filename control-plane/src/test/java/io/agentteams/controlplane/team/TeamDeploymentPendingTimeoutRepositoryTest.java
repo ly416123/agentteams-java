@@ -94,6 +94,19 @@ class TeamDeploymentPendingTimeoutRepositoryTest {
     }
 
     @Test
+    void doesNotTimeoutMembersWhoseApplyRecordIsAlreadyApplied() {
+        UUID deploymentId = deploy("deployment-applied", NOW.minusSeconds(3600));
+        jdbc.update("UPDATE config_apply_records SET phase = 'APPLIED', applied_at = ?, updated_at = ? WHERE id = ?",
+                Timestamp.from(NOW.minusSeconds(3600)), Timestamp.from(NOW.minusSeconds(3600)), applyEventId);
+
+        int failed = timeout.failStalePendingMembers(NOW, Instant.parse("2026-09-03T23:00:00Z"), 100);
+
+        assertThat(failed).isZero();
+        assertThat(memberStatus(deploymentId)).isEqualTo("PENDING");
+        assertThat(repository.find(deploymentId).orElseThrow().status()).isEqualTo("PENDING");
+    }
+
+    @Test
     void acceptsALateAcknowledgementForAMemberTimedOutEarlier() {
         UUID deploymentId = deploy("deployment-late-ack", NOW.minusSeconds(3600));
         timeout.failStalePendingMembers(NOW, Instant.parse("2026-09-03T23:00:00Z"), 100);
@@ -177,7 +190,7 @@ class TeamDeploymentPendingTimeoutRepositoryTest {
     private void seedPublishedRevision() {
         jdbc.update("""
                 INSERT INTO agents(id, name, phase, runtime, capabilities, metadata, created_at, updated_at)
-                VALUES (?, ?, 'READY', 'qwenpaw', '{}'::jsonb, '{}'::jsonb, ?, ?)
+                VALUES (?, ?, 'READY', 'agentscope', '{}'::jsonb, '{}'::jsonb, ?, ?)
                 """, agentId, "agent-" + agentId, Timestamp.from(NOW), Timestamp.from(NOW));
         jdbc.update("""
                 INSERT INTO teams(id, name, display_name, status, created_at, updated_at, version)

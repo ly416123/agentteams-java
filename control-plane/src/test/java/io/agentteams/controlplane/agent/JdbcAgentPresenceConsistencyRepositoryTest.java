@@ -107,7 +107,7 @@ class JdbcAgentPresenceConsistencyRepositoryTest {
         UUID agentId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO agents(id, name, phase, runtime, capabilities, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, 'qwenpaw', '{}'::jsonb, '{}'::jsonb, ?, ?)
+                VALUES (?, ?, ?, 'agentscope', '{}'::jsonb, '{}'::jsonb, ?, ?)
                 """, agentId, "agent-" + agentId, phase, Timestamp.from(NOW), Timestamp.from(NOW));
         return agentId;
     }
@@ -116,7 +116,7 @@ class JdbcAgentPresenceConsistencyRepositoryTest {
         jdbc.update("""
                 INSERT INTO gateway_agent_state(agent_id, presence, phase, runtime, runtime_version,
                     capabilities, last_seen_at, updated_at)
-                VALUES (?, ?, 'READY', 'qwenpaw', '1', '{}'::jsonb, ?, ?)
+                VALUES (?, ?, 'READY', 'agentscope', '1', '{}'::jsonb, ?, ?)
                 """, agentId.toString(), presence, Timestamp.from(lastSeenAt), Timestamp.from(lastSeenAt));
     }
 

@@ -26,7 +26,6 @@ fi
 "$ROOT/deploy/preload-kind-images.sh"
 
 kubectl apply -f "$ROOT/deploy/kind-dev-infra.yaml"
-kubectl apply -f "$ROOT/deploy/kind-qwenpaw-openai-mock.yaml"
 kubectl -n "$NAMESPACE" create secret generic agentteams-manager \
   --from-literal=password="${AGENTTEAMS_DATABASE_PASSWORD:-agentteams-dev}" \
   --from-literal=deepseek-api-key="${DEEPSEEK_API_KEY:-kind-dev-placeholder}" \
@@ -35,8 +34,7 @@ kubectl -n "$NAMESPACE" rollout status statefulset/postgresql statefulset/nats s
 kubectl -n "$NAMESPACE" wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=180s
 
 kubectl apply -f "$ROOT/deploy/kind-observability.yaml"
-kubectl -n "$NAMESPACE" wait --for=condition=available deployment/prometheus deployment/grafana deployment/qwenpaw --timeout=240s
-kubectl -n "$NAMESPACE" wait --for=condition=available deployment/qwenpaw-conversation-mock --timeout=120s
+kubectl -n "$NAMESPACE" wait --for=condition=available deployment/prometheus deployment/grafana --timeout=240s
 # The development manifest uses a mounted ConfigMap and Prometheus has no
 # sidecar reloader; restart it so updated rules/config are loaded immediately.
 kubectl -n "$NAMESPACE" rollout restart deployment/prometheus
@@ -99,8 +97,6 @@ else
   kubectl apply -f "$CONSOLE_INGRESS_MANIFEST"
 fi
 
-"$ROOT/deploy/bootstrap-kind-qwenpaw-worker.sh"
-
 echo "Kind 本地基础设施闭环已安装。"
-echo "入口：api.agentteams.localhost、gateway.agentteams.localhost、qwenpaw.agentteams.localhost、prometheus.agentteams.localhost、grafana.agentteams.localhost"
+echo "入口：api.agentteams.localhost、gateway.agentteams.localhost、prometheus.agentteams.localhost、grafana.agentteams.localhost"
 echo "如需启用本地 OIDC，请执行 deploy/install-kind-oidc.sh。"

@@ -677,7 +677,7 @@ test('real OIDC template flow provisions a Worker only after explicit instantiat
     .selectOption((await templateOption.getAttribute('value'))!);
   await page.getByLabel('工作节点规格 JSON').fill(
     JSON.stringify({
-      runtime: 'qwenpaw',
+      runtime: 'agentscope',
       modelProvider: 'deepseek',
       modelName: 'deepseek-chat',
     }),
@@ -730,7 +730,7 @@ test('real OIDC AgentSpec page creates publishes and deactivates independently',
 
   const name = `E2E AgentSpec ${Date.now()}`;
   await page.getByLabel('内部名称').fill(name);
-  await page.getByLabel('运行时').fill('qwenpaw');
+  await page.getByLabel('运行时').fill('agentscope');
   await page.getByLabel('模型服务商').fill('deepseek');
   await page.getByLabel('模型名称').fill('deepseek-chat');
   await page.getByLabel('规格 JSON').fill('{"mode":"safe"}');
@@ -857,7 +857,7 @@ test('real OIDC team leader worker conversation task execution and artifact quer
     await expect(templateOption).toHaveCount(1);
     await page.locator('#revision-template').selectOption((await templateOption.getAttribute('value'))!);
     await page.getByLabel('工作节点规格 JSON').fill(
-      JSON.stringify({ runtime: 'qwenpaw', modelProvider: 'deepseek', modelName: 'deepseek-chat' }),
+      JSON.stringify({ runtime: 'agentscope', modelProvider: 'deepseek', modelName: 'deepseek-chat' }),
     );
     await page.getByRole('button', { name: '创建版本' }).click();
     await expect(page.getByText(/版本 \d+ 已创建/)).toBeVisible();
@@ -983,7 +983,7 @@ test('real OIDC team leader worker conversation task execution and artifact quer
   const taskTitle = `Playwright task execution ${suffix}`;
   await page.getByLabel('任务标题').fill(taskTitle);
   await page.getByLabel('任务说明').fill('Validate team worker execution and result inspection.');
-  await page.getByLabel('任务类型').fill('qwenpaw');
+  await page.getByLabel('任务类型').fill('agentscope');
   await page.getByLabel('任务工作节点').fill(executorId);
   await page.getByRole('button', { name: '创建任务' }).click();
   await expect(page).toHaveURL(new RegExp(`/${projectPath}/tasks/[0-9a-f-]{36}$`), {

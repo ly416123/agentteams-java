@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.agentteams.controlplane.conversation.CreateConversationCommand;
 import io.agentteams.controlplane.conversation.JdbcConversationRepository;
 import io.agentteams.controlplane.security.ExecutionContext;
+import io.agentteams.domain.task.TaskPhase;
 import java.time.Instant;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -66,6 +67,42 @@ class TaskSourceConversationRepositoryTest {
         assertThat(repository.findBySourceConversation(
                 new ExecutionContext("org-2", "tenant-2", "project-1", "team-1", "bob"), conversationId))
                 .isEmpty();
+    }
+
+    @Test
+    void bindsSourceConversationWithQualifiedTaskColumns() {
+        TaskRepository repository = new TaskRepository(jdbc);
+        UUID taskId = UUID.randomUUID();
+        UUID conversationId = UUID.randomUUID();
+        ExecutionContext context = new ExecutionContext("org-1", "tenant-1", "project-1", "team-1", "alice");
+        new JdbcConversationRepository(jdbc).create(context,
+                new CreateConversationCommand(conversationId, "Task source", NOW));
+        repository.insert(TaskRecord.draft(taskId, "linked", "", "alice", "test", NOW));
+        jdbc.update("""
+                INSERT INTO resource_scopes
+                    (resource_type, resource_id, tenant_id, project_id, team, created_at, updated_at)
+                VALUES ('TASK', ?, ?, ?, ?, ?, ?)
+                """, taskId, "tenant-1", "project-1", "team-1",
+                JdbcSupport.timestamp(NOW), JdbcSupport.timestamp(NOW));
+
+        TaskRecord bound = repository.bindSourceConversation(context, taskId, conversationId);
+
+        assertThat(bound.sourceConversationId()).isEqualTo(conversationId);
+    }
+
+    @Test
+    void insertsManagerOwnedSourceConversationIdWithoutControlPlaneConversationRow() {
+        TaskRepository repository = new TaskRepository(jdbc);
+        UUID taskId = UUID.randomUUID();
+        UUID conversationId = UUID.randomUUID();
+        TaskRecord task = new TaskRecord(taskId, "manager task", "", TaskPhase.DRAFT, 0,
+                "{\"sourceConversationId\":\"" + conversationId + "\"}", "manager", "conversation",
+                null, null, NOW, NOW, 0, "AGENTSCOPE", "ACTIVE", null, null, null, "MAIN", conversationId);
+
+        repository.insert(task);
+
+        assertThat(repository.findById(taskId)).get().extracting(TaskRecord::sourceConversationId)
+                .isEqualTo(conversationId);
     }
 
     private static javax.sql.DataSource dataSource() {

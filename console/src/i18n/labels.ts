@@ -173,7 +173,7 @@ const SOURCE: Record<string, string> = {
 };
 
 const RUNTIME: Record<string, string> = {
-  QWENPAW: 'QwenPaw',
+  AGENTSCOPE: 'AgentScope',
   OPENAI: 'OpenAI',
   ANTHROPIC: 'Anthropic',
 };

@@ -51,7 +51,7 @@ Operator Deployment 必须将镜像配置为对应的 `:l5` 标签并使用
 `imagePullPolicy: IfNotPresent`，以便使用节点预加载镜像时不会因 `:latest` 的默认
 `Always` 策略触发匿名仓库拉取。脚本自身仍只负责验收和清理。
 
-仓库中的 `deploy/examples/qwenpaw-worker.yaml` 是业务 Worker 示例，不是本次 L5 入口的依赖；脚本只应用 `deploy/examples/task-sandbox-isolated.yaml` 与 `deploy/examples/task-sandbox-hardened.yaml` 两个短生命周期 `TaskSandbox` examples，不触碰业务 Worker 或 Control Plane。
+仓库中的 `deploy/examples/agentscope-worker.yaml` 是业务 Worker 示例，不是本次 L5 入口的依赖；脚本只应用 `deploy/examples/task-sandbox-isolated.yaml` 与 `deploy/examples/task-sandbox-hardened.yaml` 两个短生命周期 `TaskSandbox` examples，不触碰业务 Worker 或 Control Plane。
 
 ## 本机 SSH 执行
 

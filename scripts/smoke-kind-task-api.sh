@@ -68,7 +68,7 @@ post_task() {
   local key="$1"
   local capability="${2:-kind-api-smoke}"
   local payload
-  payload="$(jq -cn --arg capability "${capability}" '{title:"kind-task-api-smoke",description:"API contract smoke",spec:{scope:{tenant:"tenant-a",project:"project-a",team:"team-a"},taskType:"qwenpaw",inputJson:{prompt:"KIND_API_SMOKE"},requiredCapabilities:[$capability]}}')"
+  payload="$(jq -cn --arg capability "${capability}" '{title:"kind-task-api-smoke",description:"API contract smoke",spec:{scope:{tenant:"tenant-a",project:"project-a",team:"team-a"},taskType:"agentscope",inputJson:{prompt:"KIND_API_SMOKE"},requiredCapabilities:[$capability]}}')"
   curl_api --fail-with-body --silent --show-error \
     -X POST "${BASE_URL}/api/v1/tasks" \
     -H "Content-Type: application/json" \
@@ -117,7 +117,7 @@ echo "Task API smoke action=reject" >&2
 rejected_json="$(action_task "${rejected_id}" reject "kind-api-reject-${rejected_id}" "$(jq -er '.version' <<<"${rejected_json}")")"
 [[ "$(jq -er '.phase' <<<"${rejected_json}")" == "REJECTED" ]]
 
-attempt_task_json="$(post_task "kind-api-smoke-$(date +%s)-artifact" qwenpaw)"
+attempt_task_json="$(post_task "kind-api-smoke-$(date +%s)-artifact" agentscope)"
 attempt_task_id="$(jq -er '.id' <<<"${attempt_task_json}")"
 echo "Task API smoke artifact task=${attempt_task_id} queued" >&2
 action_task "${attempt_task_id}" queue "kind-api-artifact-queue-${attempt_task_id}" "$(jq -er '.version' <<<"${attempt_task_json}")" >/dev/null

@@ -32,6 +32,7 @@ class TaskStateConsistencyCheckerTest {
     void acceptsNormalRunningAndSuccessfulSnapshots() {
         assertThat(checker.check(snapshot("RUNNING", "RUNNING", null, 1, 3, 2, 0))).isEmpty();
         assertThat(checker.check(snapshot("SUCCEEDED", "SUCCEEDED", "SUCCEEDED", 0, 3, 2, 0))).isEmpty();
+        assertThat(checker.check(snapshot("WAITING_SUBTASKS", "SUCCEEDED", "SUCCEEDED", 0, 3, 2, 1))).isEmpty();
     }
 
     private static TaskStateConsistencySnapshot snapshot(String taskPhase, String runStatus,

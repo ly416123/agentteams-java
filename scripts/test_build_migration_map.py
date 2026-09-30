@@ -67,7 +67,7 @@ def _write(tmp: Path, name: str, rows) -> Path:
 
 
 WORKER_FULL = {
-    "name": "bidding-worker", "status": "Running", "agent_type": "qwenpaw",
+    "name": "bidding-worker", "status": "Running", "agent_type": "agentscope",
     "deploy_type": "SelfHosted", "version_code": "worker-1.1.18",
     "template": {"name": "template-bidding-worker", "version": "0.0.2"},
     "groups": [{"name": "corp-map-algo-test", "role": "worker", "type": "team"}],
@@ -113,7 +113,7 @@ class TestAgentSpecRegistration(unittest.TestCase):
     def test_full_mapping_and_spec_payload(self) -> None:
         reg = _bmm.agent_spec_registration(WORKER_FULL)
         self.assertEqual(reg["name"], "bidding-worker")
-        self.assertEqual(reg["runtime"], "qwenpaw")
+        self.assertEqual(reg["runtime"], "agentscope")
         self.assertEqual(reg["workerType"], "EXECUTOR")
         self.assertEqual(reg["teamRef"], "corp-map-algo-test")
         self.assertEqual(reg["desiredState"], "RUNNING")

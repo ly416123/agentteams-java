@@ -50,7 +50,7 @@ public class JdbcTaskStateConsistencyRepository implements TaskStateConsistencyR
                   FROM task_runs run
                   JOIN tasks task ON task.id = run.task_id
                  WHERE run.updated_at >= ?
-                    OR task.phase IN ('QUEUED', 'ASSIGNED', 'ACCEPTED', 'RUNNING')
+                    OR task.phase IN ('QUEUED', 'ASSIGNED', 'ACCEPTED', 'RUNNING', 'WAITING_SUBTASKS')
                  ORDER BY GREATEST(task.updated_at, run.updated_at), run.id
                  LIMIT ?
                 """, (rs, row) -> new TaskStateConsistencySnapshot(

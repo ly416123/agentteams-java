@@ -42,16 +42,17 @@ public final class ManagerAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         String token = header.substring(7).trim();
-        ManagerPrincipal principal;
+        ManagerPrincipal authenticated;
         try {
-            principal = validator.validate(token).orElse(null);
+            authenticated = validator.validate(token).orElse(null);
         } catch (RuntimeException ignored) {
-            principal = null;
+            authenticated = null;
         }
-        if (principal == null) {
+        if (authenticated == null) {
             unauthorized(response);
             return;
         }
+        ManagerPrincipal principal = authenticated;
         try {
             if (projectScopes != null) {
                 principal = projectScopes.canonicalize(principal, request.getParameter("projectId"));
@@ -62,7 +63,7 @@ public final class ManagerAuthenticationFilter extends OncePerRequestFilter {
             response.getWriter().write("{\"code\":\"FORBIDDEN\",\"message\":\"project access denied\"}");
             return;
         }
-        ManagerRequestContext.set(principal, token);
+        ManagerRequestContext.set(principal, token, authenticated);
         try {
             chain.doFilter(request, response);
         } finally {

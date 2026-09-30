@@ -32,10 +32,10 @@ AgentTeamsClient.CommandResult started = client.startTask(
 AgentTeamsClient admin = new AgentTeamsClient(
         "https://agentteams.example", () -> shortLivedToken);
 AgentTeamsClient.Agent agent = admin.createAgent(
-        new AgentTeamsClient.CreateAgentRequest("leader", "qwenpaw", "LEADER", null, null),
+        new AgentTeamsClient.CreateAgentRequest("leader", "agentscope", "LEADER", null, null),
         "project-a", "corp-agent-agent-leader");
 AgentTeamsClient.AgentSpec spec = admin.createAgentSpec(
-        new AgentTeamsClient.CreateAgentSpecRequest("leader", "qwenpaw", "default",
+        new AgentTeamsClient.CreateAgentSpecRequest("leader", "agentscope", "default",
                 "qwen3.5-plus", "team-a", "RUNNING", "LEADER", specJson),
         "project-a", "corp-agent-spec-leader");
 admin.publishAgentSpec(spec.id(), "project-a", "corp-agent-publish-leader");

@@ -44,7 +44,7 @@ class InternalWorkerOperationControllerTest {
     void confirmsRolloutUsingTheAuthenticatedInternalBoundary() throws Exception {
         UUID operationId = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(operationId, UUID.randomUUID(),
-                WorkerOperationType.ROLLOUT, "sha256:new", "qwenpaw", "config-2", "secret-2", "{}",
+                WorkerOperationType.ROLLOUT, "sha256:new", "agentscope", "config-2", "secret-2", "{}",
                 "rollout-1", 2, "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
                 Instant.parse("2030-01-01T00:00:00Z"));
         when(operations.confirmRollout(eq(operationId), eq(0L), org.mockito.ArgumentMatchers.any()))
@@ -55,10 +55,10 @@ class InternalWorkerOperationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"expectedVersion":0,"operatorReady":true,
-                                 "operatorSpecDigest":"sha256:new","operatorRuntime":"qwenpaw",
+                                 "operatorSpecDigest":"sha256:new","operatorRuntime":"agentscope",
                                  "operatorConfigRevision":"config-2","operatorSecretGeneration":"secret-2",
                                  "gatewayOnline":true,"gatewaySpecDigest":"sha256:new",
-                                 "gatewayRuntime":"qwenpaw","gatewayConfigRevision":"config-2",
+                                 "gatewayRuntime":"agentscope","gatewayConfigRevision":"config-2",
                                  "gatewaySecretGeneration":"secret-2",
                                  "observedAt":"2030-01-01T00:01:00Z"}
                                 """))
@@ -75,7 +75,7 @@ class InternalWorkerOperationControllerTest {
     void acceptsOperatorAndGatewayReportsThroughSeparateEndpoints() throws Exception {
         UUID operationId = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(operationId, UUID.randomUUID(),
-                WorkerOperationType.ROLLOUT, "sha256:image", "qwenpaw", "config-2", "secret-2", "{}",
+                WorkerOperationType.ROLLOUT, "sha256:image", "agentscope", "config-2", "secret-2", "{}",
                 "rollout-1", 1, "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
                 Instant.parse("2030-01-01T00:00:00Z"));
         when(operations.confirmOperator(eq(operationId), eq(0L), org.mockito.ArgumentMatchers.any()))
@@ -88,7 +88,7 @@ class InternalWorkerOperationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"expectedVersion":0,"ready":true,"specDigest":"sha256:image",
-                                 "runtime":"qwenpaw","configRevision":"config-2",
+                                 "runtime":"agentscope","configRevision":"config-2",
                                  "secretGeneration":"secret-2","observedAt":"2030-01-01T00:01:00Z"}
                                 """))
                 .andExpect(status().isAccepted());
@@ -97,7 +97,7 @@ class InternalWorkerOperationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"expectedVersion":1,"online":true,"specDigest":"sha256:image",
-                                 "runtime":"qwenpaw","configRevision":"config-2",
+                                 "runtime":"agentscope","configRevision":"config-2",
                                  "secretGeneration":"secret-2","observedAt":"2030-01-01T00:01:01Z"}
                                 """))
                 .andExpect(status().isAccepted());
@@ -112,7 +112,7 @@ class InternalWorkerOperationControllerTest {
     void returnsLiveOperationToTokenAuthenticatedObservationAdapters() throws Exception {
         UUID agentId = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), agentId, WorkerOperationType.ROLLOUT,
-                "sha256:image", "qwenpaw", "config-2", "secret-2", "{}", "lookup-1", 3,
+                "sha256:image", "agentscope", "config-2", "secret-2", "{}", "lookup-1", 3,
                 "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
                 Instant.parse("2030-01-01T00:00:00Z"));
         when(operations.active(eq(agentId), org.mockito.ArgumentMatchers.any()))
@@ -123,7 +123,7 @@ class InternalWorkerOperationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(operation.id().toString()))
                 .andExpect(jsonPath("$.version").value(0))
-                .andExpect(jsonPath("$.requestedRuntime").value("qwenpaw"))
+                .andExpect(jsonPath("$.requestedRuntime").value("agentscope"))
                 .andExpect(jsonPath("$.requestedSecretGeneration").value("secret-2"));
 
         verify(operations).active(eq(agentId), org.mockito.ArgumentMatchers.any());
@@ -144,8 +144,8 @@ class InternalWorkerOperationControllerTest {
     void exposesFailedRolloutForAutomaticStableSpecRecovery() throws Exception {
         UUID agentId = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), agentId, WorkerOperationType.ROLLOUT,
-                "sha256:new", "qwenpaw", "config-2", "secret-2",
-                "{\"agentId\":\"" + agentId + "\",\"runtime\":\"qwenpaw\","
+                "sha256:new", "agentscope", "config-2", "secret-2",
+                "{\"agentId\":\"" + agentId + "\",\"runtime\":\"agentscope\","
                         + "\"image\":\"example/worker@sha256:old\",\"replicas\":1,\"env\":{}}",
                 "rollout-1", 1, "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
                 Instant.parse("2030-01-01T00:00:00Z"));
@@ -169,7 +169,7 @@ class InternalWorkerOperationControllerTest {
     void confirmsAutomaticRollbackThroughTheInternalBoundary() throws Exception {
         UUID operationId = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(operationId, UUID.randomUUID(), WorkerOperationType.ROLLOUT,
-                "sha256:new", "qwenpaw", "config-2", "secret-2", "{}", "rollout-1", 1,
+                "sha256:new", "agentscope", "config-2", "secret-2", "{}", "rollout-1", 1,
                 "operator", Instant.parse("2030-01-01T00:02:00Z"), "correlation-1",
                 Instant.parse("2030-01-01T00:00:00Z"));
         when(operations.rollback(null, operationId, 3L, "rollback-key")).thenReturn(operation);

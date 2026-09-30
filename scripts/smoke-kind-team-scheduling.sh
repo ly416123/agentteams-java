@@ -78,15 +78,15 @@ spec:
   members:
     - agentRef: ${LEADER_ID}
       role: leader
-      capabilities: [qwenpaw]
+      capabilities: [agentscope]
     - agentRef: ${WORKER_ID}
       role: worker
-      capabilities: [qwenpaw]
+      capabilities: [agentscope]
   policy:
     maxConcurrentTasks: 1
     requireApproval: false
-    allowedRuntimes: [qwenpaw]
-    requiredCapabilities: [qwenpaw]
+    allowedRuntimes: [agentscope]
+    requiredCapabilities: [agentscope]
 EOF
 TEAM_APPLIED=1
 
@@ -117,7 +117,7 @@ create_task() {
   task_json="$(curl --fail --silent -X POST "${BASE_URL}/api/v1/tasks" \
     -H "Idempotency-Key: team-smoke-create-${TEAM_NAME}-${suffix}" \
     -H 'Content-Type: application/json' \
-    --data-binary "{\"title\":\"team scheduling ${suffix}\",\"description\":\"Kind Team scheduling smoke\",\"spec\":{\"taskType\":\"qwenpaw\",\"teamId\":\"${TEAM_ID}\",\"requiredCapabilities\":[\"qwenpaw\"],\"inputJson\":{\"prompt\":\"Team scheduling smoke ${suffix}\"}}}")"
+    --data-binary "{\"title\":\"team scheduling ${suffix}\",\"description\":\"Kind Team scheduling smoke\",\"spec\":{\"taskType\":\"agentscope\",\"teamId\":\"${TEAM_ID}\",\"requiredCapabilities\":[\"agentscope\"],\"inputJson\":{\"prompt\":\"Team scheduling smoke ${suffix}\"}}}")"
   local task_id
   task_id="$(jq -er '.id' <<<"${task_json}")"
   curl --fail --silent -X POST "${BASE_URL}/api/v1/tasks/${task_id}/queue" \

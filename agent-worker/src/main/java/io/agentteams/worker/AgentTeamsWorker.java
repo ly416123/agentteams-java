@@ -23,18 +23,13 @@ import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.CompletionStatus;
 import io.agentteams.runtime.GrpcAgentChannelPort;
 import io.agentteams.runtime.GatewayRuntimeAdapter;
-import io.agentteams.runtime.QwenPawHttpRuntimeConfiguration;
-import io.agentteams.runtime.QwenPawHttpRuntimePort;
-import io.agentteams.runtime.ProjectScopedRuntimeModelCallAdmission;
 import io.agentteams.runtime.GrpcRuntimeQuotaPort;
 import io.agentteams.runtime.GrpcRuntimeArtifactUploadPort;
-import io.agentteams.runtime.RuntimeModelCallAdmission;
 import io.agentteams.runtime.RuntimeQuotaPort;
 import io.agentteams.runtime.RuntimeArtifactUploadPort;
 import io.agentteams.runtime.RuntimeResult;
 import io.agentteams.runtime.RuntimeResultSink;
 import io.agentteams.runtime.RuntimeSubmission;
-import io.agentteams.runtime.SemaphoreRuntimeModelCallAdmission;
 import io.agentteams.runtime.RuntimeConfigCoordinator;
 import io.agentteams.runtime.RuntimeConfigPrepared;
 import io.agentteams.runtime.RuntimeConfigSnapshot;
@@ -71,13 +66,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Bridges the AgentTeams gRPC AgentChannel to a QwenPaw HTTP/SSE runtime.
+ * Bridges the AgentTeams gRPC AgentChannel to an AgentScope Harness runtime.
  *
  * <p>The worker owns no business state. PostgreSQL remains authoritative; the
  * worker only keeps in-flight runtime state and reports protocol events back
  * through the Gateway.</p>
  */
-public final class QwenPawWorker implements AutoCloseable {
+public final class AgentTeamsWorker implements AutoCloseable {
     private static final ProtocolVersion PROTOCOL_VERSION = ProtocolVersion.newBuilder()
             .setMajor(2).setMinor(3).build();
 
@@ -107,17 +102,17 @@ public final class QwenPawWorker implements AutoCloseable {
     private final Map<UUID, RuntimeResult> pendingResults = new ConcurrentHashMap<>();
     private final Set<UUID> runningTasks = ConcurrentHashMap.newKeySet();
 
-    private QwenPawWorker(WorkerConfiguration configuration) {
+    private AgentTeamsWorker(WorkerConfiguration configuration) {
         this(configuration, null);
     }
 
-    QwenPawWorker(WorkerConfiguration configuration, RuntimeQuotaPort quotaPort) {
+    AgentTeamsWorker(WorkerConfiguration configuration, RuntimeQuotaPort quotaPort) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.clock = Clock.systemUTC();
         this.sandboxStateProbe = new AssignmentSandboxStateProbePort(clock);
         this.tracing = WorkerTracing.create();
         this.scheduler = Executors.newScheduledThreadPool(2, runnable -> {
-            Thread thread = new Thread(runnable, "qwenpaw-worker-scheduler");
+            Thread thread = new Thread(runnable, "agentteams-worker-scheduler");
             thread.setDaemon(true);
             return thread;
         });
@@ -145,33 +140,24 @@ public final class QwenPawWorker implements AutoCloseable {
         this.runtime.setEventSink(event -> {
             boolean handedOff = runtimeAdapter.reportEvent(event.taskId(), event.eventType(), event.payloadJson());
             if (!handedOff) {
-                System.getLogger(QwenPawWorker.class.getName()).log(System.Logger.Level.WARNING,
+                System.getLogger(AgentTeamsWorker.class.getName()).log(System.Logger.Level.WARNING,
                         "Runtime event was shed task=" + event.taskId() + " type=" + event.eventType());
             }
         });
         RuntimeResultSink resultSink = this::onRuntimeResult;
         this.hello = hello(configuration, clock);
-        runtime.start(new AgentRuntimeContext("qwenpaw", configuration.maxConcurrentTasks(), clock,
+        runtime.start(new AgentRuntimeContext("agentscope", configuration.maxConcurrentTasks(), clock,
                 resultSink, configuration.runtimeConfiguration()));
         this.healthServer = new WorkerHealthServer(configuration.healthPort());
     }
 
-    public static QwenPawWorker fromEnvironment() {
-        return new QwenPawWorker(WorkerConfiguration.fromEnvironment());
+    public static AgentTeamsWorker fromEnvironment() {
+        return new AgentTeamsWorker(WorkerConfiguration.fromEnvironment());
     }
 
     /** Composition hook for an application-provided quota adapter. */
-    public static QwenPawWorker fromEnvironment(RuntimeQuotaPort quotaPort) {
-        return new QwenPawWorker(WorkerConfiguration.fromEnvironment(), quotaPort);
-    }
-
-    static RuntimeModelCallAdmission modelCallAdmission(WorkerConfiguration configuration,
-            RuntimeQuotaPort quotaPort) {
-        RuntimeModelCallAdmission local = new SemaphoreRuntimeModelCallAdmission(
-                configuration.modelCallMaxConcurrent());
-        return quotaPort == null
-                ? local
-                : new ProjectScopedRuntimeModelCallAdmission(quotaPort, local);
+    public static AgentTeamsWorker fromEnvironment(RuntimeQuotaPort quotaPort) {
+        return new AgentTeamsWorker(WorkerConfiguration.fromEnvironment(), quotaPort);
     }
 
     static RuntimeQuotaPort remoteQuotaPort(WorkerConfiguration configuration,
@@ -213,9 +199,8 @@ public final class QwenPawWorker implements AutoCloseable {
         channelPort.connect();
         channelClient.connect(hello);
         scheduler.scheduleAtFixedRate(this::heartbeatLeases, 5, 5, TimeUnit.SECONDS);
-        System.out.printf("QwenPaw Worker started agent=%s gateway=%s:%d qwenpaw=%s%n",
-                configuration.agentId(), configuration.gatewayHost(), configuration.gatewayPort(),
-                configuration.qwenPawEndpoint());
+        System.out.printf("AgentTeams Worker started agent=%s runtime=agentscope gateway=%s:%d%n",
+                configuration.agentId(), configuration.gatewayHost(), configuration.gatewayPort());
     }
 
     public void awaitTermination() throws InterruptedException {
@@ -490,9 +475,9 @@ public final class QwenPawWorker implements AutoCloseable {
     private void onReady(AgentReady ready) {
         channelClient.onReady(ready);
         if (ready.getAccepted()) {
-            System.out.printf("QwenPaw Worker is READY agent=%s%n", configuration.agentId());
+            System.out.printf("AgentTeams Worker is READY agent=%s%n", configuration.agentId());
         } else {
-            System.err.printf("QwenPaw Worker was rejected: %s%n", ready.getRejectionReason());
+            System.err.printf("AgentTeams Worker was rejected: %s%n", ready.getRejectionReason());
         }
     }
 
@@ -521,7 +506,7 @@ public final class QwenPawWorker implements AutoCloseable {
                 RuntimeResult pending;
                 synchronized (resultGate) {
                     if (!"already accepted".equals(submission.reason())) {
-                        runtimeAdapter.progress(taskId, 0, "running", "QwenPaw execution started");
+                        runtimeAdapter.progress(taskId, 0, "running", "AgentScope execution started");
                         channelClient.advanceTaskEventVersion(taskId);
                     }
                     runningTasks.add(taskId);
@@ -684,10 +669,7 @@ public final class QwenPawWorker implements AutoCloseable {
     }
 
     private static Map<String, String> capabilities(ExecutionRuntime runtime) {
-        if (runtime == ExecutionRuntime.AGENTSCOPE) {
-            return Map.of("http-sse", "v1", "agentscope", "v1", "runtime-agentscope-v1", "v1");
-        }
-        return Map.of("http-sse", "v1", "qwenpaw", "v1", "runtime-qwenpaw-v1", "v1");
+        return Map.of("http-sse", "v1", "agentscope", "v1", "runtime-agentscope-v1", "v1");
     }
 
     private static Timestamp timestamp(Instant instant) {
@@ -716,13 +698,6 @@ public final class QwenPawWorker implements AutoCloseable {
             String gatewayTlsCaCertPath,
             String gatewayTlsClientCertPath,
             String gatewayTlsClientKeyPath,
-            String qwenPawEndpoint,
-            String qwenPawAgentId,
-            String qwenPawAuthorizationToken,
-            String qwenPawUserId,
-            String qwenPawChannel,
-            String qwenPawConfigurationPath,
-            boolean virtualThreadsEnabled,
             ExecutionRuntime runtime,
             String modelProvider,
             String model,
@@ -735,7 +710,6 @@ public final class QwenPawWorker implements AutoCloseable {
             Duration quotaTimeout,
             boolean artifactUploadEnabled,
             Duration artifactUploadTimeout,
-            Duration qwenPawConnectTimeout,
             Duration reconnectDelay,
             String runtimeVersion,
             String specDigest,
@@ -784,16 +758,9 @@ public final class QwenPawWorker implements AutoCloseable {
                             "AGENTTEAMS_GATEWAY_TLS_ENABLED"),
                     requiredWhenEnabled(environment, "AGENTTEAMS_GATEWAY_TLS_CLIENT_KEY_PATH",
                             "AGENTTEAMS_GATEWAY_TLS_ENABLED"),
-                    value(environment, "QWENPAW_ENDPOINT", "http://qwenpaw:8088"),
-                    value(environment, "QWENPAW_AGENT_ID", "default"),
-                    optional(environment, "QWENPAW_AUTH_TOKEN"),
-                    value(environment, "QWENPAW_USER_ID", "agentteams"),
-                    value(environment, "QWENPAW_CHANNEL", "console"),
-                    value(environment, "QWENPAW_CONFIG_PATH", "/api/models/active"),
-                    booleanValue(environment, "AGENTTEAMS_VIRTUAL_THREADS_ENABLED", false),
                     ExecutionRuntime.from(environment.get("AGENTTEAMS_RUNTIME")),
-                    value(environment, "AGENTTEAMS_MODEL_PROVIDER", "qwenpaw"),
-                    value(environment, "AGENTTEAMS_MODEL", "unknown"),
+                    value(environment, "AGENTTEAMS_MODEL_PROVIDER", "deepseek"),
+                    value(environment, "AGENTTEAMS_MODEL", "deepseek:deepseek-chat"),
                     integer(environment, "AGENTTEAMS_MODEL_MAX_TOKENS", 1024),
                     integer(environment, "AGENTTEAMS_MODEL_CALL_MAX_CONCURRENT", maxConcurrentTasks),
                     nonNegativeInteger(environment, "AGENTTEAMS_EVENT_RATE_LIMIT", 30),
@@ -803,7 +770,6 @@ public final class QwenPawWorker implements AutoCloseable {
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_QUOTA_TIMEOUT_SECONDS", 3)),
                     artifactUploadEnabled,
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_ARTIFACT_UPLOAD_TIMEOUT_SECONDS", 5)),
-                    Duration.ofSeconds(integer(environment, "QWENPAW_CONNECT_TIMEOUT_SECONDS", 10)),
                     Duration.ofSeconds(integer(environment, "AGENTTEAMS_RECONNECT_DELAY_SECONDS", 2)),
                     value(environment, "AGENTTEAMS_RUNTIME_VERSION", "0.1.0"),
                     value(environment, "AGENTTEAMS_SPEC_DIGEST", ""),
@@ -825,9 +791,6 @@ public final class QwenPawWorker implements AutoCloseable {
                     "worker_id", agentId,
                     "gatewayHost", gatewayHost,
                     "gatewayPort", Integer.toString(gatewayPort),
-                    "qwenPawEndpoint", qwenPawEndpoint,
-                    "qwenPawAgentId", qwenPawAgentId,
-                    "qwenPawConfigurationPath", qwenPawConfigurationPath,
                     "provider_id", modelProvider,
                     "model", model,
                     "modelMaxTokens", Integer.toString(modelMaxTokens)));
@@ -915,7 +878,7 @@ public final class QwenPawWorker implements AutoCloseable {
         private void start() {
             try {
                 serverSocket = new ServerSocket(port);
-                Thread acceptor = new Thread(this::accept, "qwenpaw-worker-health");
+                Thread acceptor = new Thread(this::accept, "agentteams-worker-health");
                 acceptor.setDaemon(true);
                 acceptor.start();
             } catch (IOException error) {

@@ -111,11 +111,14 @@ public final class TaskService {
         Instant now = clock.instant();
         String taskType = input.taskType() == null || input.taskType().isBlank()
                 ? typeFromSpec(spec) : input.taskType();
-        TaskRecord created = persistence.createTask(new CreateTaskCommand(key, title, description, actor, source,
-                spec, now, taskType));
-        bindIfAuthenticated(created.id());
         UUID sourceConversationId = sourceConversationId(spec);
-        if (sourceConversationId != null) {
+        TaskRecord created = persistence.createTask(new CreateTaskCommand(key, title, description, actor, source,
+                spec, now, taskType, sourceConversationId));
+        bindIfAuthenticated(created.id());
+        // Manager-owned conversations are durable outside the Control Plane
+        // conversation table. Their source ID is persisted with the task above;
+        // only legacy Control Plane conversations need the strict binding check.
+        if (sourceConversationId != null && !"conversation".equalsIgnoreCase(source)) {
             TaskRecord persisted = created;
             created = PrincipalContext.current().map(principal -> persistence.bindSourceConversation(
                     new ExecutionContext("control-plane", principal.scope().tenant(), principal.scope().project(),

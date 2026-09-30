@@ -217,22 +217,22 @@ class AgentTeamsClientTest {
             assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("Bearer token-1");
             assertThat(exchange.getRequestHeaders().getFirst("Idempotency-Key")).isNotBlank();
             if ("POST".equals(exchange.getRequestMethod()) && exchange.getRequestURI().getPath().equals("/api/v1/agent-specs")) {
-                respond(exchange, 201, "{\"id\":\"" + specId + "\",\"name\":\"leader\",\"runtime\":\"qwenpaw\",\"modelProvider\":\"default\",\"modelName\":\"qwen\",\"teamRef\":\"team-a\",\"workerType\":\"LEADER\",\"desiredState\":\"RUNNING\",\"lifecycleStatus\":\"DRAFT\",\"spec\":\"{}\",\"version\":0}");
+                respond(exchange, 201, "{\"id\":\"" + specId + "\",\"name\":\"leader\",\"runtime\":\"agentscope\",\"modelProvider\":\"default\",\"modelName\":\"qwen\",\"teamRef\":\"team-a\",\"workerType\":\"LEADER\",\"desiredState\":\"RUNNING\",\"lifecycleStatus\":\"DRAFT\",\"spec\":\"{}\",\"version\":0}");
             } else {
-                respond(exchange, 200, "{\"id\":\"" + specId + "\",\"name\":\"leader\",\"runtime\":\"qwenpaw\",\"modelProvider\":\"default\",\"modelName\":\"qwen\",\"teamRef\":\"team-a\",\"workerType\":\"LEADER\",\"desiredState\":\"RUNNING\",\"lifecycleStatus\":\"PUBLISHED\",\"spec\":\"{}\",\"version\":1}");
+                respond(exchange, 200, "{\"id\":\"" + specId + "\",\"name\":\"leader\",\"runtime\":\"agentscope\",\"modelProvider\":\"default\",\"modelName\":\"qwen\",\"teamRef\":\"team-a\",\"workerType\":\"LEADER\",\"desiredState\":\"RUNNING\",\"lifecycleStatus\":\"PUBLISHED\",\"spec\":\"{}\",\"version\":1}");
             }
         });
         server.createContext("/api/v1/agent-specs/00000000-0000-0000-0000-000000000011/deployments/00000000-0000-0000-0000-000000000012", exchange ->
                 deployResponse(exchange, agentId));
         server.createContext("/api/v1/agents", exchange ->
-                respond(exchange, 201, "{\"id\":\"" + agentId + "\",\"name\":\"leader\",\"workerType\":\"LEADER\",\"phase\":\"PROVISIONING\",\"runtime\":\"qwenpaw\",\"version\":0}"));
+                respond(exchange, 201, "{\"id\":\"" + agentId + "\",\"name\":\"leader\",\"workerType\":\"LEADER\",\"phase\":\"PROVISIONING\",\"runtime\":\"agentscope\",\"version\":0}"));
 
         AgentTeamsClient client = new AgentTeamsClient(baseUrl, () -> "token-1");
         AgentTeamsClient.Agent agent = client.createAgent(
-                new AgentTeamsClient.CreateAgentRequest("leader", "qwenpaw", "LEADER", null, null),
+                new AgentTeamsClient.CreateAgentRequest("leader", "agentscope", "LEADER", null, null),
                 "project-a", "agent-create-1");
         AgentTeamsClient.AgentSpec spec = client.createAgentSpec(
-                new AgentTeamsClient.CreateAgentSpecRequest("leader", "qwenpaw", "default", "qwen", "team-a",
+                new AgentTeamsClient.CreateAgentSpecRequest("leader", "agentscope", "default", "qwen", "team-a",
                         "RUNNING", "LEADER", null), "project-a", "spec-create-1");
         assertThat(client.publishAgentSpec(specId, "project-a", "spec-publish-1").lifecycleStatus()).isEqualTo("PUBLISHED");
         assertThat(client.deployAgentSpec(specId, agentId, "project-a", "corp-agent").agentId()).isEqualTo(agentId);

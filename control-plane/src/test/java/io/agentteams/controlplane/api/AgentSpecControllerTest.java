@@ -40,14 +40,14 @@ class AgentSpecControllerTest {
     @Test
     void createsAgentSpecWithModelReference() throws Exception {
         UUID id = UUID.randomUUID();
-        AgentSpecRecord record = new AgentSpecRecord(id, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+        AgentSpecRecord record = new AgentSpecRecord(id, "analyst", "agentscope", "deepseek", "deepseek-chat",
                 "research", "RUNNING", "DRAFT", "{\"skillRefs\":[\"search-v1\"]}", Instant.now(), Instant.now(), 1);
         when(service.create(eq("spec-key"), any())).thenReturn(record);
 
         mockMvc.perform(post("/api/v1/agent-specs")
                         .header("Idempotency-Key", "spec-key")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"analyst\",\"runtime\":\"qwenpaw\","
+                        .content("{\"name\":\"analyst\",\"runtime\":\"agentscope\","
                                 + "\"modelProvider\":\"deepseek\",\"modelName\":\"deepseek-chat\","
                                 + "\"teamRef\":\"research\",\"spec\":{\"skillRefs\":[\"search-v1\"]}}"))
                 .andExpect(status().isCreated())
@@ -58,7 +58,7 @@ class AgentSpecControllerTest {
 
     @Test
     void listsAgentSpecs() throws Exception {
-        AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), "analyst", "qwenpaw", "deepseek",
+        AgentSpecRecord record = new AgentSpecRecord(UUID.randomUUID(), "analyst", "agentscope", "deepseek",
                 "deepseek-chat", null, "RUNNING", "DRAFT", "{}", Instant.now(), Instant.now(), 1);
         when(service.list()).thenReturn(List.of(record));
 
@@ -71,9 +71,9 @@ class AgentSpecControllerTest {
     void publishesAndDeactivatesAgentSpecWithIdempotencyKeys() throws Exception {
         UUID id = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
-        AgentSpecRecord published = new AgentSpecRecord(id, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+        AgentSpecRecord published = new AgentSpecRecord(id, "analyst", "agentscope", "deepseek", "deepseek-chat",
                 null, "RUNNING", "PUBLISHED", "{}", now, now, 2);
-        AgentSpecRecord disabled = new AgentSpecRecord(id, "analyst", "qwenpaw", "deepseek", "deepseek-chat",
+        AgentSpecRecord disabled = new AgentSpecRecord(id, "analyst", "agentscope", "deepseek", "deepseek-chat",
                 null, "RUNNING", "DISABLED", "{}", now, now, 3);
         when(service.publish("publish-key", id)).thenReturn(published);
         when(service.deactivate("deactivate-key", id)).thenReturn(disabled);

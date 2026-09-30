@@ -1,5 +1,4 @@
 {{- $manager := .Values.manager | default dict -}}
-{{- $conversation := $manager.conversation | default dict -}}
 {{- if and $manager.enabled .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -19,10 +18,6 @@ spec:
             matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
           podSelector:
             matchLabels: { app.kubernetes.io/name: ingress-nginx }
-{{- if eq (default "fake" $conversation.runtime) "qwenpaw" }}
-        - podSelector:
-            matchLabels: { app.kubernetes.io/name: qwenpaw }
-{{- end }}
       ports:
         - { protocol: TCP, port: {{ default 8080 $manager.port }} }
   egress:
@@ -31,9 +26,6 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
         - { protocol: TCP, port: {{ .Values.controlPlane.port }} }
-{{- if eq (default "fake" $conversation.runtime) "qwenpaw" }}
-        - { protocol: TCP, port: {{ default 8088 $conversation.qwenpawEgressPort }} }
-{{- end }}
 {{- if .Values.storage.enabled }}
     - to:
         - podSelector:

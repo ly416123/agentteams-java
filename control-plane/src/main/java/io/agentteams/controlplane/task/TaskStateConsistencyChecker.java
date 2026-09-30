@@ -47,6 +47,7 @@ public final class TaskStateConsistencyChecker {
         return switch (taskPhase) {
             case "DRAFT", "QUEUED", "PAUSED" -> "QUEUED".equals(runStatus);
             case "ASSIGNED", "ACCEPTED", "RUNNING" -> "QUEUED".equals(runStatus) || "RUNNING".equals(runStatus);
+            case "WAITING_SUBTASKS" -> "SUCCEEDED".equals(runStatus);
             case "SUCCEEDED" -> "SUCCEEDED".equals(runStatus);
             case "FAILED" -> "FAILED".equals(runStatus);
             case "CANCELLED", "REJECTED" -> "CANCELLED".equals(runStatus);

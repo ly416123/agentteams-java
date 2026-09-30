@@ -17,6 +17,10 @@ public final class TeamSchedulingPolicy {
             AssignmentRequest request, int activeAssignments) {
         if (member == null || !"ACTIVE".equals(member.status())) return Decision.reject("MEMBER_INACTIVE");
         if (!agent.id().equals(member.agentId())) return Decision.reject("MEMBER_AGENT_MISMATCH");
+        if (!"ANY".equals(request.assignmentRole())
+                && !request.assignmentRole().equalsIgnoreCase(member.role())) {
+            return Decision.reject("TEAM_ROLE_MISMATCH");
+        }
         if (agent.phase() != io.agentteams.domain.agent.AgentPhase.READY) return Decision.reject("AGENT_NOT_READY");
         if (activeAssignments >= policy.maxConcurrentTasks()) return Decision.reject("TEAM_CONCURRENCY_LIMIT");
         if (policy.requireHumanApproval() && !request.approvalGranted()) return Decision.reject("APPROVAL_REQUIRED");
@@ -42,10 +46,18 @@ public final class TeamSchedulingPolicy {
     }
 
     public record AssignmentRequest(UUID taskId, List<String> requiredCapabilities,
-            boolean approvalGranted) {
+            boolean approvalGranted, String assignmentRole) {
         public AssignmentRequest {
             if (taskId == null) throw new IllegalArgumentException("taskId must not be null");
             requiredCapabilities = List.copyOf(requiredCapabilities == null ? List.of() : requiredCapabilities);
+            if (assignmentRole == null || assignmentRole.isBlank()) {
+                throw new IllegalArgumentException("assignmentRole must not be blank");
+            }
+            assignmentRole = assignmentRole.trim().toUpperCase(java.util.Locale.ROOT);
+        }
+
+        public AssignmentRequest(UUID taskId, List<String> requiredCapabilities, boolean approvalGranted) {
+            this(taskId, requiredCapabilities, approvalGranted, "ANY");
         }
     }
 

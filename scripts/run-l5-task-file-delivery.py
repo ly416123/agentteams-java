@@ -267,7 +267,7 @@ def model_round(base_url: str, manager_url: str, tokens: TokenSource,
     status, _ = request_json(
         f"{manager_url}/api/v1/conversations", "POST",
         {"sessionId": session_id, "projectId": args.project, "teamId": args.team,
-         "workerId": "qwenpaw"},
+         "workerId": "agentscope"},
         tokens.get(), f"l5-task-file-conv-{session_id}")
     if status != 201:
         fail(f"create conversation expected 201, got {status}")
@@ -288,9 +288,9 @@ def model_round(base_url: str, manager_url: str, tokens: TokenSource,
         "description": "Task file delivery true model acceptance (G05)",
         "spec": {
             "scope": {"tenant": args.tenant, "project": args.project, "team": args.team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": MODEL_ROUND_PROMPT, "attachments": attachments},
-            "requiredCapabilities": ["qwenpaw"],
+            "requiredCapabilities": ["agentscope"],
         },
     }
     status, created = request_json(f"{base_url}/api/v1/tasks", "POST", body,

@@ -199,7 +199,7 @@ def main() -> int:
                         help="Control Plane URL (or AGENTTEAMS_CONTROL_PLANE_URL)")
     parser.add_argument("--agent-id", default=os.environ.get("AGENTTEAMS_AGENT_ID", "").strip(),
                         help="Worker UUID (or AGENTTEAMS_AGENT_ID)")
-    parser.add_argument("--worker-deployment", default="qwenpaw-real",
+    parser.add_argument("--worker-deployment", default="agentscope-real",
                         help="Worker Deployment managed by the Kind acceptance fixture")
     parser.add_argument("--timeout", type=float, default=240.0,
                         help="maximum seconds to wait for each Worker apply")
@@ -224,15 +224,15 @@ def main() -> int:
     replacement_pod = ""
     bootstrap_log_tail = ""
     try:
-        # QwenPaw's native /api/models/active configuration requires a model
+        # AgentScope's native /api/models/active configuration requires a model
         # even for the compatibility (no resourceBindings) manifest. Keep the
         # model deterministic so the real Worker can apply every revision in
         # the smoke test without relying on a pre-existing active selection.
-        # CI default: "model": "agentteams-kind-mock". Local real QwenPaw can
-        # override it with AGENTTEAMS_QWENPAW_MODEL.
-        smoke_model = os.environ.get("AGENTTEAMS_QWENPAW_MODEL", "agentteams-kind-mock").strip()
+        # CI default: "model": "agentteams-kind-mock". Local real AgentScope can
+        # override it with AGENTTEAMS_AGENTSCOPE_MODEL.
+        smoke_model = os.environ.get("AGENTTEAMS_AGENTSCOPE_MODEL", "agentteams-kind-mock").strip()
         if not smoke_model:
-            fail("AGENTTEAMS_QWENPAW_MODEL must not be blank")
+            fail("AGENTTEAMS_AGENTSCOPE_MODEL must not be blank")
         legacy = {"kind": "KindResourceBindingAckSmoke", "revision": "legacy",
                   "model": smoke_model, "marker": str(uuid.uuid4())}
         valid = {

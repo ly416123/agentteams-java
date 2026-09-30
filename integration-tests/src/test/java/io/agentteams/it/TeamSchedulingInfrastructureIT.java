@@ -97,14 +97,14 @@ class TeamSchedulingInfrastructureIT {
     }
 
     private static AgentRecord agent(UUID id, String name) {
-        return AgentRecord.create(id, name, AgentPhase.READY, "qwenpaw", "{\"python\":true}", NOW);
+        return AgentRecord.create(id, name, AgentPhase.READY, "agentscope", "{\"python\":true}", NOW);
     }
 
     private static GenericKubernetesResource teamResource() {
         Map<String, Object> policy = new LinkedHashMap<>();
         policy.put("maxConcurrentTasks", 1);
         policy.put("requireApproval", false);
-        policy.put("allowedRuntimes", List.of("qwenpaw"));
+        policy.put("allowedRuntimes", List.of("agentscope"));
         policy.put("requiredCapabilities", List.of("python"));
         Map<String, Object> member = Map.of(
                 "agentRef", LEADER.toString(), "role", "leader", "capabilities", List.of("python"));

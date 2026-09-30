@@ -69,7 +69,7 @@ public final class ControlPlaneExecutionEventAdapter implements ExecutionEventPo
             case RUNNING -> observations.progress(taskId, runId, command.eventId(), command.occurredAt(),
                     command.correlationId(), 0, "RUNNING", "任务执行中");
             case SUCCEEDED -> observations.completed(taskId, runId, command.eventId(), command.occurredAt(),
-                    command.correlationId(), "", artifacts);
+                    command.correlationId(), command.resultJson(), artifacts);
             case FAILED -> observations.failed(taskId, runId, command.eventId(), command.occurredAt(),
                     command.correlationId(), command.failureCode(), command.failureMessage());
         }

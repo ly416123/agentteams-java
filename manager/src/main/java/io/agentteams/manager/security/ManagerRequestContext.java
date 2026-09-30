@@ -3,6 +3,7 @@ package io.agentteams.manager.security;
 /** Request-scoped verified identity bridge used by Manager controllers and tests. */
 public final class ManagerRequestContext {
     private static final ThreadLocal<ManagerPrincipal> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<ManagerPrincipal> AUTHENTICATED = new ThreadLocal<>();
     private static final ThreadLocal<String> BEARER_TOKEN = new ThreadLocal<>();
 
     private ManagerRequestContext() { }
@@ -26,6 +27,7 @@ public final class ManagerRequestContext {
 
     public static void set(ManagerPrincipal principal) {
         CURRENT.set(java.util.Objects.requireNonNull(principal, "principal"));
+        AUTHENTICATED.set(principal);
         BEARER_TOKEN.remove();
     }
 
@@ -34,7 +36,25 @@ public final class ManagerRequestContext {
             throw new IllegalArgumentException("bearerToken is required");
         }
         CURRENT.set(java.util.Objects.requireNonNull(principal, "principal"));
+        AUTHENTICATED.set(principal);
         BEARER_TOKEN.set(bearerToken);
+    }
+
+    /** Stores the effective resource scope and the original OIDC scope separately. */
+    public static void set(ManagerPrincipal effective, String bearerToken, ManagerPrincipal authenticated) {
+        if (bearerToken == null || bearerToken.isBlank()) {
+            throw new IllegalArgumentException("bearerToken is required");
+        }
+        CURRENT.set(java.util.Objects.requireNonNull(effective, "effective"));
+        AUTHENTICATED.set(java.util.Objects.requireNonNull(authenticated, "authenticated"));
+        BEARER_TOKEN.set(bearerToken);
+    }
+
+    /** Scope form carried by the bearer token to downstream APIs. */
+    public static ManagerPrincipal requireAuthenticated() {
+        ManagerPrincipal principal = AUTHENTICATED.get();
+        if (principal == null) throw new ManagerAuthenticationException("authentication is required");
+        return principal;
     }
 
     public static String requireBearerToken() {
@@ -48,6 +68,7 @@ public final class ManagerRequestContext {
 
     public static void clear() {
         CURRENT.remove();
+        AUTHENTICATED.remove();
         BEARER_TOKEN.remove();
     }
 }

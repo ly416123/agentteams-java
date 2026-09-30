@@ -15,7 +15,7 @@ class KindNatsOutboxRecoveryContractTest(unittest.TestCase):
         self.assertIn("gateway_agent_online", script)
         self.assertIn("gateway_agent_state", script)
         self.assertIn("presence = 'ONLINE'", script)
-        self.assertIn("QwenPaw Gateway connection", script)
+        self.assertIn("AgentScope Gateway connection", script)
 
 
 if __name__ == "__main__":

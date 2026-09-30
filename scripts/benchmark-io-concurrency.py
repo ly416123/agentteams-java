@@ -5,7 +5,7 @@ The harness is intentionally client-side and conservative: it never claims an
 optional server metric that was not exposed by the target, and it does not run
 the long experiment unless invoked explicitly.  ``platform`` and ``virtual``
 are labels for separately deployed server configurations; the harness does not
-change the target deployment.  The default path targets QwenPaw's native
+change the target deployment.  The default path targets AgentScope's native
 console API, while the client itself uses a bounded Python thread pool for
 reproducible load.
 """
@@ -29,7 +29,7 @@ import uuid
 
 DEFAULT_CONCURRENCIES = (16, 64, 128, 256)
 DEFAULT_PATH = "/api/console/chat"
-DEFAULT_TARGET = "qwenpaw"
+DEFAULT_TARGET = "agentscope"
 MANAGER_CONVERSATIONS_PATH = "/api/v1/conversations"
 METRIC_KEYS = (
     "rss_bytes",
@@ -93,8 +93,8 @@ def validate_options(base_url: str, path: str, duration_seconds: float,
         raise ValueError("runs must be positive")
     if mode not in {"platform", "virtual", "both"}:
         raise ValueError("mode must be platform, virtual, or both")
-    if target not in {"qwenpaw", "manager"}:
-        raise ValueError("target must be qwenpaw or manager")
+    if target not in {"agentscope", "manager"}:
+        raise ValueError("target must be agentscope or manager")
     if target == "manager" and (not isinstance(bearer_token, str) or not bearer_token.strip()):
         raise ValueError("manager target requires bearer_token")
     selected = tuple(DEFAULT_CONCURRENCIES if concurrencies is None else concurrencies)
@@ -210,7 +210,7 @@ def _sse_status(line: str) -> str | None:
 
 
 def build_request_payload(session_id: str) -> dict:
-    """Build the AgentScope AgentRequest expected by QwenPaw console chat."""
+    """Build the AgentScope AgentRequest expected by AgentScope console chat."""
     return {
         "input": [{
             "role": "user",
@@ -247,7 +247,7 @@ def manager_event_outcome(event_type: str | None) -> str | None:
     }.get(event_type)
 
 
-def _request_qwenpaw_once(options: BenchmarkOptions) -> dict:
+def _request_agentscope_once(options: BenchmarkOptions) -> dict:
     started = time.monotonic()
     session_id = str(uuid.uuid4())
     request = urllib.request.Request(
@@ -400,7 +400,7 @@ def _request_manager_once(options: BenchmarkOptions) -> dict:
 def _request_once(options: BenchmarkOptions) -> dict:
     if options.target == "manager":
         return _request_manager_once(options)
-    return _request_qwenpaw_once(options)
+    return _request_agentscope_once(options)
 
 
 def _run_window(options: BenchmarkOptions, concurrency: int, duration: float) -> list[dict]:
@@ -448,7 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--path", default=DEFAULT_PATH)
-    parser.add_argument("--target", choices=("qwenpaw", "manager"), default=DEFAULT_TARGET,
+    parser.add_argument("--target", choices=("agentscope", "manager"), default=DEFAULT_TARGET,
                         help="request protocol; manager uses /api/v1/conversations")
     parser.add_argument("--bearer-token", help="Manager Bearer token; required with --target manager")
     parser.add_argument("--project", help="optional Manager project id or project key")

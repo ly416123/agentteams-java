@@ -219,7 +219,6 @@ jobs:
       - name: Install Kind dependencies
         run: |
           kubectl apply -f deploy/kind-dev-infra.yaml
-          kubectl apply -f deploy/kind-qwenpaw-task-mcp.yaml
           # Manager 的 existingSecret（含 deepseek-api-key placeholder）在两处
           # Kind job 均无 install-kind-dev.sh 兜底，需在此显式创建。
           kubectl -n agentteams create secret generic agentteams-manager \
@@ -233,46 +232,6 @@ jobs:
           kubectl apply -f deploy/kind-observability.yaml
           kubectl -n agentteams rollout status deployment/prometheus --timeout=240s
           kubectl -n agentteams rollout status deployment/otel-collector --timeout=240s
-          kubectl -n agentteams rollout status deployment/qwenpaw --timeout=240s
-      - name: Configure deterministic QwenPaw model
-        run: |
-          set -euo pipefail
-          kubectl -n agentteams create configmap qwenpaw-openai-mock \
-            --from-file=server.py=scripts/qwenpaw-openai-mock.py \
-            --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -f deploy/kind-qwenpaw-openai-mock.yaml
-          kubectl -n agentteams rollout status deployment/qwenpaw-openai-mock --timeout=180s
-
-          kubectl -n agentteams port-forward service/qwenpaw 18088:8088 >/tmp/qwenpaw-port-forward.log 2>&1 &
-          qwenpaw_port_forward_pid=$!
-          cleanup() {
-            kill "$qwenpaw_port_forward_pid" >/dev/null 2>&1 || true
-            wait "$qwenpaw_port_forward_pid" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          models_file=/tmp/qwenpaw-models.json
-          until curl -fsS http://127.0.0.1:18088/api/models -o "$models_file"; do sleep 2; done
-          curl -fsS -X POST http://127.0.0.1:18088/api/models/custom-providers \
-            -H 'Content-Type: application/json' \
-            -d '{"id":"agentteams-ci","name":"AgentTeams CI Mock","default_base_url":"http://qwenpaw-openai-mock:8080/v1","api_key_prefix":"","chat_model":"OpenAIChatModel","models":[{"id":"agentteams-kind-mock","name":"agentteams-kind-mock","is_free":true}]}' \
-            >/tmp/qwenpaw-custom-provider.json
-          curl -fsS -X PUT http://127.0.0.1:18088/api/models/agentteams-ci/config \
-            -H 'Content-Type: application/json' \
-            -d '{"api_key":"agentteams-ci-mock","base_url":"http://qwenpaw-openai-mock:8080/v1","auto_discover":false}' \
-            >/tmp/qwenpaw-custom-provider-config.json
-          curl -fsS -X PUT http://127.0.0.1:18088/api/models/active \
-            -H 'Content-Type: application/json' \
-            -d '{"provider_id":"agentteams-ci","model":"agentteams-kind-mock","scope":"global"}' \
-            >/tmp/qwenpaw-active-model.json
-          jq -e '(.active_llm.provider_id == "agentteams-ci") and (.active_llm.model == "agentteams-kind-mock")' \
-            /tmp/qwenpaw-active-model.json >/dev/null
-          curl -fsS -X POST http://127.0.0.1:18088/api/models/agentteams-ci/models/test \
-            -H 'Content-Type: application/json' \
-            -d '{"model_id":"agentteams-kind-mock"}' \
-            >/tmp/qwenpaw-model-test.json
-          jq -e '.success == true' /tmp/qwenpaw-model-test.json >/dev/null
-          echo 'QWENPAW_KIND_MOCK_OK provider=openai model=agentteams-kind-mock'
       - name: Configure Kind Dashboard alert receiver
         run: |
           set -euo pipefail
@@ -328,7 +287,7 @@ jobs:
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-operator --timeout=300s
       - name: Run Kind External Secrets convergence acceptance
         run: python scripts/run-kind-external-secrets.py --namespace agentteams --run-id "$GITHUB_RUN_ID"
-      - name: Create real QwenPaw worker
+      - name: Create real AgentScope worker
         run: |
           set -euo pipefail
           kubectl -n agentteams port-forward service/agentteams-agentteams-java-control-plane 18080:8080 >/tmp/control-plane-port-forward.log 2>&1 &
@@ -339,26 +298,26 @@ jobs:
             -X POST http://127.0.0.1:18080/api/v1/agents \
             -H 'Idempotency-Key: ci-kind-recovery-agent' \
             -H 'Content-Type: application/json' \
-            -d '{"name":"ci-kind-recovery-agent","runtime":"qwenpaw","capabilities":{"qwenpaw":"true","java":"21"}}')
+            -d '{"name":"ci-kind-recovery-agent","runtime":"AGENTSCOPE","capabilities":{"agentscope":"true","java":"21"}}')
           if [[ "$AGENT_STATUS" != "201" ]]; then
             echo "agent registration failed with HTTP $AGENT_STATUS" >&2
             cat "$AGENT_RESPONSE" >&2
             exit 1
           fi
           AGENT_ID=$(jq -er '.id // empty' "$AGENT_RESPONSE")
-          sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: qwenpaw-worker/name: qwenpaw-real/; s/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"false\"/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"true\"/; s/AGENTTEAMS_SCOPE_TENANT: \"\"/AGENTTEAMS_SCOPE_TENANT: \"tenant-a\"/; s/AGENTTEAMS_SCOPE_PROJECT: \"\"/AGENTTEAMS_SCOPE_PROJECT: \"project-a\"/; s/AGENTTEAMS_MODEL_PROVIDER: \"qwenpaw\"/AGENTTEAMS_MODEL_PROVIDER: \"agentteams-ci\"/; s/AGENTTEAMS_MODEL: \"unknown\"/AGENTTEAMS_MODEL: \"agentteams-kind-mock\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"false\"/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"true\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"0.1\"/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"1.0\"/; s#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: \"\"#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces#" \
-            deploy/examples/qwenpaw-worker.yaml >/tmp/qwenpaw-real.yaml
-          kubectl apply -f /tmp/qwenpaw-real.yaml
+          sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: agentscope-worker/name: agentscope-real/; s/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"false\"/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"true\"/; s/AGENTTEAMS_SCOPE_TENANT: \"\"/AGENTTEAMS_SCOPE_TENANT: \"tenant-a\"/; s/AGENTTEAMS_SCOPE_PROJECT: \"\"/AGENTTEAMS_SCOPE_PROJECT: \"project-a\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"false\"/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"true\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"0.1\"/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"1.0\"/; s#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: \"\"#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces#" \
+            deploy/examples/agentscope-worker.yaml >/tmp/agentscope-real.yaml
+          kubectl apply -f /tmp/agentscope-real.yaml
           deployment_deadline=$((SECONDS + 120))
-          until kubectl -n agentteams get deployment/qwenpaw-real >/dev/null 2>&1; do
+          until kubectl -n agentteams get deployment/agentscope-real >/dev/null 2>&1; do
             if (( SECONDS >= deployment_deadline )); then
-              echo "operator did not create deployment/qwenpaw-real" >&2
+              echo "operator did not create deployment/agentscope-real" >&2
               exit 1
             fi
             sleep 2
           done
-          kubectl -n agentteams rollout status deployment/qwenpaw-real --timeout=240s
-          kubectl -n agentteams wait --for=jsonpath='{.status.phase}'=Ready worker/qwenpaw-real --timeout=240s
+          kubectl -n agentteams rollout status deployment/agentscope-real --timeout=240s
+          kubectl -n agentteams wait --for=jsonpath='{.status.phase}'=Ready worker/agentscope-real --timeout=240s
           agent_phase=""
           agent_deadline=$((SECONDS + 240))
           until [[ "$agent_phase" == "READY" ]]; do
@@ -512,12 +471,12 @@ jobs:
           cp /tmp/agent-registration-response.json /tmp/agentteams-kind-recovery-diagnostics/agent-registration-response.json 2>/dev/null || true
           cp /tmp/control-plane-port-forward.log /tmp/agentteams-kind-recovery-diagnostics/control-plane-port-forward.log 2>/dev/null || true
           kubectl -n agentteams get prometheusrule -o yaml > /tmp/agentteams-kind-recovery-diagnostics/prometheusrules.yaml || true
-          kubectl -n agentteams get worker/qwenpaw-real -o json \
+          kubectl -n agentteams get worker/agentscope-real -o json \
             | jq '{metadata:{name:.metadata.name,namespace:.metadata.namespace},status:{phase:.status.phase,observedRevision:.status.observedRevision,conditions:.status.conditions}}' \
             > /tmp/agentteams-kind-recovery-diagnostics/worker-status.json || true
-          kubectl -n agentteams get deployment/qwenpaw-real \
+          kubectl -n agentteams get deployment/agentscope-real \
             -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,REVISION:.metadata.generation' \
-            > /tmp/agentteams-kind-recovery-diagnostics/qwenpaw-real-status.txt || true
+            > /tmp/agentteams-kind-recovery-diagnostics/agentscope-real-status.txt || true
           kubectl -n agentteams get deployment/dashboard-alert-receiver \
             -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,MODE:.spec.template.spec.containers[0].env[0].value' \
             > /tmp/agentteams-kind-recovery-diagnostics/dashboard-alert-receiver-status.txt || true
@@ -557,7 +516,7 @@ jobs:
           # Pod logs can embed task prompts and secrets, so raw logs are never
           # collected. These filtered greps keep only protocol decision lines
           # that classify assignment rejection and version fencing outcomes.
-          kubectl -n agentteams logs deployment/qwenpaw-real --tail=500 2>&1 \
+          kubectl -n agentteams logs deployment/agentscope-real --tail=500 2>&1 \
             | grep -E "Task assignment|Unable to process Agent Gateway message|Agent Gateway error|Worker started|is READY" \
             > /tmp/agentteams-kind-recovery-diagnostics/worker-decision-log.txt || true
           kubectl -n agentteams logs deployment/agentteams-agentteams-java-gateway --tail=500 2>&1 \
@@ -605,7 +564,6 @@ jobs:
       - name: Install Kind dependencies
         run: |
           kubectl apply -f deploy/kind-dev-infra.yaml
-          kubectl apply -f deploy/kind-qwenpaw-task-mcp.yaml
           # Manager 的 existingSecret（含 deepseek-api-key placeholder）在两处
           # Kind job 均无 install-kind-dev.sh 兜底，需在此显式创建。
           kubectl -n agentteams create secret generic agentteams-manager \

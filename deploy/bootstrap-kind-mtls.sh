@@ -8,7 +8,7 @@ CERT_DIR=${AGENTTEAMS_MTLS_DIR:-$ROOT/.local/kind-mtls}
 GATEWAY_SECRET=${AGENTTEAMS_GATEWAY_MTLS_SECRET:-agentteams-gateway-mtls}
 WORKER_SECRET=${AGENTTEAMS_WORKER_MTLS_SECRET:-agentteams-worker-mtls}
 CONTROL_PLANE_RELEASE=${AGENTTEAMS_HELM_RELEASE:-agentteams}
-WORKERS_RAW=${AGENTTEAMS_MTLS_WORKERS:-qwenpaw-worker,qwenpaw-worker-team-2}
+WORKERS_RAW=${AGENTTEAMS_MTLS_WORKERS:-agentscope-worker,agentscope-worker-team-2}
 RUN_ID=${AGENTTEAMS_MTLS_RUN_ID:-$(date +%s)}
 
 for command_name in openssl kubectl helm jq; do

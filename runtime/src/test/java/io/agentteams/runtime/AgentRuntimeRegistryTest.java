@@ -10,7 +10,7 @@ class AgentRuntimeRegistryTest {
     @Test
     void resolvesConfiguredDefaultRuntime() {
         AgentRuntime runtime = new FakeRuntime();
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry("qwenpaw", Map.of("qwenpaw", runtime));
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry("agentscope", Map.of("agentscope", runtime));
 
         assertThat(registry.defaultRuntime()).isSameAs(runtime);
     }

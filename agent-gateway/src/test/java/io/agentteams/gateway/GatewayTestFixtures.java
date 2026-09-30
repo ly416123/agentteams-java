@@ -34,7 +34,7 @@ final class GatewayTestFixtures {
         return AgentMessage.newBuilder().setHello(AgentHello.newBuilder()
                 .setMetadata(metadata("hello-" + agentId, agentId))
                 .setProtocolVersion(VERSION)
-                .setRuntimeName("qwenpaw")
+                .setRuntimeName("agentscope")
                 .setRuntimeVersion("0.4.0")
                 .putCapabilities("tasks", "1")
                 .setMaxConcurrentTasks(4)

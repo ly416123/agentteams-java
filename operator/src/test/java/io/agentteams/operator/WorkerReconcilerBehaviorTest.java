@@ -50,7 +50,7 @@ class WorkerReconcilerBehaviorTest {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withNamespace("agentteams")
                 .withGeneration(4L).withUid("worker-uid").build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:dev", 2,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker:dev", 2,
                 Map.of("WORKER_MODE", "test"), ""));
         return worker;
     }

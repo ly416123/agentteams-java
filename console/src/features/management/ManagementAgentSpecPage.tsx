@@ -23,7 +23,7 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
   const [notice, setNotice] = useState<Notice>();
   const [form, setForm] = useState({
     name: '',
-    runtime: 'qwenpaw',
+    runtime: 'agentscope',
     workerType: 'EXECUTOR' as WorkerType,
     modelProvider: '',
     modelName: '',

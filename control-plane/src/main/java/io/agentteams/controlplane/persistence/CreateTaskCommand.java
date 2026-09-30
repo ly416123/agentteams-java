@@ -11,11 +11,17 @@ public record CreateTaskCommand(
         String source,
         String specJson,
         Instant createdAt,
-        String taskType) {
+        String taskType,
+        java.util.UUID sourceConversationId) {
 
     public CreateTaskCommand(String idempotencyKey, String title, String description,
             String actor, String source, String specJson, Instant createdAt) {
-        this(idempotencyKey, title, description, actor, source, specJson, createdAt, "NORMAL");
+        this(idempotencyKey, title, description, actor, source, specJson, createdAt, "NORMAL", null);
+    }
+
+    public CreateTaskCommand(String idempotencyKey, String title, String description,
+            String actor, String source, String specJson, Instant createdAt, String taskType) {
+        this(idempotencyKey, title, description, actor, source, specJson, createdAt, taskType, null);
     }
 
     public CreateTaskCommand {
@@ -32,7 +38,8 @@ public record CreateTaskCommand(
 
     public static CreateTaskCommand of(String idempotencyKey, String title, String description,
             String actor, String source, Instant createdAt) {
-        return new CreateTaskCommand(idempotencyKey, title, description, actor, source, "{}", createdAt);
+        return new CreateTaskCommand(idempotencyKey, title, description, actor, source, "{}", createdAt,
+                "NORMAL", null);
     }
 
     private static void requireText(String value, String field) {

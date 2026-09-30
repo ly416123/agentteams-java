@@ -42,7 +42,7 @@ class TaskEventReportHandlingTest {
     }
 
     private ConnectionRegistry.ConnectionSnapshot connection() {
-        return new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), "worker-1", "qwenpaw", "0.4.0",
+        return new ConnectionRegistry.ConnectionSnapshot(UUID.randomUUID(), "worker-1", "agentscope", "0.4.0",
                 "", "", "", Map.of(), AT, 0);
     }
 

@@ -548,13 +548,33 @@ public final class AgentScopeRuntime implements AgentRuntime {
     }
 
     private static String agentInput(String inputJson, Set<String> requiredMcpTools) {
-        if (requiredMcpTools.isEmpty()) {
-            return inputJson;
+        StringBuilder prefix = new StringBuilder();
+        if (!requiredMcpTools.isEmpty()) {
+            prefix.append("Before answering, you MUST call each of these MCP tools exactly as required by the task: ")
+                    .append(String.join(", ", requiredMcpTools))
+                    .append(". Do not claim that a tool was called unless the tool call actually succeeds.\n\n");
         }
-        return "Before answering, you MUST call each of these MCP tools exactly as required by the task: "
-                + String.join(", ", requiredMcpTools)
-                + ". Do not claim that a tool was called unless the tool call actually succeeds.\n\n"
-                + inputJson;
+        try {
+            JsonNode root = JSON.readTree(inputJson);
+            String phase = root == null ? "" : root.path("orchestrationPhase").asText("");
+            if ("PLAN".equalsIgnoreCase(phase)) {
+                prefix.append("You are the Team Leader in the planning phase. Analyze the user request and do not execute the subtasks. "
+                        + "Return ONLY a JSON object with a plan array containing exactly two independent subtasks. "
+                        + "Each item must have sequence (1 or 2), title, requiredCapabilities (array), and dependsOn (array of sequence numbers). "
+                        + "Use dependsOn=[] for independent work.\n\n");
+            } else if ("AGGREGATE".equalsIgnoreCase(phase)) {
+                prefix.append("You are the Team Leader in the aggregation phase. Use the childResults in the input, synthesize their outputs, "
+                        + "and return ONLY a JSON object with an artifacts array. Each artifact must have name and content. "
+                        + "Include a concise final answer in output.md.\n\n");
+            }
+        } catch (java.io.IOException ignored) {
+            // Existing plain-text tasks keep their original input contract.
+        }
+        String original = inputJson == null ? "" : inputJson;
+        if (prefix.isEmpty()) {
+            return original;
+        }
+        return original + "\n\n" + prefix;
     }
 
     private void expireLeasesLocked() {

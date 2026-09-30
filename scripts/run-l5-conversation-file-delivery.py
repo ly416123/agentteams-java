@@ -106,7 +106,7 @@ def main() -> int:
         f"{manager}/api/v1/conversations", "POST", token=token,
         idempotency_key=f"l5-file-delivery-create-{session_id}",
         json_body={"sessionId": session_id, "projectId": "project-a",
-                   "teamId": "team-a", "workerId": "qwenpaw"})
+                   "teamId": "team-a", "workerId": "agentscope"})
     check("create conversation 201", status == 201, f"got {status} {body[:200]}")
 
     upload_body, boundary = multipart_body("file", "l5-file-delivery.pdf",

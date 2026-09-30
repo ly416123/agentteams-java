@@ -44,7 +44,7 @@ class GatewayRuntimeAdapterTest {
         ImmediateCompletionRuntime runtime = new ImmediateCompletionRuntime();
         GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", messages::add, runtime,
                 Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
-        runtime.start(new AgentRuntimeContext("qwenpaw", 1, Clock.systemUTC(), adapter::complete, java.util.Map.of()));
+        runtime.start(new AgentRuntimeContext("agentscope", 1, Clock.systemUTC(), adapter::complete, java.util.Map.of()));
         UUID taskId = UUID.randomUUID();
         TaskAssigned assignment = assignment(taskId);
 

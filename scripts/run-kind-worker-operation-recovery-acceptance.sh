@@ -113,7 +113,7 @@ STABLE_CONFIG=$(jq -er '.configRevision // ""' <<<"${STABLE_SPEC}")
 
 REQUEST_KEY="kind-worker-recovery-$(date +%s)-${WORKER_ID}"
 REQUEST_BODY=$(jq -cn --argjson expectedVersion "${WORKER_VERSION}" --argjson stable "${STABLE_SPEC}" \
-  '{expectedVersion:$expectedVersion,imageDigest:"ghcr.io/ly416123/agentteams-agent-worker:kind-recovery-missing",runtime:"qwenpaw",configRevision:"kind-recovery-bad",secretGeneration:"kind-recovery-secret",previousStableSpec:($stable|tojson)}')
+  '{expectedVersion:$expectedVersion,imageDigest:"ghcr.io/ly416123/agentteams-agent-worker:kind-recovery-missing",runtime:"agentscope",configRevision:"kind-recovery-bad",secretGeneration:"kind-recovery-secret",previousStableSpec:($stable|tojson)}')
 ROLLOUT=$(curl --silent --fail --show-error -X POST \
   "${API_URL}/api/v1/agents/${WORKER_ID}/operations/rollout?projectId=${PROJECT_ID}" \
   -H "Authorization: Bearer ${TOKEN}" -H "Idempotency-Key: ${REQUEST_KEY}" \

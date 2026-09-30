@@ -90,6 +90,10 @@ public final class ManagerErrorHandler {
     @ExceptionHandler(ManagerToolTemporaryFailureException.class)
     ResponseEntity<ErrorResponse> toolTemporaryFailure(ManagerToolTemporaryFailureException error,
             HttpServletRequest request) {
+        LOG.warn("Manager tool dependency failure type={} message={} causeType={} correlationId={}",
+                error.getClass().getSimpleName(), error.getMessage(),
+                error.getCause() == null ? "none" : error.getCause().getClass().getSimpleName(),
+                correlationId(request), error);
         return error(HttpStatus.SERVICE_UNAVAILABLE, "TOOL_TEMPORARY_FAILURE",
                 "tool dependency is unavailable", request, Map.of());
     }

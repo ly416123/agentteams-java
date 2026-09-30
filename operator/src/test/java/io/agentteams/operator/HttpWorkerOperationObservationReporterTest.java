@@ -86,7 +86,7 @@ class HttpWorkerOperationObservationReporterTest {
             UUIDs ids = UUIDs.create();
             respond(exchange, 200, """
                     {"id":"%s","agentId":"%s","type":"ROLLOUT","status":"RUNNING",
-                     "requestedSpecDigest":"sha256:worker","requestedRuntime":"qwenpaw",
+                     "requestedSpecDigest":"sha256:worker","requestedRuntime":"agentscope",
                      "requestedConfigRevision":"config-7","requestedSecretGeneration":"secret-3",
                      "version":4}
                     """.formatted(ids.operationId(), ids.agentId()));
@@ -108,7 +108,7 @@ class HttpWorkerOperationObservationReporterTest {
         Worker worker = new Worker();
         worker.setMetadata(new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
                 .withName("worker-a").withNamespace("agentteams").build());
-        worker.setSpec(new WorkerSpec(agentId, "qwenpaw", "example/worker:v1", 1, Map.of(), "",
+        worker.setSpec(new WorkerSpec(agentId, "agentscope", "example/worker:v1", 1, Map.of(), "",
                 "sha256:worker", "config-7", "secret-3"));
         return worker;
     }
@@ -117,7 +117,7 @@ class HttpWorkerOperationObservationReporterTest {
         WorkerStatus status = new WorkerStatus();
         status.setPhase("Ready");
         status.setObservedSpecDigest("sha256:worker");
-        status.setObservedRuntime("qwenpaw");
+        status.setObservedRuntime("agentscope");
         status.setObservedConfigRevision("config-7");
         status.setObservedSecretGeneration("secret-3");
         return status;

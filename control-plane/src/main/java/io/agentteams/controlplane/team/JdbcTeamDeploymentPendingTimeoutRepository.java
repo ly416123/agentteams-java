@@ -36,7 +36,7 @@ public final class JdbcTeamDeploymentPendingTimeoutRepository implements TeamDep
                                                 AND apply.agent_id = member.agent_id
                      WHERE member.status = 'PENDING'
                        AND apply.updated_at < ?
-                       AND apply.phase NOT IN ('SUCCEEDED', 'FAILED')
+                       AND apply.phase NOT IN ('APPLIED', 'SUCCEEDED', 'FAILED')
                      ORDER BY member.deployment_id, member.agent_id
                      LIMIT ?
                      FOR UPDATE OF member SKIP LOCKED

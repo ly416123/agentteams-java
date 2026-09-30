@@ -8,6 +8,11 @@ metadata:
     app.kubernetes.io/part-of: agentteams
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: keycloak
@@ -21,8 +26,17 @@ spec:
         - name: keycloak
           image: quay.io/keycloak/keycloak:25.0.6
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
           args: ["start-dev", "--import-realm", "--http-port=8080", "--hostname-strict=false"]
           env:
+            - name: JAVA_OPTS_KC_HEAP
+              value: "-Xms128m -Xmx384m"
             - name: KEYCLOAK_ADMIN
               valueFrom:
                 secretKeyRef:
@@ -52,8 +66,8 @@ spec:
               path: /health/ready
               port: management
             periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 36
+            timeoutSeconds: 5
+            failureThreshold: 72
           readinessProbe:
             httpGet:
               path: /health/ready

@@ -55,7 +55,7 @@ class TeamTaskAssignmentServiceTest {
     void keepsTeamTaskQueuedWhenConcurrencyLimitIsReached() {
         UUID busyTaskId = UUID.randomUUID();
         UUID queuedTaskId = UUID.randomUUID();
-        setupTeam(1, false, List.of(), List.of(), "qwenpaw", true);
+        setupTeam(1, false, List.of(), List.of(), "agentscope", true);
         TaskRecord busyTask = task(busyTaskId, TaskPhase.ASSIGNED, "{}");
         TaskRecord queuedTask = task(queuedTaskId, TaskPhase.QUEUED,
                 "{\"teamId\":\"" + TEAM + "\",\"requiredCapabilities\":[\"python\"]}");
@@ -80,7 +80,7 @@ class TeamTaskAssignmentServiceTest {
     @Test
     void rejectsTeamTaskWhenRuntimeOrApprovalPolicyIsNotSatisfied() {
         UUID taskId = UUID.randomUUID();
-        setupTeam(1, true, List.of("qwenpaw"), List.of("python"), "other-runtime", false);
+        setupTeam(1, true, List.of("agentscope"), List.of("python"), "other-runtime", false);
         persistence.inTransaction(tx -> {
             tx.tasks().insert(task(taskId, TaskPhase.QUEUED,
                     "{\"teamId\":\"" + TEAM + "\",\"requiredCapabilities\":[\"python\"],"
@@ -100,7 +100,7 @@ class TeamTaskAssignmentServiceTest {
     @Test
     void assignsEligibleTeamMemberAndRecordsTeamAssignment() {
         UUID taskId = UUID.randomUUID();
-        setupTeam(1, false, List.of("qwenpaw"), List.of("python"), "qwenpaw", true);
+        setupTeam(1, false, List.of("agentscope"), List.of("python"), "agentscope", true, "leader");
         persistence.inTransaction(tx -> {
             tx.tasks().insert(task(taskId, TaskPhase.QUEUED,
                     "{\"teamId\":\"" + TEAM + "\",\"requiredCapabilities\":[\"python\"]}"));
@@ -116,13 +116,19 @@ class TeamTaskAssignmentServiceTest {
 
     private void setupTeam(int maxConcurrent, boolean requireApproval, List<String> allowedRuntimes,
             List<String> requiredCapabilities, String runtime, boolean approvalGranted) {
+        setupTeam(maxConcurrent, requireApproval, allowedRuntimes, requiredCapabilities, runtime, approvalGranted,
+                "worker");
+    }
+
+    private void setupTeam(int maxConcurrent, boolean requireApproval, List<String> allowedRuntimes,
+            List<String> requiredCapabilities, String runtime, boolean approvalGranted, String role) {
         persistence.inTransaction(tx -> {
             tx.agents().insert(AgentRecord.create(AGENT, "team-agent", AgentPhase.READY, runtime,
                     "{\"python\":true}", NOW));
             tx.teams().insert(TeamRecord.create(TEAM, "agentteams/team", "team", NOW));
             tx.teams().insertPolicy(new TeamPolicyRecord(TEAM, maxConcurrent, requireApproval,
                     allowedRuntimes, requiredCapabilities, NOW, 0));
-            tx.teams().insertMember(new TeamMemberRecord(MEMBERSHIP, TEAM, AGENT, "worker", "ACTIVE",
+            tx.teams().insertMember(new TeamMemberRecord(MEMBERSHIP, TEAM, AGENT, role, "ACTIVE",
                     NOW, NOW, 0));
             return null;
         });

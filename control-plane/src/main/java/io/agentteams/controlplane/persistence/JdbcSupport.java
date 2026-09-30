@@ -10,6 +10,7 @@ import java.util.List;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.SqlParameterValue;
@@ -20,9 +21,6 @@ public final class JdbcSupport {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private static final Pattern SENSITIVE_JSON_FIELD = Pattern.compile(
-            "(?i)([\\\"']?)(deepseek|api[-_ ]?key|access[-_ ]?token|token|password|secret|credential|authorization)"
-                    + "(\\1\\s*:\\s*)(\\\"(?:\\\\.|[^\\\"\\\\])*\\\"|'(?:\\\\.|[^'\\\\])*'|[^,}\\s]+)");
     private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
             "(?i)(?<![A-Za-z0-9])((?:deepseek[-_ ]?)?(?:api[-_ ]?key|access[-_ ]?token|token|password|secret|credential|authorization))"
                     + "(\\s*(?:=|:|%3d)\\s*)(\\\"(?:\\\\.|[^\\\"\\\\])*\\\"|'(?:\\\\.|[^'\\\\])*'|[^\\s,;&?#}\\]]+)");
@@ -103,14 +101,35 @@ public final class JdbcSupport {
     }
 
     private static String redactJsonFields(String value) {
-        Matcher matcher = SENSITIVE_JSON_FIELD.matcher(value);
-        StringBuffer redacted = new StringBuffer();
-        while (matcher.find()) {
-            String replacement = matcher.group(1) + matcher.group(2) + matcher.group(3) + "\"[REDACTED]\"";
-            matcher.appendReplacement(redacted, Matcher.quoteReplacement(replacement));
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(value);
+            if (root == null) {
+                throw new IllegalArgumentException("json must not be empty");
+            }
+            redactJsonNode(root);
+            return OBJECT_MAPPER.writeValueAsString(root);
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("json must be valid JSON", error);
         }
-        matcher.appendTail(redacted);
-        return redacted.toString();
+    }
+
+    private static void redactJsonNode(JsonNode node) {
+        if (node.isObject()) {
+            ObjectNode object = (ObjectNode) node;
+            Iterator<java.util.Map.Entry<String, JsonNode>> fields = object.fields();
+            while (fields.hasNext()) {
+                java.util.Map.Entry<String, JsonNode> field = fields.next();
+                if (isSensitiveField(field.getKey())) {
+                    object.put(field.getKey(), "[REDACTED]");
+                } else {
+                    redactJsonNode(field.getValue());
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                redactJsonNode(child);
+            }
+        }
     }
 
     private static String redactAssignments(String value) {

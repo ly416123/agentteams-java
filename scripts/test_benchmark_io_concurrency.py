@@ -65,7 +65,7 @@ class BenchmarkIoConcurrencyTest(unittest.TestCase):
         self.assertIsNone(summary["metrics"]["rss_bytes"])
         self.assertEqual(summary["latency_seconds"]["p50"], 0.2)
 
-    def test_request_payload_uses_qwenpaw_agent_request_shape(self):
+    def test_request_payload_uses_agentscope_agent_request_shape(self):
         payload = self.module.build_request_payload("session-1")
         self.assertEqual(payload["session_id"], "session-1")
         self.assertEqual(payload["channel"], "console")

@@ -239,7 +239,9 @@ public final class ConfigDeploymentService {
                         eventIdFrom(existing.get().responsePayloadJson(), binding.id(),
                                 replayEventId(binding.id(), snapshot.id(), apply.updatedAt())));
             }
-            if (!"FAILED".equals(apply.phase())) throw new IllegalArgumentException("only failed config deployments can be retried");
+            if (!"FAILED".equals(apply.phase()) && !"PENDING".equals(apply.phase())) {
+                throw new IllegalArgumentException("only failed or pending config deployments can be retried");
+            }
             UUID eventId = replayEventId(binding.id(), snapshot.id(), apply.updatedAt());
             if (!claimIdempotency(tx, key, CONFIG_RETRY, hash, binding.id(), eventId, clock.instant())) {
                 IdempotencyKeyRecord winner = tx.idempotencyKeys().findByKey(key).orElseThrow();

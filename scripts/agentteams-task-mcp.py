@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AgentTeams task tools as a zero-dependency stdio MCP server.
 
-Lets a QwenPaw conversation agent create, inspect, and collect AgentTeams
+Lets a AgentScope conversation agent create, inspect, and collect AgentTeams
 tasks through the control-plane REST API. Protocol handling follows the
 newline-delimited JSON-RPC shape used by upstream AgentTeams plugins
 (initialize -> 2024-11-05, tools/list, tools/call).
@@ -57,7 +57,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "create_task": {
         "description": (
             "Create an AgentTeams task and immediately queue it for execution. "
-            "A worker agent (QwenPaw runtime) picks it up, executes the prompt, "
+            "A worker agent (AgentScope runtime) picks it up, executes the prompt, "
             "and publishes artifacts that become downloadable. Use for real "
             "deliverables such as reports or files. Returns the taskId and phase. "
             "Check progress later with get_task and fetch deliverables with "
@@ -319,9 +319,9 @@ DEFAULT_CONFIG_FILE = "/opt/agentteams-mcp/mcp-env.json"
 def _merge_config_file(env: dict[str, str]) -> dict[str, str]:
     """Overlay settings from AGENTTEAMS_MCP_CONFIG_FILE beneath explicit env.
 
-    The file keeps credentials off the QwenPaw MCP client listing (GET /api/mcp
+    The file keeps credentials off the AgentScope MCP client listing (GET /api/mcp
     returns client.env verbatim), so registered clients only carry the path.
-    QwenPaw does not always forward client.env to the spawned stdio process,
+    AgentScope does not always forward client.env to the spawned stdio process,
     so fall back to the ConfigMap mount point when the variable is unset.
     """
     path = env.get("AGENTTEAMS_MCP_CONFIG_FILE")
@@ -503,7 +503,7 @@ def tool_create_task(arguments: dict[str, Any]) -> dict[str, Any]:
         input_json["attachments"] = declared
     spec = {
         "scope": {"tenant": config.tenant, "project": config.project, "team": config.team},
-        "taskType": "qwenpaw",
+        "taskType": "agentscope",
         "inputJson": input_json,
         "requiredCapabilities": [],
     }

@@ -30,7 +30,7 @@ class KindDiagnosticsContractTest(unittest.TestCase):
 
     def test_pod_log_collection_is_always_grep_filtered_never_raw(self):
         run = self._diagnostics_step()
-        self.assertIn("kubectl -n agentteams logs deployment/qwenpaw-real", run)
+        self.assertIn("kubectl -n agentteams logs deployment/agentscope-real", run)
         self.assertIn('grep -E "Task assignment', run)
         self.assertIn("grep -iE \"stale Agent execution", run)
         # Every log collection must be piped through a filter so task prompts

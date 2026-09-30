@@ -80,7 +80,13 @@ public final class WorkerSpec {
     public String getAgentId() { return agentId; }
     public void setAgentId(String value) { agentId = requireText(value, "agentId"); }
     public String getRuntime() { return runtime; }
-    public void setRuntime(String value) { runtime = requireText(value, "runtime"); }
+    public void setRuntime(String value) {
+        String normalized = requireText(value, "runtime").trim().toUpperCase(java.util.Locale.ROOT);
+        if (!"AGENTSCOPE".equals(normalized)) {
+            throw new IllegalArgumentException("only AGENTSCOPE runtime is supported");
+        }
+        runtime = normalized;
+    }
     public String getImage() { return image; }
     public void setImage(String value) { image = requireText(value, "image"); }
     public int getReplicas() { return replicas; }

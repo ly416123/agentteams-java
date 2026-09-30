@@ -17,7 +17,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL-backed replay store keyed by tenant, command type, and idempotency key. */
 @Repository
-public final class JdbcCommandIdempotencyStore implements CommandIdempotencyStore {
+public class JdbcCommandIdempotencyStore implements CommandIdempotencyStore {
     private final JdbcTemplate jdbc;
 
     @Autowired
