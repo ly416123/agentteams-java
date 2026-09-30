@@ -3,6 +3,7 @@ package io.agentteams.controlplane.template;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.controlplane.agentspec.AgentSpecService;
+import io.agentteams.application.api.ExecutionRuntime;
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.security.PrincipalContext;
@@ -27,7 +28,6 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
     private final String gatewayHost;
     private final int gatewayPort;
     private final String configManifestBaseUrl;
-    private final String qwenPawEndpoint;
     private final String tlsSecret;
     private final Map<String, WorkerCrdProvisioner.SecretEnvRef> credentialSecretEnvs;
 
@@ -35,7 +35,7 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
         this(specs, agents, new NoopWorkerCrdProvisioner(),
                 "ghcr.io/ly416123/agentteams-agent-worker:latest", 1,
                 "agentteams-agentteams-java-gateway", 9090,
-                "http://agentteams-agentteams-java-control-plane:8080", "http://qwenpaw:8088", "");
+                "http://agentteams-agentteams-java-control-plane:8080", "");
     }
 
     @Autowired
@@ -46,24 +46,23 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             @Value("${agentteams.worker-provisioner.gateway-host:agentteams-agentteams-java-gateway}") String gatewayHost,
             @Value("${agentteams.worker-provisioner.gateway-port:9090}") int gatewayPort,
             @Value("${agentteams.worker-provisioner.config-manifest-base-url:http://agentteams-agentteams-java-control-plane:8080}") String configManifestBaseUrl,
-            @Value("${agentteams.worker-provisioner.qwenpaw-endpoint:http://qwenpaw:8088}") String qwenPawEndpoint,
             @Value("${agentteams.worker-provisioner.tls-secret-name:}") String tlsSecret,
             @Value("${agentteams.worker-provisioner.credential-secret-envs:}") String credentialSecretEnvsJson) {
         this(specs, agents, provisioners.getIfAvailable(NoopWorkerCrdProvisioner::new), workerImage, workerReplicas,
-                gatewayHost, gatewayPort, configManifestBaseUrl, qwenPawEndpoint, tlsSecret, credentialSecretEnvsJson);
+                gatewayHost, gatewayPort, configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson);
     }
 
     AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
             WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
-            String gatewayHost, int gatewayPort, String configManifestBaseUrl, String qwenPawEndpoint,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
             String tlsSecret) {
         this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
-                configManifestBaseUrl, qwenPawEndpoint, tlsSecret, "");
+                configManifestBaseUrl, tlsSecret, "");
     }
 
     AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
             WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
-            String gatewayHost, int gatewayPort, String configManifestBaseUrl, String qwenPawEndpoint,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
             String tlsSecret, String credentialSecretEnvsJson) {
         this.specs = specs;
         this.agents = agents;
@@ -75,7 +74,6 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
         if (gatewayPort < 1 || gatewayPort > 65535) throw new IllegalArgumentException("gateway port is invalid");
         this.gatewayPort = gatewayPort;
         this.configManifestBaseUrl = required(configManifestBaseUrl, "config manifest base URL");
-        this.qwenPawEndpoint = required(qwenPawEndpoint, "QwenPaw endpoint");
         this.tlsSecret = tlsSecret == null ? "" : tlsSecret.trim();
         this.credentialSecretEnvs = parseCredentialSecretEnvs(credentialSecretEnvsJson);
     }
@@ -84,7 +82,7 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
     public ProvisionedInstance provision(WorkerTemplateRevision revision, UUID instanceId, String idempotencyKey) {
         try {
             JsonNode json = MAPPER.readTree(revision.specJson());
-            String runtime = required(json, "runtime", "java");
+            String runtime = ExecutionRuntime.from(required(json, "runtime", "AGENTSCOPE")).name();
             String provider = required(json, "modelProvider", null);
             String model = required(json, "modelName", null);
             String name = "template-worker-" + instanceId;
@@ -100,7 +98,7 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
                     principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
                     revision.digest(), "template-" + revision.revision(), "",
                     workerImage, workerReplicas, gatewayHost, gatewayPort, configManifestBaseUrl,
-                    qwenPawEndpoint, tlsSecret, java.util.Map.of(), credentialSecretEnvs));
+                    tlsSecret, java.util.Map.of(), credentialSecretEnvs));
             return new ProvisionedInstance(spec.id(), worker.id());
         } catch (Exception error) {
             if (error instanceof RuntimeException runtime) throw runtime;

@@ -3,7 +3,7 @@
 
 在 L5 主机上执行（kubectl/psql 在本机可用，control-plane 经 NodePort 30080 访问）。
 与 kind 版（run-kind-subtask-decomposition.py）的差异：
-- 无 conversation mock 切换：qwenpaw 是真实模型服务，Worker CR 的 QWENPAW_ENDPOINT
+- 无 conversation mock 切换：agentscope 是真实模型服务，Worker CR 的 AGENTSCOPE_ENDPOINT
   保持不变；
 - 确定性层由脚本直调 REST 完成（plan → status 推进），模拟 agent 通过 task-mcp
   工具发出的协作调用；
@@ -184,7 +184,7 @@ def create_and_queue_task(base_url: str, token: str, tenant: str, project: str,
         "description": "L5 phase-2 subtask decomposition acceptance",
         "spec": {
             "scope": {"tenant": tenant, "project": project, "team": team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": prompt},
             "requiredCapabilities": [],
         },
@@ -296,12 +296,12 @@ def wait_for_terminal_phase(base_url: str, token: str, task_id: str,
 
 
 def assert_mcp_tooling(namespace: str) -> None:
-    """注入链证据：qwenpaw 挂载的 task-mcp 脚本必须包含二期新方法 plan_subtasks。"""
+    """注入链证据：agentscope 挂载的 task-mcp 脚本必须包含二期新方法 plan_subtasks。"""
     pods = kubectl(namespace, "get", "pods", "-o", "name").splitlines()
     pod = next((name.split("/")[1] for name in pods
-                if re.match(r"^pod/qwenpaw-[0-9a-f]", name)), None)
+                if re.match(r"^pod/agentscope-[0-9a-f]", name)), None)
     if not pod:
-        fail("qwenpaw pod not found")
+        fail("agentscope pod not found")
     script = kubectl(namespace, "exec", pod, "--", "cat",
                      "/opt/agentteams-mcp/agentteams-task-mcp.py")
     if "plan_subtasks" not in script:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate safe defaults and explicit rollback boundaries for AgentScope rollout."""
+"""Validate the single AgentScope runtime deployment contract."""
 
 from pathlib import Path
 import unittest
@@ -12,26 +12,26 @@ README = ROOT / "README.md"
 
 
 class AgentScopeDeploymentContractTest(unittest.TestCase):
-    def test_rollout_is_disabled_by_default(self) -> None:
+    def test_agentscope_is_the_only_runtime(self) -> None:
         text = VALUES.read_text(encoding="utf-8")
         self.assertIn("agentRuntime:", text)
-        self.assertIn("default: QWENPAW", text)
-        self.assertIn("enabled: false", text)
-        self.assertIn("rolloutPercentage: 0", text)
+        self.assertNotIn("agentScope:", text)
+        self.assertNotIn("rolloutPercentage", text)
 
-    def test_config_map_exports_only_non_secret_rollout_controls(self) -> None:
+    def test_config_map_exports_only_non_secret_runtime_controls(self) -> None:
         text = TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn("AGENTTEAMS_RUNTIME_DEFAULT", text)
-        self.assertIn("AGENTTEAMS_AGENTSCOPE_ENABLED", text)
-        self.assertIn("AGENTTEAMS_AGENTSCOPE_ROLLOUT_PERCENTAGE", text)
+        self.assertIn("AGENTTEAMS_ARTIFACT_UPLOAD_ENABLED", text)
+        self.assertNotIn("AGENTTEAMS_RUNTIME_DEFAULT", text)
+        self.assertNotIn("AGENTTEAMS_AGENTSCOPE_ROLLOUT_PERCENTAGE", text)
         self.assertNotIn("SECRET", text.upper())
         self.assertNotIn("TOKEN", text.upper())
         self.assertNotIn("API_KEY", text.upper())
 
-    def test_documented_rollback_is_qwenpaw(self) -> None:
+    def test_documented_runtime_path_is_agentscope(self) -> None:
         text = README.read_text(encoding="utf-8")
-        self.assertIn("AgentScope 灰度与回滚", text)
-        self.assertIn("rolloutPercentage: 0", text)
+        self.assertIn("AgentScope 当前开发路径", text)
+        values = VALUES.read_text(encoding="utf-8")
+        self.assertNotIn("rolloutPercentage", values)
 
 
 if __name__ == "__main__":

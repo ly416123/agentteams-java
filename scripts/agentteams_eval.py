@@ -360,12 +360,12 @@ class AgentTeamsClient:
         if not isinstance(spec, Mapping):
             scope = _mapping(task.get("scope", {}), f"case {case.case_id}.task.scope")
             input_json = task.get("inputJson", {"prompt": task.get("prompt", "")})
-            spec = {"scope": scope, "taskType": task.get("taskType", "qwenpaw"),
+            spec = {"scope": scope, "taskType": task.get("taskType", "agentscope"),
                     "inputJson": input_json,
                     "requiredCapabilities": task.get("requiredCapabilities", [])}
         body = {"title": task.get("title", case.name),
                 "description": task.get("description", "AgentTeams evaluation"),
-                "spec": spec, "taskType": task.get("taskType", "qwenpaw"),
+                "spec": spec, "taskType": task.get("taskType", "agentscope"),
                 "source": "agentteams-eval"}
         value = self._request("POST", "/api/v1/tasks", body, idempotent=True)
         return _mapping(value, "create task response")

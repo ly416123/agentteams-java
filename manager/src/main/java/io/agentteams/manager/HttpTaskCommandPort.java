@@ -50,7 +50,8 @@ public final class HttpTaskCommandPort implements TaskCommandPort {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 409) throw new ManagerToolConflictException("task creation conflicted");
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ManagerToolTemporaryFailureException("control plane task API unavailable");
+                throw new ManagerToolTemporaryFailureException("control plane task API unavailable status="
+                        + response.statusCode());
             }
             JsonNode result = mapper.readTree(response.body());
             return new TaskCreationResult(java.util.UUID.fromString(result.path("id").asText()),
@@ -60,6 +61,34 @@ public final class HttpTaskCommandPort implements TaskCommandPort {
             throw new ManagerToolTemporaryFailureException("control plane task API interrupted", error);
         } catch (IOException | IllegalArgumentException error) {
             throw new ManagerToolTemporaryFailureException("control plane task API failed", error);
+        }
+    }
+
+    @Override
+    public TaskCreationResult queue(java.util.UUID taskId, long expectedVersion, String idempotencyKey) {
+        String bearerToken = ManagerRequestContext.requireBearerToken();
+        ObjectNode body = mapper.createObjectNode().put("expectedVersion", expectedVersion);
+        URI queueEndpoint = URI.create(tasksEndpoint.toString() + "/" + taskId + "/queue");
+        HttpRequest request = HttpRequest.newBuilder(queueEndpoint)
+                .header("Content-Type", "application/json")
+                .header("Idempotency-Key", idempotencyKey)
+                .header("Authorization", "Bearer " + bearerToken)
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 409) throw new ManagerToolConflictException("task queue conflicted");
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new ManagerToolTemporaryFailureException("control plane task queue API unavailable status="
+                        + response.statusCode());
+            }
+            JsonNode result = mapper.readTree(response.body());
+            return new TaskCreationResult(java.util.UUID.fromString(result.path("id").asText()),
+                    result.path("phase").asText(), result.path("version").asLong());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new ManagerToolTemporaryFailureException("control plane task queue API interrupted", error);
+        } catch (IOException | IllegalArgumentException error) {
+            throw new ManagerToolTemporaryFailureException("control plane task queue API failed", error);
         }
     }
 }

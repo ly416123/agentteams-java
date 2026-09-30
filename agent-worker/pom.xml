@@ -12,7 +12,7 @@
     </parent>
 
     <artifactId>agentteams-agent-worker</artifactId>
-    <name>AgentTeams QwenPaw Agent Worker</name>
+    <name>AgentTeams AgentScope Worker</name>
 
 
     <dependencies>
@@ -23,6 +23,10 @@
         <dependency>
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-extensions-model-dashscope</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-openai</artifactId>
         </dependency>
         <dependency>
             <groupId>io.agentteams</groupId>
@@ -73,7 +77,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>io.agentteams.worker.QwenPawWorkerApplication</mainClass>
+                    <mainClass>io.agentteams.worker.AgentTeamsWorkerApplication</mainClass>
                     <!-- Keep the thin jar available to integration-test consumers. -->
                     <classifier>boot</classifier>
                 </configuration>

@@ -146,6 +146,12 @@ public final class TaskAssignmentService {
                     if (agent != null && tx.workerOperations().findActiveByAgentForUpdate(agent.id(), now).isPresent()) {
                         continue;
                     }
+                    // A Worker advertises one active execution slot in the current
+                    // runtime contract. Do not route a second queued Team child to
+                    // the same live lease while another eligible member is idle.
+                    if (agent != null && tx.agentLeases().countActiveForAgent(agent.id()) > 0) {
+                        continue;
+                    }
                     TeamSchedulingPolicy.Decision decision = schedulingPolicy.evaluate(policy, member, agent,
                             request, activeAssignments);
                     if (decision.allowed()) {
@@ -173,8 +179,10 @@ public final class TaskAssignmentService {
                 }
             });
         }
+        String defaultRole = task.isSubtask() ? "EXECUTOR" : "LEADER";
         return new TeamSchedulingPolicy.AssignmentRequest(task.id(), required,
-                spec.path("approvalGranted").asBoolean(false));
+                spec.path("approvalGranted").asBoolean(false),
+                spec.path("teamRole").asText(defaultRole));
     }
 
     private static String approvalStatus(TaskRecord task) {
@@ -267,7 +275,7 @@ public final class TaskAssignmentService {
             if (input == null) {
                 input = spec.get("input");
             }
-            payload.set("inputJson", input == null ? OBJECT_MAPPER.createObjectNode() : input);
+            payload.set("inputJson", assignmentInput(task, spec, input));
             JsonNode capabilities = spec.get("requiredCapabilities");
             ArrayNode capabilityArray = OBJECT_MAPPER.createArrayNode();
             if (capabilities != null && capabilities.isArray()) {
@@ -294,6 +302,28 @@ public final class TaskAssignmentService {
         } catch (Exception error) {
             throw new IllegalArgumentException("task spec cannot be serialized for assignment", error);
         }
+    }
+
+    private static JsonNode assignmentInput(TaskRecord task, JsonNode spec, JsonNode input) {
+        ObjectNode result;
+        if (input != null && input.isObject()) {
+            result = ((ObjectNode) input).deepCopy();
+        } else {
+            result = OBJECT_MAPPER.createObjectNode();
+            if (input != null && !input.isNull()) {
+                result.put("prompt", input.asText());
+            }
+        }
+        JsonNode team = spec.get("teamId");
+        if (team != null && team.isTextual() && !team.asText().isBlank()) {
+            String role = spec.path("teamRole").asText(task.isSubtask() ? "EXECUTOR" : "LEADER");
+            String phase = spec.path("orchestrationPhase").asText(task.isSubtask() ? "EXECUTE" : "PLAN");
+            if (!task.isSubtask() && spec.has("childResults")) {
+                phase = "AGGREGATE";
+            }
+            result.put("teamRole", role).put("orchestrationPhase", phase);
+        }
+        return result;
     }
 
     private static String textOrDefault(JsonNode object, String field, String fallback) {

@@ -90,14 +90,14 @@ def main() -> int:
     last_status: dict | None = None
     context = {"base_url": base_url, "agent_id": agent_id, "subject": subject}
     try:
-        # QwenPaw's native /api/models/active configuration requires a model
+        # AgentScope's native /api/models/active configuration requires a model
         # for every manifest applied by the real Worker. Keep both revisions
         # deterministic and independent of any pre-existing local selection.
-        # CI default: "model": "agentteams-kind-mock". Local real QwenPaw can
-        # override it with AGENTTEAMS_QWENPAW_MODEL.
-        smoke_model = os.environ.get("AGENTTEAMS_QWENPAW_MODEL", "agentteams-kind-mock").strip()
+        # CI default: "model": "agentteams-kind-mock". Local real AgentScope can
+        # override it with AGENTTEAMS_AGENTSCOPE_MODEL.
+        smoke_model = os.environ.get("AGENTTEAMS_AGENTSCOPE_MODEL", "agentteams-kind-mock").strip()
         if not smoke_model:
-            fail("AGENTTEAMS_QWENPAW_MODEL must not be blank")
+            fail("AGENTTEAMS_AGENTSCOPE_MODEL must not be blank")
         old_manifest = {
             "kind": "KindConfigRollbackSmoke",
             "revision": "stable",

@@ -5,21 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.manager.session.JdbcManagerSessionRepository;
 import io.agentteams.manager.session.ManagerSessionRepository;
 import io.agentteams.manager.session.ManagerSessionServiceFacade;
-import io.agentteams.manager.conversation.ConversationRuntimeConfiguration;
 import io.agentteams.manager.conversation.ConversationRuntimePort;
 import io.agentteams.manager.conversation.ConversationService;
 import io.agentteams.manager.conversation.ConversationRepository;
 import io.agentteams.manager.conversation.ControlPlaneConversationPort;
+import io.agentteams.manager.conversation.ControlPlaneConversationTaskBridge;
+import io.agentteams.manager.conversation.ConversationTaskBridge;
 import io.agentteams.manager.conversation.HttpControlPlaneConversationPort;
 import io.agentteams.manager.conversation.JdbcConversationRepository;
 import io.agentteams.manager.conversation.FakeConversationRuntime;
-import io.agentteams.manager.conversation.QwenPawConversationRuntime;
 import io.agentteams.manager.security.ConversationScopeAuthorizer;
 import io.agentteams.manager.security.ControlPlaneConversationScopeAuthorizer;
-import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
@@ -122,35 +120,16 @@ public class ManagerApplication {
     }
 
     @Bean
-    ConversationRuntimeConfiguration conversationRuntimeConfiguration(
-            @Value("${AGENTTEAMS_CONVERSATION_QWENPAW_ENDPOINT:http://127.0.0.1:8088}") String endpoint,
-            @Value("${AGENTTEAMS_CONVERSATION_QWENPAW_AGENT_ID:default}") String agentId,
-            @Value("${AGENTTEAMS_CONVERSATION_QWENPAW_AUTHORIZATION_TOKEN:}") String authorizationToken,
-            @Value("${AGENTTEAMS_CONVERSATION_CONNECT_TIMEOUT_MS:10000}") long connectTimeoutMillis,
-            @Value("${AGENTTEAMS_CONVERSATION_REQUEST_TIMEOUT_MS:120000}") long requestTimeoutMillis,
-            @Value("${AGENTTEAMS_CONVERSATION_MAX_RESPONSE_BYTES:4194304}") long maxResponseBytes,
-            @Value("${AGENTTEAMS_CONVERSATION_USER_ID:agentteams}") String userId,
-            @Value("${AGENTTEAMS_CONVERSATION_CHANNEL:console}") String channel,
-            @Value("${AGENTTEAMS_CONVERSATION_MAX_CONCURRENT_REQUESTS:128}") int maxConcurrentRequests,
-            @Value("${AGENTTEAMS_CONVERSATION_MAX_EVENTS_PER_SESSION:10000}") int maxEventsPerSession,
-            @Value("${AGENTTEAMS_CONVERSATION_MAX_SESSIONS:10000}") int maxSessions,
-            @Value("${agentteams.concurrency.virtual-threads.enabled:${AGENTTEAMS_VIRTUAL_THREADS_ENABLED:false}}")
-            boolean virtualThreadsEnabled) {
-        return new ConversationRuntimeConfiguration(URI.create(endpoint), agentId, authorizationToken,
-                Duration.ofMillis(connectTimeoutMillis), Duration.ofMillis(requestTimeoutMillis),
-                maxResponseBytes, userId, channel, maxConcurrentRequests, maxEventsPerSession, maxSessions,
-                virtualThreadsEnabled);
+    ConversationTaskBridge conversationTaskBridge(io.agentteams.application.api.TaskCommandPort taskCommands,
+            ObjectMapper mapper) {
+        return new ControlPlaneConversationTaskBridge(taskCommands, mapper);
     }
 
     @Bean(destroyMethod = "close")
     ConversationRuntimePort conversationRuntime(
-            @Value("${AGENTTEAMS_CONVERSATION_RUNTIME:fake}") String runtimeName,
-            ConversationRuntimeConfiguration configuration) {
+            @Value("${AGENTTEAMS_CONVERSATION_RUNTIME:fake}") String runtimeName) {
         if ("fake".equalsIgnoreCase(runtimeName)) {
             return new FakeConversationRuntime();
-        }
-        if ("qwenpaw".equalsIgnoreCase(runtimeName)) {
-            return new QwenPawConversationRuntime(configuration);
         }
         throw new IllegalArgumentException("unsupported conversation runtime: " + runtimeName);
     }
@@ -162,8 +141,8 @@ public class ManagerApplication {
 
     @Bean(destroyMethod = "close")
     ConversationService conversationService(ConversationRuntimePort runtime, ConversationRepository repository,
-            ControlPlaneConversationPort controlPlane) {
-        return new ConversationService(runtime, repository, controlPlane);
+            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge) {
+        return new ConversationService(runtime, repository, controlPlane, taskBridge);
     }
 
     @Bean

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the Kind task review lifecycle acceptance (G02) against the deployed stack.
 
-Drives the full review chain over the real APIs: create and queue a qwenpaw
+Drives the full review chain over the real APIs: create and queue a agentscope
 task, let the Worker finish it (the manifest publish commits result version 1
 in the same transaction), reject the result back for revision (comment is
 required), retry the task (SUCCEEDED → QUEUED explicit edge → new run → result
@@ -157,7 +157,7 @@ def require_environment(namespace: str) -> None:
     if not clusters or "agentteams" not in clusters.splitlines():
         fail("Kind cluster agentteams is required; kind get clusters returned no matching cluster")
     deployments = json.loads(kubectl(namespace, "get", "deployments", "-o", "json"))
-    for required in ("agentteams-agentteams-java-control-plane", "qwenpaw-worker"):
+    for required in ("agentteams-agentteams-java-control-plane", "agentscope-worker"):
         items = [item for item in deployments.get("items", [])
                  if item["metadata"]["name"] == required]
         if not items:
@@ -240,9 +240,9 @@ def create_and_queue_task(base_url: str, tokens: TokenSource, tenant: str, proje
         "description": "Task review lifecycle end-to-end acceptance (G02)",
         "spec": {
             "scope": {"tenant": tenant, "project": project, "team": team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": "Summarize the task review lifecycle acceptance scenario."},
-            "requiredCapabilities": ["qwenpaw"],
+            "requiredCapabilities": ["agentscope"],
         },
     }
     status, created = request_json(f"{base_url.rstrip('/')}/api/v1/tasks", "POST", body,

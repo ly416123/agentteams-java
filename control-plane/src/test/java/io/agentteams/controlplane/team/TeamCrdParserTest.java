@@ -23,7 +23,7 @@ class TeamCrdParserTest {
                 "policy", Map.of(
                         "maxConcurrentTasks", 4,
                         "requireApproval", false,
-                        "allowedRuntimes", List.of("qwenpaw", "qwenpaw"),
+                        "allowedRuntimes", List.of("agentscope", "agentscope"),
                         "requiredCapabilities", List.of("python", "python")))));
 
         assertThat(snapshot.id()).isEqualTo(TeamCrdParser.stableId("agentteams", "platform"));
@@ -33,7 +33,7 @@ class TeamCrdParserTest {
             assertThat(member.agentId()).isEqualTo(UUID.fromString("00000000-0000-0000-0000-000000000002"));
             assertThat(member.role()).isEqualTo("worker");
         });
-        assertThat(snapshot.policy().allowedRuntimes()).containsExactly("qwenpaw");
+        assertThat(snapshot.policy().allowedRuntimes()).containsExactly("agentscope");
         assertThat(snapshot.policy().requiredCapabilities()).containsExactly("python");
     }
 

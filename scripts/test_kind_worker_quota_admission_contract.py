@@ -17,7 +17,7 @@ class KindWorkerQuotaAdmissionContractTest(unittest.TestCase):
     def test_real_worker_is_configured_for_remote_project_quota(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
         steps = workflow["jobs"]["kind-recovery"]["steps"]
-        worker_step = next(step for step in steps if step.get("name") == "Create real QwenPaw worker")
+        worker_step = next(step for step in steps if step.get("name") == "Create real AgentScope worker")
         run = worker_step["run"].replace('\\"', '"')
 
         self.assertIn('AGENTTEAMS_QUOTA_REMOTE_ENABLED: "true"', run)

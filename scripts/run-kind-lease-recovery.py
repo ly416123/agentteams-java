@@ -83,11 +83,11 @@ def deployment_agent_id(namespace: str, deployment: str) -> str:
         "agentteams.io/agent-id", "")
 
 
-def qwenpaw_agent_phases(namespace: str, postgres_pod: str) -> dict[str, str]:
+def agentscope_agent_phases(namespace: str, postgres_pod: str) -> dict[str, str]:
     rows = sql(namespace, postgres_pod, """
         select id || '|' || phase
           from agents
-         where capabilities ? 'qwenpaw';
+         where capabilities ? 'agentscope';
     """)
     return {
         agent_id: phase
@@ -117,7 +117,7 @@ def wait_for_new_gateway_connection(namespace: str, postgres_pod: str, agent_id:
         return (current_connection_id if current_connection_id
                 and current_connection_id != previous_connection_id
                 and presence == "ONLINE"
-                and qwenpaw_agent_phases(namespace, postgres_pod).get(agent_id) == "READY" else None)
+                and agentscope_agent_phases(namespace, postgres_pod).get(agent_id) == "READY" else None)
 
     return wait_until("new Worker Gateway registration", restarted_worker_ready, timeout, interval)
 
@@ -194,7 +194,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--agent-id", default=os.environ.get("AGENTTEAMS_AGENT_ID"))
-    parser.add_argument("--worker-deployment", default="qwenpaw-real")
+    parser.add_argument("--worker-deployment", default="agentscope-real")
     parser.add_argument("--control-plane-deployment", default="agentteams-agentteams-java-control-plane")
     parser.add_argument("--operator-deployment", default="agentteams-agentteams-java-operator")
     parser.add_argument("--postgres-pod", default="postgresql-0")
@@ -222,9 +222,9 @@ def main() -> int:
     worker_agent_id = deployment_agent_id(args.namespace, args.worker_deployment)
     if worker_agent_id and worker_agent_id != args.agent_id:
         fail(f"worker deployment {args.worker_deployment} is bound to agent {worker_agent_id}, not {args.agent_id}")
-    original_agent_phases = qwenpaw_agent_phases(args.namespace, args.postgres_pod)
+    original_agent_phases = agentscope_agent_phases(args.namespace, args.postgres_pod)
     if args.agent_id not in original_agent_phases:
-        fail(f"agent {args.agent_id} is not a qwenpaw-capable registered agent")
+        fail(f"agent {args.agent_id} is not a agentscope-capable registered agent")
     previous_connection_id, previous_presence = gateway_connection_state(
         args.namespace, args.postgres_pod, args.agent_id)
     if not previous_connection_id or previous_presence != "ONLINE":
@@ -261,8 +261,8 @@ def main() -> int:
             f"{base_url}/api/v1/tasks", "POST",
             {"title": "kind-lease-recovery", "description": "automated lease recovery smoke test",
              "spec": {"scope": {"tenant": args.tenant, "project": args.project, "team": args.team},
-                      "taskType": "qwenpaw", "inputJson": {"prompt": "KIND_LEASE_RECOVERY_OK"},
-                      "requiredCapabilities": ["qwenpaw"]}},
+                      "taskType": "agentscope", "inputJson": {"prompt": "KIND_LEASE_RECOVERY_OK"},
+                      "requiredCapabilities": ["agentscope"]}},
             f"kind-lease-recovery-create-{uuid.uuid4()}")
         task_id = created["id"]
         api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},
@@ -313,7 +313,7 @@ def main() -> int:
                 return task
             raise RuntimeError(f"task phase is {task.get('phase')!r}")
 
-        # Reconnecting the Worker and warming the deterministic QwenPaw path can
+        # Reconnecting the Worker and warming the deterministic AgentScope path can
         # take longer than the control-plane recovery checks. Keep this wait
         # independent so a slow first model call does not report a false
         # recovery failure.

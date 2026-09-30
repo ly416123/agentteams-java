@@ -5,49 +5,48 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.agentscope.core.model.ModelRegistry;
 import io.agentscope.core.model.ModelCreationContext;
-import io.agentteams.application.api.ExecutionRuntime;
-import io.agentteams.runtime.AgentScopeRolloutPolicy;
+import io.agentscope.core.model.transport.ProxyConfig;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class WorkerRuntimeFactoryTest {
     @Test
-    void doesNotInitializeQwenPawBridgeForAnAgentScopeWorker() {
-        assertThat(WorkerRuntimeFactory.shouldInitializeQwenPaw(ExecutionRuntime.AGENTSCOPE)).isFalse();
-        assertThat(WorkerRuntimeFactory.shouldInitializeQwenPaw(ExecutionRuntime.QWENPAW)).isTrue();
-    }
-
-    @Test
     void productionClasspathProvidesDashScopeModelResolution() {
         assertThat(ModelRegistry.canResolve("dashscope:qwen-plus")).isTrue();
     }
 
     @Test
-    void appliesOptionalDashScopeBaseUrlToModelCreationContext() {
-        ModelCreationContext context = WorkerRuntimeFactory.modelCreationContext(Map.of(
-                "DASHSCOPE_BASE_URL", "https://dashscope-intl.aliyuncs.com"));
-
-        assertThat(context.getBaseUrl()).isEqualTo("https://dashscope-intl.aliyuncs.com");
+    void productionClasspathProvidesDeepSeekModelResolution() {
+        assertThat(ModelRegistry.canResolve("deepseek:deepseek-chat")).isTrue();
     }
 
     @Test
-    void readsVirtualThreadSwitchFromEnvironmentAndDefaultsToDisabled() {
-        QwenPawWorker.WorkerConfiguration disabled = QwenPawWorker.WorkerConfiguration.from(Map.of(
-                "AGENTTEAMS_AGENT_ID", "agent-a"));
-        QwenPawWorker.WorkerConfiguration enabled = QwenPawWorker.WorkerConfiguration.from(Map.of(
-                "AGENTTEAMS_AGENT_ID", "agent-a",
-                "AGENTTEAMS_VIRTUAL_THREADS_ENABLED", "true"));
+    void appliesOptionalProviderNeutralBaseUrlToModelCreationContext() {
+        ModelCreationContext context = WorkerRuntimeFactory.modelCreationContext(Map.of(
+                "AGENTTEAMS_MODEL_BASE_URL", "https://model-provider.example.com"));
 
-        org.assertj.core.api.Assertions.assertThat(disabled.virtualThreadsEnabled()).isFalse();
-        org.assertj.core.api.Assertions.assertThat(enabled.virtualThreadsEnabled()).isTrue();
+        assertThat(context.getBaseUrl()).isEqualTo("https://model-provider.example.com");
+    }
+
+    @Test
+    void appliesOptionalModelProxyToModelCreationContext() {
+        ModelCreationContext context = WorkerRuntimeFactory.modelCreationContext(Map.of(
+                "AGENTTEAMS_MODEL_PROXY_HOST", "agentteams-deepseek-proxy",
+                "AGENTTEAMS_MODEL_PROXY_PORT", "8080"));
+
+        ProxyConfig proxy = context.component(ProxyConfig.class);
+        assertThat(proxy).isNotNull();
+        assertThat(proxy.getHost()).isEqualTo("agentteams-deepseek-proxy");
+        assertThat(proxy.getPort()).isEqualTo(8080);
     }
 
     @Test
     void explicitlyConfiguredAgentScopeFailsFastWhenHarnessOrModelIsMissing() {
-        QwenPawWorker.WorkerConfiguration configuration = QwenPawWorker.WorkerConfiguration.from(Map.of(
+        AgentTeamsWorker.WorkerConfiguration configuration = AgentTeamsWorker.WorkerConfiguration.from(Map.of(
                 "AGENTTEAMS_AGENT_ID", "agent-a",
-                "AGENTTEAMS_RUNTIME", "AGENTSCOPE"));
+                "AGENTTEAMS_RUNTIME", "AGENTSCOPE",
+                "AGENTTEAMS_MODEL", "unknown"));
 
         assertThatThrownBy(() -> new WorkerRuntimeFactory().validate(configuration))
                 .isInstanceOf(IllegalStateException.class)
@@ -58,9 +57,7 @@ class WorkerRuntimeFactoryTest {
     void requiresAInjectedSandboxStateProbeForConfiguredAgentScopeWiring() {
         SandboxStateProbePort probe = (sandboxId, taskId, attemptId) -> null;
 
-        WorkerRuntimeFactory factory = new WorkerRuntimeFactory(null,
-                new AgentScopeRolloutPolicy("QWENPAW", false, 0,
-                        Set.of(), Set.of(), Set.of()), probe);
+        WorkerRuntimeFactory factory = new WorkerRuntimeFactory(null, probe);
 
         org.assertj.core.api.Assertions.assertThat(factory.sandboxStateProbe()).isSameAs(probe);
     }

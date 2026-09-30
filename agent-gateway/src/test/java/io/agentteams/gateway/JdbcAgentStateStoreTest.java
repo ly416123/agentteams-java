@@ -49,7 +49,7 @@ class JdbcAgentStateStoreTest {
         JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
         UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
         ConnectionRegistry.ConnectionSnapshot connection = new ConnectionRegistry.ConnectionSnapshot(
-                UUID.randomUUID(), agentId.toString(), "qwenpaw", "0.4.0",
+                UUID.randomUUID(), agentId.toString(), "agentscope", "0.4.0",
                 "sha256:worker-v2", "config-17", "secret-9", Map.of(),
                 Instant.parse("2026-08-16T00:00:00Z"), 0);
 
@@ -58,7 +58,7 @@ class JdbcAgentStateStoreTest {
         ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).update(contains("gateway_agent_state"), args.capture());
         assertThat(args.getValue()).containsExactly(
-                agentId.toString(), connection.connectionId(), "ONLINE", "READY", "qwenpaw", "0.4.0", "{}",
+                agentId.toString(), connection.connectionId(), "ONLINE", "READY", "agentscope", "0.4.0", "{}",
                 "sha256:worker-v2", "config-17", "secret-9",
                 Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),
                 Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),
@@ -73,7 +73,7 @@ class JdbcAgentStateStoreTest {
         JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
         UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
         ConnectionRegistry.ConnectionSnapshot connection = new ConnectionRegistry.ConnectionSnapshot(
-                UUID.randomUUID(), agentId.toString(), "qwenpaw", "1.0", Map.of(),
+                UUID.randomUUID(), agentId.toString(), "agentscope", "1.0", Map.of(),
                 Instant.parse("2026-08-16T00:00:00Z"), 0);
 
         store.registered(connection, Instant.parse("2026-08-16T00:00:01Z"));
@@ -115,14 +115,14 @@ class JdbcAgentStateStoreTest {
         UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
         UUID connectionId = UUID.fromString("3c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
         ConnectionRegistry.ConnectionSnapshot snapshot = new ConnectionRegistry.ConnectionSnapshot(
-                connectionId, agentId.toString(), "qwenpaw", "0.4.0", "digest", "config", "secret",
+                connectionId, agentId.toString(), "agentscope", "0.4.0", "digest", "config", "secret",
                 Map.of(), Instant.parse("2026-08-16T00:00:00Z"), 0);
 
         store.seen(snapshot, Instant.parse("2026-08-16T00:00:01Z"));
 
         ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).update(contains("UPDATE gateway_agent_state"), args.capture());
-        assertThat(args.getValue()[0]).isEqualTo("qwenpaw");
+        assertThat(args.getValue()[0]).isEqualTo("agentscope");
         assertThat(args.getValue()[1]).isEqualTo("0.4.0");
         assertThat(args.getValue()[3]).isEqualTo("digest");
         assertThat(args.getValue()[4]).isEqualTo("config");
@@ -139,7 +139,7 @@ class JdbcAgentStateStoreTest {
         JdbcAgentStateStore store = new JdbcAgentStateStore(jdbc);
         UUID agentId = UUID.fromString("0c1e0f9f-e0d3-4b5a-9e4f-3d9f7c0e7f01");
         ConnectionRegistry.ConnectionSnapshot snapshot = new ConnectionRegistry.ConnectionSnapshot(
-                UUID.randomUUID(), agentId.toString(), "qwenpaw", "0.4.0", Map.of(),
+                UUID.randomUUID(), agentId.toString(), "agentscope", "0.4.0", Map.of(),
                 Instant.parse("2026-08-16T00:00:00Z"), 0);
 
         store.seen(snapshot, Instant.parse("2026-08-16T00:00:01Z"));

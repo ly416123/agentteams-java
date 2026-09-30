@@ -116,7 +116,7 @@ class TeamCrdSynchronizerTest {
     }
 
     private static AgentRecord agent(UUID id, String name) {
-        return AgentRecord.create(id, name, AgentPhase.READY, "qwenpaw", "{\"python\":true}", NOW);
+        return AgentRecord.create(id, name, AgentPhase.READY, "agentscope", "{\"python\":true}", NOW);
     }
 
     private static Map<String, Object> member(UUID agentId, String role) {
@@ -127,7 +127,7 @@ class TeamCrdSynchronizerTest {
         Map<String, Object> policy = new LinkedHashMap<>();
         policy.put("maxConcurrentTasks", 2);
         policy.put("requireApproval", false);
-        policy.put("allowedRuntimes", List.of("qwenpaw"));
+        policy.put("allowedRuntimes", List.of("agentscope"));
         policy.put("requiredCapabilities", List.of("python"));
         Map<String, Object> spec = new LinkedHashMap<>();
         spec.put("leaderRef", FIRST_AGENT.toString());

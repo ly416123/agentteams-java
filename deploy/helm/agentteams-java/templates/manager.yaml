@@ -78,10 +78,6 @@ spec:
               value: {{ default 3 $quota.timeoutSeconds | quote }}
             - name: AGENTTEAMS_CONVERSATION_RUNTIME
               value: {{ default "fake" $manager.conversation.runtime | quote }}
-            - name: AGENTTEAMS_CONVERSATION_QWENPAW_ENDPOINT
-              value: {{ default "http://127.0.0.1:8088" $manager.conversation.qwenpawEndpoint | quote }}
-            - name: AGENTTEAMS_CONVERSATION_QWENPAW_AGENT_ID
-              value: {{ default "default" $manager.conversation.qwenpawAgentId | quote }}
             - name: SPRING_FLYWAY_ENABLED
               value: "true"
             - name: AGENTTEAMS_VIRTUAL_THREADS_ENABLED

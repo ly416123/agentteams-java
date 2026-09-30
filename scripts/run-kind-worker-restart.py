@@ -118,7 +118,7 @@ def mock_delay_is_active(namespace: str, deployment: str, seconds: int) -> bool:
         containers = pod.get("spec", {}).get("containers", [])
         environment = {item.get("name"): item.get("value") for item in containers[0].get("env", [])} \
             if containers else {}
-        if environment.get("QWENPAW_MOCK_RESPONSE_DELAY_SECONDS") == expected:
+        if environment.get("AGENTSCOPE_MOCK_RESPONSE_DELAY_SECONDS") == expected:
             return True
     return False
 
@@ -165,7 +165,7 @@ def task_phase(namespace: str, postgres_pod: str, task_id: str) -> str:
                f"select phase from tasks where id = '{task_id}';").strip()
 
 
-def qwenpaw_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
+def agentscope_agent_ready(namespace: str, postgres_pod: str, agent_id: str) -> bool:
     connection_id, presence = gateway_connection_state(namespace, postgres_pod, agent_id)
     return bool(connection_id and presence == "ONLINE"
                 and agent_phase(namespace, postgres_pod, agent_id) == "READY")
@@ -191,7 +191,7 @@ def task_attempts(namespace: str, postgres_pod: str, task_id: str) -> tuple[int,
 
 def set_mock_delay(namespace: str, deployment: str, seconds: int, timeout: float) -> None:
     run("set", "env", f"deployment/{deployment}",
-        f"QWENPAW_MOCK_RESPONSE_DELAY_SECONDS={seconds}", namespace=namespace)
+        f"AGENTSCOPE_MOCK_RESPONSE_DELAY_SECONDS={seconds}", namespace=namespace)
     run("rollout", "status", f"deployment/{deployment}",
         f"--timeout={int(timeout)}s", namespace=namespace)
     wait_until("mock response delay", lambda: mock_delay_is_active(namespace, deployment, seconds), timeout)
@@ -200,7 +200,7 @@ def set_mock_delay(namespace: str, deployment: str, seconds: int, timeout: float
 def clear_mock_delay(namespace: str, deployment: str, timeout: float) -> None:
     try:
         run("set", "env", f"deployment/{deployment}",
-            "QWENPAW_MOCK_RESPONSE_DELAY_SECONDS-", namespace=namespace)
+            "AGENTSCOPE_MOCK_RESPONSE_DELAY_SECONDS-", namespace=namespace)
         run("rollout", "status", f"deployment/{deployment}",
             f"--timeout={int(timeout)}s", namespace=namespace)
     except RuntimeError:
@@ -220,8 +220,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--agent-id", default=os.environ.get("AGENTTEAMS_AGENT_ID"))
-    parser.add_argument("--worker-deployment", default="qwenpaw-real")
-    parser.add_argument("--mock-deployment", default="qwenpaw-openai-mock")
+    parser.add_argument("--worker-deployment", default="agentscope-real")
+    parser.add_argument("--mock-deployment", default="agentscope-openai-mock")
     parser.add_argument("--postgres-pod", default="postgresql-0")
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
     parser.add_argument("--local-port", type=int, default=18084)
@@ -253,16 +253,16 @@ def main() -> int:
         set_mock_delay(args.namespace, args.mock_deployment, args.response_delay_seconds, args.timeout)
         mock_port_forward = start_port_forward(args.namespace, args.mock_deployment, args.local_port + 1)
         mock_base_url = f"http://127.0.0.1:{args.local_port + 1}"
-        wait_until("QwenPaw mock API", lambda: api_request(f"{mock_base_url}/v1/models"), args.timeout)
-        wait_until(f"QwenPaw Agent registration for {args.agent_id}", lambda: qwenpaw_agent_ready(
+        wait_until("AgentScope mock API", lambda: api_request(f"{mock_base_url}/v1/models"), args.timeout)
+        wait_until(f"AgentScope Agent registration for {args.agent_id}", lambda: agentscope_agent_ready(
             args.namespace, args.postgres_pod, args.agent_id), args.timeout)
 
         created = api_request(
             f"{base_url}/api/v1/tasks", "POST",
             {"title": "kind-worker-restart", "description": "in-flight Worker restart recovery smoke test",
              "spec": {"scope": {"tenant": args.tenant, "project": args.project, "team": args.team},
-                      "taskType": "qwenpaw", "inputJson": {"prompt": "KIND_WORKER_RESTART_OK"},
-                      "requiredCapabilities": ["qwenpaw"]}},
+                      "taskType": "agentscope", "inputJson": {"prompt": "KIND_WORKER_RESTART_OK"},
+                      "requiredCapabilities": ["agentscope"]}},
             f"kind-worker-restart-create-{uuid.uuid4()}")
         task_id = created["id"]
         api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},

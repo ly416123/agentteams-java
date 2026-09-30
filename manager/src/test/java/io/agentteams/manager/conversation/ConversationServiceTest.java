@@ -2,7 +2,11 @@ package io.agentteams.manager.conversation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +58,41 @@ class ConversationServiceTest {
         assertThat(port.messages.get(0).channel()).isEqualTo("INTERNAL");
         assertThat(port.messages.get(0).messageType()).isEqualTo("TEXT");
         assertThat(port.messages.get(0).content()).isEqualTo("hello");
+    }
+
+    @Test
+    void handsUuidTeamConversationToControlPlaneWithoutCallingLegacyRuntime() {
+        UUID teamId = UUID.fromString("10000000-0000-0000-0000-000000000123");
+        ConversationRuntimePort.Context context = new ConversationRuntimePort.Context(
+                "project-a", teamId.toString(), null, null, SESSION_ID);
+        FakeConversationRuntime runtime = new FakeConversationRuntime();
+        ConversationTaskBridge bridge = mock(ConversationTaskBridge.class);
+        TaskCreationResult queued = new TaskCreationResult(UUID.randomUUID(), "QUEUED", 1);
+        when(bridge.createAndQueue(context, new ConversationOwner("tenant-a", "manager-a"), "hello", "message-1"))
+                .thenReturn(queued);
+        ConversationService service = new ConversationService(runtime, new InMemoryConversationRepository(),
+                ControlPlaneConversationPort.noop(), bridge);
+
+        service.createAndStart(context, "create-key", new ConversationOwner("tenant-a", "manager-a"));
+        ConversationService.SendResult result = service.send(SESSION_ID, "message-1", "hello", null,
+                new ConversationOwner("tenant-a", "manager-a"));
+
+        verify(bridge).createAndQueue(context, new ConversationOwner("tenant-a", "manager-a"), "hello", "message-1");
+        assertThat(result.events()).extracting(ConversationEvent::type)
+                .containsExactly("task.created", "task.updated", "message.completed");
+        assertThat(runtime.events(SESSION_ID, 0)).isEmpty();
+    }
+
+    @Test
+    void taskBackedConversationDoesNotCreateLegacyControlPlaneConversation() {
+        RecordingControlPlanePort port = new RecordingControlPlanePort();
+        ConversationTaskBridge bridge = mock(ConversationTaskBridge.class);
+        ConversationService service = new ConversationService(new FakeConversationRuntime(),
+                new InMemoryConversationRepository(), port, bridge);
+
+        service.createAndStart(CONTEXT, "create-key", new ConversationOwner("tenant-a", "manager-a"));
+
+        assertThat(port.creates).isEmpty();
     }
 
     @Test

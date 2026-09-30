@@ -4,12 +4,11 @@ import java.util.Locale;
 
 /** Supported execution backends for an AgentTeams worker. */
 public enum ExecutionRuntime {
-    QWENPAW,
     AGENTSCOPE;
 
     public static ExecutionRuntime from(String value) {
         if (value == null || value.isBlank()) {
-            return QWENPAW;
+            return AGENTSCOPE;
         }
         String normalized = value.trim().toUpperCase(Locale.ROOT);
         try {
@@ -17,7 +16,7 @@ public enum ExecutionRuntime {
         } catch (IllegalArgumentException error) {
             throw new IllegalArgumentException(
                     "Unsupported execution runtime: " + value.trim()
-                            + "; expected QWENPAW or AGENTSCOPE",
+                            + "; expected AGENTSCOPE",
                     error);
         }
     }

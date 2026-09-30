@@ -34,19 +34,19 @@ public interface ExecutionEventPort {
     record TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
             Instant occurredAt, String agentId, String source, ExecutionPhase phase,
             String failureCode, String failureMessage, String correlationId, String traceparent,
-            String tracestate, ModelCallUsage modelCallUsage) {
+            String tracestate, ModelCallUsage modelCallUsage, String resultJson) {
         public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
                 Instant occurredAt, String agentId, String source, ExecutionPhase phase,
                 String failureCode, String failureMessage) {
             this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
-                    failureCode, failureMessage, "unknown", "", "", null);
+                    failureCode, failureMessage, "unknown", "", "", null, "");
         }
 
         public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
                 Instant occurredAt, String agentId, String source, ExecutionPhase phase,
                 String failureCode, String failureMessage, String correlationId) {
             this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
-                    failureCode, failureMessage, correlationId, "", "", null);
+                    failureCode, failureMessage, correlationId, "", "", null, "");
         }
 
         /** Compatibility constructor for callers that already carry trace fields. */
@@ -55,7 +55,16 @@ public interface ExecutionEventPort {
                 String failureCode, String failureMessage, String correlationId, String traceparent,
                 String tracestate) {
             this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
-                    failureCode, failureMessage, correlationId, traceparent, tracestate, null);
+                    failureCode, failureMessage, correlationId, traceparent, tracestate, null, "");
+        }
+
+        /** Compatibility constructor for callers that already carry model usage metadata. */
+        public TaskExecutionCommand(UUID eventId, long expectedVersion, UUID attemptId, UUID leaseId,
+                Instant occurredAt, String agentId, String source, ExecutionPhase phase,
+                String failureCode, String failureMessage, String correlationId, String traceparent,
+                String tracestate, ModelCallUsage modelCallUsage) {
+            this(eventId, expectedVersion, attemptId, leaseId, occurredAt, agentId, source, phase,
+                    failureCode, failureMessage, correlationId, traceparent, tracestate, modelCallUsage, "");
         }
 
         public TaskExecutionCommand {
@@ -75,6 +84,10 @@ public interface ExecutionEventPort {
             }
             failureCode = failureCode == null || failureCode.isBlank() ? "RUNTIME_FAILURE" : failureCode;
             failureMessage = FailureMessageSanitizer.redact(failureMessage);
+            resultJson = resultJson == null ? "" : resultJson;
+            if (resultJson.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 64 * 1024) {
+                throw new IllegalArgumentException("resultJson exceeds 65536 bytes");
+            }
         }
     }
 

@@ -36,14 +36,14 @@ class GatewayRuntimeAdapterEventReportTest {
                         .setOccurredAt(Timestamp.newBuilder().setSeconds(now.getEpochSecond())
                                 .setNanos(now.getNano()).build()))
                 .setLeaseExpiresAt(Timestamp.newBuilder().setSeconds(now.getEpochSecond() + 60).build())
-                .setTaskType("qwenpaw")
+                .setTaskType("agentscope")
                 .setInputJson(ByteString.copyFromUtf8("{}"))
                 .build();
     }
 
     private GatewayRuntimeAdapter adapter(CapturingChannel channel, int eventRateLimit) {
         FakeRuntime runtime = new FakeRuntime();
-        runtime.start(new AgentRuntimeContext("qwenpaw", 4, Clock.systemUTC(), result -> { }, Map.of()));
+        runtime.start(new AgentRuntimeContext("agentscope", 4, Clock.systemUTC(), result -> { }, Map.of()));
         return new GatewayRuntimeAdapter("agent-1", channel, runtime,
                 Clock.fixed(Instant.now(), ZoneOffset.UTC), null, eventRateLimit);
     }

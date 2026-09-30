@@ -11,7 +11,7 @@
 - skill(name,label,version) -> skills(name,display_name=label,description=label) + skill_versions
 - model_providers(address,protocols) -> model-providers(providerType=openai-compatible)；api_keys 导出已脱敏 -> credential_ref 占位
 - models + worker 引用并集 -> /model-providers/{id}/models（modelId=name，AgentSpec 引用键）
-- worker(full) -> agent-specs（runtime=qwenpaw；soul/agents 内嵌 spec.legacy 保真，spec ≤64KB 已核）
+- worker(full) -> agent-specs（runtime=agentscope；soul/agents 内嵌 spec.legacy 保真，spec ≤64KB 已核）
 - 模板从引用 worker 的 soul/agents 实例反推（引用关系保留）
 """
 from __future__ import annotations
@@ -197,7 +197,7 @@ def build_models(detail: Path) -> list[dict]:
 
 
 def agent_spec_registration(full: dict) -> dict:
-    """worker full -> POST /api/v1/agent-specs 请求体（runtime 同值直映 qwenpaw）。"""
+    """worker full -> POST /api/v1/agent-specs 请求体（runtime 同值直映 agentscope）。"""
     model = full.get("model") or {}
     provider = model.get("model_provider") or "default"
     model_name = model.get("model_name") or ""
@@ -219,7 +219,7 @@ def agent_spec_registration(full: dict) -> dict:
                    "channels": full.get("channels"), "credentials": full.get("credentials"),
                    "deployType": full.get("deploy_type"), "legacyStatus": full.get("status")},
     }
-    return {"name": full.get("name"), "runtime": "qwenpaw", "workerType": role,
+    return {"name": full.get("name"), "runtime": "agentscope", "workerType": role,
             "modelProvider": provider, "modelName": model_name, "teamRef": team,
             "desiredState": "RUNNING" if (full.get("status") or "").lower() == "running" else "STOPPED",
             "spec": spec}

@@ -75,7 +75,7 @@ class TeamWorkerTypeTest {
         when(teams.findById(teamId)).thenReturn(Optional.of(new io.agentteams.controlplane.persistence.TeamRecord(
                 teamId, "team-a", "Team A", "ACTIVE", NOW, NOW, 0)));
         when(agents.findById(agentId)).thenReturn(Optional.of(AgentRecord.create(agentId, "worker-a",
-                WorkerType.EXECUTOR, AgentPhase.READY, "qwenpaw", "{}", NOW)));
+                WorkerType.EXECUTOR, AgentPhase.READY, "agentscope", "{}", NOW)));
 
         TeamService service = new TeamService(persistence,
                 new io.agentteams.controlplane.team.TeamSchedulingPolicy(), resourceScopes,
@@ -95,7 +95,7 @@ class TeamWorkerTypeTest {
         when(teams.findById(teamId)).thenReturn(Optional.of(new io.agentteams.controlplane.persistence.TeamRecord(
                 teamId, "team-a", "Team A", "ACTIVE", NOW, NOW, 0)));
         when(agents.findById(agentId)).thenReturn(Optional.of(AgentRecord.create(agentId, "leader-a",
-                WorkerType.LEADER, AgentPhase.READY, "qwenpaw", "{}", NOW)));
+                WorkerType.LEADER, AgentPhase.READY, "agentscope", "{}", NOW)));
 
         TeamService service = new TeamService(persistence,
                 new io.agentteams.controlplane.team.TeamSchedulingPolicy(), resourceScopes,

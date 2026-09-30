@@ -11,7 +11,7 @@ class KindConsoleRealConversationSmokeContractTest(unittest.TestCase):
         source = SCRIPT.read_text(encoding="utf-8")
         for required in (
                 "kubectl", "keycloak", "port-forward", "AGENTTEAMS_API_BEARER_TOKEN",
-                "run-kind-qwenpaw-conversation-acceptance.py", "CONSOLE_REAL_CONVERSATION_OK"):
+                "run-kind-agentscope-conversation-acceptance.py", "CONSOLE_REAL_CONVERSATION_OK"):
             self.assertIn(required, source)
 
     def test_real_console_smoke_does_not_print_credentials(self):

@@ -17,9 +17,12 @@ import java.security.MessageDigest;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Uses the existing Config Snapshot/Deployment pipeline for Team member rollout. */
 public final class TeamDeploymentService {
+    private static final Logger LOG = LoggerFactory.getLogger(TeamDeploymentService.class);
     private final TeamDeploymentRepository repository;
     private final ConfigSnapshotService snapshots;
     private final ConfigDeploymentService deployments;
@@ -84,8 +87,13 @@ public final class TeamDeploymentService {
                 revision.revision(), members, clock.instant(), idempotencyKey));
         for (TeamDeployment.Member member : members) {
             try {
-                applyMember(deployment, revision, member, actor);
+                applyMember(deployment, revision, member, actor, "deploy");
             } catch (RuntimeException failure) {
+                LOG.warn("team deployment member apply failed deploymentId={} teamId={} revision={} agentId={} "
+                                + "failureType={} failureMessage={} rootCauseType={} rootCauseMessage={}",
+                        deployment.id(), revision.teamId(), revision.revision(), member.agentId(),
+                        failure.getClass().getName(), failure.getMessage(), rootCause(failure).getClass().getName(),
+                        rootCause(failure).getMessage());
                 repository.markMember(deployment.id(), member.agentId(), member.bindingId(), "FAILED",
                         failure.getClass().getSimpleName());
             }
@@ -128,7 +136,7 @@ public final class TeamDeploymentService {
                     if (revisions != null) {
                         TeamRevision revision = revisions.find(deployment.teamId(), deployment.teamRevision())
                                 .orElseThrow(() -> new IllegalStateException("team revision does not exist"));
-                        applyMember(deployment, revision, member, "team-deployment-retry");
+                        applyMember(deployment, revision, member, "team-deployment-retry", "retry");
                     } else {
                         applyMemberWithoutRevision(deployment, member, "team-deployment-retry");
                     }
@@ -136,6 +144,11 @@ public final class TeamDeploymentService {
                     throw new IllegalStateException("failed member has no config binding or base manifest");
                 }
             } catch (RuntimeException failure) {
+                LOG.warn("team deployment retry member apply failed deploymentId={} teamId={} revision={} agentId={} "
+                                + "failureType={} failureMessage={} rootCauseType={} rootCauseMessage={}",
+                        deployment.id(), deployment.teamId(), deployment.teamRevision(), member.agentId(),
+                        failure.getClass().getName(), failure.getMessage(), rootCause(failure).getClass().getName(),
+                        rootCause(failure).getMessage());
                 repository.markMember(deployment.id(), member.agentId(), member.bindingId(), "FAILED",
                         failure.getClass().getSimpleName());
             }
@@ -186,9 +199,12 @@ public final class TeamDeploymentService {
         if (command.configVersion() != applyGeneration) {
             throw new TeamRevisionConflictException("ConfigApplied generation is stale");
         }
-        UUID teamId = repository.findTeamIdByBinding(command.bindingId(), command.agentId())
+        repository.findTeamIdByBinding(command.bindingId(), command.agentId())
                 .orElseThrow(() -> new IllegalArgumentException("team deployment does not exist"));
-        requireTeamScope(teamId);
+        // ConfigApplied arrives through the authenticated Gateway/NATS boundary rather than a
+        // user-facing HTTP request. The frozen binding and apply record are the authorization
+        // fence for this internal acknowledgement; requiring a PrincipalContext here drops every
+        // valid worker acknowledgement because the asynchronous consumer has no HTTP principal.
         repository.recordConfigAppliedAck(command, applyGeneration);
     }
 
@@ -201,7 +217,7 @@ public final class TeamDeploymentService {
     }
 
     private void applyMember(TeamDeployment deployment, TeamRevision revision, TeamDeployment.Member member,
-            String actor) {
+            String actor, String operation) {
         if (member.baseManifest() == null || member.baseManifest().isBlank()) {
             throw new IllegalArgumentException("baseManifest is required for every deployment member");
         }
@@ -211,12 +227,16 @@ public final class TeamDeploymentService {
                 revision.teamId(), revision.revision(), deployment.id(), List.of(sha256(subject)),
                 revision.resourceBindings(),
                 member.baseManifest(), revision.overlayJson(), member.taskOverlay() == null ? "{}" : member.taskOverlay()));
+        // Snapshot idempotency is also global per subject. A retry may use a different actor or
+        // provenance while re-emitting the same member config, so keep deploy and retry operations
+        // on separate keys just like the downstream ConfigDeployment operation.
+        String snapshotKey = deployment.id() + ":" + member.agentId() + ":" + operation;
         ConfigSnapshot snapshot = snapshots.create(subject, effective.canonicalManifest(), actor,
-                deployment.id().toString(), effective.provenance());
+                snapshotKey, effective.provenance());
         // The config idempotency key is global, so each member must claim its own key; sharing the
         // deployment id made every member after the first fail with an idempotency conflict.
         ConfigDeploymentService.ConfigDeployment deploymentResult = deployments.deploy(member.agentId(), subject, snapshot,
-                deployment.id() + ":" + member.agentId());
+                deployment.id() + ":" + member.agentId() + ":" + operation);
         repository.markMember(deployment.id(), member.agentId(), deploymentResult.binding().id(), "PENDING", null);
     }
 
@@ -236,5 +256,13 @@ public final class TeamDeploymentService {
         } catch (java.security.NoSuchAlgorithmException error) {
             throw new IllegalStateException("SHA-256 is unavailable", error);
         }
+    }
+
+    private static Throwable rootCause(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 }

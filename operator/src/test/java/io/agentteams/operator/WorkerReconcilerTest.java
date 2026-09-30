@@ -17,14 +17,14 @@ class WorkerReconcilerTest {
     void projectsObservedWorkerVersionOnlyWhenDeploymentIsReady() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(7L).build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker@sha256:abc", 2,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker@sha256:abc", 2,
                 Map.of(), "tls-secret", "sha256:abc", "runtime-8", "secret-3"));
 
         Deployment deployment = new DeploymentBuilder()
                 .withSpec(new DeploymentSpecBuilder().withTemplate(new PodTemplateSpecBuilder()
                         .withMetadata(new ObjectMetaBuilder().withAnnotations(Map.of(
                                 WorkerResourceFactory.SPEC_DIGEST_ANNOTATION, "sha256:abc",
-                                WorkerResourceFactory.RUNTIME_ANNOTATION, "qwenpaw",
+                                WorkerResourceFactory.RUNTIME_ANNOTATION, "AGENTSCOPE",
                                 WorkerResourceFactory.CONFIG_REVISION_ANNOTATION, "runtime-8",
                                 WorkerResourceFactory.SECRET_GENERATION_ANNOTATION, "secret-3"))
                                 .build()).build()).build())
@@ -38,7 +38,7 @@ class WorkerReconcilerTest {
         assertThat(status.getObservedGeneration()).isEqualTo(7L);
         assertThat(status.getReadyReplicas()).isEqualTo(2);
         assertThat(status.getObservedSpecDigest()).isEqualTo("sha256:abc");
-        assertThat(status.getObservedRuntime()).isEqualTo("qwenpaw");
+        assertThat(status.getObservedRuntime()).isEqualTo("AGENTSCOPE");
         assertThat(status.getObservedConfigRevision()).isEqualTo("runtime-8");
         assertThat(status.getObservedSecretGeneration()).isEqualTo("secret-3");
     }
@@ -47,7 +47,7 @@ class WorkerReconcilerTest {
     void marksWorkerProgressingWhenDeploymentHasNotConfirmedDesiredReplicas() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(8L).build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker@sha256:def", 2,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker@sha256:def", 2,
                 Map.of(), "", "sha256:def", "runtime-9", "secret-4"));
 
         WorkerStatus status = WorkerReconciler.statusFor(worker, null);
@@ -62,14 +62,14 @@ class WorkerReconcilerTest {
     void doesNotReportReadyWhenDeploymentVersionDiffersFromWorkerSpec() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(9L).build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker@sha256:new", 1,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker@sha256:new", 1,
                 Map.of(), "", "sha256:new", "runtime-10", "secret-5"));
 
         Deployment deployment = new DeploymentBuilder()
                 .withSpec(new DeploymentSpecBuilder().withTemplate(new PodTemplateSpecBuilder()
                         .withMetadata(new ObjectMetaBuilder().withAnnotations(Map.of(
                                 WorkerResourceFactory.SPEC_DIGEST_ANNOTATION, "sha256:old",
-                                WorkerResourceFactory.RUNTIME_ANNOTATION, "qwenpaw",
+                                WorkerResourceFactory.RUNTIME_ANNOTATION, "AGENTSCOPE",
                                 WorkerResourceFactory.CONFIG_REVISION_ANNOTATION, "runtime-10",
                                 WorkerResourceFactory.SECRET_GENERATION_ANNOTATION, "secret-5"))
                                 .build()).build()).build())
@@ -87,11 +87,11 @@ class WorkerReconcilerTest {
     void preservesLastObservedVersionWhileNewDeploymentIsStillProgressing() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(10L).build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker@sha256:new", 2,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker@sha256:new", 2,
                 Map.of(), "", "sha256:new", "runtime-11", "secret-6"));
         WorkerStatus previous = new WorkerStatus();
         previous.setObservedSpecDigest("sha256:old");
-        previous.setObservedRuntime("qwenpaw");
+        previous.setObservedRuntime("agentscope");
         previous.setObservedConfigRevision("runtime-10");
         previous.setObservedSecretGeneration("secret-5");
         worker.setStatus(previous);
@@ -112,7 +112,7 @@ class WorkerReconcilerTest {
     void appliesTerminateDirectiveByScalingWorkerDeploymentToZero() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(11L).build());
-        worker.setSpec(new WorkerSpec("11111111-1111-1111-1111-111111111111", "qwenpaw",
+        worker.setSpec(new WorkerSpec("11111111-1111-1111-1111-111111111111", "agentscope",
                 "example/worker:v1", 1, Map.of(), ""));
 
         WorkerReconciler.applyDirective(worker, new WorkerOperationDirective(

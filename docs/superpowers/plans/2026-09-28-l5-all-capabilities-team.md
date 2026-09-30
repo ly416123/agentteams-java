@@ -6,7 +6,7 @@
 
 **架构：** 先将已有 Skill 版本发布并确认 MCP Discovery 可用，再创建带有全部 `mcpRefs`/`skillRefs` 的 AgentSpec。AgentSpec 发布生成不可变 resource binding，部署到 `LEADER` Worker 后加入 Project 级 Team；Team Revision 发布和显式部署完成后，按资源矩阵执行真实任务。
 
-**技术栈：** L5 Control Plane REST API、Keycloak OIDC、`curl`、`jq`、Python 标准库、PostgreSQL 只读核对、QwenPaw Worker。
+**技术栈：** L5 Control Plane REST API、Keycloak OIDC、`curl`、`jq`、Python 标准库、PostgreSQL 只读核对、AgentScope Worker。
 
 ---
 
@@ -103,7 +103,7 @@ POST /api/v1/skills/{skillId}/versions/{versionId}/publish
 
 **文件：** 无仓库文件；通过正式 Control Plane API 创建。
 
-- [ ] **步骤 1：创建 Team。** 使用唯一 `Idempotency-Key` 创建名称 `l5-all-capabilities-20260928`、Project Scope 为 `project-a` 的 Team，设置有限并发、`qwenpaw` Runtime 和测试所需策略。记录 Team UUID。
+- [ ] **步骤 1：创建 Team。** 使用唯一 `Idempotency-Key` 创建名称 `l5-all-capabilities-20260928`、Project Scope 为 `project-a` 的 Team，设置有限并发、`AGENTSCOPE` Runtime 和测试所需策略。记录 Team UUID。
 
 - [ ] **步骤 2：组装 AgentSpec。** `mcpRefs` 使用全部 9 个 MCP 名称，`skillRefs` 使用任务 2 产生的 13 个 `name@version` 引用，`workerType=LEADER`，Model 引用使用任务 1 读取的启用 Provider/Model。请求必须带 `projectId=$L5_PROJECT_ID` 和唯一 `Idempotency-Key`。
 

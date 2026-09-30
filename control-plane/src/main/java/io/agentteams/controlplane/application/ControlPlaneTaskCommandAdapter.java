@@ -20,4 +20,10 @@ public final class ControlPlaneTaskCommandAdapter implements TaskCommandPort {
                 command.description(), command.specJson(), command.actor(), command.source()));
         return new TaskCreationResult(task.id(), task.phase().name(), task.version());
     }
+
+    @Override
+    public TaskCreationResult queue(java.util.UUID taskId, long expectedVersion, String idempotencyKey) {
+        TaskRecord task = tasks.queue(taskId, expectedVersion, idempotencyKey, "manager");
+        return new TaskCreationResult(task.id(), task.phase().name(), task.version());
+    }
 }

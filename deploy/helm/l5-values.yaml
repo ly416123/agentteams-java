@@ -9,9 +9,9 @@
 # IfNotPresent). Without these pins a Helm upgrade would roll workloads back
 # to the ghcr.io :latest tags, which do not exist on the L5 host.
 images:
-  controlPlane: agentteams-control-plane:l5-artifact-scope-20260921-amd64
-  gateway: agentteams-agent-gateway:l5-artifact-auth-20260921-amd64
-  operator: agentteams-operator:l5-secret-env-20260921-amd64
+  controlPlane: agentteams-control-plane:l5-team-e2e-20260929-amd64-v4
+  gateway: agentteams-agent-gateway:l5-team-e2e-20260929-amd64-v3
+  operator: agentteams-operator:l5-oomfix-20260929-amd64
 
 resources:
   requests:
@@ -31,6 +31,9 @@ console:
     oidcClientId: agentteams-api
 
 controlPlane:
+  # L5 is a single-node 7.2 GiB development cluster; HA replicas belong to
+  # a larger environment.
+  replicas: 1
   security:
     apiEnabled: true
     oidc:
@@ -45,22 +48,23 @@ controlPlane:
   workerProvisioner:
     # Dynamic workers are provisioned with this image; keep it in sync with
     # the pinned control-plane/gateway tag above.
-    image: agentteams-agent-worker:l5-eval-result-20260921-amd64
-    # The Worker receives the MCP connection token and a separate model key.
-    # The Bailian API key remains private to agentteams-mcp-tools and must not
-    # be mapped here. Create agentteams-dashscope before provisioning a Worker.
+    image: agentteams-agent-worker:l5-team-e2e-20260929-amd64-v3
+    # The Worker receives MCP/gateway credentials and the DeepSeek model key.
+    # Model credentials remain Secret-backed and are never placed in this file.
     credentialSecretEnvs: >-
-      {"DASHSCOPE_API_KEY":{"secret":"agentteams-dashscope","key":"api-key"},"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"},"AGENTTEAMS_GATEWAY_AUTH_TOKEN":{"secret":"agentteams-gateway","key":"worker-token"}}
-    # Optional model endpoint override. Use only with a key issued for that
-    # endpoint; the current L5 key is valid for the China endpoint.
+      {"DEEPSEEK_API_KEY":{"secret":"agentteams-manager","key":"deepseek-api-key"},"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"},"AGENTTEAMS_GATEWAY_AUTH_TOKEN":{"secret":"agentteams-gateway","key":"worker-token"}}
 
 manager:
-  image: ghcr.io/ly416123/agentteams-manager:l5-g05-files-20260922
+  replicas: 1
+  image: agentteams-manager:l5-team-e2e-20260929-amd64-v3
   security:
     enabled: true
     issuerUri: http://192.168.122.55:30082/realms/agentteams
     jwkSetUri: http://keycloak:8080/realms/agentteams/protocol/openid-connect/certs
     audience: agentteams-api
+
+operator:
+  replicas: 1
 
 # Artifact direct upload: MinIO presigned URLs must point at the L5 host
 # NodePort (kind-values pins the Kind-only 127.0.0.1:19000 port-forward),
@@ -69,6 +73,7 @@ manager:
 storage:
   presignEndpoint: http://192.168.122.55:30090
 gateway:
+  replicas: 1
   artifact:
     enabled: true
     internalToken: kind-quota-internal

@@ -9,9 +9,9 @@ import unittest
 from pathlib import Path
 
 
-FORBIDDEN_MODEL_KEY_NAMES = ("DEEPSEEK_API_KEY", "QWENPAW_API_KEY")
+FORBIDDEN_MODEL_KEY_NAMES = ("DEEPSEEK_API_KEY", "AGENTSCOPE_API_KEY")
 MODEL_SECRET_REFERENCE = re.compile(
-    r"\$\{\{\s*secrets\.(?:DEEPSEEK_API_KEY|QWENPAW_API_KEY|MODEL_[^}]+)\}\}",
+    r"\$\{\{\s*secrets\.(?:DEEPSEEK_API_KEY|AGENTSCOPE_API_KEY|MODEL_[^}]+)\}\}",
     re.IGNORECASE,
 )
 SECRET_ENV_REFERENCE = re.compile(

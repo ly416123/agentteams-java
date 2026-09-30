@@ -14,10 +14,7 @@ manager:
   image: ghcr.io/ly416123/agentteams-manager:latest
   existingSecret: agentteams-manager
   conversation:
-    runtime: qwenpaw
-    qwenpawEndpoint: http://qwenpaw:8088
-    qwenpawAgentId: default
-    qwenpawEgressPort: 8088
+    runtime: fake
   security:
     enabled: true
     issuerUri: http://127.0.0.1:18082/realms/agentteams

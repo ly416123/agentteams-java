@@ -78,6 +78,6 @@ if [[ -z "${TOKEN}" ]]; then
 fi
 
 AGENTTEAMS_API_BEARER_TOKEN="${TOKEN}" \
-  python3 "${ROOT_DIR}/scripts/run-kind-qwenpaw-conversation-acceptance.py" \
+  python3 "${ROOT_DIR}/scripts/run-kind-agentscope-conversation-acceptance.py" \
     --base-url "${BASE_URL}" --image "${IMAGE}"
 echo "CONSOLE_REAL_CONVERSATION_OK"

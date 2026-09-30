@@ -79,7 +79,7 @@ class TeamServiceScopeTest {
 
     @Test
     void bindsAuthenticatedTeamCreationToTheCallerScope() {
-        TeamPolicyRecord policy = new TeamPolicyRecord(UUID.randomUUID(), 2, false, List.of("qwenpaw"), List.of(),
+        TeamPolicyRecord policy = new TeamPolicyRecord(UUID.randomUUID(), 2, false, List.of("agentscope"), List.of(),
                 NOW, 0);
         when(transaction.teams()).thenReturn(teams);
         when(persistence.inTransaction(any())).thenAnswer(invocation -> {
@@ -101,7 +101,7 @@ class TeamServiceScopeTest {
         // apiEnabled=false deployments carry no principal; team creation must
         // still succeed without binding or visibility checks.
         PrincipalContext.clear();
-        TeamPolicyRecord policy = new TeamPolicyRecord(UUID.randomUUID(), 2, false, List.of("qwenpaw"), List.of(),
+        TeamPolicyRecord policy = new TeamPolicyRecord(UUID.randomUUID(), 2, false, List.of("agentscope"), List.of(),
                 NOW, 0);
         when(transaction.teams()).thenReturn(teams);
         when(persistence.inTransaction(any())).thenAnswer(invocation -> {
@@ -231,7 +231,7 @@ class TeamServiceScopeTest {
         when(transaction.idempotencyKeys()).thenReturn(idempotencyKeys);
         when(teams.findById(teamId)).thenReturn(Optional.of(new TeamRecord(teamId, "team", "Team", "ACTIVE", NOW, NOW, 0)));
         when(agents.findById(agentId)).thenReturn(Optional.of(AgentRecord.create(agentId, "agent",
-                io.agentteams.domain.agent.AgentPhase.PROVISIONING, "qwenpaw", "{}", NOW)));
+                io.agentteams.domain.agent.AgentPhase.PROVISIONING, "agentscope", "{}", NOW)));
         when(teams.findActiveMember(teamId, agentId)).thenReturn(Optional.of(member));
         when(idempotencyKeys.findByKey("member-key")).thenReturn(Optional.empty(),
                 Optional.of(idempotency("member-key", "TEAM_ADD_MEMBER",

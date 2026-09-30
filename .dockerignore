@@ -2,6 +2,8 @@
 .idea
 .tools
 **/target
+!operator/target/
+!operator/target/agentteams-operator-0.1.0-SNAPSHOT.jar
 **/.classpath
 **/.project
 **/.settings

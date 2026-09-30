@@ -7,6 +7,7 @@ public enum TaskPhase {
     ASSIGNED,
     ACCEPTED,
     RUNNING,
+    WAITING_SUBTASKS,
     SUCCEEDED,
     FAILED,
     CANCELLED,

@@ -67,7 +67,7 @@ class ControlPlaneControllerTest {
     @Test
     void createsAndReadsAnAgentWithoutExposingMetadata() throws Exception {
         UUID id = UUID.randomUUID();
-        AgentRecord agent = new AgentRecord(id, "worker-1", AgentPhase.PROVISIONING, "qwenpaw",
+        AgentRecord agent = new AgentRecord(id, "worker-1", AgentPhase.PROVISIONING, "agentscope",
                 "{\"token\":\"secret\"}", "{\"password\":\"secret\"}",
                 Instant.parse("2026-08-16T00:00:00Z"), Instant.parse("2026-08-16T00:00:00Z"), 0);
         when(agents.create(eq("agent-key"), any())).thenReturn(agent);
@@ -76,7 +76,7 @@ class ControlPlaneControllerTest {
         mockMvc.perform(post("/api/v1/agents")
                         .header("Idempotency-Key", "agent-key")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"worker-1\",\"runtime\":\"qwenpaw\","
+                        .content("{\"name\":\"worker-1\",\"runtime\":\"agentscope\","
                                 + "\"capabilities\":{\"language\":\"java\"}}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(id.toString()))
@@ -87,7 +87,7 @@ class ControlPlaneControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.phase").value("PROVISIONING"))
-                .andExpect(jsonPath("$.runtime").value("qwenpaw"));
+                .andExpect(jsonPath("$.runtime").value("agentscope"));
     }
 
     @Test
@@ -132,7 +132,7 @@ class ControlPlaneControllerTest {
     void requestsADurableWorkerRolloutOperation() throws Exception {
         UUID id = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), id, WorkerOperationType.ROLLOUT,
-                "sha256:new", "qwenpaw", "config-2", "secret-2", "{\"image\":\"old\"}",
+                "sha256:new", "agentscope", "config-2", "secret-2", "{\"image\":\"old\"}",
                 "rollout-operation-1", 3, "alice", Instant.parse("2026-08-23T00:02:00Z"),
                 "correlation-3", Instant.parse("2026-08-23T00:00:00Z"));
         when(workerOperations.rollout(eq(id), any(WorkerRolloutRequest.class))).thenReturn(operation);
@@ -141,7 +141,7 @@ class ControlPlaneControllerTest {
                         .header("Idempotency-Key", "rollout-operation-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedVersion\":3,\"imageDigest\":\"sha256:new\","
-                                + "\"runtime\":\"qwenpaw\",\"configRevision\":\"config-2\","
+                                + "\"runtime\":\"agentscope\",\"configRevision\":\"config-2\","
                                 + "\"secretGeneration\":\"secret-2\",\"previousStableSpec\":"
                                 + "\"{\\\"image\\\":\\\"old\\\"}\",\"owner\":\"alice\","
                                 + "\"correlationId\":\"correlation-3\"}"))
@@ -157,7 +157,7 @@ class ControlPlaneControllerTest {
         UUID agentId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(operationId, agentId, WorkerOperationType.ROLLOUT,
-                "sha256:new", "qwenpaw", "config-2", "secret-2", "{\"image\":\"old\"}",
+                "sha256:new", "agentscope", "config-2", "secret-2", "{\"image\":\"old\"}",
                 "rollout-operation-2", 3, "alice", Instant.parse("2026-08-23T00:02:00Z"),
                 "correlation-4", Instant.parse("2026-08-23T00:00:00Z"));
         when(workerOperations.get(agentId, operationId)).thenReturn(operation);
@@ -236,7 +236,7 @@ class ControlPlaneControllerTest {
             mockMvc.perform(post("/api/v1/agents")
                             .header("Idempotency-Key", "scoped-agent-key")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"name\":\"worker-1\",\"runtime\":\"qwenpaw\",\"metadata\":{\"scope\":{"
+                            .content("{\"name\":\"worker-1\",\"runtime\":\"agentscope\",\"metadata\":{\"scope\":{"
                                     + "\"tenant\":\"tenant-b\",\"project\":\"project-a\",\"team\":\"team-a\"}}}"))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
@@ -272,7 +272,7 @@ class ControlPlaneControllerTest {
     @Test
     void repeatedIdempotencyKeyIsForwardedAndReturnsTheOriginalResource() throws Exception {
         UUID id = UUID.randomUUID();
-        AgentRecord agent = new AgentRecord(id, "worker-1", AgentPhase.PROVISIONING, "qwenpaw", "{}", "{}",
+        AgentRecord agent = new AgentRecord(id, "worker-1", AgentPhase.PROVISIONING, "agentscope", "{}", "{}",
                 Instant.now(), Instant.now(), 0);
         when(agents.create(eq("same-key"), any())).thenReturn(agent);
 
@@ -280,7 +280,7 @@ class ControlPlaneControllerTest {
             mockMvc.perform(post("/api/v1/agents")
                             .header("Idempotency-Key", "same-key")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"name\":\"worker-1\",\"runtime\":\"qwenpaw\"}"))
+                            .content("{\"name\":\"worker-1\",\"runtime\":\"agentscope\"}"))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").value(id.toString()));
         }
@@ -290,7 +290,7 @@ class ControlPlaneControllerTest {
     @Test
     void rejectsTheSameIdempotencyKeyWhenThePayloadChanges() throws Exception {
         UUID id = UUID.randomUUID();
-        AgentRecord original = new AgentRecord(id, "worker-1", AgentPhase.PROVISIONING, "qwenpaw",
+        AgentRecord original = new AgentRecord(id, "worker-1", AgentPhase.PROVISIONING, "agentscope",
                 "{}", "{}", Instant.now(), Instant.now(), 0);
         when(agents.create(eq("same-key"), any()))
                 .thenReturn(original)
@@ -299,13 +299,13 @@ class ControlPlaneControllerTest {
         mockMvc.perform(post("/api/v1/agents")
                         .header("Idempotency-Key", "same-key")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"worker-1\",\"runtime\":\"qwenpaw\"}"))
+                        .content("{\"name\":\"worker-1\",\"runtime\":\"agentscope\"}"))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(post("/api/v1/agents")
                         .header("Idempotency-Key", "same-key")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"worker-2\",\"runtime\":\"qwenpaw\"}"))
+                        .content("{\"name\":\"worker-2\",\"runtime\":\"agentscope\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"))
                 .andExpect(jsonPath("$.message").value(
@@ -327,7 +327,7 @@ class ControlPlaneControllerTest {
     void rejectsMissingAgentIdempotencyKeyBeforeCallingTheService() throws Exception {
         mockMvc.perform(post("/api/v1/agents")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"worker-1\",\"runtime\":\"qwenpaw\"}"))
+                        .content("{\"name\":\"worker-1\",\"runtime\":\"agentscope\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -430,7 +430,7 @@ class ControlPlaneControllerTest {
         mockMvc.perform(post("/api/v1/agents")
                         .header("Idempotency-Key", "agent-key")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"worker-1\",\"runtime\":\"qwenpaw\"}"))
+                        .content("{\"name\":\"worker-1\",\"runtime\":\"agentscope\"}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("UNAVAILABLE_DEPENDENCY"))
                 .andExpect(jsonPath("$.message").value("required dependency is unavailable"));

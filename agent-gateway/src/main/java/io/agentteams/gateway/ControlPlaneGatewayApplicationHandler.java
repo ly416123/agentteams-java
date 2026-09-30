@@ -150,7 +150,8 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         Instant occurredAt = occurredAt(metadata);
         apply(connection, metadata, ExecutionPhase.SUCCEEDED, "", "",
                 event.getArtifactsList().stream().map(artifact -> artifact(artifact, metadata, occurredAt)).toList(),
-                event.hasModelCall() ? modelCallUsage(event.getModelCall(), metadata, connection.agentId()) : null);
+                event.hasModelCall() ? modelCallUsage(event.getModelCall(), metadata, connection.agentId()) : null,
+                event.getResultJson().isEmpty() ? "" : event.getResultJson().toStringUtf8());
         observations.completed(uuid(metadata.getTaskId(), "task_id"), uuid(metadata.getAttemptId(), "attempt_id"),
                 uuid(metadata.getEventId(), "event_id"), occurredAt, correlationId(metadata),
                 event.getResultJson().isEmpty() ? "task completed" : event.getResultJson().toStringUtf8(),
@@ -217,6 +218,12 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
     private void apply(ConnectionRegistry.ConnectionSnapshot connection, EventMetadata metadata,
             ExecutionPhase phase, String failureCode, String failureMessage, List<ArtifactReference> artifacts,
             ModelCallUsage modelCallUsage) {
+        apply(connection, metadata, phase, failureCode, failureMessage, artifacts, modelCallUsage, "");
+    }
+
+    private void apply(ConnectionRegistry.ConnectionSnapshot connection, EventMetadata metadata,
+            ExecutionPhase phase, String failureCode, String failureMessage, List<ArtifactReference> artifacts,
+            ModelCallUsage modelCallUsage, String resultJson) {
         UUID taskId = uuid(metadata.getTaskId(), "task_id");
         UUID attemptId = uuid(metadata.getAttemptId(), "attempt_id");
         UUID leaseId = uuid(metadata.getLeaseId(), "lease_id");
@@ -227,7 +234,7 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         Instant at = occurredAt(metadata);
         executionEvents.apply(taskId, new TaskExecutionCommand(eventId, metadata.getExpectedVersion(), attemptId,
                 leaseId, at, connection.agentId(), SOURCE, phase, failureCode, failureMessage,
-                correlationId(metadata), "", "", modelCallUsage), artifacts);
+                correlationId(metadata), "", "", modelCallUsage, resultJson), artifacts);
     }
 
     private static ModelCallUsage modelCallUsage(io.agentteams.contracts.v1.ModelCallUsage value,

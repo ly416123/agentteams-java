@@ -108,7 +108,7 @@ test('real OIDC complex team task generates multiple artifacts and records token
         + 'artifacts 数组必须恰好包含 2 个对象，每个对象都有 name 与 content 字段。',
     }),
   );
-  await page.getByLabel('任务类型').fill('qwenpaw');
+  await page.getByLabel('任务类型').fill('agentscope');
   // 工作节点留空：任务仅绑定 team-a，由后端团队调度（TaskAssignmentService）分配成员执行。
   await page.getByRole('button', { name: '创建任务' }).click();
   await expect(page).toHaveURL(new RegExp(`/${projectPath}/tasks/[0-9a-f-]{36}$`), {

@@ -54,7 +54,7 @@ cases:
         tenant: tenant-a
         project: project-a
         team: team-a
-      taskType: qwenpaw
+      taskType: agentscope
       prompt: Return ok
     assertions:
       - type: phase
@@ -66,7 +66,7 @@ cases:
             cases = load_cases(path)
 
         self.assertEqual(["sample"], [case.case_id for case in cases])
-        self.assertEqual("qwenpaw", cases[0].task["taskType"])
+        self.assertEqual("agentscope", cases[0].task["taskType"])
         self.assertEqual("SUCCEEDED", cases[0].assertions[0]["expected"])
 
     def test_evaluates_tool_and_output_assertions(self):
@@ -274,7 +274,7 @@ cases:
                                        run_name="agentteams_eval_cli")
             case = namespace["EvalCase"]("sample", "Sample", {
                 "scope": {"tenant": "tenant-a", "project": "project-a", "team": "team-a"},
-                "taskType": "qwenpaw",
+                "taskType": "agentscope",
                 "inputJson": {"prompt": "Return ok"},
             }, [{"type": "phase", "expected": "SUCCEEDED"}], {})
             with tempfile.TemporaryDirectory() as directory:

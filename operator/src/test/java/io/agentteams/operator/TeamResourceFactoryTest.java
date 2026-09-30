@@ -13,7 +13,7 @@ class TeamResourceFactoryTest {
         team.setMetadata(new ObjectMetaBuilder().withName("platform").withNamespace("agentteams")
                 .withUid("team-uid").build());
         team.setSpec(new TeamSpec("agent-lead", List.of(new TeamMember("agent-worker", "worker", List.of("java"))),
-                new TeamPolicy(4, true, List.of("qwenpaw"), List.of("java")), "workspace-main", "room-main"));
+                new TeamPolicy(4, true, List.of("agentscope"), List.of("java")), "workspace-main", "room-main"));
 
         var config = TeamResourceFactory.configMap(team);
 

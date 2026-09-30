@@ -44,7 +44,7 @@ class AgentChannelContractTest {
                 AgentMessage.newBuilder().setHello(AgentHello.newBuilder()
                         .setMetadata(AGENT_METADATA)
                         .setProtocolVersion(ProtocolVersion.newBuilder().setMajor(1).setMinor(2))
-                        .setRuntimeName("qwenpaw")
+                        .setRuntimeName("agentscope")
                         .setRuntimeVersion("0.4.0")
                         .putCapabilities("tasks", "1")
                         .setMaxConcurrentTasks(4)
@@ -222,7 +222,7 @@ class AgentChannelContractTest {
         assertEquals(12, AgentHello.getDescriptor().findFieldByName("secret_generation").getNumber());
 
         AgentHello oldHello = AgentHello.newBuilder()
-                .setRuntimeName("qwenpaw")
+                .setRuntimeName("agentscope")
                 .setRuntimeVersion("0.4.0")
                 .build();
         AgentHello decoded = AgentHello.parseFrom(oldHello.toByteArray());

@@ -29,16 +29,6 @@ spec:
                 name: agentteams-agentteams-java-gateway
                 port:
                   name: http
-    - host: qwenpaw.agentteams.localhost
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: qwenpaw
-                port:
-                  name: http
     - host: prometheus.agentteams.localhost
       http:
         paths:

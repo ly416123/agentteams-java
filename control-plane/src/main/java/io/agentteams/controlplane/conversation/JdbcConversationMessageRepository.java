@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL persistence for tenant-scoped conversation messages. */
 @Repository
-public final class JdbcConversationMessageRepository implements ConversationMessageRepository {
+public class JdbcConversationMessageRepository implements ConversationMessageRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

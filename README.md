@@ -13,7 +13,7 @@ this build.
   persistence, Flyway, PostgreSQL, and NATS.
 - `agent-gateway`: Spring Boot application dependencies for gRPC agent
   connections and NATS integration.
-- `runtime`: runtime-neutral Agent SPI with Fake and QwenPaw HTTP/process adapters.
+- `runtime`: runtime-neutral Agent SPI; the current production path uses AgentScope Harness.
 - `manager`: DeepSeek/OpenAI-compatible structured Manager and permissioned tools.
 - `operator`: Java Operator SDK and Fabric8 Kubernetes dependencies.
 - `integration-tests`: cross-module tests and Testcontainers dependencies.
@@ -76,6 +76,11 @@ Java SDK 同步。完整实施顺序、
 当前 `task.start` 适配任务另有明确范围约束：只维护 Java SDK；TypeScript SDK 暂不维护，
 不要求与 Java SDK 同步新增接口或测试。任何 TypeScript SDK 更新都必须另行确认并制定独立计划。
 
+当前开发阶段的运行时、Conversation/Team 任务流、Leader/Worker 分工、DeepSeek 接入、
+`linux/amd64` 构建和 L5 真实验收约束，统一以
+[当前开发阶段项目约束](docs/development/project-constraints.md)为准。生产 Conversation
+必须进入 Control Plane Task/Team 调度链路，不得直接调用模型 Provider。
+
 当前阶段已完成管理端 Usage（含 Organization/Tenant/Project/Team/User 聚合）、预算评估、Project 作用域告警规则/自动重试详情、人工重试幂等、告警历史和审计入口的首轮页面闭环；验证结果与
 OIDC/生产凭据限制记录在[管理端阶段验证报告](docs/acceptance/2026-09-01-management-verification-report.md)。
 
@@ -126,17 +131,13 @@ does not need Docker Socket or Pod/Job RBAC. Helm keeps the feature disabled by
 default; gVisor/Kata RuntimeClass validation requires a separate Linux/KVM
 environment and is not claimed by the local Fake Provider or Kind static tests.
 
-The runtime module provides `QwenPawHttpRuntimePort` for the official QwenPaw
-HTTP/SSE API, `JsonLinesQwenPawProcessPort` for a custom external process
-boundary, and `GrpcAgentChannelPort` for the protobuf bidirectional stream.
-The HTTP port sends `POST /api/console/chat` with `X-Agent-Id`, parses terminal
-`completed`/`failed` SSE events, and treats cancellation as best-effort local
-stream cancellation. Configure it with `QwenPawHttpRuntimeConfiguration`; a
-remote deployment should provide QwenPaw's Web Auth token as the optional
-Bearer token. The JSON Lines adapter is retained for internal/custom process
-protocols and is not the protocol used by the official QwenPaw image. These
-boundaries are deliberately runtime-specific and do not move QwenPaw files or
-sockets into the Control Plane.
+The runtime module provides `GrpcAgentChannelPort` for the protobuf
+bidirectional stream. Worker execution is implemented by the AgentScope
+Harness; the Worker creates the configured `provider:model` entry through the
+AgentScope model registry and reports accepted, heartbeat, progress,
+completion, or failure events over the Gateway gRPC stream. Runtime-specific
+model credentials and endpoints stay in Worker configuration and Kubernetes
+Secrets, never in the Control Plane.
 
 The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
 `POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. Lifecycle commands
@@ -242,7 +243,7 @@ environmental `SKIPPED` result is not accepted as a passing result.
 
 The current local verification baseline (2026-08-30) uses Docker 29.5.2,
 Kind cluster `agentteams`, and the installed browser toolchain. The Console
-Playwright smoke passed (`1 passed`) and the deployed real QwenPaw conversation
+Playwright smoke passed (`1 passed`) and the deployed real AgentScope conversation
 checks passed. A direct system-Chrome connector was not attached in the latest
 Codex session, so that connector-specific result remains explicitly
 unverified rather than being inferred from the Playwright result.
@@ -343,7 +344,7 @@ uses `RELEASE.2025-07-21T05-28-08Z`. The service Dockerfiles copy
 mirror when Maven Central is unavailable.
 
 The `kind-recovery` CI job creates the same two-node topology, builds and loads
-the service images, creates a real QwenPaw Worker, and runs
+the service images, creates a real AgentScope Worker, and runs
 `scripts/run-kind-lease-recovery.py`. Prometheus uses Kubernetes Pod discovery
 instead of a load-balanced Service target, and
 `scripts/validate-kind-prometheus.py` verifies that both Control Plane and
@@ -355,63 +356,51 @@ Worker status, and deleting the CR removed both child resources. Worker images
 are generated with `imagePullPolicy: IfNotPresent` so locally loaded Kind images
 do not trigger a registry pull.
 
-The QwenPaw Worker image is built and loaded by `deploy/build-images.sh`.
-`deploy/install-kind-dev.sh` now also runs
-`deploy/bootstrap-kind-qwenpaw-worker.sh`, which idempotently registers a
-development Agent, injects the returned UUID, applies the Worker CR, and waits
-for the Worker to become Ready. To repeat that step manually:
+The AgentScope Worker image is built and loaded by `deploy/build-images.sh`.
+`deploy/install-kind-dev.sh` registers the development Agent, injects the
+returned UUID, applies the Worker CR, and waits for the Worker to become Ready.
+To repeat the full installation:
 
 ```bash
-./deploy/bootstrap-kind-qwenpaw-worker.sh
+./deploy/install-kind-dev.sh
 ```
 
-To add a second real Worker for Team scheduling tests, reuse the same
-idempotent bootstrap with a distinct Worker name and idempotency key:
+To add a second real AgentScope Worker for Team scheduling tests, create a
+second `Worker` resource with a distinct Agent UUID and set:
 
 ```bash
-AGENTTEAMS_WORKER_NAME=qwenpaw-worker-team-2 \
-AGENTTEAMS_WORKER_AGENT_NAME=qwenpaw-kind-worker-2 \
-AGENTTEAMS_WORKER_IDEMPOTENCY_KEY=qwenpaw-kind-worker-2-v1 \
-  ./deploy/bootstrap-kind-qwenpaw-worker.sh
+runtime: AGENTSCOPE
+model: deepseek:deepseek-chat
 ```
 
-The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`; the
-Gateway and QwenPaw endpoints remain explicit Worker environment settings.
-The Worker calls QwenPaw's HTTP/SSE endpoint and reports accepted, heartbeat,
-progress, completion, or failure events over the Gateway gRPC stream.
-The development QwenPaw container starts without an active LLM provider; a
-provider/model and its credentials must be configured through QwenPaw before a
-real model task can complete. Worker readiness only proves the Agent channel
-is connected, and the bootstrap script intentionally does not invent external
-credentials.
+The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`. Worker
+readiness proves the Agent channel is connected; a real task additionally
+requires a resolvable model registry key and its Provider credentials. L5 uses
+`deepseek:deepseek-chat` by default, while another Provider/model can be
+selected by changing Worker configuration without changing Team scheduling or
+task state transitions.
 
 ### Channel 出站扩展
 
 企业事件出站统一经过 Channel SPI。当前 Webhook 适配器只做租户绑定校验并写入持久化投递记录，实际 HTTP 投递复用已有 leader-only scheduler、HMAC、重试、死信和事件 ID 去重；Matrix 适配器复用 Matrix Outbox 与 delivery service，并通过独立 room 绑定表做 Organization/Tenant/Project、事件白名单和启用状态校验。两类适配器都不会拥有 Task 状态，也不会返回 Secret；后续 DingTalk 适配器必须复用同一 Port 和 Outbox 边界。
 
-### AgentScope 灰度与回滚
+### AgentScope 当前开发路径
 
-AgentScope 的运行时选择采用默认关闭、确定性分桶和显式 allowlist。Helm
-会渲染 `<release>-agentteams-java-agent-runtime` ConfigMap，供兼容的 Worker
-以 `envFrom` 方式读取；ConfigMap 不包含任何模型凭证。默认值为：
+当前开发阶段和生产主链路统一使用 AgentScope Harness；L5 默认模型为
+DeepSeek，但模型 Provider 和模型标识通过 Worker 配置/注册表注入，旧运行时
+不属于当前代码、部署或 L5 主验收路径。
+Helm 仍会渲染 `<release>-agentteams-java-agent-runtime` ConfigMap，供 Worker 读取非敏感
+运行时配置；ConfigMap 不包含任何模型凭证。模型密钥必须由 Kubernetes Secret 注入。
 
 ```yaml
 agentRuntime:
-  default: QWENPAW
-  agentScope:
-    enabled: false
-    rolloutPercentage: 0
-    agentAllowlist: []
-    teamAllowlist: []
-    tenantAllowlist: []
+  artifactUploadEnabled: true
+worker:
+  runtime: AGENTSCOPE
+  model: deepseek:deepseek-chat
 ```
 
-灰度前必须先确认 Worker 在 Hello 中声明 `sandbox-assignment-v1`（若任务
-带 Sandbox），再逐步提高 `rolloutPercentage` 或配置 allowlist。回滚只需将
-`agentScope.enabled` 设为 `false`、`rolloutPercentage` 设为 `0`，并滚动更新
-Worker；缺少租户/Team/Agent 稳定标识时策略会 fail-closed 到 QwenPaw。
-当前默认 Worker 仍保持 QwenPaw 执行路径，AgentScope Harness 的生产接线需
-在兼容 Worker 镜像和真实模型配置完成后再开启。
+任务必须包含稳定的 Team/Agent 标识；缺少标识时直接拒绝，不回退到另一套运行时。
 
 The chart resource names include both the Helm release and chart name. The
 Control Plane API can be exposed for a smoke check with:
@@ -439,25 +428,21 @@ This smoke check expects the task to remain `QUEUED`: registering an Agent via
 the API does not establish a gRPC connection. The complete push path is
 covered by the infrastructure integration test.
 
-For a local real-model check, keep the DeepSeek key in the ignored root file
-`apikey` with mode `0600`. The following commands configure the QwenPaw
-`deepseek` provider and active model, then verify Manager and the full task
-path. The scripts never print the key or send it as a command-line argument:
+For a local real-model check, keep the model credential in a Kubernetes Secret
+or an ignored local file with mode `0600`. Configure the Worker model registry
+key and verify Manager plus the full task path. The scripts never print the
+key or send it as a command-line argument:
 
 ```bash
 chmod 600 apikey
 ./scripts/smoke-deepseek-manager.sh
-./scripts/configure-local-qwenpaw-deepseek.sh
-./scripts/smoke-kind-qwenpaw-deepseek.sh
+./scripts/smoke-kind-task-api.sh
 ```
 
-The default model is `deepseek-v4-flash`; use `DEEPSEEK_MODEL` only for a
-deliberate local override. A successful task smoke prints
-`QWENPAW_DEEPSEEK_TASK_OK` with `phase=SUCCEEDED` and
-`output=QWENPAW_DEEPSEEK_SMOKE_OK`; the script verifies that marker in the
-Worker log instead of relying on the phase alone. On 2026-08-21, the Manager
-smoke, QwenPaw Provider test, three independent real tasks, and repeated
-Idempotency-Key creation were verified in the local Kind cluster.
+The L5 default model is `deepseek:deepseek-chat`; use the Worker model
+configuration for a deliberate Provider/model override. A successful real
+smoke must verify `phase=SUCCEEDED`, the Attempt lifecycle, and a UTF-8
+Artifact, rather than relying on Worker readiness alone.
 
 When OIDC API authentication is enabled, the task smoke honors
 `AGENTTEAMS_API_TOKEN` first. If it is unset, the script port-forwards the
@@ -465,22 +450,19 @@ local Keycloak service and obtains a development `alice/alice-dev` token,
 without printing the token or the complete task response. Override the local
 Keycloak port with `KIND_KEYCLOAK_LOCAL_PORT` when needed.
 
-For the real Manager Conversation path, deploy the Manager with the QwenPaw
-Service endpoint and matching NetworkPolicy port, then run the authenticated
-acceptance script. It verifies real DeepSeek SSE deltas, terminal completion,
-cursor replay, idempotent message replay, and cancellation; it never treats a
-missing Docker/Kind/image/model dependency as a skip:
+For the real Manager Conversation path, deploy the Manager and AgentScope
+Workers, then run the authenticated acceptance script. It verifies the real
+model call, terminal completion, cursor replay, idempotent message replay, and
+cancellation; it never treats a missing Docker/Kind/image/model dependency as
+a skip:
 
 ```bash
 helm upgrade --install agentteams deploy/helm/agentteams-java \
   --namespace agentteams --create-namespace --wait \
-  -f deploy/helm/kind-values.yaml -f deploy/helm/kind-oidc-values.yaml \
-  --set-string manager.conversation.qwenpawEndpoint=http://qwenpaw:8088 \
-  --set-string manager.conversation.qwenpawAgentId=default \
-  --set manager.conversation.qwenpawEgressPort=8088
+  -f deploy/helm/kind-values.yaml -f deploy/helm/kind-oidc-values.yaml
 kubectl -n agentteams port-forward svc/agentteams-agentteams-java-manager 18084:8080
 AGENTTEAMS_API_BEARER_TOKEN="<Keycloak token>" \
-  python3 scripts/run-kind-qwenpaw-conversation-acceptance.py \
+  python3 scripts/run-kind-conversation-restart-acceptance.py \
   --base-url http://127.0.0.1:18084 --image agentteams-manager
 ```
 
@@ -505,18 +487,18 @@ python3 scripts/run-kind-conversation-restart-acceptance.py \
 消息发送采用数据库 reservation：同一会话幂等键在跨 Manager 副本场景下只允许一个
 副本调用 Worker，消息状态会记录为 `RESERVED`、`COMPLETED`、`FAILED` 或
 `RECOVERY_REQUIRED`。Manager 重启发现未完成 reservation 时会 fail-closed，返回
-`CONVERSATION_RECOVERY_REQUIRED`，不会对无法确认是否已被 QwenPaw 接收的请求自动重发。
-QwenPaw SSE 的 `id:` 会作为可选的上游事件身份保存，并通过唯一约束去重；对外 SSE
+`CONVERSATION_RECOVERY_REQUIRED`，不会对无法确认是否已被 AgentScope Worker 接收的请求自动重发。
+上游事件 ID 会作为可选的事件身份保存，并通过唯一约束去重；对外 SSE
 仍使用 Manager 的持久化 replay cursor。历史事件没有上游 ID 时不会伪造 exactly-once 语义。
 
-当前重启验收覆盖的是已完成消息的历史恢复与幂等重放。QwenPaw 运行中的请求仍
+当前重启验收覆盖的是已完成消息的历史恢复与幂等重放。AgentScope 运行中的请求仍
 依赖上游提供稳定的 operation/event cursor 才能实现真正 resume；在该协议补齐前，
 不能把 Manager 重启后的 in-flight 请求宣称为 exactly-once 或可自动续接。
 
 在本机 OIDC 集群中验收真实 Worker 的项目配额闭环，可执行：
 
 ```bash
-AGENTTEAMS_AGENT_ID="$(kubectl -n agentteams get worker qwenpaw-worker -o jsonpath='{.spec.agentId}')" \
+AGENTTEAMS_AGENT_ID="$(kubectl -n agentteams get worker agentscope-worker -o jsonpath='{.spec.agentId}')" \
   ./scripts/run-kind-oidc-worker-quota-admission.sh
 ```
 
@@ -525,7 +507,7 @@ AGENTTEAMS_AGENT_ID="$(kubectl -n agentteams get worker qwenpaw-worker -o jsonpa
 配额 acquire/release、调用次数和 token 计数。它不会输出令牌或 API Key。
 
 The browser remains connected only to the AgentTeams Console/Conversation API;
-QwenPaw stays an internal service dependency. The Console Playwright check
+AgentScope stays an internal Worker dependency. The Console Playwright check
 exercises the browser page and the real Conversation acceptance exercises the
 deployed Docker/Kind service path. Direct system-Chrome automation is an
 additional connector-specific check and must be reported separately when that
@@ -589,7 +571,7 @@ enables Gateway TLS, and patches the selected Worker CRs with the client
 certificate mount:
 
 ```bash
-AGENTTEAMS_MTLS_WORKERS=qwenpaw-worker-team-2,qwenpaw-worker-team-3 \
+AGENTTEAMS_MTLS_WORKERS=agentscope-worker-team-2,agentscope-worker-team-3 \
   ./deploy/bootstrap-kind-mtls.sh
 ```
 

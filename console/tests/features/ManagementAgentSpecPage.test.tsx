@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
     {
       id: 'spec-1',
       name: 'research-agent',
-      runtime: 'qwenpaw',
+      runtime: 'agentscope',
       workerType: 'EXECUTOR',
       modelProvider: 'local',
       modelName: 'qwen',
@@ -51,7 +51,7 @@ describe('Management AgentSpec page', () => {
     await userEvent.click(screen.getByRole('button', { name: '创建智能体规格' }));
     expect(mocks.createAgentSpec).toHaveBeenCalledWith('project-1', {
       name: 'new-agent',
-      runtime: 'qwenpaw',
+      runtime: 'agentscope',
       workerType: 'EXECUTOR',
       modelProvider: 'local',
       modelName: 'qwen',

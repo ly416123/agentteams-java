@@ -16,7 +16,7 @@ class LeaseRecoveryScriptTest(TestCase):
         self.assertNotEqual(18080, MODULE.DEFAULT_LOCAL_PORT)
 
     @patch.object(MODULE.time, "sleep")
-    @patch.object(MODULE, "qwenpaw_agent_phases", return_value={"agent-1": "READY"})
+    @patch.object(MODULE, "agentscope_agent_phases", return_value={"agent-1": "READY"})
     @patch.object(MODULE, "gateway_connection_state",
                   side_effect=[("old-connection", "ONLINE"),
                                ("new-connection", "OFFLINE"),

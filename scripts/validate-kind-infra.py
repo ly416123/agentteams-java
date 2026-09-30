@@ -63,23 +63,23 @@ def main():
             fail(f"nats-stream-bootstrap must create a stream bound to {subject}; "
                  f"without it the outbox relay cannot publish those aggregates and the "
                  f"dead-letter fallback loops forever")
-    qwenpaw = find("Deployment", "qwenpaw")
-    image = qwenpaw["spec"]["template"]["spec"]["containers"][0].get("image")
-    expected_image = "agentscope/qwenpaw@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd"
+    agentscope = find("Deployment", "agentscope")
+    image = agentscope["spec"]["template"]["spec"]["containers"][0].get("image")
+    expected_image = "agentscope/agentscope@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd"
     if image != expected_image:
-        fail(f"QwenPaw image must be pinned to {expected_image}, got {image}")
-    service = find("Service", "qwenpaw")
+        fail(f"AgentScope image must be pinned to {expected_image}, got {image}")
+    service = find("Service", "agentscope")
     ports = {port.get("port") for port in service["spec"].get("ports", [])}
     if 8088 not in ports:
-        fail("QwenPaw Service must expose port 8088")
+        fail("AgentScope Service must expose port 8088")
     mounts = {
         mount.get("mountPath")
-        for mount in qwenpaw["spec"]["template"]["spec"]["containers"][0].get("volumeMounts", [])
+        for mount in agentscope["spec"]["template"]["spec"]["containers"][0].get("volumeMounts", [])
     }
     expected = {"/app/working", "/app/working.secret", "/app/working.backups"}
     if not expected.issubset(mounts):
-        fail(f"QwenPaw must mount {sorted(expected)}, got {sorted(mounts)}")
-    for pvc in ("qwenpaw-working", "qwenpaw-secret", "qwenpaw-backups"):
+        fail(f"AgentScope must mount {sorted(expected)}, got {sorted(mounts)}")
+    for pvc in ("agentscope-working", "agentscope-secret", "agentscope-backups"):
         find("PersistentVolumeClaim", pvc)
     print("KIND_INFRA_OK")
 

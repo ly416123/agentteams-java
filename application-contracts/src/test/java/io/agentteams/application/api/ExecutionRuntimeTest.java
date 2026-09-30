@@ -8,14 +8,13 @@ import org.junit.jupiter.api.Test;
 class ExecutionRuntimeTest {
 
     @Test
-    void defaultsMissingOrBlankRuntimeToQwenPaw() {
-        assertEquals(ExecutionRuntime.QWENPAW, ExecutionRuntime.from(null));
-        assertEquals(ExecutionRuntime.QWENPAW, ExecutionRuntime.from("   "));
+    void defaultsMissingOrBlankRuntimeToAgentScope() {
+        assertEquals(ExecutionRuntime.AGENTSCOPE, ExecutionRuntime.from(null));
+        assertEquals(ExecutionRuntime.AGENTSCOPE, ExecutionRuntime.from("   "));
     }
 
     @Test
     void parsesSupportedRuntimeNamesIgnoringCaseAndWhitespace() {
-        assertEquals(ExecutionRuntime.QWENPAW, ExecutionRuntime.from("  qWeNpAw "));
         assertEquals(ExecutionRuntime.AGENTSCOPE, ExecutionRuntime.from(" agentscope "));
     }
 
@@ -24,7 +23,7 @@ class ExecutionRuntimeTest {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class, () -> ExecutionRuntime.from("unknown"));
 
-        assertEquals("Unsupported execution runtime: unknown; expected QWENPAW or AGENTSCOPE",
+        assertEquals("Unsupported execution runtime: unknown; expected AGENTSCOPE",
                 error.getMessage());
     }
 }

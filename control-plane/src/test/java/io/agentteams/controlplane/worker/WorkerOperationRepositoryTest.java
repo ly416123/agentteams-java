@@ -46,7 +46,7 @@ class WorkerOperationRepositoryTest {
         UUID agentId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
         WorkerOperation operation = WorkerOperation.pending(operationId, agentId, WorkerOperationType.ROLLOUT,
-                "sha256:image", "qwenpaw", "config-7", "secret-3", "{\"image\":\"old\"}",
+                "sha256:image", "agentscope", "config-7", "secret-3", "{\"image\":\"old\"}",
                 "rollout-1", 0, "alice", NOW.plusSeconds(120), "correlation-1", NOW);
         insertAgent(agentId);
 
@@ -88,14 +88,14 @@ class WorkerOperationRepositoryTest {
         UUID operationId = UUID.randomUUID();
         insertAgent(agentId);
         WorkerOperation operation = WorkerOperation.pending(operationId, agentId, WorkerOperationType.ROLLOUT,
-                "sha256:image", "qwenpaw", "config-7", "secret-3", "{}", "rollout-observation-1", 0,
+                "sha256:image", "agentscope", "config-7", "secret-3", "{}", "rollout-observation-1", 0,
                 "alice", NOW.plusSeconds(120), "correlation-1", NOW);
 
         persistence.inTransaction(tx -> {
             tx.workerOperations().insert(operation);
-            tx.workerOperations().recordOperatorObservation(operationId, true, "sha256:image", "qwenpaw",
+            tx.workerOperations().recordOperatorObservation(operationId, true, "sha256:image", "agentscope",
                     "config-7", "secret-3", NOW.plusSeconds(1));
-            tx.workerOperations().recordGatewayObservation(operationId, true, "sha256:image", "qwenpaw",
+            tx.workerOperations().recordGatewayObservation(operationId, true, "sha256:image", "agentscope",
                     "config-7", "secret-3", NOW.plusSeconds(2));
             return null;
         });
@@ -113,7 +113,7 @@ class WorkerOperationRepositoryTest {
         UUID agentId = UUID.randomUUID();
         insertAgent(agentId);
         WorkerOperation operation = WorkerOperation.pending(UUID.randomUUID(), agentId, WorkerOperationType.ROLLOUT,
-                "sha256:active", "qwenpaw", "config-8", "secret-4", "{}", "active-operation-1", 0,
+                "sha256:active", "agentscope", "config-8", "secret-4", "{}", "active-operation-1", 0,
                 "alice", NOW.plusSeconds(120), "correlation-1", NOW);
 
         persistence.inTransaction(tx -> {
@@ -148,7 +148,7 @@ class WorkerOperationRepositoryTest {
 
     private void insertAgent(UUID id) {
         persistence.inTransaction(tx -> {
-            tx.agents().insert(AgentRecord.create(id, "worker-" + id, AgentPhase.READY, "qwenpaw",
+            tx.agents().insert(AgentRecord.create(id, "worker-" + id, AgentPhase.READY, "agentscope",
                     "{}", NOW));
             return null;
         });

@@ -205,7 +205,7 @@ class InboundEventHandlerTest {
             public void onCompleted() {
             }
         }, "test-peer", fixedClock().instant());
-        registry.register(connection, new AgentProfile(agentId, "qwenpaw", "0.4.0", java.util.Map.of("tasks", "1")),
+        registry.register(connection, new AgentProfile(agentId, "agentscope", "0.4.0", java.util.Map.of("tasks", "1")),
                 0, fixedClock().instant());
         return connection;
     }

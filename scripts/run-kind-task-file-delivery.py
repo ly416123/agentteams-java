@@ -37,7 +37,7 @@ import uuid
 POLL_TIMEOUT_SECONDS = 240.0
 POLL_INTERVAL_SECONDS = 2.0
 TOKEN_TTL_SECONDS = 240.0
-# 与 scripts/qwenpaw-conversation-mock.py 的 TASK_FILE_MARKER 同值：prompt 携带它时
+# 与 scripts/agentscope-conversation-mock.py 的 TASK_FILE_MARKER 同值：prompt 携带它时
 # mock 剧本会代表 agent 直传一份 mock-deliverable.pdf（MCP 工具调用链等价物）。
 TASK_FILE_MARKER = "TASK_FILE_UPLOAD_PROMPT"
 PDF_BYTES = b"%PDF-1.4\n%agentteams-g05-acceptance\n%%EOF\n"
@@ -164,7 +164,7 @@ def require_environment(namespace: str) -> None:
     if not clusters or "agentteams" not in clusters.splitlines():
         fail("Kind cluster agentteams is required; kind get clusters returned no matching cluster")
     deployments = json.loads(kubectl(namespace, "get", "deployments", "-o", "json"))
-    for required in ("agentteams-agentteams-java-control-plane", "qwenpaw-worker"):
+    for required in ("agentteams-agentteams-java-control-plane", "agentscope-worker"):
         items = [item for item in deployments.get("items", [])
                  if item["metadata"]["name"] == required]
         if not items:
@@ -247,9 +247,9 @@ def create_and_queue_task(base_url: str, tokens: TokenSource, tenant: str, proje
         "description": "Task file delivery acceptance (G05)",
         "spec": {
             "scope": {"tenant": tenant, "project": project, "team": team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": prompt},
-            "requiredCapabilities": ["qwenpaw"],
+            "requiredCapabilities": ["agentscope"],
         },
     }
     status, created = request_json(f"{base_url.rstrip('/')}/api/v1/tasks", "POST", body,

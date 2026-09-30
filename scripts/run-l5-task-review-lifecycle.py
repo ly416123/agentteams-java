@@ -211,9 +211,9 @@ def create_and_queue_task(base_url: str, tokens: TokenSource, tenant: str,
         "description": "Task review lifecycle acceptance on L5 (G02, real model)",
         "spec": {
             "scope": {"tenant": tenant, "project": project, "team": team},
-            "taskType": "qwenpaw",
+            "taskType": "agentscope",
             "inputJson": {"prompt": prompt},
-            "requiredCapabilities": ["qwenpaw"],
+            "requiredCapabilities": ["agentscope"],
         },
     }
     status, created = request_json(f"{base_url.rstrip('/')}/api/v1/tasks", "POST", body,

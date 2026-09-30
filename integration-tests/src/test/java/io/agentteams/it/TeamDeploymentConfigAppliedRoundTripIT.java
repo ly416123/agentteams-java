@@ -194,7 +194,7 @@ class TeamDeploymentConfigAppliedRoundTripIT {
         for (UUID agent : List.of(LEADER, WORKER)) {
             jdbc.update("""
                     INSERT INTO agents(id, name, phase, runtime, capabilities, metadata, created_at, updated_at)
-                    VALUES (?, ?, 'READY', 'qwenpaw', '{}'::jsonb, '{}'::jsonb, ?, ?)
+                    VALUES (?, ?, 'READY', 'agentscope', '{}'::jsonb, '{}'::jsonb, ?, ?)
                     """, agent, "agent-" + agent, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW));
         }
         jdbc.update("""

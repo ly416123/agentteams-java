@@ -55,13 +55,6 @@ spec:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: tuwunel }
         {{- end }}
-        {{- if eq (default "fake" $conv.runtime) "qwenpaw" }}
-        # The QwenPaw conversation runtime hosts the AgentTeams task MCP
-        # server; its stdio process calls the Control Plane task API with the
-        # service-account credentials configured on the MCP client.
-        - podSelector:
-            matchLabels: { app.kubernetes.io/name: qwenpaw }
-        {{- end }}
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
           podSelector:

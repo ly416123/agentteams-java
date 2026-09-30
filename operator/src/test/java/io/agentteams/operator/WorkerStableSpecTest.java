@@ -10,7 +10,7 @@ class WorkerStableSpecTest {
     @Test
     void parsesOnlyACompleteSpecForTheCurrentAgent() {
         WorkerSpec spec = WorkerStableSpec.parse("""
-                {"agentId":"agent-1","runtime":"qwenpaw","image":"example/worker@sha256:old",
+                {"agentId":"agent-1","runtime":"agentscope","image":"example/worker@sha256:old",
                  "replicas":2,"env":{"MODEL":"stable"},"tlsSecret":""}
                 """, "agent-1");
 
@@ -23,7 +23,7 @@ class WorkerStableSpecTest {
         assertThatThrownBy(() -> WorkerStableSpec.parse("{\"image\":\"old\"}", "agent-1"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> WorkerStableSpec.parse(
-                "{\"agentId\":\"agent-2\",\"runtime\":\"qwenpaw\",\"image\":\"old\",\"replicas\":1}",
+                "{\"agentId\":\"agent-2\",\"runtime\":\"agentscope\",\"image\":\"old\",\"replicas\":1}",
                 "agent-1")).isInstanceOf(IllegalArgumentException.class);
     }
 }

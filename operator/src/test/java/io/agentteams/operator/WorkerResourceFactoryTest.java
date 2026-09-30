@@ -3,6 +3,7 @@ package io.agentteams.operator;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
+import io.fabric8.kubernetes.api.model.Quantity;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.Service;
 import java.util.Map;
@@ -15,7 +16,7 @@ class WorkerResourceFactoryTest {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withNamespace("agentteams")
                 .withGeneration(4L).withUid("worker-uid").build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 2,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 2,
                 Map.of("MODEL", "deepseek", "AGENTTEAMS_RUNTIME_CONFIG_MAP",
                         "release-agentteams-java-agent-runtime")));
 
@@ -38,11 +39,20 @@ class WorkerResourceFactoryTest {
                 .isEqualTo("IfNotPresent");
         assertThat(deployment.getSpec().getTemplate().getMetadata().getLabels())
                 .containsEntry("agentteams.io/agent-id", "agent-a")
-                .containsEntry("agentteams.io/runtime", "qwenpaw");
+                .containsEntry("agentteams.io/runtime", "AGENTSCOPE");
         assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getReadinessProbe())
                 .isNotNull();
         assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getLivenessProbe())
                 .isNotNull();
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getResources()
+                .getRequests()).containsEntry("memory", new Quantity("128Mi"));
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getResources()
+                .getLimits()).containsEntry("memory", new Quantity("512Mi"));
+        assertThat(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv())
+                .filteredOn(env -> "JAVA_TOOL_OPTIONS".equals(env.getName()))
+                .singleElement()
+                .satisfies(env -> assertThat(env.getValue())
+                        .isEqualTo("-XX:MaxRAMPercentage=55 -XX:InitialRAMPercentage=15"));
         assertThat(deployment.getMetadata().getOwnerReferences()).singleElement()
                 .satisfies(owner -> assertThat(owner.getApiVersion()).isEqualTo("agentteams.io/v1alpha1"));
         assertThat(service.getMetadata().getName()).isEqualTo("worker-a");
@@ -60,7 +70,7 @@ class WorkerResourceFactoryTest {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-runtime").withNamespace("agentteams").build());
         worker.setSpec(new WorkerSpec("agent-a", "AGENTSCOPE", "example/worker:v1", 1,
-                Map.of("AGENTTEAMS_RUNTIME", "QWENPAW",
+                Map.of("AGENTTEAMS_RUNTIME", "AGENTSCOPE",
                         "AGENTTEAMS_RUNTIME_CONFIG_MAP", "release-agentteams-java-agent-runtime")));
 
         Deployment deployment = WorkerResourceFactory.deployment(worker);
@@ -83,7 +93,7 @@ class WorkerResourceFactoryTest {
     void injectsCanonicalWorkerVersionFactsIntoRuntimeEnvironment() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-version").withNamespace("agentteams").build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v2", 1, Map.of(
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker:v2", 1, Map.of(
                 "AGENTTEAMS_SPEC_DIGEST", "sha256:stale",
                 "AGENTTEAMS_CONFIG_REVISION", "config-stale",
                 "AGENTTEAMS_SECRET_GENERATION", "secret-stale"), "",
@@ -105,7 +115,7 @@ class WorkerResourceFactoryTest {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-runtime-config")
                 .withNamespace("agentteams").build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1,
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 1,
                 Map.of("AGENTTEAMS_RUNTIME_CONFIG_MAP", "release-agentteams-java-agent-runtime")));
 
         Deployment deployment = WorkerResourceFactory.deployment(worker);
@@ -120,7 +130,7 @@ class WorkerResourceFactoryTest {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-legacy")
                 .withNamespace("agentteams").build());
-        worker.setSpec(new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of()));
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 1, Map.of()));
 
         Deployment deployment = WorkerResourceFactory.deployment(worker);
 
@@ -134,7 +144,7 @@ class WorkerResourceFactoryTest {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-secret-env")
                 .withNamespace("agentteams").build());
-        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1,
+        WorkerSpec spec = new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 1,
                 Map.of("MODEL", "deepseek", "AGENTTEAMS_RUNTIME_CONFIG_MAP",
                         "release-agentteams-java-agent-runtime"));
         spec.setSecretEnv(Map.of("DASHSCOPE_API_KEY", new WorkerSpec.SecretEnvRef("dashscope-credentials", "apiKey")));
@@ -159,7 +169,7 @@ class WorkerResourceFactoryTest {
     void rejectsSecretEnvThatShadowsCanonicalIdentity() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-shadow").withNamespace("agentteams").build());
-        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of());
+        WorkerSpec spec = new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 1, Map.of());
         spec.setSecretEnv(Map.of("AGENTTEAMS_AGENT_ID", new WorkerSpec.SecretEnvRef("evil", "agentId")));
         worker.setSpec(spec);
 
@@ -172,7 +182,7 @@ class WorkerResourceFactoryTest {
     void rejectsSecretEnvCollidingWithPlaintextEnvironment() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-collide").withNamespace("agentteams").build());
-        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1, Map.of("MODEL", "deepseek"));
+        WorkerSpec spec = new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 1, Map.of("MODEL", "deepseek"));
         spec.setSecretEnv(Map.of("MODEL", new WorkerSpec.SecretEnvRef("dashscope-credentials", "apiKey")));
         worker.setSpec(spec);
 
@@ -185,7 +195,7 @@ class WorkerResourceFactoryTest {
     void mountsConfiguredTlsSecretIntoWorkerDeployment() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-tls").withNamespace("agentteams").build());
-        WorkerSpec spec = new WorkerSpec("agent-a", "qwenpaw", "example/worker:v1", 1,
+        WorkerSpec spec = new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 1,
                 Map.of("AGENTTEAMS_RUNTIME_CONFIG_MAP", "release-agentteams-java-agent-runtime"));
         spec.setTlsSecret("agentteams-worker-mtls");
         worker.setSpec(spec);

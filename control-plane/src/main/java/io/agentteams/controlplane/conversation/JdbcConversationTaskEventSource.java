@@ -18,7 +18,7 @@ import org.springframework.stereotype.Repository;
 
 /** JDBC projection of task domain and process facts for a conversation timeline. */
 @Repository
-public final class JdbcConversationTaskEventSource implements ConversationTaskEventSource {
+public class JdbcConversationTaskEventSource implements ConversationTaskEventSource {
     private static final Comparator<TimelineItem> ORDER = Comparator.comparing(TimelineItem::occurredAt)
             .thenComparingLong(TimelineItem::sequence).thenComparing(TimelineItem::itemId);
     private final JdbcTemplate jdbc;

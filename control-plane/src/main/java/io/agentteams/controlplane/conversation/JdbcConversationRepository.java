@@ -14,7 +14,7 @@ import org.springframework.stereotype.Repository;
 
 /** PostgreSQL persistence for tenant-scoped conversations. */
 @Repository
-public final class JdbcConversationRepository implements ConversationRepository {
+public class JdbcConversationRepository implements ConversationRepository {
     private final JdbcTemplate jdbc;
 
     @Autowired

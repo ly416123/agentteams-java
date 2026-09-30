@@ -106,11 +106,11 @@ def gateway_pod_names(namespace: str) -> list[str]:
             if item.get("status", {}).get("phase") == "Running"]
 
 
-def qwenpaw_agent_phases(namespace: str, postgres_pod: str) -> dict[str, str]:
+def agentscope_agent_phases(namespace: str, postgres_pod: str) -> dict[str, str]:
     rows = sql(namespace, postgres_pod, """
         select id || '|' || phase
           from agents
-         where capabilities ? 'qwenpaw';
+         where capabilities ? 'agentscope';
     """)
     return {
         agent_id: phase
@@ -153,7 +153,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--agent-id", default=os.environ.get("AGENTTEAMS_AGENT_ID"))
-    parser.add_argument("--worker-deployment", default="qwenpaw-real")
+    parser.add_argument("--worker-deployment", default="agentscope-real")
     parser.add_argument("--gateway-deployment", default="agentteams-agentteams-java-gateway")
     parser.add_argument("--postgres-pod", default="postgresql-0")
     parser.add_argument("--control-plane-service", default="agentteams-agentteams-java-control-plane")
@@ -173,9 +173,9 @@ def main() -> int:
     worker_agent_id = deployment_agent_id(args.namespace, args.worker_deployment)
     if worker_agent_id and worker_agent_id != args.agent_id:
         fail(f"worker deployment is bound to agent {worker_agent_id}, not {args.agent_id}")
-    original_agent_phases = qwenpaw_agent_phases(args.namespace, args.postgres_pod)
+    original_agent_phases = agentscope_agent_phases(args.namespace, args.postgres_pod)
     if args.agent_id not in original_agent_phases:
-        fail(f"agent {args.agent_id} is not a qwenpaw-capable registered agent")
+        fail(f"agent {args.agent_id} is not a agentscope-capable registered agent")
 
     port_forward = start_port_forward(args.namespace, args.control_plane_service, args.local_port)
     base_url = f"http://127.0.0.1:{args.local_port}"
@@ -197,8 +197,8 @@ def main() -> int:
             f"{base_url}/api/v1/tasks", "POST",
             {"title": "kind-gateway-replay", "description": "Gateway restart command replay smoke test",
              "spec": {"scope": {"tenant": args.tenant, "project": args.project, "team": args.team},
-                      "taskType": "qwenpaw", "inputJson": {"prompt": "KIND_GATEWAY_REPLAY_OK"},
-                      "requiredCapabilities": ["qwenpaw"]}},
+                      "taskType": "agentscope", "inputJson": {"prompt": "KIND_GATEWAY_REPLAY_OK"},
+                      "requiredCapabilities": ["agentscope"]}},
             f"kind-gateway-replay-create-{uuid.uuid4()}")
         task_id = created["id"]
         api_request(f"{base_url}/api/v1/tasks/{task_id}/queue", "POST", {},

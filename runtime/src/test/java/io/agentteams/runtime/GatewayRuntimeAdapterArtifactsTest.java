@@ -74,7 +74,7 @@ class GatewayRuntimeAdapterArtifactsTest {
         adapter.acceptAssignment(assignment(taskId));
 
         adapter.complete(RuntimeResult.success(taskId, "plain assistant answer", Instant.EPOCH,
-                new RuntimeCallUsage("qwenpaw", "deepseek-chat", 1200, 12479, 14)));
+                new RuntimeCallUsage("agentscope", "deepseek-chat", 1200, 12479, 14)));
 
         var completed = completionMessage(messages).getTaskCompleted();
         var artifacts = completed.getArtifactsList();

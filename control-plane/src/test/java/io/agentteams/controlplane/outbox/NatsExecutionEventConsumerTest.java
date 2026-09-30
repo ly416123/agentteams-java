@@ -141,7 +141,7 @@ class NatsExecutionEventConsumerTest {
     void preservesModelCallUsageAcrossTheNatsEnvelope() {
         Message message = mock(Message.class);
         when(message.getData()).thenReturn(taskEventJson().replace("\"correlationId\": \"test\"",
-                "\"correlationId\": \"test\", \"modelCallUsage\": {\"provider\": \"qwenpaw\","
+                "\"correlationId\": \"test\", \"modelCallUsage\": {\"provider\": \"agentscope\","
                         + "\"model\": \"deepseek-chat\", \"latencyMillis\": 0, \"promptTokens\": 12479,"
                         + "\"completionTokens\": 14, \"tenantId\": \"tenant-a\", \"projectId\": \"project-a\","
                         + "\"workerId\": \"55555555-5555-5555-5555-555555555555\","
@@ -158,7 +158,7 @@ class NatsExecutionEventConsumerTest {
         verify(executionEvents).apply(any(), command.capture(), any());
         ExecutionEventPort.ModelCallUsage usage = command.getValue().modelCallUsage();
         assertThat(usage).as("model call usage must survive the gateway envelope round trip").isNotNull();
-        assertThat(usage.provider()).isEqualTo("qwenpaw");
+        assertThat(usage.provider()).isEqualTo("agentscope");
         assertThat(usage.model()).isEqualTo("deepseek-chat");
         assertThat(usage.promptTokens()).isEqualTo(12479L);
         assertThat(usage.completionTokens()).isEqualTo(14L);

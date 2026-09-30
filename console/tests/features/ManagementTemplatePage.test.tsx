@@ -69,11 +69,11 @@ describe('Management template page', () => {
     await userEvent.selectOptions(screen.getByLabelText('模板'), 'template-1');
     await userEvent.clear(screen.getByLabelText('工作节点规格 JSON'));
     fireEvent.change(screen.getByLabelText('工作节点规格 JSON'), {
-      target: { value: '{"runtime":"qwenpaw"}' },
+      target: { value: '{"runtime":"agentscope"}' },
     });
     await userEvent.click(screen.getByRole('button', { name: '创建版本' }));
     expect(mocks.createWorkerTemplateRevision).toHaveBeenCalledWith('project-1', 'template-1', {
-      specJson: '{"runtime":"qwenpaw"}',
+      specJson: '{"runtime":"agentscope"}',
       actor: '',
     });
 

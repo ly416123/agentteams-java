@@ -97,11 +97,11 @@ class SkillArtifactFetcherTest {
                 + "\"revision\":\"1\",\"digest\":\"sha256:abc\","
                 + "\"artifactRef\":\"https://example.test/skill.tar.gz\",\"sizeBytes\":12}]}";
 
-        assertThat(QwenPawWorker.resourceApplyResults(manifest, false).get(0).getStatus())
+        assertThat(AgentTeamsWorker.resourceApplyResults(manifest, false).get(0).getStatus())
                 .isEqualTo(io.agentteams.contracts.v1.ResourceApplyResult.Status.FAILED);
-        assertThat(QwenPawWorker.resourceApplyResults(manifest, false).get(0).getFailureCategory())
+        assertThat(AgentTeamsWorker.resourceApplyResults(manifest, false).get(0).getFailureCategory())
                 .isEqualTo("DOWNLOAD_FAILED");
-        assertThat(QwenPawWorker.resourceApplyResults(manifest, true).get(0).getStatus())
+        assertThat(AgentTeamsWorker.resourceApplyResults(manifest, true).get(0).getStatus())
                 .isEqualTo(io.agentteams.contracts.v1.ResourceApplyResult.Status.APPLIED);
     }
 

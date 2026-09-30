@@ -59,10 +59,10 @@ class AgentServiceScopeTest {
     @Test
     void bindsAuthenticatedWorkerCreationToTheCallerScope() {
         AgentRecord created = AgentRecord.create(UUID.randomUUID(), "worker-1", AgentPhase.PROVISIONING,
-                "qwenpaw", "{}", NOW);
+                "agentscope", "{}", NOW);
         when(persistence.createAgent(any(AgentRecord.class), eq("agent-key"), any())).thenReturn(created);
 
-        service.create("agent-key", new AgentService.AgentInput("worker-1", "qwenpaw", "{}", "{}"));
+        service.create("agent-key", new AgentService.AgentInput("worker-1", "agentscope", "{}", "{}"));
 
         verify(resourceScopes).bind("WORKER", created.id(), PRINCIPAL, NOW);
     }
@@ -71,7 +71,7 @@ class AgentServiceScopeTest {
     void rejectsAuthenticatedReadOutsideTheCallerScope() {
         UUID workerId = UUID.randomUUID();
         AgentRecord worker = AgentRecord.create(workerId, "worker-1", AgentPhase.READY,
-                "qwenpaw", "{}", NOW);
+                "agentscope", "{}", NOW);
         when(persistence.findAgent(workerId)).thenReturn(java.util.Optional.of(worker));
         doThrow(new AuthorizationException("resource is outside caller project"))
                 .when(resourceScopes).requireVisible("WORKER", workerId);

@@ -168,7 +168,6 @@
             "gatewayHost": { "type": "string", "minLength": 1 },
             "gatewayPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
             "configManifestBaseUrl": { "type": "string", "format": "uri-reference" },
-            "qwenpawEndpoint": { "type": "string", "minLength": 1 },
             "tlsSecretName": { "type": "string" },
             "credentialSecretEnvs": { "type": "string" }
           }
@@ -361,10 +360,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "runtime": { "type": "string", "enum": ["fake", "qwenpaw"] },
-            "qwenpawEndpoint": { "type": "string", "minLength": 1 },
-            "qwenpawAgentId": { "type": "string", "minLength": 1 },
-            "qwenpawEgressPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+            "runtime": { "type": "string", "enum": ["fake"] }
           }
         },
         "env": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } },
@@ -501,19 +497,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "default": { "type": "string", "enum": ["QWENPAW", "AGENTSCOPE"] },
-        "artifactUploadEnabled": { "type": "boolean" },
-        "agentScope": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "enabled": { "type": "boolean" },
-            "rolloutPercentage": { "type": "integer", "minimum": 0, "maximum": 100 },
-            "agentAllowlist": { "type": "array", "items": { "type": "string" } },
-            "teamAllowlist": { "type": "array", "items": { "type": "string" } },
-            "tenantAllowlist": { "type": "array", "items": { "type": "string" } }
-          }
-        }
+        "artifactUploadEnabled": { "type": "boolean" }
       }
     },
     "sandbox": {

@@ -15,11 +15,11 @@ class KindWorkerRestartContractTest(unittest.TestCase):
     def test_waits_for_online_ready_worker_before_queueing_task(self):
         source = SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn("def qwenpaw_agent_ready", source)
+        self.assertIn("def agentscope_agent_ready", source)
         self.assertIn('presence == "ONLINE"', source)
-        self.assertIn("QwenPaw Agent registration", source)
+        self.assertIn("AgentScope Agent registration", source)
         self.assertLess(
-            source.index("QwenPaw Agent registration"),
+            source.index("AgentScope Agent registration"),
             source.index('f"{base_url}/api/v1/tasks"', source.index("created = api_request")),
         )
 
@@ -57,7 +57,7 @@ class KindWorkerRestartContractTest(unittest.TestCase):
 
         self.assertIn("def mock_delay_is_active", source)
         self.assertIn("mock response delay", source)
-        self.assertIn("QWENPAW_MOCK_RESPONSE_DELAY_SECONDS", source)
+        self.assertIn("AGENTSCOPE_MOCK_RESPONSE_DELAY_SECONDS", source)
         self.assertIn("/debug/inflight", source)
         self.assertIn("mock_port_forward", source)
 

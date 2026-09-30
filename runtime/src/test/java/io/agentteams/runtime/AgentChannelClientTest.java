@@ -174,7 +174,7 @@ class AgentChannelClientTest {
         FakeRuntime runtime = new FakeRuntime();
         GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", port::send, runtime,
                 Clock.fixed(START, ZoneOffset.UTC));
-        runtime.start(new AgentRuntimeContext("qwenpaw", 1, Clock.fixed(START, ZoneOffset.UTC),
+        runtime.start(new AgentRuntimeContext("agentscope", 1, Clock.fixed(START, ZoneOffset.UTC),
                 result -> { }, java.util.Map.of()));
         client.connect(hello());
         client.onReady(ready(true));
@@ -200,7 +200,7 @@ class AgentChannelClientTest {
         AgentChannelClient client = new AgentChannelClient("agent-1", port, clock, Duration.ofSeconds(5));
         FakeRuntime runtime = new FakeRuntime();
         GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", port::send, runtime, clock);
-        runtime.start(new AgentRuntimeContext("qwenpaw", 1, clock, result -> { }, java.util.Map.of()));
+        runtime.start(new AgentRuntimeContext("agentscope", 1, clock, result -> { }, java.util.Map.of()));
         UUID taskId = UUID.randomUUID();
         client.connect(hello());
         client.onReady(ready(true));

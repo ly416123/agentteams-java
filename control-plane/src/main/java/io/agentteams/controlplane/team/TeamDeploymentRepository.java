@@ -91,7 +91,7 @@ public class TeamDeploymentRepository {
     public List<TeamDeployment.Member> failedMembers(UUID deploymentId) {
         return jdbc.query("""
                 SELECT agent_id, base_manifest::text, task_overlay::text, binding_id, status, failure_code
-                  FROM team_deployment_members WHERE deployment_id = ? AND status = 'FAILED'
+                  FROM team_deployment_members WHERE deployment_id = ? AND status IN ('FAILED', 'PENDING')
                  ORDER BY agent_id
                 """, this::mapMember, deploymentId);
     }
@@ -163,7 +163,35 @@ public class TeamDeploymentRepository {
                 UPDATE team_deployment_members SET binding_id = ?, status = ?, failure_code = ?
                   WHERE deployment_id = ? AND agent_id = ?
                 """, bindingId, status, failureCode, deploymentId, agentId);
+        // The ConfigApplied event can be consumed before this deployment records the binding.
+        // Re-read the durable apply state after the binding is written so that a fast ACK
+        // converges the member instead of being lost and later timed out.
+        if (bindingId != null && "PENDING".equals(status)) {
+            ApplyState applied = currentApply(bindingId);
+            if (applied != null && ("APPLIED".equals(applied.phase()) || "FAILED".equals(applied.phase()))) {
+                jdbc.update("""
+                        UPDATE team_deployment_members SET status = ?, failure_code = ?
+                          WHERE deployment_id = ? AND agent_id = ? AND binding_id = ?
+                        """, "APPLIED".equals(applied.phase()) ? "SUCCEEDED" : "FAILED",
+                        "APPLIED".equals(applied.phase()) ? null : applied.failureCode(),
+                        deploymentId, agentId, bindingId);
+                refreshStatus(deploymentId);
+            }
+        }
     }
+
+    private ApplyState currentApply(UUID bindingId) {
+        return jdbc.query("""
+                SELECT apply.phase, apply.failure_code
+                  FROM config_apply_records apply
+                 WHERE apply.binding_id = ?
+                 ORDER BY apply.updated_at DESC
+                 LIMIT 1
+                """, (rs, row) -> new ApplyState(rs.getString("phase"), rs.getString("failure_code")), bindingId)
+                .stream().findFirst().orElse(null);
+    }
+
+    private record ApplyState(String phase, String failureCode) { }
 
     public void markMemberStatus(UUID deploymentId, UUID agentId, String status, String failureCode) {
         jdbc.update("""

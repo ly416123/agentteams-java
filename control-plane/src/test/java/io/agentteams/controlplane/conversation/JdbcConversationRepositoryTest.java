@@ -3,17 +3,20 @@ package io.agentteams.controlplane.conversation;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import javax.sql.DataSource;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.aop.framework.ProxyFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.agentteams.controlplane.security.ExecutionContext;
+import static org.mockito.Mockito.mock;
 
 @Testcontainers(disabledWithoutDocker = true)
 class JdbcConversationRepositoryTest {
@@ -68,6 +71,15 @@ class JdbcConversationRepositoryTest {
         assertThat(created.teamId()).isEqualTo("team-1");
         assertThat(jdbc.queryForObject("SELECT team_id FROM conversations WHERE id = ?", String.class, created.id()))
                 .isEqualTo("team-1");
+    }
+
+    @Test
+    void remainsProxyableWhenSpringUsesClassBasedTransactionProxy() {
+        JdbcConversationRepository target = new JdbcConversationRepository(new JdbcTemplate(mock(DataSource.class)));
+        ProxyFactory proxyFactory = new ProxyFactory(target);
+        proxyFactory.setProxyTargetClass(true);
+
+        assertThat(proxyFactory.getProxy()).isInstanceOf(JdbcConversationRepository.class);
     }
 
     private static javax.sql.DataSource dataSource() {

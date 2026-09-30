@@ -2,6 +2,8 @@ package io.agentteams.controlplane.task;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
 import io.agentteams.domain.task.TaskPhase;
@@ -19,8 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * G03 D5/D3：子任务依赖 gate 与汇总轮触发。由调度器 tick 驱动（1s 轮询），全部操作
  * 幂等：gate 仅作用于 DRAFT 子任务（依赖全 SUCCEEDED 才放行）；汇总触发仅作用于
- * phase=SUCCEEDED 的 MAIN 任务且要求全部子任务 SUCCEEDED（D3 硬约束），转移复用
- * G02 SUCCEEDED→QUEUED 边并追加 TaskChildrenCompleted 聚合事件。
+ * phase=WAITING_SUBTASKS 的 MAIN 任务且要求全部子任务 SUCCEEDED（D3 硬约束），转移复用
+ * G02 的重排队边并追加 TaskChildrenCompleted 聚合事件。
  */
 @Service
 public class SubtaskGateService {
@@ -94,12 +96,15 @@ public class SubtaskGateService {
         });
     }
 
-    /** 子任务全部 SUCCEEDED 且主任务处于拆解后 SUCCEEDED → 系统转 QUEUED 进入汇总轮。 */
+    /** 子任务全部 SUCCEEDED 且主任务处于等待态 → 系统转 QUEUED 进入汇总轮。 */
     @Transactional
     public boolean releaseParentForAggregation(UUID parentId) {
         return persistence.inTransaction(tx -> {
             TaskRecord parent = tx.tasks().findByIdForUpdate(parentId).orElse(null);
-            if (parent == null || parent.isSubtask() || parent.phase() != TaskPhase.SUCCEEDED) {
+            if (parent == null || parent.isSubtask()
+                    || (parent.phase() != TaskPhase.WAITING_SUBTASKS
+                        && !(parent.phase() == TaskPhase.SUCCEEDED
+                            && !TeamOrchestrationService.hasTeam(parent.specJson())))) {
                 return false;
             }
             if (tx.tasks().findByParent(parentId).isEmpty()) {
@@ -117,11 +122,50 @@ public class SubtaskGateService {
                 return false;
             }
             Instant at = clock.instant();
-            TaskRecord queued = tx.tasks().updatePhase(parentId, TaskPhase.QUEUED, parent.version(), at);
+            List<TaskRecord> children = tx.tasks().findByParent(parentId);
+            TaskRecord queued;
+            if (TeamOrchestrationService.hasTeam(parent.specJson())) {
+                queued = tx.tasks().updateState(
+                        TeamOrchestrationService.copy(parent, aggregateSpec(parent, children), at, parent.version(),
+                                TaskPhase.QUEUED),
+                        parent.version());
+            } else {
+                queued = tx.tasks().updatePhase(parentId, TaskPhase.QUEUED, parent.version(), at);
+            }
             FoundationPersistenceService.appendEvent(tx, "task", parentId, "TaskChildrenCompleted",
                     idPayload(parentId), at, tx.tasks().incrementVersion(parentId));
             return queued.phase() == TaskPhase.QUEUED;
         });
+    }
+
+    private static String aggregateSpec(TaskRecord parent, List<TaskRecord> children) {
+        try {
+            JsonNode parsed = JSON.readTree(parent.specJson());
+            ObjectNode root = parsed != null && parsed.isObject()
+                    ? (ObjectNode) parsed : JSON.createObjectNode();
+            ObjectNode input = root.path("inputJson").isObject()
+                    ? ((ObjectNode) root.path("inputJson")).deepCopy() : JSON.createObjectNode();
+            ArrayNode results = input.putArray("childResults");
+            for (TaskRecord child : children) {
+                ObjectNode item = results.addObject().put("taskId", child.id().toString())
+                        .put("title", child.title());
+                String result = childResult(child.specJson());
+                if (!result.isBlank()) item.put("result", result);
+            }
+            root.set("inputJson", input);
+            root.put("teamRole", "LEADER").put("orchestrationPhase", "AGGREGATE");
+            return root.toString();
+        } catch (Exception error) {
+            throw new IllegalArgumentException("parent task spec is not valid JSON", error);
+        }
+    }
+
+    private static String childResult(String specJson) {
+        try {
+            return JSON.readTree(specJson).path("lastResultJson").asText("");
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private static List<UUID> dependencyIds(String specJson) {

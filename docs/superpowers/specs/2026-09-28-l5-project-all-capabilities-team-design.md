@@ -77,7 +77,7 @@ AgentSpec 的 `mcpRefs` 使用 MCP 名称，`skillRefs` 使用 `name@version`；
 ### 阶段 2：创建 Team 和 AgentSpec
 
 1. 创建名称为 `l5-all-capabilities-20260928` 的 Project 级 Team。
-2. 设置测试策略：有限并发、允许 `qwenpaw` Runtime、关闭不必要的人审阻塞。
+2. 设置测试策略：有限并发、使用 `AGENTSCOPE` Runtime、关闭不必要的人审阻塞。
 3. 创建全能力 AgentSpec：
 
 ```json

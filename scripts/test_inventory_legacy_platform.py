@@ -47,13 +47,13 @@ class TestGitignore(unittest.TestCase):
 
 # 合成 fixture（脱敏风格，模拟 DDL 字段；后续批次任务复用）
 FIXTURE_AT_WORKER = [
-    {"name": "worker-alpha", "agent_type": "Qwenpaw", "deploy_type": "Managed",
+    {"name": "worker-alpha", "agent_type": "LegacyAgent", "deploy_type": "Managed",
      "model_provider": "deepseek", "model_name": "deepseek-chat", "status": "RUNNING",
      "soul": "SOUL MARKER alpha", "agents": "AGENTS MARKER alpha",
      "mcp_servers_json": '[{"name":"mcp-a","transport":"SSE","url":"http://x"}]',
      "skills_json": '[{"name":"skill-a","label":"A","version":"1"}]',
      "groups_json": '[{"name":"team-x","role":"leader","type":"worker"}]'},
-    {"name": "worker-beta", "agent_type": "Qwenpaw", "deploy_type": "SelfHosted",
+    {"name": "worker-beta", "agent_type": "LegacyAgent", "deploy_type": "SelfHosted",
      "model_provider": "deepseek", "model_name": "deepseek-chat", "status": "RUNNING",
      "soul": "SOUL MARKER beta", "agents": "AGENTS MARKER beta",
      "mcp_servers_json": None, "skills_json": None, "groups_json": None},

@@ -2,82 +2,52 @@ package io.agentteams.worker;
 
 import io.agentscope.core.model.ModelRegistry;
 import io.agentscope.core.model.ModelCreationContext;
+import io.agentscope.core.model.transport.ProxyConfig;
 import io.agentteams.runtime.AgentRuntime;
-import io.agentteams.runtime.AgentRuntimeContext;
-import io.agentteams.runtime.AgentScopeRolloutPolicy;
-import io.agentteams.runtime.CompletionStatus;
-import io.agentteams.runtime.QwenPawHttpRuntimeConfiguration;
-import io.agentteams.runtime.QwenPawHttpRuntimePort;
-import io.agentteams.runtime.QwenPawRuntime;
-import io.agentteams.runtime.ProjectScopedRuntimeModelCallAdmission;
 import io.agentteams.runtime.RuntimeQuotaPort;
-import io.agentteams.runtime.RuntimeModelCallAdmission;
-import io.agentteams.runtime.RuntimeResult;
-import io.agentteams.runtime.RuntimeSnapshot;
-import io.agentteams.runtime.RuntimeStatus;
-import io.agentteams.runtime.RuntimeSubmission;
-import io.agentteams.runtime.RuntimeTask;
-import io.agentteams.runtime.SemaphoreRuntimeModelCallAdmission;
 import io.agentteams.worker.agentscope.AgentScopeHarnessFactory;
 import io.agentteams.worker.agentscope.AgentScopeRuntime;
 import io.agentteams.worker.agentscope.ConfiguredAgentScopeHarnessFactory;
 import io.agentteams.worker.agentscope.AgentScopeWorkspaceFactory;
 import io.agentteams.worker.agentscope.SandboxWorkspaceOwnershipPort;
-import io.grpc.ManagedChannel;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Map;
 import java.util.Objects;
 
-/** Composition root for QwenPaw, optional AgentScope, and the task owner router. */
+/** Composition root for the single AgentScope Harness execution runtime. */
 public final class WorkerRuntimeFactory {
     private final AgentScopeHarnessFactory configuredHarness;
-    private final AgentScopeRolloutPolicy rollout;
     private final SandboxStateProbePort sandboxStateProbe;
     private final SandboxWorkspaceOwnershipPort workspaceOwnership;
 
     public WorkerRuntimeFactory() {
-        this(null, AgentScopeRolloutPolicy.fromEnvironment(System.getenv()),
-                (sandboxId, taskId, attemptId) -> {
+        this(null, (sandboxId, taskId, attemptId) -> {
                     throw new IllegalStateException("sandbox state probe is unavailable");
                 }, new FailClosedWorkspaceOwnershipPort());
     }
 
     public WorkerRuntimeFactory(AgentScopeHarnessFactory configuredHarness,
-            AgentScopeRolloutPolicy rollout) {
-        this(configuredHarness, rollout, (sandboxId, taskId, attemptId) -> {
-            throw new IllegalStateException("sandbox state probe is unavailable");
-        }, new FailClosedWorkspaceOwnershipPort());
+            SandboxStateProbePort sandboxStateProbe) {
+        this(configuredHarness, sandboxStateProbe, new FailClosedWorkspaceOwnershipPort());
     }
 
     public WorkerRuntimeFactory(AgentScopeHarnessFactory configuredHarness,
-            AgentScopeRolloutPolicy rollout, SandboxStateProbePort sandboxStateProbe) {
-        this(configuredHarness, rollout, sandboxStateProbe, new FailClosedWorkspaceOwnershipPort());
-    }
-
-    public WorkerRuntimeFactory(SandboxStateProbePort sandboxStateProbe) {
-        this(null, AgentScopeRolloutPolicy.fromEnvironment(System.getenv()), sandboxStateProbe,
-                new FailClosedWorkspaceOwnershipPort());
-    }
-
-    public WorkerRuntimeFactory(AgentScopeHarnessFactory configuredHarness,
-            AgentScopeRolloutPolicy rollout, SandboxStateProbePort sandboxStateProbe,
-            SandboxWorkspaceOwnershipPort workspaceOwnership) {
+            SandboxStateProbePort sandboxStateProbe, SandboxWorkspaceOwnershipPort workspaceOwnership) {
         this.configuredHarness = configuredHarness;
-        this.rollout = Objects.requireNonNull(rollout, "rollout");
         this.sandboxStateProbe = Objects.requireNonNull(sandboxStateProbe, "sandboxStateProbe");
         this.workspaceOwnership = Objects.requireNonNull(workspaceOwnership, "workspaceOwnership");
     }
 
+    public WorkerRuntimeFactory(SandboxStateProbePort sandboxStateProbe) {
+        this(null, sandboxStateProbe, new FailClosedWorkspaceOwnershipPort());
+    }
+
     SandboxStateProbePort sandboxStateProbe() { return sandboxStateProbe; }
 
-    public void validate(QwenPawWorker.WorkerConfiguration configuration) {
+    public void validate(AgentTeamsWorker.WorkerConfiguration configuration) {
         Objects.requireNonNull(configuration, "configuration");
-        if (configuration.runtime() != io.agentteams.application.api.ExecutionRuntime.AGENTSCOPE) {
-            return;
-        }
         if (configuredHarness == null && !modelConfigured(configuration)) {
             throw new IllegalStateException("AGENTSCOPE runtime requires configured Harness and model");
         }
@@ -87,29 +57,20 @@ public final class WorkerRuntimeFactory {
         }
     }
 
-    public AgentRuntime create(QwenPawWorker.WorkerConfiguration configuration,
-            ManagedChannel gatewayChannel, Clock clock, RuntimeQuotaPort quotaPort) {
+    public AgentRuntime create(AgentTeamsWorker.WorkerConfiguration configuration,
+            io.grpc.ManagedChannel gatewayChannel, Clock clock, RuntimeQuotaPort quotaPort) {
         Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(gatewayChannel, "gatewayChannel");
         Objects.requireNonNull(clock, "clock");
         validate(configuration);
-        AgentRuntime qwenPaw = shouldInitializeQwenPaw(configuration.runtime())
-                ? qwenPaw(configuration, gatewayChannel, clock, quotaPort)
-                : new UnavailableRuntime();
         AgentRuntime agentScope = agentScope(configuration, clock);
-        AgentScopeRolloutPolicy effectiveRollout = configuration.runtime()
-                == io.agentteams.application.api.ExecutionRuntime.AGENTSCOPE
-                ? new AgentScopeRolloutPolicy(AgentScopeRolloutPolicy.AGENTSCOPE, true, 100,
-                        java.util.Set.of(), java.util.Set.of(), java.util.Set.of())
-                : rollout;
-        return new WorkerRuntimeRouter(qwenPaw, agentScope, effectiveRollout);
+        if (agentScope == null) {
+            throw new IllegalStateException("AgentScope Harness is unavailable");
+        }
+        return agentScope;
     }
 
-    static boolean shouldInitializeQwenPaw(io.agentteams.application.api.ExecutionRuntime runtime) {
-        return runtime != io.agentteams.application.api.ExecutionRuntime.AGENTSCOPE;
-    }
-
-    private AgentRuntime agentScope(QwenPawWorker.WorkerConfiguration configuration, Clock clock) {
+    private AgentRuntime agentScope(AgentTeamsWorker.WorkerConfiguration configuration, Clock clock) {
         AgentScopeHarnessFactory harness = configuredHarness;
         ConfiguredAgentScopeHarnessFactory configured = null;
         if (harness == null && modelConfigured(configuration)
@@ -134,35 +95,34 @@ public final class WorkerRuntimeFactory {
                 : new AgentScopeRuntime(harness, ignored -> { }, configured.activeGuard());
     }
 
-    private static AgentRuntime qwenPaw(QwenPawWorker.WorkerConfiguration configuration,
-            ManagedChannel gatewayChannel, Clock clock, RuntimeQuotaPort quotaPort) {
-        RuntimeQuotaPort effectiveQuota = quotaPort == null
-                ? QwenPawWorker.remoteQuotaPort(configuration, gatewayChannel, clock) : quotaPort;
-        QwenPawHttpRuntimeConfiguration qwenConfiguration = new QwenPawHttpRuntimeConfiguration(
-                URI.create(configuration.qwenPawEndpoint()), configuration.qwenPawAgentId(),
-                configuration.qwenPawAuthorizationToken(), configuration.qwenPawConnectTimeout(),
-                configuration.qwenPawUserId(), configuration.qwenPawChannel(),
-                configuration.qwenPawConfigurationPath(), configuration.virtualThreadsEnabled());
-        RuntimeModelCallAdmission local = new SemaphoreRuntimeModelCallAdmission(
-                configuration.modelCallMaxConcurrent());
-        RuntimeModelCallAdmission admission = effectiveQuota == null
-                ? local : new ProjectScopedRuntimeModelCallAdmission(effectiveQuota, local);
-        return new QwenPawRuntime(new QwenPawHttpRuntimePort(qwenConfiguration), admission);
-    }
-
-    private static boolean modelConfigured(QwenPawWorker.WorkerConfiguration configuration) {
+    private static boolean modelConfigured(AgentTeamsWorker.WorkerConfiguration configuration) {
         return configuration.model() != null && !configuration.model().isBlank()
                 && !"unknown".equalsIgnoreCase(configuration.model().trim());
     }
 
     static ModelCreationContext modelCreationContext(Map<String, String> environment) {
         String baseUrl = environment.get("AGENTTEAMS_MODEL_BASE_URL");
-        if (baseUrl == null || baseUrl.isBlank()) {
-            baseUrl = environment.get("DASHSCOPE_BASE_URL");
-        }
         ModelCreationContext.Builder builder = ModelCreationContext.builder();
         if (baseUrl != null && !baseUrl.isBlank()) {
             builder.baseUrl(baseUrl.trim());
+        }
+        String proxyHost = environment.get("AGENTTEAMS_MODEL_PROXY_HOST");
+        String proxyPort = environment.get("AGENTTEAMS_MODEL_PROXY_PORT");
+        if ((proxyHost != null && !proxyHost.isBlank()) || (proxyPort != null && !proxyPort.isBlank())) {
+            if (proxyHost == null || proxyHost.isBlank()) {
+                throw new IllegalArgumentException(
+                        "AGENTTEAMS_MODEL_PROXY_HOST must be set when model proxy is enabled");
+            }
+            int port;
+            try {
+                port = Integer.parseInt(proxyPort == null ? "" : proxyPort.trim());
+            } catch (NumberFormatException error) {
+                throw new IllegalArgumentException("AGENTTEAMS_MODEL_PROXY_PORT must be a valid port", error);
+            }
+            if (port < 1 || port > 65535) {
+                throw new IllegalArgumentException("AGENTTEAMS_MODEL_PROXY_PORT must be 1..65535");
+            }
+            builder.component(ProxyConfig.class, ProxyConfig.http(proxyHost.trim(), port));
         }
         return builder.build();
     }
@@ -171,23 +131,6 @@ public final class WorkerRuntimeFactory {
         String configured = System.getenv("AGENTSCOPE_WORKSPACE");
         return Path.of(configured == null || configured.isBlank()
                 ? "/tmp/agentteams-agentscope" : configured.trim());
-    }
-
-    /** AGENTSCOPE workers fail closed if a task lacks the stable scope required for routing. */
-    private static final class UnavailableRuntime implements AgentRuntime {
-        @Override public void start(AgentRuntimeContext context) { }
-        @Override public RuntimeSubmission submit(RuntimeTask task) {
-            return RuntimeSubmission.rejected("RUNTIME_UNAVAILABLE");
-        }
-        @Override public CompletionStatus complete(RuntimeResult result) {
-            return CompletionStatus.UNKNOWN_TASK;
-        }
-        @Override public boolean cancel(java.util.UUID taskId) { return false; }
-        @Override public java.util.Optional<RuntimeStatus> status(java.util.UUID taskId) {
-            return java.util.Optional.empty();
-        }
-        @Override public RuntimeSnapshot snapshot() { return new RuntimeSnapshot(0, 0); }
-        @Override public void stop() { }
     }
 
     private static final class FailClosedWorkspaceOwnershipPort implements SandboxWorkspaceOwnershipPort {

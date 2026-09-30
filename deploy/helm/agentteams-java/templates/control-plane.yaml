@@ -172,8 +172,6 @@ spec:
               value: {{ .Values.controlPlane.workerProvisioner.gatewayPort | quote }}
             - name: AGENTTEAMS_WORKER_PROVISIONER_CONFIG_MANIFEST_BASE_URL
               value: {{ default (printf "http://%s-control-plane:%v" (include "agentteams-java.fullname" .) .Values.controlPlane.port) .Values.controlPlane.workerProvisioner.configManifestBaseUrl | quote }}
-            - name: AGENTTEAMS_WORKER_PROVISIONER_QWENPAW_ENDPOINT
-              value: {{ .Values.controlPlane.workerProvisioner.qwenpawEndpoint | quote }}
             - name: AGENTTEAMS_WORKER_PROVISIONER_TLS_SECRET_NAME
               value: {{ .Values.controlPlane.workerProvisioner.tlsSecretName | quote }}
             - name: AGENTTEAMS_WORKER_PROVISIONER_CREDENTIAL_SECRET_ENVS
