@@ -8,7 +8,17 @@ import java.util.UUID;
 
 public record EvaluationReportRecord(UUID id, UUID evaluationRunId, BigDecimal aggregateScore,
         JsonNode dimensionScores, EvaluationRunRecord.Status evaluationStatus, boolean taskSuccess,
-        Instant createdAt) {
+        GateStatus executionGateStatus, GateStatus resultGateStatus, Instant createdAt) {
+    public enum GateStatus { PASSED, FAILED, INCONCLUSIVE }
+
+    /** Keeps reports created before independent gates source-compatible and explicitly inconclusive. */
+    public EvaluationReportRecord(UUID id, UUID evaluationRunId, BigDecimal aggregateScore,
+            JsonNode dimensionScores, EvaluationRunRecord.Status evaluationStatus, boolean taskSuccess,
+            Instant createdAt) {
+        this(id, evaluationRunId, aggregateScore, dimensionScores, evaluationStatus, taskSuccess,
+                GateStatus.INCONCLUSIVE, GateStatus.INCONCLUSIVE, createdAt);
+    }
+
     public EvaluationReportRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(evaluationRunId, "evaluationRunId");
@@ -20,6 +30,8 @@ public record EvaluationReportRecord(UUID id, UUID evaluationRunId, BigDecimal a
             throw new IllegalArgumentException("dimensionScores must be a JSON object");
         }
         Objects.requireNonNull(evaluationStatus, "evaluationStatus");
+        Objects.requireNonNull(executionGateStatus, "executionGateStatus");
+        Objects.requireNonNull(resultGateStatus, "resultGateStatus");
         Objects.requireNonNull(createdAt, "createdAt");
     }
 }

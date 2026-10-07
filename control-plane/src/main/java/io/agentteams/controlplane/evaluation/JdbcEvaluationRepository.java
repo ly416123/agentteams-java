@@ -175,15 +175,19 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
         Objects.requireNonNull(report, "report");
         jdbc.update("""
                 INSERT INTO evaluation_reports
-                    (id, evaluation_run_id, aggregate_score, dimension_scores, evaluation_status, task_success, created_at)
-                SELECT ?, run.id, ?, ?, ?, ?, ?
+                    (id, evaluation_run_id, aggregate_score, dimension_scores, evaluation_status, task_success,
+                     execution_gate_status, result_gate_status, created_at)
+                SELECT ?, run.id, ?, ?, ?, ?, ?, ?, ?
                   FROM evaluation_runs run
                  WHERE run.id = ? AND run.organization_id = ? AND run.tenant_id = ?
                 ON CONFLICT (evaluation_run_id) DO UPDATE SET
                     aggregate_score = EXCLUDED.aggregate_score, dimension_scores = EXCLUDED.dimension_scores,
-                    evaluation_status = EXCLUDED.evaluation_status, task_success = EXCLUDED.task_success
+                    evaluation_status = EXCLUDED.evaluation_status, task_success = EXCLUDED.task_success,
+                    execution_gate_status = EXCLUDED.execution_gate_status,
+                    result_gate_status = EXCLUDED.result_gate_status
                 """, report.id(), report.aggregateScore(), JdbcSupport.json(report.dimensionScores().toString()),
-                report.evaluationStatus().name(), report.taskSuccess(), JdbcSupport.timestamp(report.createdAt()),
+                report.evaluationStatus().name(), report.taskSuccess(), report.executionGateStatus().name(),
+                report.resultGateStatus().name(), JdbcSupport.timestamp(report.createdAt()),
                 report.evaluationRunId(), context.organizationId(), context.tenantId());
         return jdbc.query(selectReport() + " WHERE report.evaluation_run_id = ? AND run.organization_id = ? AND run.tenant_id = ?",
                 this::mapReport, report.evaluationRunId(), context.organizationId(), context.tenantId()).stream()
@@ -225,7 +229,8 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
     private static String selectReport() {
         return """
                 SELECT report.id, report.evaluation_run_id, report.aggregate_score,
-                       report.dimension_scores::text, report.evaluation_status, report.task_success, report.created_at
+                       report.dimension_scores::text, report.evaluation_status, report.task_success,
+                       report.execution_gate_status, report.result_gate_status, report.created_at
                   FROM evaluation_reports report
                   JOIN evaluation_runs run ON run.id = report.evaluation_run_id
                 """;
@@ -259,7 +264,10 @@ public class JdbcEvaluationRepository implements EvaluationRepository {
             return new EvaluationReportRecord(rs.getObject("id", UUID.class),
                     rs.getObject("evaluation_run_id", UUID.class), score, dimensions,
                     EvaluationRunRecord.Status.valueOf(rs.getString("evaluation_status")),
-                    rs.getBoolean("task_success"), JdbcSupport.instant(rs, "created_at"));
+                    rs.getBoolean("task_success"),
+                    EvaluationReportRecord.GateStatus.valueOf(rs.getString("execution_gate_status")),
+                    EvaluationReportRecord.GateStatus.valueOf(rs.getString("result_gate_status")),
+                    JdbcSupport.instant(rs, "created_at"));
         } catch (java.io.IOException error) {
             throw new SQLException("invalid evaluation report JSON", error);
         }

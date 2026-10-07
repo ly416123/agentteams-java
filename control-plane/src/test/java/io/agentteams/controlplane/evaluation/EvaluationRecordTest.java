@@ -52,6 +52,33 @@ class EvaluationRecordTest {
     }
 
     @Test
+    void gateStatusesAreRestrictedAndIndependentFromTaskSuccess() {
+        for (EvaluationReportRecord.GateStatus execution : EvaluationReportRecord.GateStatus.values()) {
+            for (EvaluationReportRecord.GateStatus result : EvaluationReportRecord.GateStatus.values()) {
+                EvaluationReportRecord report = new EvaluationReportRecord(UUID.randomUUID(), RUN_ID,
+                        BigDecimal.ZERO, JSON.createObjectNode(), EvaluationRunRecord.Status.PASSED, true,
+                        execution, result, NOW);
+
+                assertThat(report.taskSuccess()).isTrue();
+                assertThat(report.executionGateStatus()).isEqualTo(execution);
+                assertThat(report.resultGateStatus()).isEqualTo(result);
+            }
+        }
+        assertThat(EvaluationReportRecord.GateStatus.values())
+                .containsExactlyInAnyOrder(EvaluationReportRecord.GateStatus.PASSED,
+                        EvaluationReportRecord.GateStatus.FAILED,
+                        EvaluationReportRecord.GateStatus.INCONCLUSIVE);
+
+        EvaluationReportRecord legacy = new EvaluationReportRecord(UUID.randomUUID(), RUN_ID,
+                BigDecimal.ZERO, JSON.createObjectNode(), EvaluationRunRecord.Status.PASSED, true, NOW);
+        assertThat(legacy.executionGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.INCONCLUSIVE);
+        assertThat(legacy.resultGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.INCONCLUSIVE);
+        assertThatThrownBy(() -> new EvaluationReportRecord(UUID.randomUUID(), RUN_ID, BigDecimal.ZERO,
+                JSON.createObjectNode(), EvaluationRunRecord.Status.PASSED, true, null,
+                EvaluationReportRecord.GateStatus.PASSED, NOW)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     void rejectsInvalidVersionsJsonShapesAndScores() throws Exception {
         assertThatThrownBy(() -> new EvaluationSuiteRecord(SUITE_ID, "tenant-a", "project-a", "core", " ",
                 "evaluator-1", NOW)).isInstanceOf(IllegalArgumentException.class);
