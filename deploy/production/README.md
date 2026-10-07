@@ -1,5 +1,9 @@
 # Production Secret rotation
 
+L5 K3s Keycloak's PostgreSQL migration, identity preservation checks, restart
+validation, backup, and recovery steps are documented in
+[`l5-keycloak-postgresql.md`](l5-keycloak-postgresql.md).
+
 Operational metrics, tracing configuration, alert actions, and recovery
 commands are documented in
 [`observability-runbook.md`](observability-runbook.md).
