@@ -53,7 +53,7 @@ public class JdbcTaskProcessEventRepository implements TaskProcessEventRepositor
         Objects.requireNonNull(runId, "runId");
         Objects.requireNonNull(visible, "visible");
         if (after < 0) throw new IllegalArgumentException("after must not be negative");
-        if (limit < 1 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
+        if (limit < 1 || limit > 1001) throw new IllegalArgumentException("limit must be between 1 and 1001");
         if (visible.isEmpty()) return List.of();
         List<TaskEventVisibility> levels = visible.stream().sorted().toList();
         String placeholders = String.join(",", java.util.Collections.nCopies(levels.size(), "?"));

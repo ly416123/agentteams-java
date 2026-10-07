@@ -57,28 +57,35 @@ public final class EvidenceBundleAssembler {
         Objects.requireNonNull(runId, "runId");
         Objects.requireNonNull(visible, "visible");
         Set<TaskEventVisibility> allowed = Set.copyOf(visible);
-        TaskRunObservationRepository.TaskPlanningSnapshot planning = runs.planningForTask(taskId)
-                .orElseThrow(() -> new IllegalArgumentException("task planning snapshot is not available"));
-        List<TaskProcessEvent> safeEvents = events.find(context, taskId, runId, 0, allowed, EVENT_LIMIT).stream()
+        Optional<TaskRunObservationRepository.TaskRunSnapshot> taskRun = runs.snapshotForRun(context, taskId, runId);
+        List<TaskProcessEvent> observedEvents = events.find(context, taskId, runId, 0, allowed, EVENT_LIMIT + 1).stream()
                 .map(EvidenceBundleAssembler::sanitizeEvent)
                 .toList();
+        int observedEventCount = Math.min(observedEvents.size(), EVENT_LIMIT + 1);
+        List<TaskProcessEvent> safeEvents = observedEvents.stream().limit(EVENT_LIMIT).toList();
         List<TaskTreeNode> taskTree = List.copyOf(tree.find(context, runId));
         List<TaskDecisionRecord> safeDecisions = List.copyOf(decisions.find(context, taskId, runId, allowed));
         Optional<TaskResultManifest> manifest = manifests.find(context, taskId, runId, allowed).map(
                 EvidenceBundleAssembler::sanitizeManifest);
-        EvidenceBundle.TaskSnapshot snapshot = snapshot(taskId, planning, manifest);
-        return new EvidenceBundle(taskId, runId, snapshot, safeEvents, taskTree, safeDecisions,
+        EvidenceBundle.TaskSnapshot snapshot = snapshot(taskId, taskRun);
+        EvidenceBundle.RunSnapshot runSnapshot = taskRun.filter(value -> value.runStatus() != null)
+                .map(value -> new EvidenceBundle.RunSnapshot(value.runStatus(), value.startedAt(), value.completedAt()))
+                .orElseGet(() -> new EvidenceBundle.RunSnapshot("UNKNOWN", null, null));
+        String completenessStatus = observedEventCount > EVENT_LIMIT ? "TRUNCATED"
+                : taskRun.isEmpty() || taskRun.get().runStatus() == null || manifest.isEmpty()
+                        ? "INCONCLUSIVE" : "COMPLETE";
+        EvidenceBundle.EvidenceCompleteness completeness = new EvidenceBundle.EvidenceCompleteness(
+                completenessStatus, observedEventCount, EVENT_LIMIT);
+        return new EvidenceBundle(taskId, runId, snapshot, runSnapshot, completeness, safeEvents, taskTree, safeDecisions,
                 summarizeTools(safeEvents), manifest.orElse(null), artifactRefs(manifest), List.of(),
                 new EvidenceBundle.AgentMetadata("unknown", "unknown", "unknown"), List.of());
     }
 
     private static EvidenceBundle.TaskSnapshot snapshot(UUID taskId,
-            TaskRunObservationRepository.TaskPlanningSnapshot planning, Optional<TaskResultManifest> manifest) {
-        JsonNode spec = parseObject(planning.specJson());
-        String taskType = textOr(spec, "taskType", "unknown");
-        String conversation = textOrNull(spec, "sourceConversationId");
-        String phase = manifest.map(TaskResultManifest::status).orElse("UNKNOWN");
-        return new EvidenceBundle.TaskSnapshot(taskId, phase, taskType, conversation);
+            Optional<TaskRunObservationRepository.TaskRunSnapshot> taskRun) {
+        if (taskRun.isEmpty()) return new EvidenceBundle.TaskSnapshot(taskId, "UNKNOWN", "unknown", null);
+        TaskRunObservationRepository.TaskRunSnapshot value = taskRun.get();
+        return new EvidenceBundle.TaskSnapshot(taskId, value.taskPhase(), value.taskType(), value.sourceConversationId());
     }
 
     private static List<EvidenceBundle.ToolCallSummary> summarizeTools(List<TaskProcessEvent> events) {

@@ -88,4 +88,39 @@ class JdbcTaskRunObservationRepositoryTest {
         assertThat(repository.latestRunId(taskId)).contains(newerRun);
         assertThat(repository.latestRunId(UUID.randomUUID())).isEmpty();
     }
+
+    @Test
+    void taskRunSnapshotIsBoundToOrganizationTenantTaskAndRun() {
+        UUID taskId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID otherRunId = UUID.randomUUID();
+        ExecutionContext scoped = new ExecutionContext("legacy:tenant-1", "tenant-1", "project-1", "team-1", "alice");
+        jdbc.update("INSERT INTO tasks(id,title,description,phase,spec,actor,source,created_at,updated_at,version) " +
+                "VALUES (?,?,?,?,?::jsonb,?,?,?,?,0)", taskId, "T", "", "SUCCEEDED", "{\"taskType\":\"chat\"}",
+                "alice", "api", JdbcSupport.timestamp(NOW), JdbcSupport.timestamp(NOW));
+        jdbc.update("INSERT INTO resource_scopes(resource_type,resource_id,tenant_id,project_id,team,created_at,updated_at) " +
+                "VALUES ('TASK',?,?,?,?,?,?)", taskId, "tenant-1", "project-1", "team-1",
+                JdbcSupport.timestamp(NOW), JdbcSupport.timestamp(NOW));
+        repository.ensureRun(scoped, taskId, runId, "FAILED", NOW);
+        repository.ensureRun(scoped, taskId, otherRunId, "RUNNING", NOW.plusSeconds(1));
+        jdbc.update("UPDATE task_runs SET started_at = ?, completed_at = ? WHERE id = ?",
+                JdbcSupport.timestamp(NOW), JdbcSupport.timestamp(NOW.plusSeconds(3)), runId);
+
+        assertThat(repository.snapshotForRun(scoped, taskId, runId)).hasValueSatisfying(snapshot -> {
+            assertThat(snapshot.taskPhase()).isEqualTo("SUCCEEDED");
+            assertThat(snapshot.runStatus()).isEqualTo("FAILED");
+            assertThat(snapshot.startedAt()).isEqualTo(NOW);
+            assertThat(snapshot.completedAt()).isEqualTo(NOW.plusSeconds(3));
+        });
+        assertThat(repository.snapshotForRun(scoped, taskId, otherRunId)).hasValueSatisfying(snapshot ->
+                assertThat(snapshot.runStatus()).isEqualTo("RUNNING"));
+        assertThat(repository.snapshotForRun(scoped, taskId, UUID.randomUUID())).hasValueSatisfying(snapshot -> {
+            assertThat(snapshot.taskPhase()).isEqualTo("SUCCEEDED");
+            assertThat(snapshot.runStatus()).isNull();
+            assertThat(snapshot.startedAt()).isNull();
+            assertThat(snapshot.completedAt()).isNull();
+        });
+        assertThat(repository.snapshotForRun(new ExecutionContext("legacy:tenant-2", "tenant-2", "project-2", "team-2", "alice"),
+                taskId, runId)).isEmpty();
+    }
 }

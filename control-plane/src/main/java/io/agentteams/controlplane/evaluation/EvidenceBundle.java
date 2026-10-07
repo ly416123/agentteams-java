@@ -4,12 +4,15 @@ import io.agentteams.application.api.TaskProcessEvent;
 import io.agentteams.application.api.TaskResultManifest;
 import io.agentteams.controlplane.task.TaskDecisionRecord;
 import io.agentteams.controlplane.task.TaskTreeNode;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /** Immutable, metadata-first input contract for deterministic and semantic evaluation. */
 public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot taskSnapshot,
+        RunSnapshot runSnapshot, EvidenceCompleteness evidenceCompleteness,
         List<TaskProcessEvent> taskEvents, List<TaskTreeNode> taskTree, List<TaskDecisionRecord> decisions,
         List<ToolCallSummary> toolCallSummaries, TaskResultManifest resultManifest, List<ArtifactRef> artifactRefs,
         List<ApprovalRecord> approvalHistory, AgentMetadata agentMetadata, List<PolicyOutcome> policyOutcomes) {
@@ -17,6 +20,8 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(executionRunId, "executionRunId");
         Objects.requireNonNull(taskSnapshot, "taskSnapshot");
+        Objects.requireNonNull(runSnapshot, "runSnapshot");
+        Objects.requireNonNull(evidenceCompleteness, "evidenceCompleteness");
         taskEvents = List.copyOf(Objects.requireNonNull(taskEvents, "taskEvents"));
         taskTree = List.copyOf(Objects.requireNonNull(taskTree, "taskTree"));
         decisions = List.copyOf(Objects.requireNonNull(decisions, "decisions"));
@@ -31,11 +36,46 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
         }
     }
 
+    /** Source-compatible constructor for callers creating legacy/incomplete bundles directly. */
+    public EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot taskSnapshot,
+            List<TaskProcessEvent> taskEvents, List<TaskTreeNode> taskTree, List<TaskDecisionRecord> decisions,
+            List<ToolCallSummary> toolCallSummaries, TaskResultManifest resultManifest, List<ArtifactRef> artifactRefs,
+            List<ApprovalRecord> approvalHistory, AgentMetadata agentMetadata, List<PolicyOutcome> policyOutcomes) {
+        this(taskId, executionRunId, taskSnapshot, new RunSnapshot("UNKNOWN", null, null),
+                new EvidenceCompleteness("INCONCLUSIVE", taskEvents == null ? 0 : taskEvents.size(), 1000),
+                taskEvents, taskTree, decisions, toolCallSummaries, resultManifest, artifactRefs, approvalHistory,
+                agentMetadata, policyOutcomes);
+    }
+
     public InputStatus inputStatus() {
         return resultManifest == null ? InputStatus.INCONCLUSIVE : InputStatus.COMPLETE;
     }
 
     public enum InputStatus { COMPLETE, INCONCLUSIVE }
+
+    public record RunSnapshot(String status, Instant startedAt, Instant completedAt) {
+        private static final Set<String> ALLOWED = Set.of("UNKNOWN", "QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED");
+        public RunSnapshot {
+            status = required(status, "status").toUpperCase(java.util.Locale.ROOT);
+            if (!ALLOWED.contains(status)) throw new IllegalArgumentException("unsupported run status");
+        }
+    }
+
+    public record EvidenceCompleteness(String status, int observedEventCount, int eventLimit) {
+        private static final Set<String> ALLOWED = Set.of("COMPLETE", "TRUNCATED", "INCONCLUSIVE");
+        public EvidenceCompleteness {
+            status = required(status, "status").toUpperCase(java.util.Locale.ROOT);
+            if (!ALLOWED.contains(status)) throw new IllegalArgumentException("unsupported evidence completeness status");
+            if (observedEventCount < 0) throw new IllegalArgumentException("observedEventCount must not be negative");
+            if (eventLimit < 1) throw new IllegalArgumentException("eventLimit must be positive");
+            if ("TRUNCATED".equals(status) && observedEventCount != eventLimit + 1) {
+                throw new IllegalArgumentException("TRUNCATED requires observing exactly one event beyond the limit");
+            }
+            if ("COMPLETE".equals(status) && observedEventCount >= eventLimit + 1) {
+                throw new IllegalArgumentException("COMPLETE requires fewer than limit + 1 observed events");
+            }
+        }
+    }
 
     public record TaskSnapshot(UUID taskId, String phase, String taskType, String sourceConversationId) {
         public TaskSnapshot {

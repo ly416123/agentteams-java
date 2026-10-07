@@ -11,6 +11,9 @@ public interface TaskRunObservationRepository {
 
     Optional<TaskPlanningSnapshot> planningForTask(UUID taskId);
 
+    /** Reads task and run facts only when both identities belong to the caller's organization and tenant. */
+    Optional<TaskRunSnapshot> snapshotForRun(ExecutionContext context, UUID taskId, UUID runId);
+
     void ensureRun(ExecutionContext context, UUID taskId, UUID runId, String status, Instant at);
 
     long nextSequence(UUID runId);
@@ -24,6 +27,19 @@ public interface TaskRunObservationRepository {
             description = description == null ? "" : description;
             requireText(source, "source");
             requireText(specJson, "specJson");
+        }
+
+        private static void requireText(String value, String field) {
+            if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " must not be blank");
+        }
+    }
+
+    record TaskRunSnapshot(String taskPhase, String runStatus, Instant startedAt, Instant completedAt,
+            String taskType, String sourceConversationId) {
+        public TaskRunSnapshot {
+            requireText(taskPhase, "taskPhase");
+            requireText(taskType, "taskType");
+            sourceConversationId = sourceConversationId == null ? null : sourceConversationId.trim();
         }
 
         private static void requireText(String value, String field) {
