@@ -136,6 +136,7 @@ class EvidenceBundleAssemblerTest {
         assertThat(bundle.runSnapshot()).isEqualTo(new EvidenceBundle.RunSnapshot("UNKNOWN", null, null));
         assertThat(bundle.resultManifest().status()).isEqualTo("SUCCEEDED");
         assertThat(bundle.evidenceCompleteness().status()).isEqualTo("INCONCLUSIVE");
+        assertThat(bundle.inputStatus()).isEqualTo(EvidenceBundle.InputStatus.INCONCLUSIVE);
     }
 
     @Test
@@ -152,7 +153,8 @@ class EvidenceBundleAssemblerTest {
         when(events.find(CONTEXT, TASK_ID, RUN_ID, 0, Set.of(TaskEventVisibility.REQUESTER), 1001)).thenReturn(observed);
         when(tree.find(CONTEXT, RUN_ID)).thenReturn(List.of());
         when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
-        when(manifests.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(Optional.empty());
+        when(manifests.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(Optional.of(
+                new TaskResultManifest(TASK_ID, RUN_ID, "SUCCEEDED", "done", List.of())));
 
         EvidenceBundle bundle = assembler(runs, events, tree, decisions, manifests).assemble(CONTEXT, TASK_ID, RUN_ID,
                 Set.of(TaskEventVisibility.REQUESTER));
@@ -160,6 +162,7 @@ class EvidenceBundleAssemblerTest {
         assertThat(bundle.taskEvents()).hasSize(1000).allSatisfy(event -> assertThat(event.payload()).isNull());
         assertThat(bundle.evidenceCompleteness()).isEqualTo(
                 new EvidenceBundle.EvidenceCompleteness("TRUNCATED", 1001, 1000));
+        assertThat(bundle.inputStatus()).isEqualTo(EvidenceBundle.InputStatus.INCONCLUSIVE);
     }
 
     @Test

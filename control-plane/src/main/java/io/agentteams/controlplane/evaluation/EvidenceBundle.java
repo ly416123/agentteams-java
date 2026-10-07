@@ -47,8 +47,9 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
                 agentMetadata, policyOutcomes);
     }
 
+    /** Reports whether the assembled evidence is usable as a complete input, including Run and truncation checks. */
     public InputStatus inputStatus() {
-        return resultManifest == null ? InputStatus.INCONCLUSIVE : InputStatus.COMPLETE;
+        return "COMPLETE".equals(evidenceCompleteness.status()) ? InputStatus.COMPLETE : InputStatus.INCONCLUSIVE;
     }
 
     public enum InputStatus { COMPLETE, INCONCLUSIVE }
