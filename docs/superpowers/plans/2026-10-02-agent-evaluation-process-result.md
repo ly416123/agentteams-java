@@ -59,29 +59,31 @@
 
 **文件：** `EvaluationReportRecord.java`、`V112__evaluation_execution_result_gates.sql`、`EvaluationRepository.java`、`JdbcEvaluationRepository.java`、对应测试。
 
-- [ ] **步骤 1：先写报告模型失败测试**
+- [x] **步骤 1：先写报告模型失败测试**
 
 在 `EvaluationRecordTest` 增加以下契约：`executionGateStatus`、`resultGateStatus` 都仅允许 `PASSED`、`FAILED`、`INCONCLUSIVE`；Task `SUCCEEDED` 可以与任一 Evaluation 门禁状态并存。
 
-- [ ] **步骤 2：运行模型测试确认失败**
+- [x] **步骤 2：运行模型测试确认失败**
 
 运行：`mvn -q -pl control-plane -Dtest=EvaluationRecordTest test`
 
 预期：FAIL，报告类型缺少门禁字段或状态校验。
 
-- [ ] **步骤 3：增加向后兼容迁移和记录字段**
+- [x] **步骤 3：增加向后兼容迁移和记录字段**
 
 迁移给 `evaluation_reports` 添加非空门禁状态列并设为 `INCONCLUSIVE` 默认值，避免旧报告读取失败。报告 record 新增对应字段，Repository 的 INSERT/SELECT 和 row mapper 使用同一字段顺序。
 
-- [ ] **步骤 4：运行持久化测试确认通过**
+- [x] **步骤 4：运行持久化测试确认通过**
 
 运行：`mvn -q -pl control-plane -Dtest='EvaluationRecordTest,JdbcEvaluationRepositoryTest' test`
 
 预期：PASS，新增报告状态可持久化，旧版构造/数据库数据仍能读取。
 
-- [ ] **步骤 5：提交契约变更**
+- [x] **步骤 5：提交契约变更**
 
-提交范围仅限迁移、报告记录、Repository 和对应测试，提交说明：`feat(eval): add execution and result gate states`。
+  提交范围仅限迁移、报告记录、Repository 和对应测试，提交说明：`feat(eval): add execution and result gate states`。实际提交为 `4272b1f9`。
+
+**任务 1 执行记录（2026-10-07）：** V112 为两个门禁列添加 `INCONCLUSIVE` 默认值和 CHECK 约束；`EvaluationReportRecord` 增加独立状态并保留旧构造器兼容；JDBC 保存、读取和映射均已扩展。TDD 先确认模型测试因缺字段失败，再实现后运行 `mvn -q -pl control-plane -Dtest='EvaluationRecordTest,JdbcEvaluationRepositoryTest' test` 通过。规格审查与代码质量审查无阻塞项。当前 EvaluationService 仍使用兼容构造器，因此新报告门禁状态在后续 evaluator 完成前为 `INCONCLUSIVE`；Mockito 测试没有替代真实 PostgreSQL/Flyway 验收。
 
 ## 任务 2：扩充 Evidence Bundle 并保留完整性
 
