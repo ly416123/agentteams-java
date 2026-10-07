@@ -194,7 +194,7 @@ git diff --check
 - `kubectl diff` 显示只修改 Keycloak Deployment、保留现有 Service NodePort 并增加受限 egress NetworkPolicy。上线后 Keycloak `1/1 Ready`、0 次重启，`KC_DB=postgres`，Discovery issuer 为 `http://192.168.1.13:30082/realms/agentteams`。
 - PostgreSQL StatefulSet 重启后 Keycloak 仍 Ready；随后删除并重建 Keycloak Pod，重新列出的 5 个用户 UUID 与基线一致，22 个 membership subject 清单未变。Alice 与 MCP service user 的 issuer/subject 正确，MCP service user 持有 `task:read` 并能读取原任务。
 - 验收完成后删除临时迁移 Pod、PVC、维护 NetworkPolicy 和临时 H2/realm 导出文件。通过 `pg_dump --format=custom` 生成 Keycloak 数据库恢复点，`pg_restore --list` 校验通过；备份存于 L5 `/home/ly/agentteams-backups/keycloak-postgresql-20261007.dump`（目录 `0700`、文件 `0600`），校验文件同目录。
-- 本需求已提交为 `e3bd8682`（`fix(身份): 持久化 L5 Keycloak 数据`）；按路径提交，仅包含本计划列出的 7 个文件。工作区原有其他暂存/未暂存改动保持未触碰；未推送，因为本地分支原先已领先远端两个提交，推送会一并发布与本需求无关的历史提交。
+- 本需求已提交并推送至 `origin/main`，提交为 `38bddbdd`（`fix(身份): 持久化 L5 Keycloak 数据`）；按路径提交，仅包含本计划列出的 7 个文件。推送同时发布了本地原先领先远端的两个提交。工作区原有其他暂存/未暂存改动保持未触碰。
 
 ## 计划自检
 
