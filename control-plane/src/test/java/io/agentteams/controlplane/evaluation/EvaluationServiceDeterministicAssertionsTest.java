@@ -42,13 +42,13 @@ class EvaluationServiceDeterministicAssertionsTest {
     @Test
     void requiredToolNeedsSuccessfulCompletionAndFailureHasEvidence() throws Exception {
         Outcome succeeded = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
-                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":2}")), List.of(), List.of(), null));
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"ok\":true,\"sequence\":2}")), List.of(), List.of(), null));
         assertThat(succeeded.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED);
 
         Outcome failed = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
-                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":false,\"errorCategory\":\"timeout\",\"sequence\":2}")), List.of(), List.of(), null));
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"ok\":false,\"errorCategory\":\"timeout\",\"sequence\":2}")), List.of(), List.of(), null));
         assertThat(failed.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
         assertThat(failed.results().getFirst().evidenceRefs()).contains("task-events:" + EXECUTION);
         assertThat(failed.report().taskSuccess()).isTrue();
@@ -56,30 +56,78 @@ class EvaluationServiceDeterministicAssertionsTest {
         assertThat(failed.report().resultGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.INCONCLUSIVE);
 
         Outcome missingCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
-                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}")), List.of(), List.of(), null));
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"sequence\":1}")), List.of(), List.of(), null));
         assertThat(missingCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
 
         Outcome unknownCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
-                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"sequence\":2}")), List.of(), List.of(), null));
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"sequence\":2}")), List.of(), List.of(), null));
         assertThat(unknownCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
 
         Outcome partialOutcomes = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
-                        event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
-                        event("tool.called", "{\"tool\":\"web_search\",\"sequence\":3}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":2}")),
+                        event("tool.called", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.called", "{\"tool\":\"web_search\",\"callId\":\"search-2\",\"sequence\":3}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"ok\":true,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(partialOutcomes.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
 
         Outcome extraCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
-                        event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":2}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":3}")),
+                        event("tool.called", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"callId\":\"search-1\",\"ok\":true,\"sequence\":2}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"callId\":\"search-extra\",\"ok\":true,\"sequence\":3}")),
                         List.of(), List.of(), null));
         assertThat(extraCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
-        assertThat(extraCompletion.results().getFirst().findingSummary()).contains("count does not match");
+        assertThat(extraCompletion.results().getFirst().findingSummary()).contains("unmatched");
+    }
+
+    @Test
+    void requiredToolMatchesLifecycleByCallIdAndRejectsAmbiguousIds() throws Exception {
+        Outcome matched = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"call-a\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"call-a\",\"ok\":true,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(matched.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED);
+
+        Outcome unknownId = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"call-a\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"call-unknown\",\"ok\":true,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(unknownId.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome duplicateId = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"call-a\",\"sequence\":1}"),
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"call-a\",\"sequence\":2}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"call-a\",\"ok\":true,\"sequence\":3}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"call-a\",\"ok\":true,\"sequence\":4}")),
+                        List.of(), List.of(), null));
+        assertThat(duplicateId.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome missingId = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(missingId.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome outOfOrder = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"call-a\",\"sequence\":2}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"call-a\",\"ok\":true,\"sequence\":1}")),
+                        List.of(), List.of(), null));
+        assertThat(outOfOrder.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome extraCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"call-a\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"call-a\",\"ok\":true,\"sequence\":2}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"call-extra\",\"ok\":true,\"sequence\":3}")),
+                        List.of(), List.of(), null));
+        assertThat(extraCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
     }
 
     @Test
@@ -98,30 +146,30 @@ class EvaluationServiceDeterministicAssertionsTest {
     void failedToolAssertionFailsWhenFailureOutcomeIsRecorded() throws Exception {
         Outcome outcome = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
-                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"search\",\"ok\":false,\"sequence\":2}")),
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":false,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
 
         Outcome partialOutcomes = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
-                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
-                        event("tool.called", "{\"tool\":\"search\",\"sequence\":3}"),
-                        event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":2}")),
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-2\",\"sequence\":3}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":true,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(partialOutcomes.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
 
         EvidenceBundle.EvidenceCompleteness truncated = new EvidenceBundle.EvidenceCompleteness("TRUNCATED", 1001, 1000);
         Outcome visibleFailure = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
                 bundle("RUNNING", "RUNNING", truncated, List.of(
-                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"search\",\"ok\":false,\"sequence\":2}")),
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":false,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(visibleFailure.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
 
         Outcome noVisibleFailure = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
                 bundle("RUNNING", "RUNNING", truncated,
-                        List.of(event("tool.called", "{\"tool\":\"search\",\"sequence\":1}")),
+                        List.of(event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}")),
                         List.of(), List.of(), null));
         assertThat(noVisibleFailure.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
     }
@@ -193,8 +241,8 @@ class EvaluationServiceDeterministicAssertionsTest {
                 new EvidenceBundle.EvidenceCompleteness("INCONCLUSIVE", 4, 1000);
         Outcome toolOutcome = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
                 bundle("SUCCEEDED", "UNKNOWN", missingRunOrManifest, List.of(
-                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":2}")),
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":true,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(toolOutcome.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED);
 
