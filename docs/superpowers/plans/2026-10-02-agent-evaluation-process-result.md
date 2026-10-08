@@ -269,6 +269,8 @@
 
 **首次真实正向尝试（2026-10-08，未通过）：** 短期 Token 的有效期为 300 秒，项目权限修正后须重新获取。任务 `ed74a64f-99c0-4aa9-93f7-fd682a79bf55` 创建成功，但 L5 镜像的调度器只扫描最早 16 个 QUEUED 任务，本任务排第 17；将在线批量大小调至 32 后进入 RUNNING。Runner 在排队期间达到默认 180 秒上限，脱敏报告保存在 `eval/reports/2026-10-08-l5-multi-agent-pdf-timeout.json`。Worker 上传 `output.md`、`result.json`，未生成 PDF；过程事件只出现 `glob_files`、`list_files`、`memory_search`、`session_list`，没有要求的搜索和 Skill 工具。父任务经租约恢复进入 `WAITING_SUBTASKS`，两个子任务要求未在 Team-a Executor 注册的能力标签，分别停在 QUEUED 和 DRAFT。用户已通过受控 API 取消父任务；只读核验父任务及两个子任务均为 `CANCELLED`，活动租约为 0。该次执行不能作为正向通过证据；需修复能力约束和 PDF 产出链路后重跑。
 
+**重跑前本地修复（2026-10-08，尚未部署 L5）：** 正向 Case 现在分别声明 Leader 规划工具、Executor 的 `web_search`/`load_skill_through_path` 和聚合 PDF 工具；子任务从父任务 `inputJson.executorMcpTools` 取得本轮 `requiredMcpTools`，不继承父任务 prompt。Leader 提示明确要求没有 Executor 能力注册表时不要生成 `requiredCapabilities`，避免模型臆造能力标签；Runner 未显式设置 `--timeout-seconds` 时按 Case `limits.timeoutSeconds` 等待（本 Case 300 秒）。回归验证：`SubtaskDelegationServiceTest` 7 项、`AgentScopeRuntimeTest`、Python 41 项通过，`git diff --check` 及 Python 编译通过。尚需构建并部署新镜像、同步 Runner 与 Case，再执行真实 L5 正向和负向验收。
+
 - [ ] **步骤 4：运行真实 L5 正向 Case**
 
 按 `eval/README.md` 使用现有受控 L5 入口和获授权的短期 Token，只跑新增多 Agent PDF Case，确认 PDF 可通过交付入口下载、解码为 PDF 且可解析页面。报告存入 `eval/reports/` 前检查不含凭证、预签名 URL 和原始工具正文。
