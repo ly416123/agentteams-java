@@ -151,31 +151,33 @@
 
 **文件：** `EvaluationService.java`、`EvidenceBundle.java`、`EvaluationServiceTest.java`、报告模型和 Repository。
 
-- [ ] **步骤 1：先写断言矩阵测试**
+- [x] **步骤 1：先写断言矩阵测试**
 
 覆盖：Run 状态与 Task phase 分开比对；required tool 必须有成功事件；failed tool 不通过且有失败证据；调用顺序/次数；子任务依赖成功及交接引用；失败重试超限；manifest/PDF 的 MIME、扩展名、大小和 SHA-256 元数据；`%PDF-` 文件头签名需要实际字节，未采集字节时返回 `INCONCLUSIVE`；截断证据返回 `INCONCLUSIVE`。
 
-- [ ] **步骤 2：运行服务测试确认失败**
+- [x] **步骤 2：运行服务测试确认失败**
 
 运行：`mvn -q -pl control-plane -Dtest=EvaluationServiceTest test`
 
 预期：FAIL，现有 evaluator 只支持 `phase`、调用摘要、`artifact_integrity` 和 `schema`。
 
-- [ ] **步骤 3：实现 typed evaluator 和证据引用**
+- [x] **步骤 3：实现 typed evaluator 和证据引用**
 
 把每种断言拆为小型 evaluator，统一输出 `EvaluationResultRecord`。只有已验证的必需证据缺失/条件不满足才判 `FAILED`；由于截断或缺失关键证据无法判断时判 `INCONCLUSIVE`。`executionGate` 汇总过程断言，`resultGate` 汇总结果契约；语义指标不参与两个门禁。PDF MIME、扩展名、大小和 SHA-256 属于 manifest 元数据校验；`%PDF-` 文件头签名必须检查文件字节。当前 Evidence Bundle 不采集制品字节，因此不能声称已验证 PDF 签名，该子断言必须返回 `INCONCLUSIVE`。
 
-- [ ] **步骤 4：实现硬门禁聚合测试**
+- [x] **步骤 4：实现硬门禁聚合测试**
 
 运行：`mvn -q -pl control-plane -Dtest='EvaluationServiceTest,EvaluationRecordTest,JdbcEvaluationRepositoryTest' test`
 
 预期：PASS；Task 成功不能抵消工具失败、无效 PDF 或不完整证据。
 
-- [ ] **步骤 5：提交 evaluator**
+- [x] **步骤 5：提交 evaluator**
 
 提交范围仅限服务、报告持久化和相关测试，提交说明：`feat(eval): add deterministic process and artifact assertions`。
 
 **任务 4 执行补充记录（2026-10-08）：** Control Plane 可读取 manifest 中的 MIME、扩展名、大小和 SHA-256 元数据，但当前 Evidence Bundle 不读取制品正文。因此 `artifact_pdf` 只在元数据明确不匹配时判 `FAILED`；元数据通过时，因缺少实际字节无法检查 `%PDF-` 文件头，必须判 `INCONCLUSIVE`。不得把元数据校验描述成 PDF 内容或签名验证。
+
+**任务 4 执行记录（2026-10-08）：** 增加 Run status、成功/失败工具、工具顺序/次数、依赖成功、依赖交接、重试上限、artifact integrity 和 PDF 元数据断言，并生成独立 `executionGate`、`resultGate`。工具断言按事件证据完整度及安全 payload 判定；事件序号只用于排序，缺失/脱敏/不完整结果返回 `INCONCLUSIVE`。TaskTree 空树或依赖缺项为 `INCONCLUSIVE`，已知失败依赖为 `FAILED`；handoff 引用与重试次数当前无数据源，显式 `INCONCLUSIVE`。PDF 字节签名尚未采集，按补充契约为 `INCONCLUSIVE`。Control Plane 全量和 Evaluation 专项测试通过；规格审查与代码质量复核通过。提交：`be7e53ec`、`f2f94e7d`、`0bebb617`、`4aaed4c9`。
 
 ## 任务 5：让 YAML Runner 遵循同一证据和断言语义
 
