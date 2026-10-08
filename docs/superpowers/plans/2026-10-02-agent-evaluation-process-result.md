@@ -263,7 +263,7 @@
 
 预期：所有离线测试 PASS。
 
-**任务 7 当前状态（2026-10-08）：** 用户已手动修正 L5 的两个 systemd drop-in；k3s 为 active、节点 Ready，节点 IP 为 `192.168.122.55`，重启计数归零。入口已加入目标 scope、项目权限与 team 只读预检，只要求目标范围内至少一个 Worker Ready；从 Team API 取得 UUID 后绑定任务 `spec.teamId`，并支持 `--case` 单例运行。Control Plane 与 Team-a 的 Leader、两个 Executor 已滚动到从提交 `89aad28a` 构建的 amd64 镜像；Control Plane 的 MinIO 预签名地址已改为 `192.168.122.55:30090`。镜像包与 Runner 已传到 L5，PDF 下载独立校验脚本只保存安全元数据。本地离线测试 62 项通过；入口及下载校验提交 `ec9ba1ba`、`c0f64df4`、`424bd906`、`5dfe8ab3`。真实正向报告尚未生成，等待用户在 L5 终端设置短期 Token 并执行；负向 L5 变体及验收记录仍待完成。当前 Control Plane 镜像和预签名环境变量由受控 `kubectl` 滚动更新，Helm release 的旧值仍需在正式持久化部署时同步。
+**任务 7 当前状态（2026-10-08）：** 用户已手动修正 L5 的两个 systemd drop-in；k3s 为 active、节点 Ready，节点 IP 为 `192.168.122.55`，重启计数归零。入口已加入目标 scope、项目权限与 team 只读预检，只要求目标范围内至少一个 Worker Ready；从 Team API 取得 UUID 后绑定任务 `spec.teamId`，并支持 `--case` 单例运行。Control Plane 与 Team-a 的 Leader、两个 Executor 已滚动到从提交 `89aad28a` 构建的 amd64 镜像；Control Plane 的 MinIO 预签名地址已改为 `192.168.122.55:30090`。镜像包与 Runner 已传到 L5，PDF 下载独立校验脚本只保存安全元数据。本地离线测试 63 项通过；入口及下载校验提交 `ec9ba1ba`、`c0f64df4`、`424bd906`、`5dfe8ab3`、`9080cd5e`。真实正向报告尚未生成，等待用户在 L5 终端设置短期 Token 并执行；负向 L5 变体及验收记录仍待完成。当前 Control Plane 镜像和预签名环境变量由受控 `kubectl` 滚动更新，Helm release 的旧值仍需在正式持久化部署时同步。
 
 - [ ] **步骤 4：运行真实 L5 正向 Case**
 
