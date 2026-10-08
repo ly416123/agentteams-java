@@ -164,6 +164,14 @@ python3 scripts/run-l5-agentteams-eval.py \
 
 Runner 会按事件序号分页读取 `/process-events`（每页 100 条），最多检查 1001 条以确认是否超过 1000 条证据上限。PDF 断言先检查 MIME、扩展名、大小和 SHA-256，再用 `pypdf` 检查本地可用字节的 `%PDF-` 签名、文件结束标记和页树。Case 可要求唯一 PDF、持久化 `tasks/` 引用和 HTTP(S) 下载地址；报告只保留清单引用，不输出下载 URL。YAML 中的 `offlineFixtures` 仅用于本地单元测试，不会被 Runner 当作 Suite Case 或 L5 执行报告。远端 artifact API 不提供正文时，签名检查为 `INCONCLUSIVE`；Runner 不会跟随下载 URL。
 
+真实 L5 正向 Case 结束后，在持有同一短期 Token 的 L5 终端单独验证 PDF 下载。`verify_l5_eval_pdf.py` 只接受当前 L5 的 `192.168.122.55:30090` 交付地址，禁止重定向，限制下载大小，并核对 manifest 的大小、SHA-256、PDF 签名和页树；输出文件不会保存预签名 URL 或文件正文：
+
+```bash
+python3 scripts/verify_l5_eval_pdf.py \
+  --report eval/reports/2026-10-08-l5-multi-agent-pdf.json \
+  --output eval/reports/2026-10-08-l5-multi-agent-pdf-download.json
+```
+
 运行离线契约测试：
 
 ```bash
