@@ -87,23 +87,23 @@
 
 ## 任务 2：扩充 Evidence Bundle 并保留完整性
 
-**文件：** `EvidenceBundle.java`、`EvidenceBundleAssembler.java`、`EvidenceBundleAssemblerTest.java`。
+**文件：** `EvidenceBundle.java`、`EvidenceBundleAssembler.java`、`EvidenceBundleAssemblerTest.java`；为读取权限校验后的任务/Run 状态，扩展 `TaskRunObservationRepository`、`JdbcTaskRunObservationRepository` 及其测试；为精确识别第 1001 条事件，放宽 `TaskProcessEventRepository` 的受控 limit 上限并更新对应 JDBC 契约测试。
 
-- [ ] **步骤 1：编写缺失、截断和 Run 状态测试**
+- [x] **步骤 1：编写缺失、截断和 Run 状态测试**
 
-覆盖完整事件少于 1000 条时状态为 `COMPLETE`；事件数达到查询上限时状态为 `TRUNCATED`；缺少 Run 快照或 manifest 时相应字段为 `UNKNOWN`，且 Bundle 不声称证据完整。
+覆盖完整事件少于 1000 条时状态为 `COMPLETE`；读取到第 1001 条时状态为 `TRUNCATED`，但 Bundle 最多保留 1000 条事件；缺少权限范围内的 Run 快照或 manifest 时对应状态为 `UNKNOWN`，且 Bundle 不声称证据完整。Run 查询必须同时按 organization、tenant、task 和 run 限定；任务 phase、Run status/timestamps 与 manifest status 分别取自各自数据源，不互相推导。
 
-- [ ] **步骤 2：运行组装器测试确认失败**
+- [x] **步骤 2：运行组装器测试确认失败**
 
 运行：`mvn -q -pl control-plane -Dtest=EvidenceBundleAssemblerTest test`
 
 预期：FAIL，当前 Bundle 无完整性元数据和独立 Run 快照。
 
-- [ ] **步骤 3：实现 Evidence Bundle 新字段**
+- [x] **步骤 3：实现 Evidence Bundle 新字段**
 
 加入 `RunSnapshot(status, startedAt, completedAt)` 与 `EvidenceCompleteness(status, observedEventCount, eventLimit)`。允许状态为 `COMPLETE`、`TRUNCATED`、`INCONCLUSIVE`；保持 Task phase、Run status 和 manifest status 独立。
 
-- [ ] **步骤 4：实现组装器边界判定并运行测试**
+- [x] **步骤 4：实现组装器边界判定并运行测试**
 
 读取事件时请求 `EVENT_LIMIT + 1` 条以确认是否截断；Bundle 中最多保留 `EVENT_LIMIT` 条。所有事件继续通过现有 sanitize 流程；不通过分页数量推断工具调用成功。
 
@@ -111,9 +111,11 @@
 
 预期：PASS，截断可见，脱敏和范围权限原有用例继续通过。
 
-- [ ] **步骤 5：提交证据契约**
+- [x] **步骤 5：提交证据契约**
 
 提交范围仅限 `EvidenceBundle*` 和组装器测试，提交说明：`feat(eval): expose evidence completeness and run snapshot`。
+
+**任务 2 执行记录（2026-10-08）：** TDD 测试先确认旧实现缺少 Run 快照与完整性元数据；实现后 Run 查询按 organization、tenant、task、run 限定，事件最多保留 1000 条并通过第 1001 条识别截断。缺 Run/manifest、截断时状态为 UNKNOWN/INCONCLUSIVE，不会声称输入完整。`mvn -q -pl control-plane -Dtest='EvidenceBundleAssemblerTest,JdbcTaskRunObservationRepositoryTest,JdbcTaskProcessEventRepositoryTest' test` 与修复后的 `mvn -q -pl control-plane -Dtest=EvidenceBundleAssemblerTest test` 通过。规格与代码质量复核均通过。实现提交为 `ae111300`，一致性修复为 `20d8bdb9`。
 
 ## 任务 3：可靠记录工具调用成功与失败
 
