@@ -27,6 +27,7 @@ const STATUS: Record<string, LabelMeta> = {
   IN_PROGRESS: { label: '进行中', tone: 'info', priority: 30 },
   EXECUTION: { label: '执行阶段', tone: 'info', priority: 30 },
   QUEUED: { label: '排队中', tone: 'info', priority: 40 },
+  INCONCLUSIVE: { label: '证据不完整', tone: 'warning', priority: 70 },
   PAUSED: { label: '已暂停', tone: 'warning', priority: 50 },
   ASSIGNED: { label: '已分配', tone: 'info', priority: 30 },
   ACCEPTED: { label: '已接收', tone: 'info', priority: 30 },

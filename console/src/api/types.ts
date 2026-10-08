@@ -35,6 +35,8 @@ export type EvaluationReport = {
   dimensionScores: Record<string, number | null>;
   evaluationStatus: EvaluationStatus;
   taskSuccess: boolean;
+  executionGateStatus?: EvaluationStatus | null;
+  resultGateStatus?: EvaluationStatus | null;
   createdAt: string;
 };
 

@@ -12,6 +12,10 @@ import { StatusBadge } from '../../components/StatusBadge';
 
 const SENSITIVE_REF = /token|password|cookie|secret|authorization|x-amz-|presign|[?&=]/i;
 const SENSITIVE_TEXT = /token|password|cookie|secret|authorization|x-amz-|presign/i;
+const EXECUTION_METRICS = new Set([
+  'phase', 'required_tool', 'forbidden_tool', 'failed_tool', 'tool_order', 'tool_count',
+  'dependency_success', 'dependency_handoff', 'retry_limit', 'run_status',
+]);
 
 export function ManagementEvaluationPage({ projectId, runId }: { projectId: string; runId?: string }) {
   const [searchParams] = useSearchParams();
@@ -148,6 +152,10 @@ function EvaluationDetails({
                 <span className="muted-text">{report.taskSuccess ? '是' : '否'}</span>
               </strong>
             </div>
+            <GateSummary label="Execution gate" status={report.executionGateStatus}
+              inconclusiveReasons={inconclusiveReasons(results, true)} />
+            <GateSummary label="Result gate" status={report.resultGateStatus}
+              inconclusiveReasons={inconclusiveReasons(results, false)} />
             <div>
               <span>aggregateScore</span>
               <strong>{formatScore(report.aggregateScore)}</strong>
@@ -183,6 +191,35 @@ function EvaluationDetails({
       </section>
     </>
   );
+}
+
+function GateSummary({ label, status, inconclusiveReasons = [] }: {
+  label: string;
+  status?: string | null;
+  inconclusiveReasons?: string[];
+}) {
+  if (!status) {
+    return <div><span>{label}</span><strong className="muted-text">旧报告未记录此门禁</strong></div>;
+  }
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>
+        <StatusBadge phase={status} />
+      </strong>
+      {inconclusiveReasons.length ? <ul className="muted-text">
+        {inconclusiveReasons.map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}
+      </ul> : null}
+    </div>
+  );
+}
+
+function inconclusiveReasons(results: EvaluationResult[], executionGate: boolean) {
+  return results.filter((result) => {
+    if (result.status !== 'INCONCLUSIVE' || result.metric === 'semantic') return false;
+    const metricType = result.metric.split(':', 1)[0];
+    return EXECUTION_METRICS.has(metricType) === executionGate;
+  }).map((result) => safeFinding(result.findingSummary)).filter(Boolean);
 }
 
 function EvaluationResultCard({ projectId, result }: { projectId: string; result: EvaluationResult }) {
