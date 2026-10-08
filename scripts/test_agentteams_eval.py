@@ -123,9 +123,21 @@ class EvaluationCoreTest(unittest.TestCase):
                 "sha256": "a" * 64}
 
         statuses = [evaluate_observation(case, {"result": {"artifacts": [{**base, "sizeBytes": size}]}})[0].status
-                    for size in (True, 1.5)]
+                    for size in (True, 1.5, 0)]
         missing = evaluate_observation(case, {"result": {"artifacts": [base]}})[0]
-        self.assertEqual(["FAILED", "FAILED", "FAILED"], statuses + [missing.status])
+        self.assertEqual(["FAILED"] * 4, statuses + [missing.status])
+
+    def test_artifact_integrity_rejects_non_durable_path_and_hides_original_name(self):
+        case = EvalCase("artifact-safe", "Artifact safe", {}, [{"type": "artifact_integrity"}], {})
+        hostile_name = "customer private report bearer abc1234567890123456789"
+        result = evaluate_observation(case, {"result": {"artifacts": [{
+            "name": hostile_name, "storageRef": "tasks/opaqueCredentialValue", "sizeBytes": 5,
+            "sha256": "a" * 64,
+        }]}})[0]
+
+        self.assertEqual("FAILED", result.status)
+        self.assertNotIn(hostile_name, result.message)
+        self.assertNotIn(hostile_name, json.dumps(result.as_dict()))
 
     def test_signed_url_variants_are_removed_as_whole_urls(self):
         statuses = ["https://storage.example/file?X-Goog-Signature=secret",
@@ -498,6 +510,11 @@ cases:
             "artifacts": [{**good_meta, "downloadUrl": "https://[broken-ipv6/report.pdf"}]}})[0]
         self.assertEqual(["FAILED", "FAILED", "FAILED", "FAILED"],
                          [multiple.status, non_durable.status, missing_download.status, malformed_url.status])
+        invalid_boolean_metadata = {**good_meta, "sizeBytes": True}
+        invalid_boolean_metadata.pop("contentBytes")
+        boolean_size = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
+            "artifacts": [invalid_boolean_metadata]}})[0]
+        self.assertEqual("FAILED", boolean_size.status)
 
     def test_artifact_integrity_requires_durable_metadata(self):
         case = EvalCase(

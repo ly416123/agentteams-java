@@ -20,10 +20,15 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /** Runs deterministic checks over an immutable evidence bundle; it never mutates Task state. */
 public final class EvaluationService {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Pattern SAFE_ARTIFACT_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
+    private static final String UUID_PATH_SEGMENT = "[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}";
+    private static final Pattern SAFE_STORAGE_REF = Pattern.compile("tasks/" + UUID_PATH_SEGMENT
+            + "/attempts/" + UUID_PATH_SEGMENT + "/artifacts/[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
     private final EvaluationRepository repository;
     private final EvidenceBundleAssembler assembler;
     private final Clock clock;
@@ -243,7 +248,7 @@ public final class EvaluationService {
                 ref, at);
         boolean metadataValid = pdfs.stream().allMatch(artifact -> artifact.artifactId().toLowerCase(Locale.ROOT).endsWith(".pdf")
                 && artifact.contentType().equalsIgnoreCase("application/pdf") && artifact.sizeBytes() > 0
-                && artifact.sha256().matches("[0-9a-fA-F]{64}"));
+                && artifact.sha256().matches("[0-9a-fA-F]{64}") && hasDurableStorageRef(artifact));
         if (!metadataValid) return result(runId, "artifact_pdf", false, "PDF MIME, extension, size and SHA-256",
                 "invalid PDF metadata", ref, at);
         return inconclusive(runId, "artifact_pdf", "PDF signature bytes are unavailable for %PDF- verification", ref, at);
@@ -253,9 +258,16 @@ public final class EvaluationService {
         if (bundle.resultManifest() == null) return inconclusive(runId, "artifact_integrity", "result manifest is unavailable",
                 "result-manifest:" + bundle.executionRunId(), at);
         boolean passed = !bundle.artifactRefs().isEmpty() && bundle.artifactRefs().stream()
-                .allMatch(ref -> ref.sizeBytes() > 0 && ref.sha256().matches("[0-9a-fA-F]{64}"));
+                .allMatch(ref -> ref.sizeBytes() > 0 && ref.sha256().matches("[0-9a-fA-F]{64}")
+                        && hasDurableStorageRef(ref));
         return result(runId, "artifact_integrity", passed, "durable metadata", passed ? "valid" : "missing/invalid",
                 "result-manifest:" + bundle.executionRunId(), at);
+    }
+
+    private static boolean hasDurableStorageRef(EvidenceBundle.ArtifactRef artifact) {
+        return SAFE_ARTIFACT_NAME.matcher(artifact.artifactId()).matches()
+                && SAFE_STORAGE_REF.matcher(artifact.storageRef()).matches()
+                && artifact.storageRef().endsWith("/artifacts/" + artifact.artifactId());
     }
 
     private static EvaluationResultRecord schema(UUID runId, JsonNode assertion, EvidenceBundle bundle, Instant at) {

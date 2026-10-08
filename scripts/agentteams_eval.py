@@ -178,7 +178,7 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     if re.fullmatch(r"[0-9a-f]{64}", digest):
         metadata["sha256"] = digest
     raw_ref = _sanitize_value(artifact.get("storageRef"))
-    if isinstance(raw_ref, str) and SAFE_STORAGE_REF.fullmatch(raw_ref):
+    if isinstance(raw_ref, str) and _is_durable_artifact_ref(raw_ref, metadata["name"]):
         metadata["storageRef"] = raw_ref
     else:
         metadata["storageRef"] = f"artifact:{digest}" if "sha256" in metadata else "artifact:metadata-only"
@@ -202,6 +202,12 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
 
 def _is_safe_storage_ref(value: Any) -> bool:
     return isinstance(value, str) and SAFE_STORAGE_REF.fullmatch(value) is not None
+
+
+def _is_durable_artifact_ref(storage_ref: Any, name: Any) -> bool:
+    return (isinstance(name, str) and SAFE_ARTIFACT_NAME.fullmatch(name) is not None
+            and _is_safe_storage_ref(storage_ref)
+            and storage_ref.endswith(f"/artifacts/{name}"))
 
 
 def _safe_id_list(value: Any) -> list[str]:
@@ -359,19 +365,23 @@ def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dic
     if not isinstance(artifacts, list) or not artifacts:
         return False, "no result artifacts were returned", []
     bad: list[str] = []
-    for artifact in artifacts:
+    for index, artifact in enumerate(artifacts, 1):
         if not isinstance(artifact, Mapping):
-            bad.append("non-object artifact")
+            bad.append(f"artifact {index}: invalid object")
             continue
         ref = str(artifact.get("storageRef", ""))
+        name = artifact.get("name")
         size = artifact.get("sizeBytes")
         digest = str(artifact.get("sha256", ""))
-        if not _is_safe_storage_ref(ref):
-            bad.append(f"{artifact.get('name', '<unnamed>')}: storageRef is not durable")
-        if type(size) is not int or size < 0:
-            bad.append(f"{artifact.get('name', '<unnamed>')}: sizeBytes must be a non-negative integer")
+        invalid_fields = []
+        if not _is_durable_artifact_ref(ref, name):
+            invalid_fields.append("name/storageRef")
+        if type(size) is not int or size <= 0:
+            invalid_fields.append("sizeBytes")
         if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest.lower()):
-            bad.append(f"{artifact.get('name', '<unnamed>')}: invalid sha256")
+            invalid_fields.append("sha256")
+        if invalid_fields:
+            bad.append(f"artifact {index}: invalid {', '.join(invalid_fields)}")
     return not bad, "; ".join(bad) if bad else "all artifacts have durable metadata", [
         _safe_artifact_metadata(artifact) for artifact in artifacts if isinstance(artifact, Mapping)
     ]
@@ -596,13 +606,13 @@ def _pdf_check(observation: Mapping[str, Any], assertion: Mapping[str, Any]) -> 
         except ValueError:
             return False, "PDF download URL is malformed", [{"count": len(pdfs)}]
         data = artifact.get("contentBytes")
-        invalid_reference = assertion.get("durable") is True and not _is_safe_storage_ref(storage_ref)
+        invalid_reference = assertion.get("durable") is True and not _is_durable_artifact_ref(storage_ref, name)
         invalid_download = False
         if assertion.get("downloadable") is True:
             invalid_download = (parsed_download.scheme.lower() not in {"http", "https"} or not download_hostname
                                or bool(parsed_download.username) or bool(parsed_download.password))
         if (not name.lower().endswith(".pdf") or content_type.lower() != "application/pdf"
-                or not isinstance(size, int) or size <= 0 or len(digest) != 64
+                or type(size) is not int or size <= 0 or len(digest) != 64
                 or any(c not in "0123456789abcdef" for c in digest)
                 or invalid_reference or invalid_download):
                 return False, "PDF count, MIME, extension, size or SHA-256 metadata is invalid", [{"count": len(pdfs)}]

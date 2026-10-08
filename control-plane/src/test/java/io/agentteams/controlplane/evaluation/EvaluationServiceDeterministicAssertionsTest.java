@@ -255,7 +255,7 @@ class EvaluationServiceDeterministicAssertionsTest {
 
     @Test
     void checksArtifactMetadataAndLeavesPdfSignatureInconclusiveWithoutBytes() throws Exception {
-        EvidenceBundle.ArtifactRef pdf = new EvidenceBundle.ArtifactRef("report.pdf", "artifact:pdf", "application/pdf",
+        EvidenceBundle.ArtifactRef pdf = new EvidenceBundle.ArtifactRef("report.pdf", storageRef("report.pdf"), "application/pdf",
                 128, "a".repeat(64));
         TaskResultManifest manifest = new TaskResultManifest(TASK, EXECUTION, "SUCCEEDED", "done", List.of());
         Outcome outcome = evaluate("[{\"type\":\"artifact_integrity\"},{\"type\":\"artifact_pdf\"}]",
@@ -263,6 +263,34 @@ class EvaluationServiceDeterministicAssertionsTest {
         assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED,
                 EvaluationResultRecord.Status.INCONCLUSIVE);
         assertThat(outcome.results().get(1).findingSummary()).contains("signature");
+    }
+
+    @Test
+    void artifactIntegrityRequiresARealDurableStoragePath() throws Exception {
+        TaskResultManifest manifest = new TaskResultManifest(TASK, EXECUTION, "SUCCEEDED", "done", List.of());
+        EvidenceBundle.ArtifactRef valid = new EvidenceBundle.ArtifactRef("result.json", storageRef("result.json"),
+                "application/json", 12, "a".repeat(64));
+        Outcome validResult = evaluate("[{\"type\":\"artifact_integrity\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(), List.of(valid), manifest));
+        assertThat(validResult.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED);
+
+        EvidenceBundle.ArtifactRef opaque = new EvidenceBundle.ArtifactRef("result.json", "tasks/opaqueCredentialValue",
+                "application/json", 12, "a".repeat(64));
+        Outcome opaqueResult = evaluate("[{\"type\":\"artifact_integrity\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(), List.of(opaque), manifest));
+        assertThat(opaqueResult.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
+
+        EvidenceBundle.ArtifactRef wrongFilename = new EvidenceBundle.ArtifactRef("other.json", storageRef("result.json"),
+                "application/json", 12, "a".repeat(64));
+        Outcome mismatchedResult = evaluate("[{\"type\":\"artifact_integrity\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(), List.of(wrongFilename), manifest));
+        assertThat(mismatchedResult.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
+
+        EvidenceBundle.ArtifactRef empty = new EvidenceBundle.ArtifactRef("result.json", storageRef("result.json"),
+                "application/json", 0, "a".repeat(64));
+        Outcome emptyResult = evaluate("[{\"type\":\"artifact_integrity\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(), List.of(empty), manifest));
+        assertThat(emptyResult.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
     }
 
     @Test
@@ -351,6 +379,9 @@ class EvaluationServiceDeterministicAssertionsTest {
     }
 
     private static UUID id(long value) { return new UUID(0, value); }
+    private static String storageRef(String filename) {
+        return "tasks/" + TASK + "/attempts/" + id(99) + "/artifacts/" + filename;
+    }
     private record Outcome(List<EvaluationResultRecord> results, EvaluationReportRecord report) {
         List<EvaluationResultRecord.Status> statuses() { return results.stream().map(EvaluationResultRecord::status).toList(); }
     }
