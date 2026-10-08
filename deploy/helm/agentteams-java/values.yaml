@@ -74,6 +74,12 @@ controlPlane:
     # Secret references, e.g. {"DASHSCOPE_API_KEY":{"secret":"dashscope-credentials","key":"apiKey"}}.
     # Each entry renders a secretKeyRef env var in every provisioned worker.
     credentialSecretEnvs: ""
+  # Optional credential injection for the control-plane MCP HTTP adapter.
+  # Keep this empty unless the deployment explicitly allowlists the environment name.
+  mcpCredential:
+    envName: ""
+    secretName: ""
+    secretKey: ""
   scheduler:
     enabled: true
     pollIntervalMs: 1000

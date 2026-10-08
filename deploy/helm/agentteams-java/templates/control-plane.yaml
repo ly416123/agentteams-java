@@ -198,6 +198,18 @@ spec:
               value: {{ .Values.controlPlane.workerProvisioner.tlsSecretName | quote }}
             - name: AGENTTEAMS_WORKER_PROVISIONER_CREDENTIAL_SECRET_ENVS
               value: {{ .Values.controlPlane.workerProvisioner.credentialSecretEnvs | quote }}
+{{- if .Values.controlPlane.mcpCredential.secretName }}
+            - name: {{ required "controlPlane.mcpCredential.envName is required when secretName is set" .Values.controlPlane.mcpCredential.envName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.mcpCredential.secretName }}
+                  key: {{ required "controlPlane.mcpCredential.secretKey is required when secretName is set" .Values.controlPlane.mcpCredential.secretKey }}
+            - name: AGENTTEAMS_TASK_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.mcpCredential.secretName }}
+                  key: {{ required "controlPlane.mcpCredential.secretKey is required when secretName is set" .Values.controlPlane.mcpCredential.secretKey }}
+{{- end }}
 {{- if .Values.storage.enabled }}
             - name: AGENTTEAMS_STORAGE_ENDPOINT
               value: {{ .Values.storage.endpoint | quote }}

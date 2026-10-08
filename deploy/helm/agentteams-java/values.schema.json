@@ -172,6 +172,15 @@
             "credentialSecretEnvs": { "type": "string" }
           }
         },
+        "mcpCredential": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "envName": { "type": "string" },
+            "secretName": { "type": "string" },
+            "secretKey": { "type": "string" }
+          }
+        },
         "scheduler": {
           "type": "object",
           "additionalProperties": false,
