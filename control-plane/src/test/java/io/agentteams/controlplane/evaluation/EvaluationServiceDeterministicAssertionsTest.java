@@ -41,9 +41,14 @@ class EvaluationServiceDeterministicAssertionsTest {
 
     @Test
     void requiredToolNeedsSuccessfulCompletionAndFailureHasEvidence() throws Exception {
+        Outcome succeeded = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":2}")), List.of(), List.of(), null));
+        assertThat(succeeded.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED);
+
         Outcome failed = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":false,\"errorCategory\":\"timeout\",\"sequence\":1}")), List.of(), List.of(), null));
+                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":false,\"errorCategory\":\"timeout\",\"sequence\":2}")), List.of(), List.of(), null));
         assertThat(failed.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
         assertThat(failed.results().getFirst().evidenceRefs()).contains("task-events:" + EXECUTION);
         assertThat(failed.report().taskSuccess()).isTrue();
@@ -53,14 +58,69 @@ class EvaluationServiceDeterministicAssertionsTest {
         Outcome missingCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}")), List.of(), List.of(), null));
         assertThat(missingCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome unknownCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"sequence\":2}")), List.of(), List.of(), null));
+        assertThat(unknownCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome partialOutcomes = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
+                        event("tool.called", "{\"tool\":\"web_search\",\"sequence\":3}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":false,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(partialOutcomes.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+    }
+
+    @Test
+    void unavailableCalledPayloadMakesEveryToolAssertionInconclusive() throws Exception {
+        EvidenceBundle evidence = bundle("SUCCEEDED", "SUCCEEDED", complete(),
+                List.of(eventRef("tool.called", 1)), List.of(), List.of(), null);
+        Outcome outcome = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"},"
+                + "{\"type\":\"tool_order\",\"names\":[\"search\"]},"
+                + "{\"type\":\"tool_count\",\"name\":\"search\",\"expected\":1},"
+                + "{\"type\":\"failed_tool\",\"name\":\"search\"}]", evidence);
+        assertThat(outcome.statuses()).containsOnly(EvaluationResultRecord.Status.INCONCLUSIVE);
+    }
+
+    @Test
+    void failedToolAssertionFailsWhenFailureOutcomeIsRecorded() throws Exception {
+        Outcome outcome = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"ok\":false,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
+
+        Outcome partialOutcomes = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
+                        event("tool.called", "{\"tool\":\"search\",\"sequence\":3}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(partialOutcomes.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+    }
+
+    @Test
+    void invalidPdfMetadataAndFailedDependencyAreDefiniteFailures() throws Exception {
+        EvidenceBundle.ArtifactRef invalidPdf = new EvidenceBundle.ArtifactRef("report.pdf", "artifact:pdf",
+                "text/plain", 0, "bad-sha");
+        TaskResultManifest manifest = new TaskResultManifest(TASK, EXECUTION, "SUCCEEDED", "done", List.of());
+        TaskTreeNode dependency = new TaskTreeNode(id(6), TASK, 1, "FAILED", List.of(), NOW);
+        TaskTreeNode dependent = new TaskTreeNode(id(7), TASK, 2, "SUCCEEDED", List.of(id(6)), NOW);
+        Outcome outcome = evaluate("[{\"type\":\"artifact_pdf\"},{\"type\":\"dependency_success\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(dependency, dependent), List.of(invalidPdf), manifest));
+        assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED,
+                EvaluationResultRecord.Status.FAILED);
     }
 
     @Test
     void checksToolOrderAndCountsFromSuccessfulLifecycleEvents() throws Exception {
         List<TaskProcessEvent> events = List.of(event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
-                event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":1}"),
-                event("tool.called", "{\"tool\":\"fetch\",\"sequence\":2}"),
-                event("tool.finished", "{\"tool\":\"fetch\",\"ok\":true,\"sequence\":2}"));
+                event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":2}"),
+                event("tool.called", "{\"tool\":\"fetch\",\"sequence\":3}"),
+                event("tool.finished", "{\"tool\":\"fetch\",\"ok\":true,\"sequence\":4}"));
         Outcome outcome = evaluate("[{\"type\":\"tool_order\",\"names\":[\"search\",\"fetch\"]},"
                 + "{\"type\":\"tool_count\",\"name\":\"search\",\"expected\":1}]",
                 bundle("RUNNING", "SUCCEEDED", complete(), events, List.of(), List.of(), null));
@@ -138,8 +198,15 @@ class EvaluationServiceDeterministicAssertionsTest {
     }
 
     private static TaskProcessEvent event(String type, String payload) {
-        return new TaskProcessEvent(UUID.randomUUID(), TASK, EXECUTION, 1, type, TaskEventVisibility.REQUESTER,
+        long sequence;
+        try { sequence = JSON.readTree(payload).path("sequence").asLong(); } catch (Exception ignored) { sequence = 0; }
+        return new TaskProcessEvent(UUID.randomUUID(), TASK, EXECUTION, sequence, type, TaskEventVisibility.REQUESTER,
                 NOW, "correlation", payload, null);
+    }
+
+    private static TaskProcessEvent eventRef(String type, long sequence) {
+        return new TaskProcessEvent(UUID.randomUUID(), TASK, EXECUTION, sequence, type,
+                TaskEventVisibility.REQUESTER, NOW, "correlation", null, "task-process:event-" + sequence);
     }
 
     private static UUID id(long value) { return new UUID(0, value); }

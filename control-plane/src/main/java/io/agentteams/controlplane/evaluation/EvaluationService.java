@@ -103,14 +103,22 @@ public final class EvaluationService {
         String expected = text(assertion, "name");
         if (!eventsComplete(bundle)) return inconclusive(runId, "required_tool:" + expected,
                 "tool lifecycle evidence is incomplete", "task-events:" + bundle.executionRunId(), at);
-        List<TaskProcessEvent> calls = toolEvents(bundle, "tool.called", expected);
+        if (hasUnparseableToolEvent(bundle, "tool.called")) return inconclusive(runId, "required_tool:" + expected,
+                "tool call details are unavailable", "task-events:" + bundle.executionRunId(), at);
+        if (hasUnparseableToolEvent(bundle, "tool.finished")) return inconclusive(runId, "required_tool:" + expected,
+                "tool completion details are unavailable", "task-events:" + bundle.executionRunId(), at);
+        List<ToolLifecycle> calls = toolEvents(bundle, "tool.called", expected);
+        List<Boolean> outcomes = toolEvents(bundle, "tool.finished", expected).stream().map(ToolLifecycle::ok).toList();
+        if (calls.isEmpty() && !outcomes.isEmpty()) return inconclusive(runId, "required_tool:" + expected,
+                "tool completion is present without a matching call event", "task-events:" + bundle.executionRunId(), at);
         if (calls.isEmpty()) return result(runId, "required_tool:" + expected, false, "successful completion", "not called",
                 "task-events:" + bundle.executionRunId(), at);
-        List<Boolean> outcomes = calls.stream().map(call -> completion(bundle, expected, sequence(call))).toList();
+        if (outcomes.isEmpty()) return inconclusive(runId, "required_tool:" + expected,
+                "tool completion outcome is unavailable", "task-events:" + bundle.executionRunId(), at);
         if (outcomes.stream().anyMatch(Boolean.TRUE::equals)) return result(runId, "required_tool:" + expected,
                 true, "successful completion", "succeeded", "task-events:" + bundle.executionRunId(), at);
-        if (outcomes.stream().anyMatch(Objects::isNull)) return inconclusive(runId, "required_tool:" + expected,
-                "tool completion outcome is unavailable", "task-events:" + bundle.executionRunId(), at);
+        if (outcomes.size() != calls.size()) return inconclusive(runId, "required_tool:" + expected,
+                "tool completion outcomes do not cover every call", "task-events:" + bundle.executionRunId(), at);
         return result(runId, "required_tool:" + expected, false, "successful completion", "failed",
                 "task-events:" + bundle.executionRunId(), at);
     }
@@ -137,11 +145,21 @@ public final class EvaluationService {
         String name = text(assertion, "name");
         if (!eventsComplete(bundle)) return inconclusive(runId, "failed_tool:" + name,
                 "tool event evidence is incomplete", "task-events:" + bundle.executionRunId(), at);
-        List<TaskProcessEvent> calls = toolEvents(bundle, "tool.called", name);
-        List<Boolean> outcomes = calls.stream().map(call -> completion(bundle, name, sequence(call))).toList();
-        if (outcomes.stream().anyMatch(Objects::isNull)) return inconclusive(runId, "failed_tool:" + name,
+        if (hasUnparseableToolEvent(bundle, "tool.called")) return inconclusive(runId, "failed_tool:" + name,
+                "tool call details are unavailable", "task-events:" + bundle.executionRunId(), at);
+        if (hasUnparseableToolEvent(bundle, "tool.finished")) return inconclusive(runId, "failed_tool:" + name,
+                "tool completion details are unavailable", "task-events:" + bundle.executionRunId(), at);
+        List<ToolLifecycle> calls = toolEvents(bundle, "tool.called", name);
+        List<Boolean> outcomes = toolEvents(bundle, "tool.finished", name).stream().map(ToolLifecycle::ok).toList();
+        if (calls.isEmpty() && !outcomes.isEmpty()) return inconclusive(runId, "failed_tool:" + name,
+                "tool completion is present without a matching call event", "task-events:" + bundle.executionRunId(), at);
+        if (calls.isEmpty()) return result(runId, "failed_tool:" + name, true, "no failed calls", "not called",
+                "task-events:" + bundle.executionRunId(), at);
+        if (outcomes.isEmpty()) return inconclusive(runId, "failed_tool:" + name,
                 "tool completion outcome is unavailable", "task-events:" + bundle.executionRunId(), at);
         boolean failed = outcomes.stream().anyMatch(Boolean.FALSE::equals);
+        if (!failed && outcomes.size() != calls.size()) return inconclusive(runId, "failed_tool:" + name,
+                "tool completion outcomes do not cover every call", "task-events:" + bundle.executionRunId(), at);
         return result(runId, "failed_tool:" + name, !failed, "no failed calls", failed ? "failed call observed" : "no failed call",
                 "task-events:" + bundle.executionRunId(), at);
     }
@@ -149,14 +167,15 @@ public final class EvaluationService {
     private static EvaluationResultRecord toolOrder(UUID runId, JsonNode assertion, EvidenceBundle bundle, Instant at) {
         if (!eventsComplete(bundle)) return inconclusive(runId, "tool_order", "tool event evidence is incomplete",
                 "task-events:" + bundle.executionRunId(), at);
+        if (hasUnparseableToolEvent(bundle, "tool.called")) return inconclusive(runId, "tool_order",
+                "tool call details are unavailable", "task-events:" + bundle.executionRunId(), at);
         JsonNode names = assertion.path("names");
         if (!names.isArray() || names.isEmpty()) return inconclusive(runId, "tool_order", "tool order assertion is malformed",
                 "evaluation:tool_order", at);
         List<String> expected = new ArrayList<>();
         names.forEach(value -> expected.add(value.asText()));
-        List<String> actual = bundle.taskEvents().stream().filter(event -> "tool.called".equalsIgnoreCase(event.eventType()))
-                .sorted(Comparator.comparingLong(TaskProcessEvent::sequence)).map(EvaluationService::payload)
-                .map(payload -> payload.path("tool").asText(null)).filter(Objects::nonNull).toList();
+        List<String> actual = toolEvents(bundle, "tool.called", null).stream().sorted(Comparator.comparingLong(ToolLifecycle::sequence))
+                .map(ToolLifecycle::toolName).toList();
         return result(runId, "tool_order", expected.equals(actual), String.join(",", expected), String.join(",", actual),
                 "task-events:" + bundle.executionRunId(), at);
     }
@@ -165,6 +184,8 @@ public final class EvaluationService {
         String name = text(assertion, "name");
         if (!eventsComplete(bundle)) return inconclusive(runId, "tool_count:" + name,
                 "tool event evidence is incomplete", "task-events:" + bundle.executionRunId(), at);
+        if (hasUnparseableToolEvent(bundle, "tool.called")) return inconclusive(runId, "tool_count:" + name,
+                "tool call details are unavailable", "task-events:" + bundle.executionRunId(), at);
         int expected = assertion.path("expected").asInt(-1);
         if (expected < 0) return inconclusive(runId, "tool_count:" + name, "expected count is invalid", "evaluation:tool_count", at);
         long actual = toolEvents(bundle, "tool.called", name).size();
@@ -237,30 +258,38 @@ public final class EvaluationService {
         return "COMPLETE".equals(bundle.evidenceCompleteness().status());
     }
 
-    private static List<TaskProcessEvent> toolEvents(EvidenceBundle bundle, String eventType, String toolName) {
+    private static boolean hasUnparseableToolEvent(EvidenceBundle bundle, String eventType) {
         return bundle.taskEvents().stream().filter(event -> eventType.equalsIgnoreCase(event.eventType()))
-                .filter(event -> toolName.equals(payload(event).path("tool").asText(null))).toList();
+                .anyMatch(event -> parseToolEvent(event, eventType) == null);
     }
 
-    private static Boolean completion(EvidenceBundle bundle, String toolName, long sequence) {
-        for (TaskProcessEvent event : bundle.taskEvents()) {
-            if (!"tool.finished".equalsIgnoreCase(event.eventType())) continue;
-            JsonNode payload = payload(event);
-            if (toolName.equals(payload.path("tool").asText(null)) && sequence == payload.path("sequence").asLong(-1)) {
-                return payload.has("ok") ? payload.path("ok").asBoolean() : null;
-            }
-        }
-        return null;
+    private static List<ToolLifecycle> toolEvents(EvidenceBundle bundle, String eventType, String toolName) {
+        return bundle.taskEvents().stream().filter(event -> eventType.equalsIgnoreCase(event.eventType()))
+                .map(event -> parseToolEvent(event, eventType)).filter(Objects::nonNull)
+                .filter(event -> toolName == null || toolName.equals(event.toolName())).toList();
     }
 
-    private static long sequence(TaskProcessEvent event) { return payload(event).path("sequence").asLong(-1); }
-
-    private static JsonNode payload(TaskProcessEvent event) {
+    private static ToolLifecycle parseToolEvent(TaskProcessEvent event, String eventType) {
         try {
-            JsonNode parsed = JSON.readTree(event.payload());
-            return parsed != null && parsed.isObject() ? parsed : JSON.createObjectNode();
-        } catch (Exception ignored) { return JSON.createObjectNode(); }
+            JsonNode payload = JSON.readTree(event.payload());
+            if (payload == null || !payload.isObject()) return null;
+            JsonNode toolNode = payload.path("tool");
+            JsonNode sequenceNode = payload.path("sequence");
+            if (!toolNode.isTextual() || toolNode.asText().isBlank() || !sequenceNode.isIntegralNumber()
+                    || !sequenceNode.canConvertToLong() || sequenceNode.asLong() < 0) return null;
+            Boolean ok = null;
+            if ("tool.finished".equalsIgnoreCase(eventType)) {
+                JsonNode okNode = payload.path("ok");
+                if (!okNode.isBoolean()) return null;
+                ok = okNode.asBoolean();
+            }
+            return new ToolLifecycle(toolNode.asText().trim(), sequenceNode.asLong(), ok);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
+
+    private record ToolLifecycle(String toolName, long sequence, Boolean ok) { }
 
     private static EvaluationResultRecord inconclusive(UUID runId, String metric, String message, Instant at) {
         return inconclusive(runId, metric, message, "evaluation:" + metric, at);
