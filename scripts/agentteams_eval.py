@@ -40,6 +40,11 @@ TERMINAL_PHASES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 PROCESS_EVENT_PAGE_SIZE = 100
 PROCESS_EVENT_LIMIT = 1000
 SENSITIVE_KEY_PARTS = ("token", "secret", "password", "cookie", "authorization", "apikey", "credential", "privatekey")
+SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+SAFE_STORAGE_REF = re.compile(r"tasks/[A-Za-z0-9][A-Za-z0-9._/-]{0,255}\Z")
+SAFE_MIME_TYPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*/[A-Za-z0-9][A-Za-z0-9.+-]*(?:; charset=[A-Za-z0-9._-]+)?\Z", re.I)
+ARTIFACT_STAGES = {"DRAFT", "INTERMEDIATE", "FINAL"}
+ARTIFACT_VISIBILITIES = {"REQUESTER", "PROJECT_MEMBER", "TENANT_ADMIN", "SECURITY_AUDITOR", "INTERNAL_ONLY"}
 
 
 class EvalError(RuntimeError):
@@ -77,9 +82,9 @@ class AssertionResult:
             "type": self.assertion_type,
             "passed": self.passed,
             "status": self.status,
-            "message": self.message,
-            "expected": self.expected,
-            "actual": self.actual,
+            "message": _sanitize_value(self.message),
+            "expected": _sanitize_value(self.expected),
+            "actual": _sanitize_value(self.actual),
             "evidenceRefs": list(self.evidence_refs),
         }
 
@@ -165,13 +170,33 @@ def _output_text(observation: Mapping[str, Any]) -> str:
 
 def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     """Keep report metadata free of presigned URLs and downloaded content."""
-    metadata = {key: artifact.get(key) for key in (
-        "name", "storageRef", "contentType", "sizeBytes", "sha256", "version", "stage", "visibility"
-    ) if key in artifact and isinstance(artifact.get(key), (str, int, float, bool, type(None)))}
-    storage_ref = str(metadata.get("storageRef", ""))
-    if "?" in storage_ref or "x-amz-" in storage_ref.lower() or not storage_ref.startswith("tasks/"):
-        digest = str(metadata.get("sha256", ""))
-        metadata["storageRef"] = f"artifact:{digest}" if digest else "artifact:metadata-only"
+    metadata: dict[str, Any] = {}
+    raw_name = _sanitize_value(artifact.get("name"))
+    metadata["name"] = raw_name if isinstance(raw_name, str) and SAFE_ARTIFACT_NAME.fullmatch(raw_name) else "artifact"
+    digest = str(artifact.get("sha256", "")).lower()
+    if re.fullmatch(r"[0-9a-f]{64}", digest):
+        metadata["sha256"] = digest
+    raw_ref = _sanitize_value(artifact.get("storageRef"))
+    if isinstance(raw_ref, str) and SAFE_STORAGE_REF.fullmatch(raw_ref) and all(
+            segment not in {"", ".", ".."} for segment in raw_ref.split("/")[1:]):
+        metadata["storageRef"] = raw_ref
+    else:
+        metadata["storageRef"] = f"artifact:{digest}" if "sha256" in metadata else "artifact:metadata-only"
+    content_type = _sanitize_value(artifact.get("contentType"))
+    if isinstance(content_type, str) and SAFE_MIME_TYPE.fullmatch(content_type):
+        metadata["contentType"] = content_type
+    size = artifact.get("sizeBytes")
+    if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
+        metadata["sizeBytes"] = size
+    version = artifact.get("version")
+    if isinstance(version, int) and not isinstance(version, bool) and version >= 0:
+        metadata["version"] = version
+    stage = _sanitize_value(artifact.get("stage"))
+    if isinstance(stage, str) and stage.upper() in ARTIFACT_STAGES:
+        metadata["stage"] = stage.upper()
+    visibility = _sanitize_value(artifact.get("visibility"))
+    if isinstance(visibility, str) and visibility.upper() in ARTIFACT_VISIBILITIES:
+        metadata["visibility"] = visibility.upper()
     return _sanitize_value(metadata)
 
 
@@ -197,8 +222,24 @@ def _sanitize_value(value: Any) -> Any:
         return sanitized
     if isinstance(value, list):
         return [_sanitize_value(item) for item in value]
-    if isinstance(value, str) and ("x-amz-" in value.lower() or "?signature=" in value.lower()):
-        return "[REDACTED_URL]"
+    if isinstance(value, str):
+        value = _redact_common_credentials(value)
+        if "x-amz-" in value.lower() or "?signature=" in value.lower():
+            return "[REDACTED_URL]"
+    return value
+
+
+def _redact_common_credentials(value: str) -> str:
+    patterns = (
+        (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"), "Bearer [REDACTED]"),
+        (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b"), "[REDACTED_JWT]"),
+        (re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b", re.I), "[REDACTED_KEY]"),
+        (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_KEY]"),
+        (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b"), "[REDACTED_KEY]"),
+        (re.compile(r"(?i)\b(access[_-]?token|refresh[_-]?token|token|api[_-]?key|client[_-]?secret|password|secret)=([^\s&#,;]+)"), r"\1=[REDACTED]"),
+    )
+    for pattern, replacement in patterns:
+        value = pattern.sub(replacement, value)
     return value
 
 

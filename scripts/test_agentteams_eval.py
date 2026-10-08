@@ -79,6 +79,34 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertNotIn("private answer", report_json)
         self.assertNotIn("secret", report_json)
 
+    def test_artifact_metadata_and_assertion_actual_redact_common_credentials(self):
+        hostile = {
+            "name": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+            "storageRef": "tasks/task-1/result?token=sk-live-12345678901234567890",
+            "contentType": "application/pdf Bearer sk-test-12345678901234567890",
+            "sizeBytes": 12,
+            "sha256": "a" * 64,
+            "version": "token=sk-test-12345678901234567890",
+            "stage": "FINAL token=sk-test-12345678901234567890",
+            "visibility": "REQUESTER token=sk-test-12345678901234567890",
+        }
+        bundle = build_evidence_bundle(
+            {"id": "task-1"}, {"id": "run-1"}, [], [], [],
+            {"status": "SUCCEEDED", "artifacts": [hostile]})
+        case = EvalCase("artifact-safe", "Artifact safe", {}, [{"type": "artifact_integrity"}], {})
+        report_json = json.dumps(evaluate_observation(case, {"result": {"artifacts": [hostile]}})[0].as_dict())
+        encoded = json.dumps(bundle, ensure_ascii=False) + report_json
+
+        self.assertNotIn("eyJhbGci", encoded)
+        self.assertNotIn("sk-test-12345678901234567890", encoded)
+        self.assertNotIn("sk-live-12345678901234567890", encoded)
+        self.assertEqual("artifact", bundle["artifactRefs"][0]["name"])
+        self.assertEqual("artifact:" + "a" * 64, bundle["artifactRefs"][0]["storageRef"])
+        self.assertNotIn("contentType", bundle["artifactRefs"][0])
+        self.assertNotIn("version", bundle["artifactRefs"][0])
+        self.assertNotIn("stage", bundle["artifactRefs"][0])
+        self.assertNotIn("visibility", bundle["artifactRefs"][0])
+
     def test_missing_result_manifest_marks_evidence_inconclusive(self):
         bundle = build_evidence_bundle({"id": "task-1"}, {"id": "run-1"}, [], [], [], None)
 
