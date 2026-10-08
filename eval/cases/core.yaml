@@ -183,3 +183,14 @@ offlineFixtures:
         - {eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, ok: true}}
         - {eventType: tool.called, sequence: 3, payload: {tool: web_search, sequence: 3}}
       result: {status: SUCCEEDED}
+  - id: multi-agent-pdf-failed-tool-truncated
+    assertions:
+      - {type: failed_tool, name: web_search}
+    expectedStatuses: [FAILED]
+    observation:
+      run: {id: fixture-run}
+      events:
+        - {eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1}}
+        - {eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, ok: false}}
+      evidenceCompleteness: {status: TRUNCATED, observedEventCount: 1001, eventLimit: 1000}
+      result: {status: SUCCEEDED}

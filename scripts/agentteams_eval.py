@@ -338,6 +338,16 @@ def _tool_lifecycle(events: list[Mapping[str, Any]], name: str) -> tuple[list[Ma
     return [event for _, event in calls], [ok for _, ok in outcomes]
 
 
+def _has_observed_failed_tool(events: list[Mapping[str, Any]], name: str) -> bool:
+    for event in events:
+        if _event_type(event) not in {"tool.finished", "tool.completed"} or _tool_name(event) != name:
+            continue
+        payload = _payload(event)
+        if payload.get("ok") is False or str(payload.get("status", "")).upper() == "FAILED":
+            return True
+    return False
+
+
 def _events_truncated(observation: Mapping[str, Any]) -> bool:
     completeness = observation.get("evidenceCompleteness") or {}
     if isinstance(completeness, Mapping):
@@ -417,13 +427,17 @@ def _pdf_check(observation: Mapping[str, Any], assertion: Mapping[str, Any]) -> 
         digest = str(artifact.get("sha256", "")).lower()
         storage_ref = str(artifact.get("storageRef", ""))
         download_url = str(artifact.get("downloadUrl", ""))
-        parsed_download = urlsplit(download_url)
+        try:
+            parsed_download = urlsplit(download_url)
+            download_hostname = parsed_download.hostname
+        except ValueError:
+            return False, "PDF download URL is malformed", [{"name": name}]
         data = artifact.get("contentBytes")
         invalid_reference = assertion.get("durable") is True and (
             not storage_ref.startswith("tasks/") or "?" in storage_ref or "x-amz-" in storage_ref.lower())
         invalid_download = False
         if assertion.get("downloadable") is True:
-            invalid_download = (parsed_download.scheme.lower() not in {"http", "https"} or not parsed_download.hostname
+            invalid_download = (parsed_download.scheme.lower() not in {"http", "https"} or not download_hostname
                                or bool(parsed_download.username) or bool(parsed_download.password))
         if (not name.lower().endswith(".pdf") or content_type.lower() != "application/pdf"
                 or not isinstance(size, int) or size <= 0 or len(digest) != 64
@@ -503,7 +517,9 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
         elif assertion_type == "failed_tool":
             expected = str(assertion.get("name", ""))
             lifecycle = _tool_lifecycle(events, expected)
-            if truncated or lifecycle is None or (not lifecycle[0] and lifecycle[1]):
+            if _has_observed_failed_tool(events, expected):
+                passed = False
+            elif truncated or lifecycle is None or (not lifecycle[0] and lifecycle[1]):
                 passed = None
             elif not lifecycle[0]:
                 passed = True

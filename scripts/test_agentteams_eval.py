@@ -173,6 +173,15 @@ cases:
 
         self.assertEqual("FAILED", evaluate_observation(case, {"events": events})[0].status)
 
+    def test_observed_failed_tool_still_fails_when_event_stream_is_truncated(self):
+        case = EvalCase("tool-truncated", "Tool truncated", {}, [{"type": "failed_tool", "name": "search"}], {})
+        observation = {"events": [
+            {"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
+            {"eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "ok": False}},
+        ], "evidenceCompleteness": {"status": "TRUNCATED", "observedEventCount": 1001, "eventLimit": 1000}}
+
+        self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
+
     def test_dependency_assertions_require_success_and_handoff_reference(self):
         case = EvalCase("deps", "Dependencies", {}, [
             {"type": "dependency_success"}, {"type": "dependency_handoff"}], {})
@@ -249,8 +258,10 @@ cases:
             "artifacts": [{**good_meta, "storageRef": "https://storage.example/report.pdf"}]}})[0]
         missing_download = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
             "artifacts": [{key: value for key, value in good_meta.items() if key != "downloadUrl"}]}})[0]
-        self.assertEqual(["FAILED", "FAILED", "FAILED"],
-                         [multiple.status, non_durable.status, missing_download.status])
+        malformed_url = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
+            "artifacts": [{**good_meta, "downloadUrl": "https://[broken-ipv6/report.pdf"}]}})[0]
+        self.assertEqual(["FAILED", "FAILED", "FAILED", "FAILED"],
+                         [multiple.status, non_durable.status, missing_download.status, malformed_url.status])
 
     def test_artifact_integrity_requires_durable_metadata(self):
         case = EvalCase(
