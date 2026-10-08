@@ -32,6 +32,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import reactor.core.Disposable;
@@ -92,7 +93,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     }
 
     /** Publishes AgentScope tool lifecycle events through the common worker event sink. */
-    void reportRuntimeEvent(AgentScopeExecutionEvent event) {
+    void reportRuntimeEvent(AgentScopeExecutionEvent event, int sequence) {
         Objects.requireNonNull(event, "event");
         String eventType;
         if (event.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED) {
@@ -103,9 +104,16 @@ public final class AgentScopeRuntime implements AgentRuntime {
             return;
         }
         String tool = toolName(event.safeMessage());
-        String payload = eventType.equals("tool.called")
-                ? "{\"tool\":\"" + jsonEscape(tool) + "\"}"
-                : "{\"tool\":\"" + jsonEscape(tool) + "\",\"ok\":true}";
+        String payload;
+        if (eventType.equals("tool.called")) {
+            payload = "{\"tool\":\"" + jsonEscape(tool) + "\",\"sequence\":" + sequence + "}";
+        } else if (event.success()) {
+            payload = "{\"tool\":\"" + jsonEscape(tool) + "\",\"ok\":true,\"sequence\":"
+                    + sequence + "}";
+        } else {
+            payload = "{\"tool\":\"" + jsonEscape(tool) + "\",\"ok\":false,\"errorCategory\":\""
+                    + jsonEscape(toolErrorCategory(event.safeMessage())) + "\",\"sequence\":" + sequence + "}";
+        }
         try {
             runtimeEventSink.accept(new RuntimeEvent(UUID.fromString(event.taskId()), eventType,
                     payload, Instant.now(requireContextLocked().clock())));
@@ -215,8 +223,12 @@ public final class AgentScopeRuntime implements AgentRuntime {
                 if (!isCurrentLocked(execution) || translated.duplicate()) {
                     return;
                 }
-                reportRuntimeEvent(translated);
-                if (translated.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED) {
+                if (translated.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED
+                        || translated.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED) {
+                    reportRuntimeEvent(translated, execution.toolEventSequence.incrementAndGet());
+                }
+                if (translated.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED
+                        && translated.success()) {
                     String tool = toolName(translated.safeMessage());
                     if (!"unknown".equals(tool)) {
                         execution.completedMcpTools.add(tool);
@@ -505,13 +517,22 @@ public final class AgentScopeRuntime implements AgentRuntime {
             return "unknown";
         }
         String candidate = message.substring("tool ".length());
-        for (String suffix : new String[] {" started", " completed"}) {
-            if (candidate.endsWith(suffix)) {
-                candidate = candidate.substring(0, candidate.length() - suffix.length());
-                break;
-            }
-        }
+        int suffix = candidate.indexOf(" started");
+        if (suffix < 0) suffix = candidate.indexOf(" completed");
+        if (suffix < 0) suffix = candidate.indexOf(" failed:");
+        if (suffix >= 0) candidate = candidate.substring(0, suffix);
         return candidate.isBlank() ? "unknown" : candidate;
+    }
+
+    private static String toolErrorCategory(String message) {
+        if (message == null) return "TOOL_EXECUTION_FAILED";
+        int categoryStart = message.lastIndexOf(" failed: ");
+        if (categoryStart < 0) return "TOOL_EXECUTION_FAILED";
+        String category = message.substring(categoryStart + " failed: ".length());
+        return switch (category) {
+            case "TOOL_DENIED", "TOOL_INTERRUPTED", "TOOL_EXECUTION_FAILED" -> category;
+            default -> "TOOL_EXECUTION_FAILED";
+        };
     }
 
     private static String jsonEscape(String value) {
@@ -638,6 +659,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
         private final long generation;
         private final Set<String> requiredMcpTools;
         private final Set<String> completedMcpTools = ConcurrentHashMap.newKeySet();
+        private final AtomicInteger toolEventSequence = new AtomicInteger();
         private final AtomicBoolean terminalSubmitted = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicReference<Disposable> disposable = new AtomicReference<>();

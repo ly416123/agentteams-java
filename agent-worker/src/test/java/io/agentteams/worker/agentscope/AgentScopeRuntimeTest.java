@@ -129,16 +129,38 @@ class AgentScopeRuntimeTest {
         runtime.reportRuntimeEvent(new AgentScopeExecutionEvent(
                 taskId.toString(), "attempt-tool", "lease-tool", "event-tool-start",
                 "corr-tool", "agentscope-test", AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED,
-                "tool web_search started", false, true, false));
+                "tool web_search started", false, true, false), 1);
         runtime.reportRuntimeEvent(new AgentScopeExecutionEvent(
                 taskId.toString(), "attempt-tool", "lease-tool", "event-tool-end",
                 "corr-tool", "agentscope-test", AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
-                "tool web_search completed", false, true, false));
+                "tool web_search completed", false, true, false), 2);
 
         assertThat(runtimeEvents).extracting(RuntimeEvent::eventType)
                 .containsExactly("tool.called", "tool.finished");
         assertThat(runtimeEvents.get(0).payloadJson()).contains("\"tool\":\"web_search\"");
         assertThat(runtimeEvents.get(1).payloadJson()).contains("\"ok\":true");
+        assertThat(runtimeEvents.get(0).payloadJson()).contains("\"sequence\":1");
+        assertThat(runtimeEvents.get(1).payloadJson()).contains("\"sequence\":2");
+    }
+
+    @Test
+    void reportsFailedToolCompletionWithStableCategoryAndNoToolContent() {
+        List<RuntimeEvent> runtimeEvents = new CopyOnWriteArrayList<>();
+        runtime = newRuntime(new DeterministicModel("unused"), event -> { });
+        runtime.start(context(1, ignored -> { }));
+        runtime.setEventSink(runtimeEvents::add);
+
+        runtime.reportRuntimeEvent(new AgentScopeExecutionEvent(
+                "00000000-0000-0000-0000-000000000099", "attempt-tool", "lease-tool", "event-tool-error",
+                "corr-tool", "agentscope-test", AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
+                "tool web_search failed: TOOL_EXECUTION_FAILED", false, false, false), 2);
+
+        assertThat(runtimeEvents).singleElement().satisfies(event -> {
+            assertThat(event.eventType()).isEqualTo("tool.finished");
+            assertThat(event.payloadJson()).contains("\"tool\":\"web_search\"", "\"ok\":false",
+                    "TOOL_EXECUTION_FAILED", "\"sequence\":2");
+            assertThat(event.payloadJson()).doesNotContain("raw response", "secret", "authorization");
+        });
     }
 
     @Test

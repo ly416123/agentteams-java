@@ -16,6 +16,9 @@ import io.agentscope.core.event.RequestStopEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ToolCallEndEvent;
 import io.agentscope.core.event.ToolCallStartEvent;
+import io.agentscope.core.event.ToolResultEndEvent;
+import io.agentscope.core.event.ToolResultStartEvent;
+import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.message.UserMessage;
 import java.util.List;
@@ -95,17 +98,32 @@ class AgentScopeEventTranslatorTest {
 
     @Test
     void translatesToolCallStartAndEndWithoutToolArguments() {
-        AgentScopeExecutionEvent started = translator.translate(
+        AgentScopeExecutionEvent modelCallStarted = translator.translate(
                 withAttempt(new ToolCallStartEvent("tool-start-id", CREATED_AT, "reply", "call", "shell"
                         + "(command=do-not-copy-this-secret)")));
+        AgentScopeExecutionEvent started = translator.translate(
+                withAttempt(new ToolResultStartEvent("tool-result-start-id", CREATED_AT, "reply", "call", "shell")));
         AgentScopeExecutionEvent completed = translator.translate(
                 withAttempt(new ToolCallEndEvent("tool-end-id", CREATED_AT, "reply", "call", "shell")));
 
+        assertThat(modelCallStarted.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.IGNORED);
         assertThat(started.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED);
         assertThat(started.safeMessage()).isEqualTo("tool shell started");
         assertThat(started.safeMessage()).doesNotContain("do-not-copy-this-secret");
-        assertThat(completed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED);
-        assertThat(completed.safeMessage()).isEqualTo("tool shell completed");
+        assertThat(completed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.IGNORED);
+        assertThat(completed.safeMessage()).isEqualTo("tool call emitted");
+    }
+
+    @Test
+    void translatesToolResultStateAsTheExecutionOutcome() {
+        AgentScopeExecutionEvent failed = translator.translate(withAttempt(
+                new ToolResultEndEvent("tool-result-error", CREATED_AT, "reply", "call", "shell",
+                        ToolResultState.ERROR)));
+
+        assertThat(failed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED);
+        assertThat(failed.success()).isFalse();
+        assertThat(failed.safeMessage()).contains("shell", "TOOL_EXECUTION_FAILED");
+        assertThat(failed.safeMessage()).doesNotContain("secret", "command", "response");
     }
 
     @Test

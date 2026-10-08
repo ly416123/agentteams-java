@@ -12,6 +12,9 @@ import io.agentscope.core.event.RequestStopEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ToolCallEndEvent;
 import io.agentscope.core.event.ToolCallStartEvent;
+import io.agentscope.core.event.ToolResultEndEvent;
+import io.agentscope.core.event.ToolResultStartEvent;
+import io.agentscope.core.message.ToolResultState;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -109,15 +112,42 @@ public final class AgentScopeEventTranslator {
             return mapped(eventId, AgentScopeExecutionEvent.Kind.TEXT_DELTA,
                     "text " + safeText(textDelta.getDelta()), false, true, duplicate);
         }
-        if (event instanceof ToolCallStartEvent toolStart) {
-            return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED,
-                    "tool " + safeToolName(toolStart.getToolCallName()) + " started",
+        if (event instanceof ToolCallStartEvent) {
+            // This marks model output, before the tool is actually dispatched.
+            return mapped(eventId, AgentScopeExecutionEvent.Kind.IGNORED,
+                    "tool call emitted",
                     false, true, duplicate);
         }
-        if (event instanceof ToolCallEndEvent toolEnd) {
-            return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
-                    "tool " + safeToolName(toolEnd.getToolCallName()) + " completed",
+        if (event instanceof ToolResultStartEvent toolResultStart) {
+            return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED,
+                    "tool " + safeToolName(toolResultStart.getToolCallName()) + " started",
                     false, true, duplicate);
+        }
+        if (event instanceof ToolCallEndEvent) {
+            // TOOL_CALL_END closes the model's tool-call block; execution outcome arrives
+            // separately as ToolResultEndEvent.
+            return mapped(eventId, AgentScopeExecutionEvent.Kind.IGNORED,
+                    "tool call emitted", false, true, duplicate);
+        }
+        if (event instanceof ToolResultEndEvent toolResultEnd) {
+            String tool = safeToolName(toolResultEnd.getToolCallName());
+            ToolResultState state = toolResultEnd.getState();
+            if (state == ToolResultState.SUCCESS) {
+                return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
+                        "tool " + tool + " completed", false, true, duplicate);
+            }
+            if (state == ToolResultState.ERROR || state == ToolResultState.DENIED
+                    || state == ToolResultState.INTERRUPTED) {
+                String category = switch (state) {
+                    case DENIED -> "TOOL_DENIED";
+                    case INTERRUPTED -> "TOOL_INTERRUPTED";
+                    default -> "TOOL_EXECUTION_FAILED";
+                };
+                return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
+                        "tool " + tool + " failed: " + category, false, false, duplicate);
+            }
+            return mapped(eventId, AgentScopeExecutionEvent.Kind.IGNORED,
+                    "tool result pending", false, true, duplicate);
         }
         if (event instanceof AgentResultEvent) {
             return mapped(eventId, AgentScopeExecutionEvent.Kind.AGENT_RESULT,
