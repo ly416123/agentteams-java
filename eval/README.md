@@ -154,7 +154,7 @@ python3 scripts/run-l5-agentteams-eval.py \
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
 - `multi-agent-pdf-positive`：要求工具成功加载 Skill、调用搜索、完成依赖拆分，并产出唯一且有持久化引用及 HTTP(S) 下载地址的 PDF。
 
-支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus` 和 `evidenceCompleteness`，不会从 `tool.called` 推断工具成功。缺少任一调用的完成事件时，`required_tool` 为 `INCONCLUSIVE`；成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
+支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus`、原始 `evidenceCompleteness` 和独立的 `eventCompleteness`，不会从 `tool.called` 推断工具成功。全事件断言只有在事件完整度为 `COMPLETE` 时才可通过或否定；已观察到的失败调用可立即令 `failed_tool` 失败。工具调用和完成事件必须通过唯一 `callId` 配对；缺少、重复或不匹配的 ID 会令生命周期断言为 `INCONCLUSIVE`。成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
 
 没有重试次数证据时 `retry_limit` 为 `INCONCLUSIVE`；Run 状态缺失时 `run_status` 也为 `INCONCLUSIVE`。依赖状态只依据 taskTree 可用性，不受过程事件截断影响。Task 4 尚无依赖交接引用数据源，因此缺少引用时为 `INCONCLUSIVE`；若观察数据包含引用，Runner 只接受 `task-result:<dependencyId>` 稳定格式。当前证据 Bundle 没有来源引用字段，所以来源引用校验应为 `INCONCLUSIVE`；正向 Case 只要求 Agent 输出来源引用，不把正文文本当成已验证的引用证据。
 

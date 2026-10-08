@@ -39,6 +39,44 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertNotIn("x-amz-signature", serialized)
         self.assertNotIn("downloadurl", serialized)
 
+    def test_evidence_bundle_uses_strict_allowlists_and_normalized_sensitive_keys(self):
+        bundle = build_evidence_bundle(
+            {"id": "task-1", "phase": "SUCCEEDED", "taskType": "agentscope", "prompt": "private prompt",
+             "accessToken": "secret-a", "client-secret": "secret-b", "API_KEY": "secret-c"},
+            {"id": "run-1", "status": "SUCCEEDED", "clientSecret": "secret-d"},
+            [{"eventId": "e1", "eventType": "tool.finished", "payload": {
+                "tool": "search", "sequence": 1, "ok": True, "clientSecret": "secret-e", "body": "private event"}}],
+            [{"taskId": "task-1", "parentTaskId": None, "status": "SUCCEEDED",
+              "dependencyIds": [{"taskId": "parent-1", "prompt": "hidden nested prompt"}],
+              "dependencyResults": {"parent": "private result"}, "prompt": "private tree prompt"}],
+            [{"id": "decision-1", "taskId": "task-1", "goalSummary": "private decision"}],
+            {"status": "SUCCEEDED", "summary": "private summary", "output": "private output",
+             "content": "private content", "apiKey": "secret-f", "artifacts": [{
+                 "name": "safe.pdf", "contentType": "application/pdf", "storageRef": "tasks/task-1/safe.pdf",
+                 "sizeBytes": 12, "sha256": "a" * 64, "downloadUrl": "https://x.invalid?X-Amz-Signature=secret"}]},
+            {"status": "COMPLETE", "observedEventCount": 1, "eventLimit": 1000},
+        )
+        encoded = json.dumps(bundle, ensure_ascii=False)
+
+        self.assertNotIn("private", encoded)
+        self.assertNotIn("secret", encoded)
+        self.assertNotIn("downloadUrl", encoded)
+        self.assertEqual({"id", "phase", "taskType"}, set(bundle["taskSnapshot"]))
+        self.assertEqual({"taskId", "parentTaskId", "status", "dependencyIds"}, set(bundle["taskTree"][0]))
+        self.assertEqual(["parent-1"], bundle["taskTree"][0]["dependencyIds"])
+        self.assertEqual({"id", "taskId"}, set(bundle["decisions"][0]))
+        self.assertEqual({"status", "artifacts"}, set(bundle["resultManifest"]))
+
+    def test_output_contains_report_has_no_expected_or_actual_body(self):
+        case = EvalCase("contains", "Contains", {}, [{"type": "output_contains", "value": "private answer secret"}], {})
+        result = evaluate_observation(case, {"run": {"id": "r"}, "result": {"summary": "private answer secret"}, "events": []})[0]
+        report_json = json.dumps(result.as_dict())
+
+        self.assertTrue(result.passed)
+        self.assertIs(True, result.actual)
+        self.assertNotIn("private answer", report_json)
+        self.assertNotIn("secret", report_json)
+
     def test_missing_result_manifest_marks_evidence_inconclusive(self):
         bundle = build_evidence_bundle({"id": "task-1"}, {"id": "run-1"}, [], [], [], None)
 
@@ -86,10 +124,11 @@ cases:
             limits={},
         )
         observation = {
+            "eventCompleteness": "COMPLETE",
             "task": {"id": "task-1", "phase": "SUCCEEDED"},
             "events": [
-                {"eventType": "tool.called", "sequence": 1, "payload": json.dumps({"tool": "web_search", "sequence": 1})},
-                {"eventType": "tool.finished", "sequence": 2, "payload": json.dumps({"tool": "web_search", "sequence": 2, "ok": True})},
+                {"eventType": "tool.called", "sequence": 1, "payload": json.dumps({"tool": "web_search", "sequence": 1, "callId": "web-1"})},
+                {"eventType": "tool.finished", "sequence": 2, "payload": json.dumps({"tool": "web_search", "sequence": 2, "callId": "web-1", "ok": True})},
             ],
             "result": {"summary": "Model Context Protocol"},
         }
@@ -126,8 +165,8 @@ cases:
             {"eventId": "e1", "eventType": "tool.called", "payload": {"tool": "search", "sequence": 1,
              "arguments": "private body"}}], "result": {}})[0]
         success = evaluate_observation(case, {"task": {}, "run": {"id": "r1"}, "events": [
-            {"eventId": "e1", "eventType": "tool.called", "payload": {"tool": "search", "sequence": 1}},
-            {"eventId": "e2", "eventType": "tool.finished", "payload": {"tool": "search", "sequence": 2, "ok": True}}], "result": {}})[0]
+            {"eventId": "e1", "eventType": "tool.called", "payload": {"tool": "search", "sequence": 1, "callId": "call-1"}},
+            {"eventId": "e2", "eventType": "tool.finished", "payload": {"tool": "search", "sequence": 2, "callId": "call-1", "ok": True}}], "eventCompleteness": "COMPLETE", "result": {}})[0]
 
         self.assertEqual("INCONCLUSIVE", called_only.status)
         self.assertEqual("PASSED", success.status)
@@ -145,20 +184,21 @@ cases:
         self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": events})[0].status)
         events.append({"eventType": "tool.finished", "sequence": 4,
                        "payload": {"tool": "search", "sequence": 4, "ok": False}})
-        self.assertEqual("PASSED", evaluate_observation(case, {"events": events})[0].status)
+        self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": events})[0].status)
 
     def test_tool_lifecycle_order_count_and_failed_outcome(self):
         events = [
-            {"eventId": "c1", "eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
-            {"eventId": "f1", "eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "ok": False}},
-            {"eventId": "c2", "eventType": "tool.called", "sequence": 3, "payload": {"tool": "fetch", "sequence": 3}},
-            {"eventId": "f2", "eventType": "tool.finished", "sequence": 4, "payload": {"tool": "fetch", "sequence": 4, "ok": True}},
+            {"eventId": "c1", "eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1, "callId": "search-1"}},
+            {"eventId": "f1", "eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "callId": "search-1", "ok": False}},
+            {"eventId": "c2", "eventType": "tool.called", "sequence": 3, "payload": {"tool": "fetch", "sequence": 3, "callId": "fetch-1"}},
+            {"eventId": "f2", "eventType": "tool.finished", "sequence": 4, "payload": {"tool": "fetch", "sequence": 4, "callId": "fetch-1", "ok": True}},
         ]
         case = EvalCase("life", "Lifecycle", {}, [
             {"type": "failed_tool", "name": "search"},
             {"type": "tool_order", "names": ["search", "fetch"]},
             {"type": "tool_count", "name": "search", "expected": 1}], {})
-        results = evaluate_observation(case, {"run": {"id": "run-7"}, "events": events, "result": {}})
+        results = evaluate_observation(case, {"run": {"id": "run-7"}, "events": events, "result": {},
+                                              "eventCompleteness": "COMPLETE"})
 
         self.assertEqual(["FAILED", "PASSED", "PASSED"], [result.status for result in results])
         self.assertTrue(all(result.evidence_refs == ("task-events:run-7",) for result in results))
@@ -214,6 +254,61 @@ cases:
 
         self.assertEqual(["INCONCLUSIVE", "INCONCLUSIVE"],
                          [result.status for result in evaluate_observation(case, {"events": []})])
+
+    def test_dependency_success_without_edges_is_inconclusive_when_required(self):
+        case = EvalCase("deps", "Dependencies", {}, [{"type": "dependency_success", "requireDependencies": True}], {})
+
+        result = evaluate_observation(case, {"taskTree": [{"taskId": "root", "status": "SUCCEEDED",
+                                                             "dependencyIds": []}]})[0]
+        self.assertEqual("INCONCLUSIVE", result.status)
+
+    def test_event_cursor_incomplete_never_passes_required_tool(self):
+        case = EvalCase("partial-events", "Partial", {}, [{"type": "required_tool", "name": "search"}], {})
+        events = [{"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
+                  {"eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "ok": True}}]
+
+        result = evaluate_observation(case, {"events": events, "eventCompleteness": "INCONCLUSIVE"})[0]
+        self.assertEqual("INCONCLUSIVE", result.status)
+
+    def test_pagination_failure_preserves_raw_completeness_and_event_status(self):
+        def transport(request, timeout):
+            path = request.full_url.split("http://test", 1)[1]
+            if "/process-events" in path:
+                events = [{"eventType": "note", "payload": {}} for _ in range(100)]
+                return 200, {}, json.dumps(events).encode()
+            if path.endswith("/result"):
+                return 200, {}, json.dumps({"status": "SUCCEEDED"}).encode()
+            if path.endswith("/tree") or path.endswith("/decisions"):
+                return 200, {}, b"[]"
+            if path == "/api/v1/tasks/task-1":
+                return 200, {}, json.dumps({"id": "task-1", "phase": "SUCCEEDED"}).encode()
+            raise AssertionError(path)
+
+        observation = AgentTeamsClient("http://test", "token", transport=transport).get_observation("task-1", "run-1")
+        bundle = build_evidence_bundle(observation["task"], observation["run"], observation["events"],
+                                       observation["taskTree"], observation["decisions"], observation["result"],
+                                       observation["evidenceCompleteness"], observation["eventCompleteness"])
+
+        self.assertEqual("INCONCLUSIVE", observation["evidenceCompleteness"]["status"])
+        self.assertEqual("INCONCLUSIVE", observation["eventCompleteness"])
+        self.assertEqual(observation["evidenceCompleteness"], bundle["evidenceCompleteness"])
+        self.assertEqual("INCONCLUSIVE", bundle["eventCompleteness"])
+
+    def test_tool_lifecycle_requires_unique_matching_call_ids(self):
+        case = EvalCase("pair", "Pair", {}, [{"type": "required_tool", "name": "search"}], {})
+        def event(call_id, event_type, sequence, ok=None):
+            payload = {"tool": "search", "sequence": sequence, "callId": call_id}
+            if ok is not None:
+                payload["ok"] = ok
+            return {"eventType": event_type, "sequence": sequence, "payload": payload}
+        matched = [event("call-1", "tool.called", 1), event("call-1", "tool.finished", 2, True)]
+        missing_id = [event("call-1", "tool.called", 1), event(None, "tool.finished", 2, True)]
+        duplicate = [event("call-1", "tool.called", 1), event("call-1", "tool.called", 2),
+                     event("call-1", "tool.finished", 3, True)]
+
+        self.assertEqual("PASSED", evaluate_observation(case, {"events": matched, "eventCompleteness": "COMPLETE"})[0].status)
+        self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": missing_id, "eventCompleteness": "COMPLETE"})[0].status)
+        self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": duplicate, "eventCompleteness": "COMPLETE"})[0].status)
 
     def test_run_status_is_inconclusive_when_run_snapshot_is_missing(self):
         case = EvalCase("run", "Run", {}, [{"type": "run_status", "expected": "SUCCEEDED"}], {})
@@ -399,6 +494,7 @@ cases:
                           "multi-agent-pdf-positive"},
                          {case.case_id for case in cases})
         pdf_case = next(case for case in cases if case.case_id == "multi-agent-pdf-positive")
+        self.assertIn({"type": "dependency_success", "requireDependencies": True}, pdf_case.assertions)
         self.assertIn({"type": "required_tool", "name": "load_skill_through_path"}, pdf_case.assertions)
         self.assertIn({"type": "artifact_pdf", "exactlyOne": True, "durable": True,
                        "downloadable": True}, pdf_case.assertions)
@@ -428,9 +524,9 @@ cases:
             if request.method == "GET" and path.endswith("/process-events"):
                 return 200, {}, json.dumps([
                     {"eventType": "tool.called", "sequence": 1,
-                     "payload": {"tool": "web_search", "sequence": 1, "arguments": "private"}},
+                     "payload": {"tool": "web_search", "sequence": 1, "callId": "web-1", "arguments": "private"}},
                     {"eventType": "tool.finished", "sequence": 2,
-                     "payload": {"tool": "web_search", "sequence": 2, "ok": True,
+                     "payload": {"tool": "web_search", "sequence": 2, "callId": "web-1", "ok": True,
                                  "result": "private response"}},
                 ]).encode()
             if request.method == "GET" and (path.endswith("/tree") or path.endswith("/decisions")):

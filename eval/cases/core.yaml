@@ -86,6 +86,7 @@ cases:
       - type: run_status
         expected: SUCCEEDED
       - type: dependency_success
+        requireDependencies: true
       - type: dependency_handoff
       - type: required_tool
         name: web_search
@@ -108,9 +109,10 @@ offlineFixtures:
     expectedStatuses: [FAILED]
     observation:
       run: {id: fixture-run}
+      eventCompleteness: COMPLETE
       events:
-        - {eventId: c1, eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1}}
-        - {eventId: f1, eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, ok: false}}
+        - {eventId: c1, eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1, callId: search-1}}
+        - {eventId: f1, eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, callId: search-1, ok: false}}
       result: {status: SUCCEEDED}
   - id: multi-agent-pdf-missing-dependency
     assertions:
