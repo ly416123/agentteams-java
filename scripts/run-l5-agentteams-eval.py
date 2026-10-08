@@ -174,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tenant", default=os.environ.get("AGENTTEAMS_EVAL_TENANT", ""))
     parser.add_argument("--project", default=os.environ.get("AGENTTEAMS_EVAL_PROJECT", ""))
     parser.add_argument("--team", default=os.environ.get("AGENTTEAMS_EVAL_TEAM", ""))
-    parser.add_argument("--timeout-seconds", type=float, default=180.0)
+    parser.add_argument("--timeout-seconds", type=float, default=None,
+                        help="override the per-case timeoutSeconds limit")
     parser.add_argument("--poll-seconds", type=float, default=3.0)
     parser.add_argument("--deepeval-export-dir", type=Path,
                         help="optional directory for credential-free DeepEval case exports")

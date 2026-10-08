@@ -178,7 +178,8 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     if re.fullmatch(r"[0-9a-f]{64}", digest):
         metadata["sha256"] = digest
     raw_ref = _sanitize_value(artifact.get("storageRef"))
-    if isinstance(raw_ref, str) and _is_durable_artifact_ref(raw_ref, metadata["name"]):
+    if isinstance(raw_ref, str) and (_is_durable_artifact_ref(raw_ref, metadata["name"])
+                                    or _is_task_file_ref(raw_ref)):
         metadata["storageRef"] = raw_ref
     else:
         metadata["storageRef"] = f"artifact:{digest}" if "sha256" in metadata else "artifact:metadata-only"
@@ -188,6 +189,9 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     size = artifact.get("sizeBytes")
     if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
         metadata["sizeBytes"] = size
+    task_file_id = artifact.get("taskFileId")
+    if isinstance(task_file_id, str) and re.fullmatch(UUID_PATH_SEGMENT, task_file_id):
+        metadata["taskFileId"] = task_file_id
     version = artifact.get("version")
     if isinstance(version, int) and not isinstance(version, bool) and version >= 0:
         metadata["version"] = version
@@ -210,6 +214,11 @@ def _is_durable_artifact_ref(storage_ref: Any, name: Any) -> bool:
             and storage_ref.endswith(f"/artifacts/{name}"))
 
 
+def _is_task_file_ref(storage_ref: Any) -> bool:
+    return isinstance(storage_ref, str) and re.fullmatch(
+        rf"task-files/{UUID_PATH_SEGMENT}/{UUID_PATH_SEGMENT}", storage_ref) is not None
+
+
 def _safe_id_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -219,6 +228,19 @@ def _safe_id_list(value: Any) -> list[str]:
         if isinstance(identifier, (str, int)) and str(identifier):
             identifiers.append(str(identifier))
     return identifiers
+
+
+def _safe_dependency_result_refs(node: Mapping[str, Any]) -> dict[str, str]:
+    dependencies = set(_safe_id_list(node.get("dependencyIds", node.get("dependencies", []))))
+    raw_refs = node.get("dependencyResultRefs")
+    if not isinstance(raw_refs, Mapping):
+        return {}
+    safe: dict[str, str] = {}
+    for dependency_id in dependencies:
+        ref = raw_refs.get(dependency_id)
+        if isinstance(ref, str) and ref == f"task-result:{dependency_id}":
+            safe[dependency_id] = ref
+    return safe
 
 
 def _sanitize_value(value: Any) -> Any:
@@ -301,7 +323,9 @@ def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], event
                           tree: list[Any] | None, decisions: list[Any] | None,
                           result: Mapping[str, Any] | None,
                           evidence_completeness: Mapping[str, Any] | None = None,
-                          event_completeness: str | None = None) -> dict[str, Any]:
+                          event_completeness: str | None = None,
+                          subtask_events: list[Any] | None = None,
+                          source_evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Normalize an observation into a credential-free, metadata-first Evidence Bundle."""
     task_value = {key: _sanitize_value(task[key]) for key in ("id", "phase", "taskType") if key in task}
     run_value = {key: _sanitize_value(run[key]) for key in ("id", "runId", "status") if key in run}
@@ -337,9 +361,13 @@ def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], event
         "taskSnapshot": task_value,
         "taskEvents": safe_events,
         "processEvents": safe_events,
+        "subtaskEvents": [_sanitize_event(event) for event in (subtask_events or [])
+                           if isinstance(event, Mapping)][:PROCESS_EVENT_LIMIT],
         "taskTree": [{**{key: _sanitize_value(node[key]) for key in ("taskId", "parentTaskId", "status")
                        if key in node}, **({"dependencyIds": _safe_id_list(node.get("dependencyIds"))}
-                                             if "dependencyIds" in node else {})}
+                                             if "dependencyIds" in node else {}),
+                       **({"dependencyResultRefs": _safe_dependency_result_refs(node)}
+                          if isinstance(node.get("dependencyResultRefs"), Mapping) else {})}
                       for node in (tree or []) if isinstance(node, Mapping)],
         "decisions": [{key: _sanitize_value(node[key]) for key in ("id", "taskId") if key in node}
                       for node in (decisions or []) if isinstance(node, Mapping)],
@@ -354,9 +382,34 @@ def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], event
         "approvalHistory": [],
         "agentMetadata": {},
         "policyOutcomes": [],
+        **({"sourceEvidence": _safe_source_evidence(source_evidence, task_id, run_id)}
+           if source_evidence is not None else {}),
         "inputStatus": "COMPLETE" if safe_result is not None and event_completeness == "COMPLETE"
         and isinstance(task_id, str) and bool(task_id) and bool(run_id) else "INCONCLUSIVE",
     }
+
+
+def _safe_source_evidence(value: Any, task_id: Any, run_id: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or value.get("taskId") != task_id or value.get("runId") != run_id:
+        return {"completeness": {"status": "INCONCLUSIVE", "observedSearchCalls": 0,
+                                 "recordedSearchCalls": 0, "observedSources": 0}, "calls": []}
+    calls = value.get("calls") if isinstance(value.get("calls"), list) else []
+    safe_calls = []
+    for call in calls:
+        if not isinstance(call, Mapping):
+            continue
+        sources = call.get("sources") if isinstance(call.get("sources"), list) else []
+        safe_calls.append({"taskId": call.get("taskId"), "runId": call.get("runId"),
+                           "callId": call.get("callId"), "complete": call.get("complete") is True,
+                           "sourceRefs": sorted({str(source.get("evidenceRef")) for source in sources
+                                                 if isinstance(source, Mapping) and source.get("evidenceRef")})})
+    completeness = value.get("completeness") if isinstance(value.get("completeness"), Mapping) else {}
+    allowed = value.get("allowedTaskRuns") if isinstance(value.get("allowedTaskRuns"), list) else []
+    safe_allowed = [[pair[0], pair[1]] for pair in allowed if isinstance(pair, (list, tuple))
+                    and len(pair) == 2 and all(isinstance(part, str) for part in pair)]
+    return {"allowedTaskRuns": safe_allowed, "completeness": {key: completeness.get(key) for key in
+                             ("status", "observedSearchCalls", "recordedSearchCalls", "observedSources", "sourceLimit")},
+            "calls": safe_calls}
 
 
 def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dict[str, Any]]]:
@@ -374,7 +427,7 @@ def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dic
         size = artifact.get("sizeBytes")
         digest = str(artifact.get("sha256", ""))
         invalid_fields = []
-        if not _is_durable_artifact_ref(ref, name):
+        if not (_is_durable_artifact_ref(ref, name) or _is_task_file_ref(ref)):
             invalid_fields.append("name/storageRef")
         if type(size) is not int or size <= 0:
             invalid_fields.append("sizeBytes")
@@ -584,6 +637,14 @@ def _pdf_check(observation: Mapping[str, Any], assertion: Mapping[str, Any]) -> 
         return None, "result manifest is unavailable", None
     artifacts = result.get("artifacts", [])
     if not isinstance(artifacts, list) or not artifacts:
+        task_files = result.get("taskFiles", [])
+        if isinstance(task_files, list) and any(isinstance(item, Mapping)
+                and str(item.get("role", "")).upper() == "OUTPUT"
+                and str(item.get("status", "")).upper() == "AVAILABLE"
+                and (str(item.get("name", "")).lower().endswith(".pdf")
+                     or str(item.get("contentType", "")).lower() == "application/pdf")
+                for item in task_files):
+            return None, "PDF exists in Task Files, but downloadable verification evidence is unavailable", None
         return False, "PDF artifact is missing", []
     pdfs = [artifact for artifact in artifacts if isinstance(artifact, Mapping)
             and (str(artifact.get("name", "")).lower().endswith(".pdf")
@@ -606,11 +667,13 @@ def _pdf_check(observation: Mapping[str, Any], assertion: Mapping[str, Any]) -> 
         except ValueError:
             return False, "PDF download URL is malformed", [{"count": len(pdfs)}]
         data = artifact.get("contentBytes")
-        invalid_reference = assertion.get("durable") is True and not _is_durable_artifact_ref(storage_ref, name)
+        invalid_reference = assertion.get("durable") is True and not (
+            _is_durable_artifact_ref(storage_ref, name) or _is_task_file_ref(storage_ref))
         invalid_download = False
         if assertion.get("downloadable") is True:
-            invalid_download = (parsed_download.scheme.lower() not in {"http", "https"} or not download_hostname
-                               or bool(parsed_download.username) or bool(parsed_download.password))
+            invalid_download = not artifact.get("taskFileId") and (
+                parsed_download.scheme.lower() not in {"http", "https"} or not download_hostname
+                or bool(parsed_download.username) or bool(parsed_download.password))
         if (not name.lower().endswith(".pdf") or content_type.lower() != "application/pdf"
                 or type(size) is not int or size <= 0 or len(digest) != 64
                 or any(c not in "0123456789abcdef" for c in digest)
@@ -644,6 +707,9 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
     tree_ref = f"task-tree:{run_id}"
     manifest_ref = f"result-manifest:{run_id}"
     events = [event for event in observation.get("events", []) or [] if isinstance(event, Mapping)]
+    subtask_events = [event for event in observation.get("subtaskEvents", []) or []
+                      if isinstance(event, Mapping)]
+    lifecycle_events = events + subtask_events
     truncated = _events_truncated(observation)
     for assertion in case.assertions:
         assertion_type = str(assertion.get("type", ""))
@@ -655,7 +721,7 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
                                            (f"task-snapshot:{(task or {}).get('id', 'unknown')}",)))
         elif assertion_type == "required_tool":
             expected = str(assertion.get("name", ""))
-            lifecycle = _tool_lifecycle(events, expected)
+            lifecycle = _tool_lifecycle(lifecycle_events, expected)
             if truncated or lifecycle is None:
                 passed = None
                 message = "tool lifecycle evidence is incomplete or unparseable"
@@ -671,7 +737,8 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
                 passed, message = False, f"required tool {expected} failed"
             results.append(AssertionResult(assertion_type, passed, message, expected,
                                            {"calls": len(lifecycle[0]), "outcomes": lifecycle[1]} if lifecycle else None,
-                                           (events_ref,)))
+                                           tuple([events_ref] + [f"subtask-events:{event.get('taskId', 'unknown')}:{event.get('runId', 'unknown')}"
+                                                                for event in subtask_events])))
         elif assertion_type == "forbidden_tool":
             expected = str(assertion.get("name", ""))
             names = _called_tools(events)
@@ -690,7 +757,7 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
         elif assertion_type == "failed_tool":
             expected = str(assertion.get("name", ""))
             lifecycle = _tool_lifecycle(events, expected)
-            if _has_observed_failed_tool(events, expected):
+            if _has_observed_failed_tool(lifecycle_events, expected):
                 passed = False
             elif truncated or lifecycle is None or (not lifecycle[0] and lifecycle[1]):
                 passed = None
@@ -702,7 +769,9 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
                 failed = any(outcome is False for outcome in lifecycle[1])
                 passed = None if not failed and len(lifecycle[1]) < len(lifecycle[0]) else not failed
             results.append(AssertionResult(assertion_type, passed, "failed tool lifecycle evaluated", expected,
-                                           lifecycle[1] if lifecycle else None, (events_ref,)))
+                                           lifecycle[1] if lifecycle else None,
+                                           tuple([events_ref] + [f"subtask-events:{event.get('taskId', 'unknown')}:{event.get('runId', 'unknown')}"
+                                                                 for event in subtask_events])))
         elif assertion_type == "tool_order":
             names = _called_tools(events)
             expected = assertion.get("names", [])
@@ -726,9 +795,52 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             results.append(AssertionResult(assertion_type, None, "retry attempt evidence is unavailable",
                                            assertion.get("maxAttempts"), None, (f"task-run:{run_id}",)))
         elif assertion_type == "source_citation":
-            results.append(AssertionResult(assertion_type, None,
-                                           "structured source citation evidence is unavailable",
-                                           "structured source references", None, (manifest_ref,)))
+            source_evidence = observation.get("sourceEvidence")
+            result_manifest = observation.get("result") or {}
+            calls = source_evidence.get("calls") if isinstance(source_evidence, Mapping) else None
+            coverage = source_evidence.get("completeness") if isinstance(source_evidence, Mapping) else None
+            summary = result_manifest.get("summary") if isinstance(result_manifest, Mapping) else None
+            cited = re.findall(r"https?://[^\s<>\"]+", summary, flags=re.I) if isinstance(summary, str) else []
+            source_refs: dict[str, str] = {}
+            allowed_pairs = {tuple(pair) for pair in source_evidence.get("allowedTaskRuns", [])
+                             if isinstance(pair, (list, tuple)) and len(pair) == 2} \
+                if isinstance(source_evidence, Mapping) else set()
+            structurally_valid = isinstance(calls, list) and bool(calls)
+            for call in calls if isinstance(calls, list) else []:
+                if (not isinstance(call, Mapping) or call.get("complete") is not True
+                        or (call.get("taskId"), call.get("runId")) not in allowed_pairs):
+                    structurally_valid = False
+                    continue
+                for source in call.get("sources", []) if isinstance(call.get("sources"), list) else []:
+                    if isinstance(source, Mapping) and isinstance(source.get("url"), str):
+                        parsed = urlsplit(source["url"])
+                        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                            structurally_valid = False
+                        else:
+                            source_refs[source["url"]] = str(source.get("evidenceRef", ""))
+            cited_urls: list[str] = []
+            for url in cited:
+                url = url.rstrip("),.;")
+                parsed = urlsplit(url)
+                if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                    structurally_valid = False
+                else:
+                    cited_urls.append(url)
+            complete = isinstance(coverage, Mapping) and coverage.get("status") == "COMPLETE" \
+                and coverage.get("observedSearchCalls", 0) > 0 \
+                and coverage.get("observedSearchCalls") == coverage.get("recordedSearchCalls") \
+                and isinstance(source_evidence, Mapping) and source_evidence.get("runId") == run_id \
+                and source_evidence.get("taskId") == (observation.get("task") or {}).get("id")
+            if not complete or not structurally_valid or not cited_urls:
+                results.append(AssertionResult(assertion_type, None, "search source evidence or citation is incomplete",
+                                               "complete run-bound citation evidence", None, (f"task-source:{run_id}",)))
+            else:
+                matched = [source_refs[url] for url in cited_urls if url in source_refs]
+                passed = bool(cited_urls) and all(url in source_refs for url in cited_urls)
+                results.append(AssertionResult(assertion_type, passed,
+                                               "citation URL checked against this Run's search sources",
+                                               "all cited URLs from this Run", "matched" if passed else "citation URL did not match",
+                                               tuple(sorted(set(matched)) or {f"task-source:{run_id}"})))
         elif assertion_type == "run_status":
             run = observation.get("run") or {}
             actual, expected = run.get("status"), str(assertion.get("expected", ""))
@@ -794,6 +906,46 @@ class AgentTeamsClient:
         except json.JSONDecodeError as exc:
             raise EvalTransportError(f"invalid JSON response from {method} {path}") from exc
 
+    def _request_bytes(self, path: str) -> bytes:
+        request = Request(self.base_url + path, headers={"Authorization": f"Bearer {self.token}",
+                                                         "Accept": "application/octet-stream"}, method="GET")
+        status, _, raw = self.transport(request, self.timeout)
+        if status < 200 or status >= 300:
+            raise EvalTransportError(f"HTTP {status} GET {path}")
+        return raw
+
+    def _collect_events(self, task_id: str, run_id: str) -> tuple[list[Any], str]:
+        events: list[Any] = []
+        after = 0
+        status = "COMPLETE"
+        while len(events) <= PROCESS_EVENT_LIMIT:
+            suffix = "" if after == 0 else f"?after={after}"
+            page = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/process-events{suffix}")
+            if isinstance(page, Mapping):
+                values = page.get("events", [])
+                upstream = page.get("evidenceCompleteness") or {}
+                if isinstance(upstream, Mapping):
+                    upstream_status = str(upstream.get("status", "")).upper()
+                    if upstream_status == "TRUNCATED": status = "TRUNCATED"
+                    elif upstream_status == "INCONCLUSIVE" and status == "COMPLETE": status = "INCONCLUSIVE"
+            else:
+                values = page
+            if not isinstance(values, list):
+                return events, "INCONCLUSIVE"
+            events.extend(values)
+            if len(events) > PROCESS_EVENT_LIMIT:
+                return events[:PROCESS_EVENT_LIMIT + 1], "TRUNCATED"
+            if len(values) < PROCESS_EVENT_PAGE_SIZE:
+                return events, status
+            sequences = [event.get("sequence") for event in values if isinstance(event, Mapping)]
+            if not sequences or not all(isinstance(sequence, int) for sequence in sequences):
+                return events, "INCONCLUSIVE"
+            next_after = max(sequences)
+            if next_after <= after:
+                return events, "INCONCLUSIVE"
+            after = next_after
+        return events[:PROCESS_EVENT_LIMIT + 1], "TRUNCATED"
+
     def create_task(self, case: EvalCase) -> dict[str, Any]:
         task = case.task
         spec = task.get("spec")
@@ -835,53 +987,126 @@ class AgentTeamsClient:
             raise EvalError(f"task {task_id} has no execution run")
         return _mapping(runs[-1], "run response")
 
-    def get_observation(self, task_id: str, run_id: str) -> dict[str, Any]:
-        events: list[Any] = []
-        after = 0
-        event_status = "COMPLETE"
-        while len(events) <= PROCESS_EVENT_LIMIT:
-            suffix = "" if after == 0 else f"?after={after}"
-            page = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/process-events{suffix}")
-            if isinstance(page, Mapping):
-                page_values = page.get("events", [])
-                upstream = page.get("evidenceCompleteness") or {}
-                if isinstance(upstream, Mapping):
-                    upstream_status = str(upstream.get("status", "")).upper()
-                    if upstream_status == "TRUNCATED":
-                        event_status = "TRUNCATED"
-                    elif upstream_status == "INCONCLUSIVE" and event_status == "COMPLETE":
-                        event_status = "INCONCLUSIVE"
-            else:
-                page_values = page
-            if not isinstance(page_values, list):
-                event_status = "INCONCLUSIVE"
-                break
-            events.extend(page_values)
-            if len(events) > PROCESS_EVENT_LIMIT:
-                event_status = "TRUNCATED"
-                events = events[:PROCESS_EVENT_LIMIT + 1]
-                break
-            if len(page_values) < PROCESS_EVENT_PAGE_SIZE:
-                break
-            sequences = [event.get("sequence") for event in page_values if isinstance(event, Mapping)]
-            if not sequences or not all(isinstance(sequence, int) for sequence in sequences):
-                event_status = "INCONCLUSIVE"
-                break
-            next_after = max(sequences)
-            if next_after <= after:
-                event_status = "INCONCLUSIVE"
-                break
-            after = next_after
+    def get_observation(self, task_id: str, run_id: str, include_source_evidence: bool = False) -> dict[str, Any]:
+        events, event_status = self._collect_events(task_id, run_id)
         result = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/result")
         task_tree = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/tree")
         decisions = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/decisions")
+        source_evidence = None
+        if include_source_evidence:
+            try:
+                raw_sources = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/source-evidence")
+                if isinstance(raw_sources, Mapping) and raw_sources.get("taskId") == task_id and raw_sources.get("runId") == run_id:
+                    raw_calls = raw_sources.get("calls") if isinstance(raw_sources.get("calls"), list) else []
+                    calls = [{**call, "complete": call.get("complete") is True,
+                              "sources": call.get("sources", []) if isinstance(call.get("sources"), list) else []}
+                             for call in raw_calls if isinstance(call, Mapping)
+                             and call.get("taskId") == task_id and call.get("runId") == run_id]
+                    identity_invalid = len(calls) != len(raw_calls)
+                    truncated = raw_sources.get("truncated") is True or len(calls) != len(raw_calls)
+                    source_evidence = {"taskId": task_id, "runId": run_id, "allowedTaskRuns": [[task_id, run_id]],
+                                       "identityInvalid": identity_invalid, "calls": calls,
+                                       "completeness": {"status": "TRUNCATED" if truncated else "COMPLETE",
+                                                        "observedSearchCalls": raw_sources.get("observedCallCount", len(calls)),
+                                                        "recordedSearchCalls": len(calls),
+                                                        "observedSources": raw_sources.get("observedSourceCount", 0)}}
+            except EvalTransportError:
+                pass
+        subtask_events: list[Any] = []
+        source_calls: list[Any] = list(source_evidence.get("calls", [])) if isinstance(source_evidence, Mapping) else []
+        successful_source_events: list[Any] = []
+        allowed_source_runs: list[list[str]] = [[task_id, run_id]] if include_source_evidence else []
+        source_identity_invalid = bool(source_evidence.get("identityInvalid")) if isinstance(source_evidence, Mapping) else False
+        if isinstance(task_tree, list):
+            for node in task_tree:
+                if not isinstance(node, Mapping) or str(node.get("taskId", "")) == task_id:
+                    continue
+                child_id = str(node.get("taskId", ""))
+                if not child_id:
+                    continue
+                try:
+                    child = self.get_task(child_id)
+                    phase = str(child.get("phase", "")).upper()
+                    if phase in {"SUCCEEDED", "FAILED", "CANCELLED", "REJECTED"}:
+                        node["status"] = "FAILED" if phase == "REJECTED" else phase
+                    child_run = self.get_run(child_id)
+                    child_run_id = str(child_run.get("id") or child_run.get("runId") or "")
+                    if child_run_id:
+                        child_events, child_status = self._collect_events(child_id, child_run_id)
+                        subtask_events.extend(child_events)
+                        if include_source_evidence and phase == "SUCCEEDED" \
+                                and str(child_run.get("status", "")).upper() == "SUCCEEDED":
+                            successful_source_events.extend(child_events)
+                            try:
+                                child_sources = self._request("GET", f"/api/v1/tasks/{child_id}/runs/{child_run_id}/source-evidence")
+                                if isinstance(child_sources, Mapping) and child_sources.get("taskId") == child_id \
+                                        and child_sources.get("runId") == child_run_id:
+                                    values = child_sources.get("calls")
+                                    if isinstance(values, list):
+                                        for value in values:
+                                            if isinstance(value, Mapping) and value.get("taskId") == child_id \
+                                                    and value.get("runId") == child_run_id:
+                                                source_calls.append(value)
+                                            else:
+                                                source_identity_invalid = True
+                                        allowed_source_runs.append([child_id, child_run_id])
+                            except EvalTransportError:
+                                child_tools = _called_tools(child_events)
+                                if child_tools is None or any("search" in name.lower() for name in child_tools):
+                                    if event_status == "COMPLETE": event_status = "INCONCLUSIVE"
+                        if child_status != "COMPLETE" and event_status == "COMPLETE":
+                            event_status = child_status
+                except EvalTransportError:
+                    if event_status == "COMPLETE": event_status = "INCONCLUSIVE"
+        if isinstance(result, Mapping) and isinstance(result.get("taskFiles"), list):
+            try:
+                files = self._request("GET", f"/api/v1/tasks/{task_id}/files?role=OUTPUT")
+                if isinstance(files, list):
+                    raw_artifacts = result.get("artifacts", [])
+                    artifacts = list(raw_artifacts) if isinstance(raw_artifacts, list) else []
+                    for file in files:
+                        if not isinstance(file, Mapping) or str(file.get("status", "")).upper() != "AVAILABLE":
+                            continue
+                        name = str(file.get("name", ""))
+                        content_type = str(file.get("contentType", ""))
+                        if not (name.lower().endswith(".pdf") or content_type.lower() == "application/pdf"):
+                            continue
+                        size = file.get("sizeBytes")
+                        file_id = str(file.get("fileId", ""))
+                        if not isinstance(size, int) or size <= 0 or size > 50 * 1024 * 1024 or not re.fullmatch(UUID_PATH_SEGMENT, file_id):
+                            continue
+                        data = self._request_bytes(f"/api/v1/tasks/{task_id}/files/{file_id}/content")
+                        artifacts.append({"name": name, "contentType": content_type, "sizeBytes": size,
+                                          "sha256": str(file.get("sha256", "")),
+                                          "storageRef": f"task-files/{task_id}/{file_id}",
+                                          "taskFileId": file_id, "contentBytes": data})
+                    result = {**result, "artifacts": artifacts}
+            except EvalTransportError:
+                pass
         if len(events) > PROCESS_EVENT_LIMIT:
             event_status = "TRUNCATED"
+        if include_source_evidence and isinstance(source_evidence, dict):
+            all_events = [event for event in events + successful_source_events if isinstance(event, Mapping)]
+            observed_tools = _called_tools(all_events)
+            search_count = sum("search" in name.lower() for name in observed_tools) if observed_tools is not None else None
+            recorded = len([call for call in source_calls if isinstance(call, Mapping)])
+            complete_calls = all(isinstance(call, Mapping) and call.get("complete") is True for call in source_calls)
+            status = "COMPLETE" if not source_identity_invalid and event_status == "COMPLETE" and search_count is not None \
+                and search_count > 0 and search_count == recorded and complete_calls else \
+                "TRUNCATED" if event_status == "TRUNCATED" else "INCONCLUSIVE"
+            source_evidence["calls"] = source_calls
+            source_evidence["allowedTaskRuns"] = allowed_source_runs
+            source_evidence["completeness"] = {"status": status, "observedSearchCalls": search_count,
+                "recordedSearchCalls": recorded, "observedSources": sum(
+                    len(call.get("sources", [])) for call in source_calls if isinstance(call, Mapping)
+                    and isinstance(call.get("sources", []), list))}
         completeness = {"status": event_status, "observedEventCount": min(len(events), PROCESS_EVENT_LIMIT + 1),
                         "eventLimit": PROCESS_EVENT_LIMIT}
         return {"task": self.get_task(task_id), "run": {"id": run_id},
                 "events": events, "evidenceCompleteness": completeness, "eventCompleteness": event_status,
+                "subtaskEvents": subtask_events,
                 "result": result,
+                **({"sourceEvidence": source_evidence} if include_source_evidence else {}),
                 "taskTree": task_tree if isinstance(task_tree, list) else None,
                 "decisions": decisions if isinstance(decisions, list) else None}
 
@@ -916,7 +1141,7 @@ def _write_deepeval_export(case: EvalCase, observation: Mapping[str, Any], direc
         raise EvalError(f"cannot write DeepEval export for {case.case_id}: {exc}") from exc
 
 
-def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: float,
+def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: float | None,
               poll_seconds: float, deepeval_export_dir: Path | None = None,
               evaluation_run_id: str | None = None, evidence_output: Path | None = None) -> dict[str, Any]:
     started = _now()
@@ -930,13 +1155,31 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
                 raise EvalError("create task response has no task id")
             item["taskId"] = task_id
             client.queue_task(task_id, int(created.get("version", 0)))
-            client.wait_for_terminal(task_id, timeout_seconds, poll_seconds)
+            case_timeout = timeout_seconds
+            if case_timeout is None:
+                configured_timeout = case.limits.get("timeoutSeconds", 180)
+                case_timeout = float(configured_timeout)
+            client.wait_for_terminal(task_id, case_timeout, poll_seconds)
             run = client.get_run(task_id)
             run_id = str(run.get("id") or run.get("runId") or "")
             if not run_id:
                 raise EvalError(f"task {task_id} run response has no run id")
             item["runId"] = run_id
-            observation = client.get_observation(task_id, run_id)
+            needs_source_evidence = any(str(assertion.get("type", "")).lower() == "source_citation"
+                                        for assertion in case.assertions)
+            observation = client.get_observation(task_id, run_id, include_source_evidence=needs_source_evidence)
+            if needs_source_evidence and isinstance(observation.get("sourceEvidence"), Mapping):
+                source_evidence = observation["sourceEvidence"]
+                coverage = source_evidence.get("completeness")
+                observed_tools = _called_tools(observation.get("events") or [])
+                search_count = sum("search" in name.lower() for name in observed_tools) if observed_tools is not None else None
+                event_status = str(observation.get("eventCompleteness", "INCONCLUSIVE")).upper()
+                if isinstance(coverage, dict):
+                    coverage["observedSearchCalls"] = search_count
+                    if event_status != "COMPLETE" or search_count is None:
+                        coverage["status"] = "TRUNCATED" if event_status == "TRUNCATED" else "INCONCLUSIVE"
+                    elif search_count != coverage.get("recordedSearchCalls"):
+                        coverage["status"] = "INCONCLUSIVE"
             run_snapshot = dict(run)
             run_snapshot.update(observation.get("run") or {})
             observation["run"] = run_snapshot
@@ -950,7 +1193,8 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
                                              observation.get("events") or [], observation.get("taskTree"),
                                              observation.get("decisions"), observation.get("result"),
                                              observation.get("evidenceCompleteness"),
-                                             observation.get("eventCompleteness"))
+                                             observation.get("eventCompleteness"),
+                                             observation.get("subtaskEvents"), observation.get("sourceEvidence"))
             item["evidenceBundle"] = evidence
             task_snapshot = observation.get("task") or {}
             run_snapshot = observation.get("run") or run

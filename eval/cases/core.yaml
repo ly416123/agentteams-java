@@ -74,10 +74,25 @@ cases:
       taskType: agentscope
       inputJson:
         prompt: >-
-          Plan the work, delegate research and drafting to dependent subtasks, use an
-          approved Skill and MCP tool successfully, cite source references, then produce
-          exactly one downloadable PDF with the final answer. Preserve each dependency's
-          result reference when handing work to the next subtask.
+          Research authoritative W3C guidance on accessible PDF documents. Plan the work
+          and delegate research and drafting to dependent subtasks. Do not invent
+          requiredCapabilities; leave them empty because no executor capability registry
+          is supplied. Each executor must call load_skill_through_path with Skill ID
+          industry-research, then follow that Skill and use web_search. Cite source
+          references and preserve dependency result references. After all subtasks succeed,
+          aggregate their results and produce exactly one downloadable PDF.
+        requiredMcpTools:
+          - plan_subtasks
+        executorMcpTools:
+          - web_search
+          - load_skill_through_path
+        aggregatePrompt: >-
+          Use childResults as the verified source material. Synthesize the W3C guidance,
+          preserve dependency provenance, cite at least one exact HTTP(S) URL returned by
+          web_search in the final text as well as the PDF, then create exactly one
+          downloadable PDF containing the final answer.
+        aggregateMcpTools:
+          - create_task_pdf_artifact
       requiredCapabilities:
         - runtime-agentscope-v1
     assertions:

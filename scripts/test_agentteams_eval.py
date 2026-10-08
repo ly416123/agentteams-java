@@ -19,6 +19,124 @@ from scripts.agentteams_eval import (
 
 
 class EvaluationCoreTest(unittest.TestCase):
+    def test_source_citation_uses_only_complete_task_run_bound_sources(self):
+        url = "https://www.w3.org/TR/WCAG20-TECHS/pdf.html"
+        call = {"callId": "call-1", "complete": True, "sources": [
+            {"title": "W3C", "url": url, "evidenceRef": "task-source:call-1:" + "a" * 64}]}
+        observation = {"task": {"id": "task-1"}, "run": {"id": "run-1"}, "result": {"summary": "See " + url},
+                       "sourceEvidence": {"taskId": "task-1", "runId": "run-1", "allowedTaskRuns": [["task-1", "run-1"]],
+                                          "calls": [{**call, "taskId": "task-1", "runId": "run-1"}],
+                                          "completeness": {"status": "COMPLETE", "observedSearchCalls": 1,
+                                                           "recordedSearchCalls": 1}}}
+        case = EvalCase("citation", "Citation", {}, [{"type": "source_citation"}], {})
+        self.assertEqual("PASSED", evaluate_observation(case, observation)[0].status)
+        observation["result"]["summary"] = "See https://example.test/fake"
+        self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
+        observation["result"]["summary"] = "See " + url + " and https://example.test/fake"
+        self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
+        observation["sourceEvidence"]["runId"] = "other-run"
+        self.assertEqual("INCONCLUSIVE", evaluate_observation(case, observation)[0].status)
+
+    def test_source_evidence_fetch_is_scoped_and_export_redacts_source_urls(self):
+        task_id, run_id = "task-1", "run-1"
+        url = "https://example.test/source"
+        paths = []
+        def transport(request, timeout):
+            path = request.full_url.split("http://test", 1)[1]
+            paths.append(path)
+            if path.endswith("/process-events"):
+                return 200, {}, json.dumps([{"sequence": 1, "eventType": "tool.called",
+                    "payload": {"tool": "web_search", "callId": "call-1"}}]).encode()
+            if path.endswith("/result"): return 200, {}, json.dumps({"status": "SUCCEEDED", "summary": "See " + url, "artifacts": []}).encode()
+            if path.endswith("/tree") or path.endswith("/decisions"): return 200, {}, b"[]"
+            if path.endswith("/source-evidence"):
+                return 200, {}, json.dumps({"taskId": task_id, "runId": run_id, "truncated": False,
+                    "observedCallCount": 1, "observedSourceCount": 1, "calls": [{"taskId": task_id, "runId": run_id, "callId": "call-1",
+                    "complete": True, "sources": [{"title": "source", "url": url,
+                    "evidenceRef": "task-source:call-1:" + "a" * 64}]}]}).encode()
+            if path == f"/api/v1/tasks/{task_id}": return 200, {}, json.dumps({"id": task_id, "phase": "SUCCEEDED"}).encode()
+            raise AssertionError(path)
+        client = AgentTeamsClient("http://test", "token", transport=transport)
+        observation = client.get_observation(task_id, run_id, include_source_evidence=True)
+        case = EvalCase("citation", "Citation", {}, [{"type": "source_citation"}], {})
+        self.assertEqual("PASSED", evaluate_observation(case, observation)[0].status)
+        bundle = build_evidence_bundle(observation["task"], observation["run"], observation["events"],
+                                       observation["taskTree"], observation["decisions"], observation["result"],
+                                       source_evidence=observation["sourceEvidence"])
+        self.assertNotIn(url, json.dumps(bundle))
+        self.assertIn(f"/api/v1/tasks/{task_id}/runs/{run_id}/source-evidence", paths)
+
+    def test_collects_scoped_child_tool_events_and_task_file_pdf(self):
+        from io import BytesIO
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        pdf = BytesIO()
+        writer.write(pdf)
+        content = pdf.getvalue()
+        digest = hashlib.sha256(content).hexdigest()
+        parent_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        child_id, file_id = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+
+        def transport(request, timeout):
+            path = request.full_url.split("http://test", 1)[1]
+            if path.endswith("/process-events") and child_id in path:
+                events = [
+                    {"taskId": child_id, "runId": "child-run", "sequence": 1,
+                     "eventType": "tool.called", "payload": {"tool": "web_search", "callId": "call-1"}},
+                    {"taskId": child_id, "runId": "child-run", "sequence": 2,
+                     "eventType": "tool.finished", "payload": {"tool": "web_search", "callId": "call-1", "ok": True}},
+                ]
+                return 200, {}, json.dumps(events).encode()
+            if path.endswith("/process-events"):
+                return 200, {}, b"[]"
+            if path.endswith("/result"):
+                return 200, {}, json.dumps({"status": "SUCCEEDED", "artifacts": [], "taskFiles": [
+                    {"fileId": file_id, "role": "OUTPUT", "name": "report.pdf", "status": "AVAILABLE"}]}).encode()
+            if path.endswith("/tree"):
+                return 200, {}, json.dumps([{"taskId": child_id, "parentTaskId": parent_id, "status": "PENDING",
+                                               "dependencyIds": []}]).encode()
+            if path.endswith("/decisions"):
+                return 200, {}, b"[]"
+            if path.endswith("/source-evidence"):
+                if f"/tasks/{child_id}/" in path:
+                    return 200, {}, json.dumps({"taskId": child_id, "runId": "child-run", "truncated": False,
+                        "observedCallCount": 1, "observedSourceCount": 1, "calls": [{"taskId": child_id,
+                        "runId": "child-run", "callId": "child-call", "complete": True, "sources": [{
+                        "title": "W3C", "url": "https://www.w3.org/TR/WCAG20-TECHS/pdf.html",
+                        "evidenceRef": "task-source:child-call:" + "b" * 64}]}]}).encode()
+                return 200, {}, json.dumps({"taskId": parent_id, "runId": "parent-run", "truncated": False,
+                    "observedCallCount": 0, "observedSourceCount": 0, "calls": []}).encode()
+            if path == f"/api/v1/tasks/{child_id}":
+                return 200, {}, json.dumps({"id": child_id, "phase": "SUCCEEDED"}).encode()
+            if path == f"/api/v1/tasks/{child_id}/runs":
+                return 200, {}, json.dumps([{"id": "child-run", "status": "SUCCEEDED"}]).encode()
+            if path == f"/api/v1/tasks/{parent_id}/files?role=OUTPUT":
+                return 200, {}, json.dumps([{"fileId": file_id, "role": "OUTPUT", "name": "report.pdf",
+                    "contentType": "application/pdf", "sizeBytes": len(content), "sha256": digest,
+                    "status": "AVAILABLE"}]).encode()
+            if path.endswith(f"/files/{file_id}/content"):
+                return 200, {}, content
+            if path == f"/api/v1/tasks/{parent_id}":
+                return 200, {}, json.dumps({"id": parent_id, "phase": "SUCCEEDED"}).encode()
+            raise AssertionError(path)
+
+        observation = AgentTeamsClient("http://test", "token", transport=transport).get_observation(
+            parent_id, "parent-run", include_source_evidence=True)
+        case = EvalCase("combined", "combined", {}, [
+            {"type": "required_tool", "name": "web_search"},
+            {"type": "artifact_pdf", "exactlyOne": True, "durable": True, "downloadable": True}], {})
+        outcomes = evaluate_observation(case, observation)
+        self.assertEqual(["PASSED", "PASSED"], [item.status for item in outcomes], [item.message for item in outcomes])
+        self.assertEqual("SUCCEEDED", observation["taskTree"][0]["status"])
+        self.assertEqual(child_id, observation["subtaskEvents"][0]["taskId"])
+        self.assertEqual("COMPLETE", observation["sourceEvidence"]["completeness"]["status"])
+        self.assertEqual(child_id, observation["sourceEvidence"]["calls"][0]["taskId"])
+        self.assertNotIn("contentBytes", json.dumps(build_evidence_bundle(
+            observation["task"], {"id": "parent-run"}, observation["events"], observation["taskTree"],
+            observation["decisions"], observation["result"], subtask_events=observation["subtaskEvents"])))
+
     def test_builds_sanitized_evidence_bundle_with_independent_input_status(self):
         bundle = build_evidence_bundle(
             {"id": "task-1", "phase": "SUCCEEDED", "spec": {"apiKey": "secret"}},
@@ -68,6 +186,17 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertEqual({"id", "taskId"}, set(bundle["decisions"][0]))
         self.assertEqual({"status", "artifacts"}, set(bundle["resultManifest"]))
         self.assertEqual({"status", "observedEventCount", "eventLimit"}, set(bundle["evidenceCompleteness"]))
+
+    def test_evidence_bundle_preserves_only_valid_dependency_handoff_refs(self):
+        dependency = "11111111-1111-4111-8111-111111111111"
+        bundle = build_evidence_bundle(
+            {"id": "task"}, {"id": "run"}, [],
+            [{"taskId": "child", "status": "SUCCEEDED", "dependencyIds": [dependency],
+              "dependencyResultRefs": {dependency: f"task-result:{dependency}", "unrelated": "secret result"},
+              "dependencyResults": [{"taskId": dependency, "result": "private body"}]}], [], None)
+
+        self.assertEqual({dependency: f"task-result:{dependency}"}, bundle["taskTree"][0]["dependencyResultRefs"])
+        self.assertNotIn("private body", json.dumps(bundle))
 
     def test_output_contains_report_has_no_expected_or_actual_body(self):
         case = EvalCase("contains", "Contains", {}, [{"type": "output_contains", "value": "private answer secret"}], {})
@@ -572,11 +701,18 @@ cases:
         case = EvalCase("sample", "Sample", {
             "scope": {"tenant": "tenant-a", "project": "project-a", "team": "team-a"},
             "prompt": "Return ok",
-        }, [{"type": "phase", "expected": "SUCCEEDED"}], {})
-        report = run_suite(AgentTeamsClient("http://test", "test-token", transport=transport),
-                           [case], timeout_seconds=1, poll_seconds=0)
+        }, [{"type": "phase", "expected": "SUCCEEDED"}], {"timeoutSeconds": 300})
+        client = AgentTeamsClient("http://test", "test-token", transport=transport)
+        timeouts = []
+        wait_for_terminal = client.wait_for_terminal
+        def record_timeout(task_id, timeout_seconds, poll_seconds):
+            timeouts.append(timeout_seconds)
+            return wait_for_terminal(task_id, 0, poll_seconds)
+        client.wait_for_terminal = record_timeout
+        report = run_suite(client, [case], timeout_seconds=None, poll_seconds=0)
 
         self.assertTrue(report["passed"])
+        self.assertEqual([300], timeouts)
         self.assertEqual("task-1", report["cases"][0]["taskId"])
         self.assertEqual("run-1", report["cases"][0]["runId"])
         self.assertEqual(
@@ -670,6 +806,11 @@ cases:
         pdf_case = next(case for case in cases if case.case_id == "multi-agent-pdf-positive")
         self.assertIn({"type": "dependency_success", "requireDependencies": True}, pdf_case.assertions)
         self.assertIn({"type": "required_tool", "name": "load_skill_through_path"}, pdf_case.assertions)
+        self.assertEqual(["plan_subtasks"], pdf_case.task["inputJson"]["requiredMcpTools"])
+        self.assertEqual(["web_search", "load_skill_through_path"],
+                         pdf_case.task["inputJson"]["executorMcpTools"])
+        self.assertEqual(["create_task_pdf_artifact"],
+                         pdf_case.task["inputJson"]["aggregateMcpTools"])
         self.assertIn({"type": "artifact_pdf", "exactlyOne": True, "durable": True,
                        "downloadable": True}, pdf_case.assertions)
         for case in cases:
