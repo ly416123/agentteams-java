@@ -109,7 +109,8 @@ class AgentScopeEventTranslatorTest {
         assertThat(modelCallStarted.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.IGNORED);
         assertThat(started.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED);
         assertThat(started.safeMessage()).isEqualTo("tool shell started");
-        assertThat(started.safeToolCallId()).isEqualTo("call");
+        assertThat(started.safeToolCallId())
+                .isEqualTo("call-7edb360f06acaef2cc80dba16cf563f199d347db4443da04da0c8173e3f9e4ed");
         assertThat(started.safeMessage()).doesNotContain("do-not-copy-this-secret");
         assertThat(completed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.IGNORED);
         assertThat(completed.safeMessage()).isEqualTo("tool call emitted");
@@ -124,7 +125,8 @@ class AgentScopeEventTranslatorTest {
         assertThat(failed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED);
         assertThat(failed.success()).isFalse();
         assertThat(failed.safeMessage()).contains("shell", "TOOL_EXECUTION_FAILED");
-        assertThat(failed.safeToolCallId()).isEqualTo("call");
+        assertThat(failed.safeToolCallId())
+                .isEqualTo("call-7edb360f06acaef2cc80dba16cf563f199d347db4443da04da0c8173e3f9e4ed");
         assertThat(failed.safeMessage()).doesNotContain("secret", "command", "response");
     }
 
@@ -137,17 +139,37 @@ class AgentScopeEventTranslatorTest {
         assertThat(completed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED);
         assertThat(completed.success()).isTrue();
         assertThat(completed.safeMessage()).isEqualTo("tool shell completed");
-        assertThat(completed.safeToolCallId()).isEqualTo("call");
+        assertThat(completed.safeToolCallId())
+                .isEqualTo("call-7edb360f06acaef2cc80dba16cf563f199d347db4443da04da0c8173e3f9e4ed");
     }
 
     @Test
-    void sanitizesToolCallIdsToBoundedIdentifierCharacters() {
+    void hashesToolCallIdsWithoutCollidingAfterSanitization() {
+        AgentScopeExecutionEvent slash = translator.translate(withAttempt(
+                new ToolResultStartEvent("tool-result-slash-id", CREATED_AT, "reply", "call/a", "shell")));
+        AgentScopeExecutionEvent underscore = translator.translate(withAttempt(
+                new ToolResultStartEvent("tool-result-underscore-id", CREATED_AT, "reply", "call_a", "shell")));
+        AgentScopeExecutionEvent repeated = translator.translate(withAttempt(
+                new ToolResultEndEvent("tool-result-repeated-id", CREATED_AT, "reply", "call/a", "shell",
+                        ToolResultState.SUCCESS)));
+
+        assertThat(slash.safeToolCallId()).isEqualTo(
+                "call-027f8418364d8ecb59d98917652c6bf8fda783d257195523f9c7cd3cc4f6ba33");
+        assertThat(underscore.safeToolCallId()).isEqualTo(
+                "call-05f49740f9329fd00a119878e79f2f73719e09dce5af441c7ed75762556a819a");
+        assertThat(slash.safeToolCallId()).isNotEqualTo(underscore.safeToolCallId());
+        assertThat(repeated.safeToolCallId()).isEqualTo(slash.safeToolCallId());
+        assertThat(slash.safeToolCallId()).hasSize(69).matches("call-[a-f0-9]{64}");
+        assertThat(slash.safeToolCallId()).doesNotContain("call/a");
+    }
+
+    @Test
+    void hashesLongToolCallIdsToFixedLengthIdentifierCharacters() {
         String rawId = "call/id with spaces and newline\n" + "x".repeat(120);
         AgentScopeExecutionEvent started = translator.translate(withAttempt(
                 new ToolResultStartEvent("tool-result-unsafe-id", CREATED_AT, "reply", rawId, "shell")));
 
-        assertThat(started.safeToolCallId()).hasSize(96).matches("[A-Za-z0-9_.:-]+");
-        assertThat(started.safeToolCallId()).doesNotContain("/", " ", "\n");
+        assertThat(started.safeToolCallId()).hasSize(69).matches("call-[a-f0-9]{64}");
     }
 
     @Test

@@ -15,6 +15,10 @@ import io.agentscope.core.event.ToolCallStartEvent;
 import io.agentscope.core.event.ToolResultEndEvent;
 import io.agentscope.core.event.ToolResultStartEvent;
 import io.agentscope.core.message.ToolResultState;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,7 +33,6 @@ import java.util.regex.Pattern;
  */
 public final class AgentScopeEventTranslator {
     private static final int MAX_SAFE_MESSAGE_LENGTH = 128;
-    private static final int MAX_SAFE_TOOL_CALL_ID_LENGTH = 96;
     /**
      * Final answers need enough bounded context for semantic evaluation and artifact consumers.
      * Process events keep the smaller message limit above to protect the event stream.
@@ -238,11 +241,12 @@ public final class AgentScopeEventTranslator {
         if (value == null || value.isBlank()) {
             return null;
         }
-        String candidate = value.replaceAll("[^A-Za-z0-9_.:-]", "_");
-        if (candidate.length() > MAX_SAFE_TOOL_CALL_ID_LENGTH) {
-            candidate = candidate.substring(0, MAX_SAFE_TOOL_CALL_ID_LENGTH);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return "call-" + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
         }
-        return candidate.isBlank() ? null : candidate;
     }
 
     private static int firstBoundary(String value) {

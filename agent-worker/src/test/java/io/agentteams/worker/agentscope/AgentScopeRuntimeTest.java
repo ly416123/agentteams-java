@@ -260,9 +260,11 @@ class AgentScopeRuntimeTest {
         assertThat(toolEvents).extracting(RuntimeEvent::eventType)
                 .containsExactly("tool.called", "tool.finished");
         assertThat(toolEvents.get(0).payloadJson()).contains("\"tool\":\"web_search\"",
-                "\"callId\":\"call-web-search\"", "\"sequence\":1");
+                "\"callId\":\"call-580b5f533bc58ff47a1850bb312c059e6f21323d3a1b21cabf978fde2a000b31\"",
+                "\"sequence\":1");
         assertThat(toolEvents.get(1).payloadJson()).contains("\"tool\":\"web_search\"",
-                "\"callId\":\"call-web-search\"", "\"ok\":" + expectedSuccess, "\"sequence\":2");
+                "\"callId\":\"call-580b5f533bc58ff47a1850bb312c059e6f21323d3a1b21cabf978fde2a000b31\"",
+                "\"ok\":" + expectedSuccess, "\"sequence\":2");
         if (toolFails) {
             assertThat(toolEvents.get(1).payloadJson()).contains(expectedCategory);
         }
