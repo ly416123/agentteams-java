@@ -96,6 +96,16 @@ def validate_case_scopes(cases: list, tenant: str, project: str, team: str) -> N
                 raise EvalError(f"case {case_id} {key} does not match the selected L5 target")
 
 
+def select_cases(cases: list, requested_ids: list[str]) -> list:
+    if not requested_ids:
+        return cases
+    requested = set(requested_ids)
+    selected = [case for case in cases if case.case_id in requested]
+    if {case.case_id for case in selected} != requested:
+        raise EvalError("a requested L5 case was not found in the suite")
+    return selected
+
+
 def bind_team_id(cases: list, team_id: str) -> list:
     if not team_id:
         raise EvalError("selected L5 team has no id")
@@ -157,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--base-url", default="")
     parser.add_argument("--cases", default="eval/cases/core.yaml")
+    parser.add_argument("--case", action="append", dest="case_ids", default=[],
+                        help="run only this case id; may be repeated")
     parser.add_argument("--report", default="eval/reports/l5-core-latest.json")
     parser.add_argument("--token-env", default="AGENTTEAMS_EVAL_TOKEN")
     parser.add_argument("--tenant", default=os.environ.get("AGENTTEAMS_EVAL_TENANT", ""))
@@ -171,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         token = os.environ.get(args.token_env, "")
         if not token:
             raise EvalError(f"environment variable {args.token_env} is not set")
-        cases = load_cases(args.cases)
+        cases = select_cases(load_cases(args.cases), args.case_ids)
         validate_case_scopes(cases, args.tenant, args.project, args.team)
         base_url = args.base_url.rstrip("/") or cluster_service_url(
             args.namespace, "agentteams-agentteams-java-control-plane", 8080)

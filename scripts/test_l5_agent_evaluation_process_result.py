@@ -98,6 +98,16 @@ class L5AgentEvaluationProcessResultTest(unittest.TestCase):
         with self.assertRaises(ENTRYPOINT.EvalError):
             ENTRYPOINT.bind_team_id([case], "team-id")
 
+    def test_selects_only_requested_positive_case(self):
+        from scripts.agentteams_eval import EvalCase
+
+        cases = [EvalCase("negative", "negative", {}, [], {}),
+                 EvalCase("multi-agent-pdf-positive", "positive", {}, [], {})]
+        selected = ENTRYPOINT.select_cases(cases, ["multi-agent-pdf-positive"])
+        self.assertEqual(["multi-agent-pdf-positive"], [case.case_id for case in selected])
+        with self.assertRaises(ENTRYPOINT.EvalError):
+            ENTRYPOINT.select_cases(cases, ["missing-case"])
+
     def test_worker_preflight_ignores_historical_and_other_scope_workers(self):
         workers = {"items": [
             {"metadata": {"name": "old", "labels": {"agentteams.io/tenant": "tenant-a",

@@ -142,6 +142,7 @@ export AGENTTEAMS_EVAL_PROJECT='project-a'
 export AGENTTEAMS_EVAL_TEAM='team-a'
 python3 scripts/run-l5-agentteams-eval.py \
   --cases eval/cases/core.yaml \
+  --case multi-agent-pdf-positive \
   --report eval/reports/l5-core-latest.json \
   --deepeval-export-dir /tmp/agentteams-l5-deepeval
 ```
