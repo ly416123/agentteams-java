@@ -362,6 +362,21 @@ def _tool_lifecycle(events: list[Mapping[str, Any]], name: str) -> tuple[list[Ma
         return None
     if set(call_ids) != set(outcome_ids) or len(call_ids) != len(outcome_ids):
         return None
+    # Validate each target ID against the complete stream before accepting a
+    # pair. Filtering by tool name first would hide collisions with other tools.
+    for call_id in call_ids:
+        correlated = []
+        for event in events:
+            if _event_type(event) not in {"tool.called", "tool.finished", "tool.completed"}:
+                continue
+            payload = _payload(event)
+            if payload.get("callId") == call_id:
+                correlated.append(event)
+        if (len(correlated) != 2
+                or sum(_event_type(event) == "tool.called" for event in correlated) != 1
+                or sum(_event_type(event) in {"tool.finished", "tool.completed"} for event in correlated) != 1
+                or any(_tool_name(event) != name for event in correlated)):
+            return None
     outcome_by_id = {call_id: ok for _, ok, call_id in outcomes}
     return [event for _, event, _ in calls], [outcome_by_id[call_id] for _, _, call_id in calls]
 

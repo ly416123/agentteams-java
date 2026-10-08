@@ -332,6 +332,24 @@ cases:
         self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": missing_id, "eventCompleteness": "COMPLETE"})[0].status)
         self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": duplicate, "eventCompleteness": "COMPLETE"})[0].status)
 
+    def test_tool_lifecycle_rejects_call_id_collision_across_tools(self):
+        events = [
+            {"eventType": "tool.called", "sequence": 1,
+             "payload": {"tool": "search", "sequence": 1, "callId": "collision-x"}},
+            {"eventType": "tool.finished", "sequence": 2,
+             "payload": {"tool": "search", "sequence": 2, "callId": "collision-x", "ok": False}},
+            {"eventType": "tool.called", "sequence": 3,
+             "payload": {"tool": "fetch", "sequence": 3, "callId": "collision-x"}},
+        ]
+        case = EvalCase("collision", "Collision", {}, [
+            {"type": "required_tool", "name": "search"},
+            {"type": "failed_tool", "name": "search"},
+        ], {})
+
+        results = evaluate_observation(case, {"events": events, "eventCompleteness": "COMPLETE"})
+
+        self.assertEqual(["INCONCLUSIVE", "INCONCLUSIVE"], [result.status for result in results])
+
     def test_run_status_is_inconclusive_when_run_snapshot_is_missing(self):
         case = EvalCase("run", "Run", {}, [{"type": "run_status", "expected": "SUCCEEDED"}], {})
 
