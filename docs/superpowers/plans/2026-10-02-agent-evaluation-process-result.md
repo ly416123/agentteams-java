@@ -183,81 +183,87 @@
 
 **文件：** `scripts/agentteams_eval.py`、`scripts/test_agentteams_eval.py`、`eval/cases/core.yaml`、`scripts/test_evaluation_quality_contract.py`。
 
-- [ ] **步骤 1：为新断言写 Python 单元测试**
+- [x] **步骤 1：为新断言写 Python 单元测试**
 
 覆盖成功/失败工具生命周期、顺序和次数、依赖边/结果引用、事件截断、PDF MIME/签名/大小/SHA-256 以及缺证据时 `INCONCLUSIVE`。断言输出包含安全证据引用，不包含 payload 正文。
 
-- [ ] **步骤 2：运行 Python 测试确认失败**
+- [x] **步骤 2：运行 Python 测试确认失败**
 
 运行：`python3 -m unittest scripts.test_agentteams_eval scripts.test_evaluation_quality_contract -v`
 
 预期：FAIL，Runner 当前不支持新断言或 `INCONCLUSIVE` 语义。
 
-- [ ] **步骤 3：扩展观察数据规范化和 evaluator**
+- [x] **步骤 3：扩展观察数据规范化和 evaluator**
 
 为报告保留独立 `taskPhase`、`runStatus`、`manifestStatus`、`evidenceCompleteness`；断言计算不得从 `tool.called` 推出工具成功。artifact integrity 继续移除外部 URL，并对 PDF 做文件头和页数可解析性检查；远端 API 若无法取得字节，则明确输出 `INCONCLUSIVE`，不把元数据等同于内容验证。
 
-- [ ] **步骤 4：添加多 Agent PDF 正向和负向 YAML Case**
+- [x] **步骤 4：添加多 Agent PDF 正向和负向 YAML Case**
 
 正向 Case 要求计划拆解、Skill/MCP 成功、依赖结果交接、来源引用、唯一可下载 PDF；负向 fixture 覆盖失败工具、缺依赖、损坏 PDF 和截断事件。离线 Fixture 不得假装成 L5 执行报告。
 
-- [ ] **步骤 5：运行离线 Runner 契约测试**
+- [x] **步骤 5：运行离线 Runner 契约测试**
 
 运行：`python3 -m unittest scripts.test_agentteams_eval scripts.test_evaluation_quality_contract scripts.test_l5_agentteams_eval_contract -v`
 
 预期：PASS，报告脱敏并正确区分 PASSED、FAILED、INCONCLUSIVE。
 
-- [ ] **步骤 6：提交 Runner 和 Suite**
+- [x] **步骤 6：提交 Runner 和 Suite**
 
 提交范围仅限 Runner、测试、YAML Suite 和说明文档，提交说明：`feat(eval): align runner with process and result gates`。
+
+**任务 5 执行记录（2026-10-08）：** Runner 已与 Java 门禁语义对齐，覆盖工具生命周期、依赖、截断、制品元数据与本地 PDF 字节检查，并仅输出安全证据引用。当前 Bundle 无结构化来源引用，`source_citation` 明确为 `INCONCLUSIVE`；远端制品没有可读字节时，PDF 签名同样保持 `INCONCLUSIVE`。修复了非 2xx 响应正文泄露风险。Python 离线评测测试 56 项通过；实现及回归提交包括 `67719209`、`9554a46a`、`9a080a7d`、`92d1a6d4`。
 
 ## 任务 6：展示门禁与过程证据
 
 **文件：** `console/src/api/types.ts`、`console/src/features/management/ManagementEvaluationPage.tsx`、`console/tests/features/ManagementEvaluationPage.test.tsx`。
 
-- [ ] **步骤 1：添加双门禁 UI 测试**
+- [x] **步骤 1：添加双门禁 UI 测试**
 
 验证详情同时显示 Evaluation 状态、Task 成功、执行门禁、结果门禁；`INCONCLUSIVE` 显示证据不完整原因；每条失败项显示对应安全证据链接；不得将 aggregate score 显示成总门禁结论。
 
-- [ ] **步骤 2：运行页面测试确认失败**
+- [x] **步骤 2：运行页面测试确认失败**
 
 运行：`cd console && npm test -- --run tests/features/ManagementEvaluationPage.test.tsx`
 
 预期：FAIL，当前页面没有两个门禁状态字段和证据完整性显示。
 
-- [ ] **步骤 3：实现类型及页面展示**
+- [x] **步骤 3：实现类型及页面展示**
 
 扩充 API 类型并增加两个门禁摘要区。继续使用现有 `isSafeEvidenceRef`、`safeFinding` 做展示净化；缺少字段的历史报告显示“旧报告未记录此门禁”，不得推导出 `PASSED`。
 
-- [ ] **步骤 4：运行 Console 页面测试**
+- [x] **步骤 4：运行 Console 页面测试**
 
 运行：`cd console && npm test -- --run tests/features/ManagementEvaluationPage.test.tsx`
 
 预期：PASS，历史报告和新报告均可展示。
 
-- [ ] **步骤 5：提交 Console 展示**
+- [x] **步骤 5：提交 Console 展示**
 
 提交范围仅限 API 类型、管理评测页面与测试，提交说明：`feat(console): show evaluation execution and result gates`。
+
+**任务 6 执行记录（2026-10-08）：** 页面独立展示 Task 成功、执行门禁、结果门禁和聚合分；旧报告显示“旧报告未记录此门禁”，不确定项按断言类型归入对应门禁。Console 页面测试 4 项、全套 277 项与生产构建通过；实现提交 `075cbbce`，代码审查通过。
 
 ## 任务 7：L5 正向及负向验收
 
 **文件：** `scripts/run-l5-agentteams-eval.py`、`scripts/test_l5_agent_evaluation_process_result.py`、`eval/cases/core.yaml`、真实运行生成的 `eval/reports/` 脱敏报告。
 
-- [ ] **步骤 1：写 L5 入口契约测试**
+- [x] **步骤 1：写 L5 入口契约测试**
 
 验证入口拒绝缺少短期 Token、目标项目/团队不匹配以及缺少可执行权限；报告含 Task/Run id、Case/evaluator 版本、双门禁、结果制品引用和每项安全证据引用；不得序列化 Token 或下载 URL。
 
-- [ ] **步骤 2：运行离线 L5 契约测试**
+- [x] **步骤 2：运行离线 L5 契约测试**
 
 运行：`python3 -m unittest scripts.test_l5_agent_evaluation_process_result -v`
 
 预期：在加入检查前 FAIL；离线运行不得发起网络连接。
 
-- [ ] **步骤 3：执行离线全套契约验证**
+- [x] **步骤 3：执行离线全套契约验证**
 
 运行：`python3 -m unittest scripts.test_agentteams_eval scripts.test_evaluation_quality_contract scripts.test_l5_agentteams_eval_contract scripts.test_l5_agent_evaluation_process_result -v`，然后运行 `mvn -q -pl control-plane,agent-worker test` 和 `cd console && npm test -- --run`。
 
 预期：所有离线测试 PASS。
+
+**任务 7 当前状态（2026-10-08）：** L5 入口已加入目标 scope、项目权限与 team 只读预检，并在写报告前拒绝 Token、凭证字段和 URL；本地契约与全套离线测试通过，入口提交 `92d1a6d4`。真实正向及负向执行仍待 k3s 稳定。主机 `/etc/rancher/k3s/config.yaml` 已改为 `192.168.122.55`，但两个 systemd drop-in 的 `ExecStart` 仍以 `--config=/dev/null` 和旧 IP `192.168.1.13` 启动；用户将在 L5 手动修正并重启。
 
 - [ ] **步骤 4：运行真实 L5 正向 Case**
 
