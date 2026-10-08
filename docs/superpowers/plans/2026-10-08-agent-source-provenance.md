@@ -108,7 +108,7 @@
 
 预期：PASS，外部 MCP 头隔离和 fail-closed 用例通过。
 
-- [ ] **步骤 5：提交 Worker 改动**
+- [x] **步骤 5：提交 Worker 改动**
 
 Worker 接口与测试文件含有先前未提交的 MCP capability 改动，不能使用 `git commit --only` 提交整个文件，否则会夹带旧差异。提交前使用交互式暂存或精确 patch staging，只暂存本任务新增的上下文差异；其余已有差异继续保留在工作区。
 
@@ -136,7 +136,7 @@ Worker 接口与测试文件含有先前未提交的 MCP capability 改动，不
 
 预期：PASS，成功/空结果/摄取失败三种行为均有覆盖。
 
-- [ ] **步骤 5：仅提交 MCP 搜索摄取文件**
+- [x] **步骤 5：仅提交 MCP 搜索摄取文件**
 
 提交使用的 task client/配置文件须保留已存在的未提交改动；通过 `git diff --cached` 和 `git show --stat --oneline HEAD` 核验提交仅含本任务路径。
 
@@ -164,7 +164,7 @@ Worker 接口与测试文件含有先前未提交的 MCP capability 改动，不
 
 预期：PASS；迁移在 PostgreSQL 集成测试中应用成功，边界、幂等和范围隔离验证通过。
 
-- [ ] **步骤 5：仅提交 Control Plane 摄取和 schema 文件**
+- [x] **步骤 5：仅提交 Control Plane 摄取和 schema 文件**
 
 使用明确路径提交，避免夹带当前已暂存的其他模块改动。
 
@@ -196,7 +196,7 @@ Worker 接口与测试文件含有先前未提交的 MCP capability 改动，不
 
 预期：PASS，并确认报告中不含搜索响应正文、完整答案或凭证。
 
-- [ ] **步骤 6：仅提交 Bundle、评测和测试文件**
+- [x] **步骤 6：仅提交 Bundle、评测和测试文件**
 
 按模块拆分提交，确保 Flyway 与当前其他暂存改动没有意外进入提交。
 
@@ -228,7 +228,7 @@ Runner 通过 `GET /api/v1/tasks/{taskId}/runs/{runId}/source-evidence` 按 task
 
 预期：PASS，Runner 输出与 Java 门禁的 `PASSED/FAILED/INCONCLUSIVE` 语义一致。
 
-- [ ] **步骤 6：仅提交 Runner、Suite 和文档文件**
+- [x] **步骤 6：仅提交 Runner、Suite 和文档文件**
 
 显式指定相关路径提交；保留工作区已有评测、PDF 和部署改动。
 
