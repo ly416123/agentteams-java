@@ -18,7 +18,9 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
+from typing import Mapping
 from urllib.parse import quote
 
 # Allow direct execution from the repository root or from scripts/.
@@ -94,7 +96,29 @@ def validate_case_scopes(cases: list, tenant: str, project: str, team: str) -> N
                 raise EvalError(f"case {case_id} {key} does not match the selected L5 target")
 
 
-def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, team: str) -> str:
+def bind_team_id(cases: list, team_id: str) -> list:
+    if not team_id:
+        raise EvalError("selected L5 team has no id")
+    bound = []
+    for case in cases:
+        task = case.task
+        existing = task.get("spec")
+        if existing is not None:
+            if not isinstance(existing, Mapping) or existing.get("scope") != task.get("scope"):
+                raise EvalError(f"case {case.case_id} has an invalid task spec scope")
+            spec = dict(existing)
+            if spec.get("teamId") not in (None, team_id):
+                raise EvalError(f"case {case.case_id} targets a different team id")
+        else:
+            spec = {"scope": dict(task["scope"]), "taskType": task.get("taskType", "agentscope"),
+                    "inputJson": task.get("inputJson", {"prompt": task.get("prompt", "")}),
+                    "requiredCapabilities": task.get("requiredCapabilities", [])}
+        spec["teamId"] = team_id
+        bound.append(replace(case, task={**task, "spec": spec}))
+    return bound
+
+
+def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, team: str) -> tuple[str, str]:
     projects_payload = client._request("GET", f"/api/v1/projects?q={quote(project, safe='')}")
     projects = projects_payload.get("items", []) if isinstance(projects_payload, dict) else projects_payload
     if not isinstance(projects, list):
@@ -112,10 +136,10 @@ def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, tea
     if not isinstance(teams, list):
         raise EvalError("team access preflight returned an invalid response")
     matching_teams = [item for item in teams if isinstance(item, dict) and item.get("name") == team
-                      and item.get("status") == "ACTIVE"]
+                      and item.get("status") == "ACTIVE" and item.get("id")]
     if len(matching_teams) != 1:
         raise EvalError("selected L5 team was not found uniquely in the selected project")
-    return project_id
+    return project_id, str(matching_teams[0]["id"])
 
 
 def validate_report_safety(report: dict, token: str = "") -> None:
@@ -152,9 +176,9 @@ def main(argv: list[str] | None = None) -> int:
         base_url = args.base_url.rstrip("/") or cluster_service_url(
             args.namespace, "agentteams-agentteams-java-control-plane", 8080)
         client = AgentTeamsClient(base_url, token)
-        project_id = assert_scope_access(client, args.tenant, args.project, args.team)
+        project_id, team_id = assert_scope_access(client, args.tenant, args.project, args.team)
         assert_workers_ready(args.namespace, args.tenant, project_id, args.team)
-        report = run_suite(client, cases,
+        report = run_suite(client, bind_team_id(cases, team_id),
                            args.timeout_seconds, args.poll_seconds,
                            deepeval_export_dir=args.deepeval_export_dir)
         report["evaluatorVersion"] = "deterministic-v1"

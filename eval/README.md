@@ -133,7 +133,7 @@ python3 eval/deepeval_calibration.py \
 
 ## L5 受控入口
 
-L5 主机可以直接运行受控入口。必须显式指定目标 tenant/project/team（命令行参数或同名环境变量），且与 YAML 中每个 Case 的 scope 完全一致。入口会先只读检查项目是否属于该 tenant、目标 team 是否存在，并确认当前身份具有 ADMIN 角色（覆盖任务创建和执行权限），再确认目标范围内至少一个 Worker CR 为 Ready、自动解析集群内 Control Plane ClusterIP。历史 Terminated Worker 不会阻止验收。短期 Token 只从环境变量读取：
+L5 主机可以直接运行受控入口。必须显式指定目标 tenant/project/team（命令行参数或同名环境变量），且与 YAML 中每个 Case 的 scope 完全一致。入口会先只读检查项目是否属于该 tenant、目标 team 是否存在，并确认当前身份具有 ADMIN 角色（覆盖任务创建和执行权限），再确认目标范围内至少一个 Worker CR 为 Ready、自动解析集群内 Control Plane ClusterIP。入口会把已验证的 Team UUID 绑定到任务 `spec.teamId`，由 Team 调度选择 Leader/Executor；历史 Terminated Worker 不会阻止验收。短期 Token 只从环境变量读取：
 
 ```bash
 export AGENTTEAMS_EVAL_TOKEN='短期 Bearer Token'

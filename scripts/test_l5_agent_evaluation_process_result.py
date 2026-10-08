@@ -73,7 +73,30 @@ class L5AgentEvaluationProcessResultTest(unittest.TestCase):
                     return [{"id": "team-id", "name": "team-a", "status": "ACTIVE"}]
                 raise AssertionError(path)
 
-        self.assertEqual("project-id", ENTRYPOINT.assert_scope_access(Client(), "tenant-a", "project-a", "team-a"))
+        self.assertEqual(("project-id", "team-id"),
+                         ENTRYPOINT.assert_scope_access(Client(), "tenant-a", "project-a", "team-a"))
+
+    def test_binds_verified_team_id_without_mutating_suite_case(self):
+        from scripts.agentteams_eval import EvalCase
+
+        case = EvalCase("case-a", "case-a", {"scope": {"tenant": "tenant-a", "project": "project-a",
+            "team": "team-a"}, "taskType": "agentscope", "inputJson": {"prompt": "work"},
+            "requiredCapabilities": ["runtime-agentscope-v1"]}, [], {})
+        bound = ENTRYPOINT.bind_team_id([case], "team-id")
+
+        self.assertEqual("team-id", bound[0].task["spec"]["teamId"])
+        self.assertEqual(case.task["scope"], bound[0].task["spec"]["scope"])
+        self.assertEqual(case.task["inputJson"], bound[0].task["spec"]["inputJson"])
+        self.assertNotIn("spec", case.task)
+
+    def test_rejects_case_spec_bound_to_another_team(self):
+        from scripts.agentteams_eval import EvalCase
+
+        scope = {"tenant": "tenant-a", "project": "project-a", "team": "team-a"}
+        case = EvalCase("case-a", "case-a", {"scope": scope,
+            "spec": {"scope": scope, "teamId": "other-team-id"}}, [], {})
+        with self.assertRaises(ENTRYPOINT.EvalError):
+            ENTRYPOINT.bind_team_id([case], "team-id")
 
     def test_worker_preflight_ignores_historical_and_other_scope_workers(self):
         workers = {"items": [
