@@ -9,6 +9,8 @@ identifiers and assertion results.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import sys
@@ -33,7 +35,8 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 
 TERMINAL_PHASES = {"SUCCEEDED", "FAILED", "CANCELLED"}
-MAX_EVIDENCE_PAYLOAD_BYTES = 16 * 1024
+PROCESS_EVENT_PAGE_SIZE = 100
+PROCESS_EVENT_LIMIT = 1000
 SENSITIVE_KEYS = {"token", "api_key", "apikey", "password", "cookie", "secret", "authorization"}
 
 
@@ -57,18 +60,25 @@ class EvalCase:
 @dataclass(frozen=True)
 class AssertionResult:
     assertion_type: str
-    passed: bool
+    passed: bool | None
     message: str
     expected: Any = None
     actual: Any = None
+    evidence_refs: tuple[str, ...] = ()
+
+    @property
+    def status(self) -> str:
+        return "INCONCLUSIVE" if self.passed is None else "PASSED" if self.passed else "FAILED"
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "type": self.assertion_type,
             "passed": self.passed,
+            "status": self.status,
             "message": self.message,
             "expected": self.expected,
             "actual": self.actual,
+            "evidenceRefs": list(self.evidence_refs),
         }
 
 
@@ -163,18 +173,6 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     return metadata
 
 
-def _contains_sensitive(value: Any) -> bool:
-    if isinstance(value, Mapping):
-        return any(str(key).lower().replace("-", "_") in SENSITIVE_KEYS or _contains_sensitive(item)
-                   for key, item in value.items())
-    if isinstance(value, list):
-        return any(_contains_sensitive(item) for item in value)
-    if isinstance(value, str):
-        normalized = value.lower().replace("-", "_")
-        return any(marker in normalized for marker in ("bearer ", "api_key=", "token=", "password=", "x-amz-"))
-    return False
-
-
 def _sanitize_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         sanitized: dict[str, Any] = {}
@@ -197,24 +195,33 @@ def _sanitize_event(event: Mapping[str, Any]) -> dict[str, Any]:
     ) if key in event}
     payload = event.get("payload", event.get("data"))
     payload_ref = event.get("payloadRef")
-    serialized = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, separators=(",", ":")) if payload is not None else ""
-    if payload is not None and (len(serialized.encode("utf-8")) > MAX_EVIDENCE_PAYLOAD_BYTES or _contains_sensitive(payload)):
-        safe["payload"] = None
-        safe["payloadRef"] = payload_ref or f"task-process:{event.get('eventId', 'unknown')}"
+    if payload is not None:
+        parsed = _payload(event)
+        safe_payload = {key: parsed[key] for key in ("tool", "toolName", "name", "sequence", "ok", "status")
+                        if key in parsed and isinstance(parsed[key], (str, int, bool))}
+        safe["payload"] = safe_payload or None
+        if not safe_payload:
+            safe["payloadRef"] = f"task-process:{event.get('eventId', 'unknown')}"
     else:
-        safe["payload"] = _sanitize_value(payload)
+        safe["payload"] = None
         if payload_ref:
-            safe["payloadRef"] = _sanitize_value(payload_ref)
+            safe["payloadRef"] = f"task-process:{event.get('eventId', 'unknown')}"
     return safe
 
 
 def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], events: list[Any],
                           tree: list[Any] | None, decisions: list[Any] | None,
-                          result: Mapping[str, Any] | None) -> dict[str, Any]:
+                          result: Mapping[str, Any] | None,
+                          evidence_completeness: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Normalize an observation into a credential-free, metadata-first Evidence Bundle."""
     task_value = _sanitize_value(dict(task))
     run_value = _sanitize_value(dict(run))
-    safe_events = [_sanitize_event(event) for event in events if isinstance(event, Mapping)]
+    observed_tool_names = sorted(_tool_names({"events": events}))
+    safe_events = [_sanitize_event(event) for event in events if isinstance(event, Mapping)][:PROCESS_EVENT_LIMIT]
+    completeness = dict(evidence_completeness or (result.get("evidenceCompleteness", {}) if isinstance(result, Mapping) else {}) or {})
+    completeness_status = str(completeness.get("status", "UNKNOWN")).upper()
+    event_completeness = "TRUNCATED" if completeness_status == "TRUNCATED" else completeness_status
+    run_id = run_value.get("id") or run_value.get("runId") if isinstance(run_value, Mapping) else None
     raw_result = dict(result) if isinstance(result, Mapping) else None
     safe_result = None
     artifact_refs: list[dict[str, Any]] = []
@@ -224,7 +231,6 @@ def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], event
         artifact_refs = [_safe_artifact_metadata(item) for item in raw_artifacts if isinstance(item, Mapping)]
         safe_result["artifacts"] = artifact_refs
     task_id = task_value.get("id") if isinstance(task_value, Mapping) else None
-    run_id = run_value.get("id") or run_value.get("runId") if isinstance(run_value, Mapping) else None
     return {
         "schemaVersion": "evidence-bundle-v1",
         "taskId": task_id,
@@ -234,13 +240,19 @@ def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], event
         "processEvents": safe_events,
         "taskTree": _sanitize_value(tree or []),
         "decisions": _sanitize_value(decisions or []),
-        "toolCallSummaries": [{"name": name} for name in sorted(_tool_names({"events": safe_events}))],
+        "toolCallSummaries": [{"name": name} for name in observed_tool_names],
         "resultManifest": safe_result,
         "artifactRefs": artifact_refs,
+        "taskPhase": task_value.get("phase") if isinstance(task_value, Mapping) else None,
+        "runStatus": run_value.get("status") if isinstance(run_value, Mapping) else None,
+        "manifestStatus": safe_result.get("status") if isinstance(safe_result, Mapping) else None,
+        "evidenceCompleteness": completeness,
+        "eventCompleteness": event_completeness,
         "approvalHistory": [],
         "agentMetadata": {},
         "policyOutcomes": [],
-        "inputStatus": "COMPLETE" if safe_result is not None else "INCONCLUSIVE",
+        "inputStatus": "COMPLETE" if safe_result is not None and event_completeness == "COMPLETE"
+        and isinstance(task_id, str) and bool(task_id) and bool(run_id) else "INCONCLUSIVE",
     }
 
 
@@ -268,41 +280,251 @@ def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dic
     ]
 
 
+def _event_type(event: Mapping[str, Any]) -> str:
+    return str(event.get("eventType", event.get("type", "")))
+
+
+def _tool_name(event: Mapping[str, Any]) -> str | None:
+    payload = _payload(event)
+    name = payload.get("tool") or payload.get("toolName") or payload.get("name")
+    return str(name).strip() if name else None
+
+
+def _called_tools(events: list[Mapping[str, Any]]) -> list[str] | None:
+    calls: list[tuple[int, int, str]] = []
+    for index, event in enumerate(events):
+        if _event_type(event) != "tool.called":
+            continue
+        name = _tool_name(event)
+        if not name:
+            return None
+        sequence = event.get("sequence", _payload(event).get("sequence"))
+        if not isinstance(sequence, int):
+            return None
+        calls.append((sequence, index, name))
+    return [name for _, _, name in sorted(calls)]
+
+
+def _tool_lifecycle(events: list[Mapping[str, Any]], name: str) -> tuple[list[Mapping[str, Any]], list[bool]] | None:
+    calls = []
+    outcomes: list[tuple[int, bool]] = []
+    for event in events:
+        event_type = _event_type(event)
+        if event_type not in {"tool.called", "tool.finished", "tool.completed"}:
+            continue
+        tool_name = _tool_name(event)
+        payload = _payload(event)
+        if not tool_name:
+            return None
+        if tool_name != name:
+            continue
+        sequence = event.get("sequence", payload.get("sequence"))
+        if not isinstance(sequence, int):
+            return None
+        if event_type == "tool.called":
+            calls.append((sequence, event))
+        else:
+            ok = payload.get("ok")
+            if not isinstance(ok, bool):
+                status = str(payload.get("status", "")).upper()
+                if status not in {"SUCCEEDED", "FAILED"}:
+                    return None
+                ok = status == "SUCCEEDED"
+            outcomes.append((sequence, ok))
+    calls.sort(key=lambda value: value[0])
+    outcomes.sort(key=lambda value: value[0])
+    return [event for _, event in calls], [ok for _, ok in outcomes]
+
+
+def _events_truncated(observation: Mapping[str, Any]) -> bool:
+    completeness = observation.get("evidenceCompleteness") or {}
+    if isinstance(completeness, Mapping):
+        status = str(completeness.get("status", "")).upper()
+        if status == "TRUNCATED":
+            return True
+        observed, limit = completeness.get("observedEventCount"), completeness.get("eventLimit")
+        if isinstance(observed, int) and isinstance(limit, int) and observed > limit:
+            return True
+    events = observation.get("events", []) or []
+    return any(isinstance(event, Mapping) and event.get("truncated") is True for event in events)
+
+
+def _dependency_success(tree: Any) -> tuple[bool | None, Any]:
+    if not isinstance(tree, list) or not tree:
+        return None, None
+    nodes = {str(node.get("taskId", node.get("id", ""))): node for node in tree if isinstance(node, Mapping)}
+    saw_dependency = False
+    statuses = []
+    for node in nodes.values():
+        dependency_ids = node.get("dependencyIds", node.get("dependencies", [])) or []
+        for dependency in dependency_ids:
+            dep_id = str(dependency.get("taskId", dependency.get("id", ""))) if isinstance(dependency, Mapping) else str(dependency)
+            target = nodes.get(dep_id)
+            if target is None:
+                return None, {"missingDependency": dep_id}
+            saw_dependency = True
+            status = target.get("status", target.get("phase"))
+            if status is None:
+                return None, {"dependency": dep_id, "status": None}
+            statuses.append(str(status))
+    return True if not saw_dependency or all(status.upper() == "SUCCEEDED" for status in statuses) else False, statuses
+
+
+def _dependency_handoff(tree: Any) -> tuple[bool | None, Any]:
+    if not isinstance(tree, list) or not tree:
+        return None, None
+    nodes = {str(node.get("taskId", node.get("id", ""))): node for node in tree if isinstance(node, Mapping)}
+    references = []
+    saw_dependency = False
+    for node in nodes.values():
+        dependencies = node.get("dependencyIds", node.get("dependencies", [])) or []
+        if not dependencies:
+            continue
+        saw_dependency = True
+        refs = node.get("dependencyResults", node.get("dependencyResultRefs", {})) or {}
+        for dependency in dependencies:
+            dep_id = str(dependency.get("taskId", dependency.get("id", ""))) if isinstance(dependency, Mapping) else str(dependency)
+            ref = refs.get(dep_id) if isinstance(refs, Mapping) else None
+            if not isinstance(ref, str) or not ref or "?" in ref or "x-amz-" in ref.lower():
+                return None, {"missingReferenceFor": dep_id}
+            references.append(f"dependency-result:{dep_id}")
+    return (True, references) if saw_dependency else (None, None)
+
+
+def _pdf_check(observation: Mapping[str, Any]) -> tuple[bool | None, str, Any]:
+    result = observation.get("result")
+    if not isinstance(result, Mapping):
+        return None, "result manifest is unavailable", None
+    artifacts = result.get("artifacts", [])
+    if not isinstance(artifacts, list) or not artifacts:
+        return False, "PDF artifact is missing", []
+    pdfs = [artifact for artifact in artifacts if isinstance(artifact, Mapping)
+            and (str(artifact.get("name", "")).lower().endswith(".pdf")
+                 or str(artifact.get("contentType", "")).lower() == "application/pdf")]
+    if not pdfs:
+        return False, "PDF artifact is missing", []
+    checked = []
+    for artifact in pdfs:
+        name = str(artifact.get("name", ""))
+        content_type = str(artifact.get("contentType", ""))
+        size = artifact.get("sizeBytes")
+        digest = str(artifact.get("sha256", "")).lower()
+        data = artifact.get("contentBytes")
+        if not name.lower().endswith(".pdf") or content_type.lower() != "application/pdf" or not isinstance(size, int) or size <= 0 or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            return False, "PDF MIME, extension, size or SHA-256 metadata is invalid", [{"name": name}]
+        if data is None or not isinstance(data, bytes):
+            return None, "PDF signature bytes are unavailable; remote downloads are disabled", [{"name": name}]
+        if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+            return False, "PDF size or SHA-256 does not match artifact bytes", [{"name": name}]
+        if not data.startswith(b"%PDF-") or b"%%EOF" not in data:
+            return False, "PDF signature or terminator is invalid", [{"name": name}]
+        try:
+            from pypdf import PdfReader
+            page_count = len(PdfReader(io.BytesIO(data), strict=True).pages)
+        except ImportError:
+            return None, "pypdf is unavailable to parse the PDF page tree", [{"name": name}]
+        except Exception:
+            return False, "PDF page tree could not be parsed", [{"name": name}]
+        if page_count < 1:
+            return False, "PDF contains no pages", [{"name": name}]
+        checked.append({"name": name, "pageCount": page_count})
+    return True, "PDF metadata, signature, digest and page tree are valid", checked
+
+
 def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list[AssertionResult]:
     """Evaluate only deterministic assertions; never invokes an LLM judge."""
     results: list[AssertionResult] = []
     task = observation.get("task") or {}
-    tools = _tool_names(observation)
+    run_id = (observation.get("run") or {}).get("id") or (observation.get("run") or {}).get("runId") or "unknown"
+    events_ref = f"task-events:{run_id}"
+    tree_ref = f"task-tree:{run_id}"
+    manifest_ref = f"result-manifest:{run_id}"
+    events = [event for event in observation.get("events", []) or [] if isinstance(event, Mapping)]
+    truncated = _events_truncated(observation)
     for assertion in case.assertions:
         assertion_type = str(assertion.get("type", ""))
         if assertion_type == "phase":
             expected = str(assertion.get("expected", ""))
             actual = task.get("phase")
-            results.append(AssertionResult(assertion_type, actual == expected,
-                                           f"phase is {actual!s}", expected, actual))
+            results.append(AssertionResult(assertion_type, actual == expected if actual is not None else None,
+                                           f"phase is {actual!s}", expected, actual,
+                                           (f"task-snapshot:{(task or {}).get('id', 'unknown')}",)))
         elif assertion_type == "required_tool":
             expected = str(assertion.get("name", ""))
-            passed = expected in tools
-            results.append(AssertionResult(assertion_type, passed,
-                                           f"required tool {expected} was {'called' if passed else 'not called'}",
-                                           expected, sorted(tools)))
+            lifecycle = _tool_lifecycle(events, expected)
+            if truncated or lifecycle is None:
+                passed = None
+                message = "tool lifecycle evidence is incomplete or unparseable"
+            elif not lifecycle[0] and lifecycle[1]:
+                passed, message = None, "tool completion is present without a matching call event"
+            elif not lifecycle[0]:
+                passed, message = False, f"required tool {expected} was not called"
+            elif any(outcome is True for outcome in lifecycle[1]):
+                passed, message = True, f"required tool {expected} completed successfully"
+            elif len(lifecycle[1]) < len(lifecycle[0]):
+                passed, message = None, f"required tool {expected} completion outcome is unavailable"
+            else:
+                passed, message = False, f"required tool {expected} failed"
+            results.append(AssertionResult(assertion_type, passed, message, expected,
+                                           {"calls": len(lifecycle[0]), "outcomes": lifecycle[1]} if lifecycle else None,
+                                           (events_ref,)))
         elif assertion_type == "forbidden_tool":
             expected = str(assertion.get("name", ""))
-            passed = expected not in tools
+            names = _called_tools(events)
+            passed = None if truncated or names is None else expected not in names
             results.append(AssertionResult(assertion_type, passed,
-                                           f"forbidden tool {expected} was {'not called' if passed else 'called'}",
-                                           expected, sorted(tools)))
+                                           f"forbidden tool {expected} evidence status is {AssertionResult(assertion_type, passed, '').status}",
+                                           expected, sorted(names) if names is not None else None, (events_ref,)))
         elif assertion_type == "output_contains":
             expected = str(assertion.get("value", ""))
             actual = _output_text(observation)
-            passed = expected in actual
+            passed = None if observation.get("result") is None else expected in actual
             results.append(AssertionResult(assertion_type, passed,
-                                           f"output {'contains' if passed else 'does not contain'} expected text",
-                                           expected, actual[:500]))
+                                           f"output status is {AssertionResult(assertion_type, passed, '').status.lower()}",
+                                           expected, actual[:500], (manifest_ref,)))
+        elif assertion_type == "failed_tool":
+            expected = str(assertion.get("name", ""))
+            lifecycle = _tool_lifecycle(events, expected)
+            if truncated or lifecycle is None or (not lifecycle[0] and lifecycle[1]) or (lifecycle[0] and len(lifecycle[1]) < len(lifecycle[0])):
+                passed = None
+            else:
+                passed = not any(outcome is False for outcome in lifecycle[1])
+            results.append(AssertionResult(assertion_type, passed, "failed tool lifecycle evaluated", expected,
+                                           lifecycle[1] if lifecycle else None, (events_ref,)))
+        elif assertion_type == "tool_order":
+            names = _called_tools(events)
+            expected = assertion.get("names", [])
+            passed = None if truncated or names is None else names == expected
+            results.append(AssertionResult(assertion_type, passed, "tool call order evaluated", expected, names, (events_ref,)))
+        elif assertion_type == "tool_count":
+            expected_name, expected_count = str(assertion.get("name", "")), assertion.get("expected")
+            names = _called_tools(events)
+            actual = names.count(expected_name) if names is not None else None
+            passed = None if truncated or names is None else actual == expected_count
+            results.append(AssertionResult(assertion_type, passed, "tool call count evaluated", expected_count, actual, (events_ref,)))
+        elif assertion_type == "dependency_success":
+            passed, actual = _dependency_success(observation.get("taskTree"))
+            results.append(AssertionResult(assertion_type, None if truncated else passed,
+                                           "dependency statuses evaluated", "all dependencies SUCCEEDED", actual, (tree_ref,)))
+        elif assertion_type == "dependency_handoff":
+            passed, actual = _dependency_handoff(observation.get("taskTree"))
+            results.append(AssertionResult(assertion_type, None if truncated else passed,
+                                           "dependency result references evaluated", "result reference for every dependency", actual, (tree_ref,)))
+        elif assertion_type == "run_status":
+            run = observation.get("run") or {}
+            actual, expected = run.get("status"), str(assertion.get("expected", ""))
+            results.append(AssertionResult(assertion_type, None if actual is None else str(actual).upper() == expected.upper(),
+                                           "run status evaluated", expected, actual, (f"task-run:{run_id}",)))
         elif assertion_type == "artifact_integrity":
             passed, message, artifacts = _artifact_check(observation)
+            if observation.get("result") is None:
+                passed, message = None, "result manifest is unavailable"
             results.append(AssertionResult(assertion_type, passed, message,
-                                           "durable metadata", artifacts))
+                                           "durable metadata", artifacts, (manifest_ref,)))
+        elif assertion_type == "artifact_pdf":
+            passed, message, details = _pdf_check(observation)
+            results.append(AssertionResult(assertion_type, passed, message,
+                                           "valid PDF MIME, extension, size, SHA-256 and signature", details, (manifest_ref,)))
         else:
             results.append(AssertionResult(assertion_type, False,
                                            f"unknown assertion type: {assertion_type}"))
@@ -396,29 +618,49 @@ class AgentTeamsClient:
         return _mapping(runs[-1], "run response")
 
     def get_observation(self, task_id: str, run_id: str) -> dict[str, Any]:
-        events = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/process-events")
+        events: list[Any] = []
+        after = 0
+        event_status = "COMPLETE"
+        while len(events) <= PROCESS_EVENT_LIMIT:
+            suffix = "" if after == 0 else f"?after={after}"
+            page = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/process-events{suffix}")
+            if isinstance(page, Mapping):
+                page_values = page.get("events", [])
+                upstream = page.get("evidenceCompleteness") or {}
+                if isinstance(upstream, Mapping) and str(upstream.get("status", "")).upper() == "TRUNCATED":
+                    event_status = "TRUNCATED"
+            else:
+                page_values = page
+            if not isinstance(page_values, list):
+                event_status = "INCONCLUSIVE"
+                break
+            events.extend(page_values)
+            if len(events) > PROCESS_EVENT_LIMIT:
+                event_status = "TRUNCATED"
+                events = events[:PROCESS_EVENT_LIMIT + 1]
+                break
+            if len(page_values) < PROCESS_EVENT_PAGE_SIZE:
+                break
+            sequences = [event.get("sequence") for event in page_values if isinstance(event, Mapping)]
+            if not sequences or not all(isinstance(sequence, int) for sequence in sequences):
+                event_status = "INCONCLUSIVE"
+                break
+            next_after = max(sequences)
+            if next_after <= after:
+                event_status = "INCONCLUSIVE"
+                break
+            after = next_after
         result = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/result")
-        if isinstance(result, Mapping) and isinstance(result.get("artifacts"), list):
-            enriched = []
-            for artifact in result["artifacts"]:
-                if not isinstance(artifact, Mapping):
-                    enriched.append(artifact)
-                    continue
-                copy = dict(artifact)
-                download_url = copy.get("downloadUrl")
-                if download_url:
-                    try:
-                        request = Request(str(download_url), headers={"Accept": "application/octet-stream"})
-                        with urlopen(request, timeout=self.timeout) as response:
-                            copy["content"] = response.read(2 * 1024 * 1024).decode("utf-8", errors="replace")
-                    except (OSError, URLError):
-                        # Artifact metadata assertions remain useful if content download is unavailable.
-                        pass
-                enriched.append(copy)
-            result = dict(result)
-            result["artifacts"] = enriched
+        task_tree = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/tree")
+        decisions = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/decisions")
+        if len(events) > PROCESS_EVENT_LIMIT:
+            event_status = "TRUNCATED"
+        completeness = {"status": event_status, "observedEventCount": min(len(events), PROCESS_EVENT_LIMIT + 1),
+                        "eventLimit": PROCESS_EVENT_LIMIT}
         return {"task": self.get_task(task_id), "run": {"id": run_id},
-                "events": events if isinstance(events, list) else [], "result": result or {}}
+                "events": events, "evidenceCompleteness": completeness, "result": result,
+                "taskTree": task_tree if isinstance(task_tree, list) else None,
+                "decisions": decisions if isinstance(decisions, list) else None}
 
 
 def _now() -> str:
@@ -472,11 +714,29 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
                 raise EvalError(f"task {task_id} run response has no run id")
             item["runId"] = run_id
             observation = client.get_observation(task_id, run_id)
+            run_snapshot = dict(run)
+            run_snapshot.update(observation.get("run") or {})
+            observation["run"] = run_snapshot
+            completeness = dict(observation.get("evidenceCompleteness") or {})
+            if completeness.get("status") != "TRUNCATED" and (
+                not run_snapshot.get("status") or observation.get("result") is None
+            ):
+                completeness["status"] = "INCONCLUSIVE"
+            observation["evidenceCompleteness"] = completeness
             evidence = build_evidence_bundle(observation.get("task") or {}, observation.get("run") or run,
                                              observation.get("events") or [], observation.get("taskTree"),
-                                             observation.get("decisions"), observation.get("result") or {})
+                                             observation.get("decisions"), observation.get("result"),
+                                             observation.get("evidenceCompleteness"))
             item["evidenceBundle"] = evidence
-            item["taskSuccess"] = str((observation.get("task") or {}).get("phase", "")) == "SUCCEEDED"
+            task_snapshot = observation.get("task") or {}
+            run_snapshot = observation.get("run") or run
+            result_manifest = observation.get("result") or {}
+            item["taskPhase"] = task_snapshot.get("phase")
+            item["taskSuccess"] = str(item["taskPhase"] or "").upper() == "SUCCEEDED"
+            item["runStatus"] = run_snapshot.get("status")
+            item["manifestStatus"] = result_manifest.get("status") if isinstance(result_manifest, Mapping) else None
+            item["evidenceCompleteness"] = evidence["evidenceCompleteness"]
+            item["eventCompleteness"] = evidence["eventCompleteness"]
             if evaluation_run_id:
                 item["evaluationRunId"] = evaluation_run_id
             if evidence_output is not None:
@@ -487,19 +747,38 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
                 _write_deepeval_export(case, observation, deepeval_export_dir)
             assertion_results = evaluate_observation(case, observation)
             item["assertions"] = [_redact(result.as_dict(), client.token) for result in assertion_results]
-            item["score"] = (sum(result.passed for result in assertion_results) / len(assertion_results)
+            item["score"] = (sum(result.status == "PASSED" for result in assertion_results) / len(assertion_results)
                               if assertion_results else 0.0)
-            item["passed"] = bool(assertion_results) and all(result.passed for result in assertion_results)
-            item["evaluationStatus"] = "PASSED" if item["passed"] else "INCONCLUSIVE" if evidence["inputStatus"] == "INCONCLUSIVE" else "FAILED"
+            item["passed"] = bool(assertion_results) and all(result.status == "PASSED" for result in assertion_results)
+            item["evaluationStatus"] = ("FAILED" if any(result.status == "FAILED" for result in assertion_results)
+                                        else "INCONCLUSIVE" if any(result.status == "INCONCLUSIVE" for result in assertion_results)
+                                        else "PASSED" if assertion_results else "INCONCLUSIVE")
+            execution_types = {"phase", "required_tool", "forbidden_tool", "failed_tool", "tool_order",
+                               "tool_count", "dependency_success", "dependency_handoff", "retry_limit", "run_status"}
+            execution = [result for result in assertion_results if result.assertion_type in execution_types]
+            result_gate = [result for result in assertion_results
+                           if result.assertion_type not in execution_types and result.assertion_type != "semantic"]
+            item["executionGate"] = _gate_status(execution)
+            item["resultGate"] = _gate_status(result_gate)
         except EvalTransportError:
             raise
         except EvalError as exc:
             item["error"] = _redact(str(exc), client.token)
         report_cases.append(item)
     passed = all(item["passed"] for item in report_cases)
+    evaluation_status = "FAILED" if any(item.get("evaluationStatus") == "FAILED" for item in report_cases) else \
+        "INCONCLUSIVE" if any(item.get("evaluationStatus") == "INCONCLUSIVE" for item in report_cases) else "PASSED"
     return {"schemaVersion": "evaluation-report-v1", "suite": "core", "startedAt": started, "finishedAt": _now(),
             "passed": passed, "taskSuccess": bool(report_cases) and all(item.get("taskSuccess", False) for item in report_cases),
-            "evaluationStatus": "PASSED" if passed else "FAILED", "cases": report_cases}
+            "evaluationStatus": evaluation_status, "cases": report_cases}
+
+
+def _gate_status(results: list[AssertionResult]) -> str:
+    if any(result.status == "FAILED" for result in results):
+        return "FAILED"
+    if not results or any(result.status == "INCONCLUSIVE" for result in results):
+        return "INCONCLUSIVE"
+    return "PASSED"
 
 
 def _build_parser() -> argparse.ArgumentParser:

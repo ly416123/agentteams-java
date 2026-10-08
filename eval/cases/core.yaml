@@ -63,3 +63,76 @@ cases:
       - type: artifact_integrity
     limits:
       timeoutSeconds: 180
+
+  - id: multi-agent-pdf-positive
+    name: Multi-agent task delivers a referenced PDF
+    task:
+      scope:
+        tenant: tenant-a
+        project: project-a
+        team: team-a
+      taskType: agentscope
+      inputJson:
+        prompt: >-
+          Plan the work, delegate research and drafting to dependent subtasks, use an
+          approved Skill and MCP tool successfully, cite source references, then produce
+          exactly one downloadable PDF with the final answer. Preserve each dependency's
+          result reference when handing work to the next subtask.
+      requiredCapabilities:
+        - runtime-agentscope-v1
+    assertions:
+      - type: phase
+        expected: SUCCEEDED
+      - type: run_status
+        expected: SUCCEEDED
+      - type: dependency_success
+      - type: dependency_handoff
+      - type: required_tool
+        name: web_search
+      - type: artifact_pdf
+    limits:
+      timeoutSeconds: 300
+
+# Local deterministic fixtures are intentionally outside cases; they are consumed
+# by unit tests only and must never be reported as L5 task executions.
+offlineFixtures:
+  - id: multi-agent-pdf-failed-tool
+    assertions:
+      - type: required_tool
+        name: web_search
+    expectedStatuses: [FAILED]
+    observation:
+      run: {id: fixture-run}
+      events:
+        - {eventId: c1, eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1}}
+        - {eventId: f1, eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, ok: false}}
+      result: {status: SUCCEEDED}
+  - id: multi-agent-pdf-missing-dependency
+    assertions:
+      - {type: dependency_success}
+      - {type: dependency_handoff}
+    expectedStatuses: [INCONCLUSIVE, INCONCLUSIVE]
+    observation:
+      run: {id: fixture-run}
+      events: []
+      taskTree:
+        - {taskId: child, dependencyIds: [missing-parent]}
+      result: {status: SUCCEEDED}
+  - id: multi-agent-pdf-corrupt-and-truncated
+    assertions:
+      - {type: artifact_pdf}
+      - {type: required_tool, name: web_search}
+    expectedStatuses: [FAILED, INCONCLUSIVE]
+    observation:
+      run: {id: fixture-run}
+      events: []
+      evidenceCompleteness: {status: TRUNCATED, observedEventCount: 1001, eventLimit: 1000}
+      result:
+        status: SUCCEEDED
+        artifacts:
+          - name: report.pdf
+            contentType: application/pdf
+            storageRef: tasks/fixture/report.pdf
+            sizeBytes: 8
+            sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            contentBase64: bm90LWEtcGRm

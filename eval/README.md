@@ -4,10 +4,10 @@
 
 ## 本地运行
 
-先安装 Runner 的唯一第三方依赖：
+先安装 Runner 的第三方依赖：
 
 ```bash
-python3 -m pip install pyyaml
+python3 -m pip install pyyaml pypdf
 ```
 
 Token 只能通过环境变量提供，不能写入 YAML、命令行参数或报告：
@@ -153,7 +153,17 @@ python3 scripts/run-l5-agentteams-eval.py \
 - `no-tool-simple-answer`：确认简单问题不触发搜索工具。
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
 
-支持的确定性断言类型为 `phase`、`required_tool`、`forbidden_tool`、`output_contains` 和 `artifact_integrity`。未知类型会使该用例失败。Promptfoo 和 DeepEval 都以这层报告和任务运行证据作为基础；Phoenix 仍留待后续接入。
+支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus` 和 `evidenceCompleteness`，不会从 `tool.called` 推断工具成功。
+
+Runner 会按事件序号分页读取 `/process-events`（每页 100 条），最多检查 1001 条以确认是否超过 1000 条证据上限。PDF 断言先检查 MIME、扩展名、大小和 SHA-256，再用 `pypdf` 检查本地可用字节的 `%PDF-` 签名、文件结束标记和页树。YAML 中的 `offlineFixtures` 仅用于本地单元测试，不会被 Runner 当作 Suite Case 或 L5 执行报告。远端 artifact API 不提供正文时，签名检查为 `INCONCLUSIVE`；Runner 不会跟随下载 URL。
+
+运行离线契约测试：
+
+```bash
+python3 -m unittest scripts.test_agentteams_eval scripts.test_evaluation_quality_contract scripts.test_l5_agentteams_eval_contract -v
+```
+
+Promptfoo 和 DeepEval 都以这层报告和任务运行证据作为基础；Phoenix 仍留待后续接入。
 
 ## 当前验证状态
 

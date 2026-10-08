@@ -1,9 +1,12 @@
+import hashlib
 import json
 import runpy
 import sys
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
+from pypdf import PdfWriter
 
 from scripts.agentteams_eval import (
     AgentTeamsClient,
@@ -26,7 +29,7 @@ class EvaluationCoreTest(unittest.TestCase):
             {"status": "SUCCEEDED", "summary": "ok", "artifacts": [{
                 "name": "answer.md", "storageRef": "https://minio.invalid/result?X-Amz-Signature=secret",
                 "sizeBytes": 10, "sha256": "a" * 64,
-            }]},
+            }]}, {"status": "COMPLETE", "observedEventCount": 1, "eventLimit": 1000},
         )
 
         serialized = json.dumps(bundle, ensure_ascii=False).lower()
@@ -85,7 +88,8 @@ cases:
         observation = {
             "task": {"id": "task-1", "phase": "SUCCEEDED"},
             "events": [
-                {"eventType": "tool.called", "payload": json.dumps({"tool": "web_search"})}
+                {"eventType": "tool.called", "sequence": 1, "payload": json.dumps({"tool": "web_search", "sequence": 1})},
+                {"eventType": "tool.finished", "sequence": 2, "payload": json.dumps({"tool": "web_search", "sequence": 2, "ok": True})},
             ],
             "result": {"summary": "Model Context Protocol"},
         }
@@ -115,6 +119,78 @@ cases:
 
         self.assertFalse(result.passed)
         self.assertIn("forbidden", result.message)
+
+    def test_required_tool_requires_successful_finished_event_and_safe_reference(self):
+        case = EvalCase("tool", "Tool", {}, [{"type": "required_tool", "name": "search"}], {})
+        called_only = evaluate_observation(case, {"task": {}, "run": {"id": "r1"}, "events": [
+            {"eventId": "e1", "eventType": "tool.called", "payload": {"tool": "search", "sequence": 1,
+             "arguments": "private body"}}], "result": {}})[0]
+        success = evaluate_observation(case, {"task": {}, "run": {"id": "r1"}, "events": [
+            {"eventId": "e1", "eventType": "tool.called", "payload": {"tool": "search", "sequence": 1}},
+            {"eventId": "e2", "eventType": "tool.finished", "payload": {"tool": "search", "sequence": 2, "ok": True}}], "result": {}})[0]
+
+        self.assertEqual("INCONCLUSIVE", called_only.status)
+        self.assertEqual("PASSED", success.status)
+        self.assertEqual(("task-events:r1",), success.evidence_refs)
+        self.assertNotIn("private body", json.dumps(called_only.as_dict()))
+
+    def test_tool_lifecycle_order_count_and_failed_outcome(self):
+        events = [
+            {"eventId": "c1", "eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
+            {"eventId": "f1", "eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "ok": False}},
+            {"eventId": "c2", "eventType": "tool.called", "sequence": 3, "payload": {"tool": "fetch", "sequence": 3}},
+            {"eventId": "f2", "eventType": "tool.finished", "sequence": 4, "payload": {"tool": "fetch", "sequence": 4, "ok": True}},
+        ]
+        case = EvalCase("life", "Lifecycle", {}, [
+            {"type": "failed_tool", "name": "search"},
+            {"type": "tool_order", "names": ["search", "fetch"]},
+            {"type": "tool_count", "name": "search", "expected": 1}], {})
+        results = evaluate_observation(case, {"run": {"id": "run-7"}, "events": events, "result": {}})
+
+        self.assertEqual(["FAILED", "PASSED", "PASSED"], [result.status for result in results])
+        self.assertTrue(all(result.evidence_refs == ("task-events:run-7",) for result in results))
+
+    def test_dependency_assertions_require_success_and_handoff_reference(self):
+        case = EvalCase("deps", "Dependencies", {}, [
+            {"type": "dependency_success"}, {"type": "dependency_handoff"}], {})
+        observation = {"run": {"id": "r"}, "events": [], "result": {}, "taskTree": [
+            {"taskId": "a", "status": "SUCCEEDED", "dependencyIds": []},
+            {"taskId": "b", "status": "SUCCEEDED", "dependencyIds": ["a"], "dependencyResults": {"a": "task-result:a"}}]}
+        results = evaluate_observation(case, observation)
+
+        self.assertEqual(["PASSED", "PASSED"], [result.status for result in results])
+        observation["taskTree"][0]["status"] = "FAILED"
+        self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
+
+    def test_truncated_events_and_missing_dependency_are_inconclusive(self):
+        case = EvalCase("partial", "Partial", {}, [
+            {"type": "required_tool", "name": "search"}, {"type": "dependency_success"}], {})
+        results = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {},
+                                              "evidenceCompleteness": {"status": "TRUNCATED"},
+                                              "taskTree": [{"taskId": "b", "dependencyIds": ["missing"]}]})
+
+        self.assertEqual(["INCONCLUSIVE", "INCONCLUSIVE"], [result.status for result in results])
+
+    def test_pdf_metadata_and_signature_are_checked_from_bytes_only(self):
+        case = EvalCase("pdf", "PDF", {}, [{"type": "artifact_pdf"}], {})
+        buffer = BytesIO()
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        writer.write(buffer)
+        pdf_bytes = buffer.getvalue()
+        good_meta = {"name": "report.pdf", "contentType": "application/pdf", "sizeBytes": len(pdf_bytes),
+                     "sha256": hashlib.sha256(pdf_bytes).hexdigest(), "storageRef": "tasks/a/report.pdf",
+                     "contentBytes": pdf_bytes}
+        good = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {"artifacts": [good_meta]}})[0]
+        bad = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {"artifacts": [
+            {**good_meta, "contentType": "text/plain"}]}})[0]
+        unavailable = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {"artifacts": [
+            {key: value for key, value in good_meta.items() if key != "contentBytes"}]}})[0]
+
+        self.assertEqual("PASSED", good.status)
+        self.assertEqual("FAILED", bad.status)
+        self.assertEqual("INCONCLUSIVE", unavailable.status)
+        self.assertNotIn("contentBytes", json.dumps(good.as_dict()))
 
     def test_artifact_integrity_requires_durable_metadata(self):
         case = EvalCase(
@@ -163,6 +239,10 @@ cases:
                 return 200, {}, b"[]"
             if request.method == "GET" and path.endswith("/result"):
                 return 200, {}, json.dumps({"summary": "ok"}).encode()
+            if request.method == "GET" and path.endswith("/tree"):
+                return 200, {}, b"[]"
+            if request.method == "GET" and path.endswith("/decisions"):
+                return 200, {}, b"[]"
             raise AssertionError(f"unexpected request {request.method} {path}")
 
         case = EvalCase("sample", "Sample", {
@@ -180,6 +260,8 @@ cases:
              "GET /api/v1/tasks/task-1", "GET /api/v1/tasks/task-1/runs",
              "GET /api/v1/tasks/task-1/runs/run-1/process-events",
              "GET /api/v1/tasks/task-1/runs/run-1/result",
+             "GET /api/v1/tasks/task-1/runs/run-1/tree",
+             "GET /api/v1/tasks/task-1/runs/run-1/decisions",
              "GET /api/v1/tasks/task-1"],
             [f"{request.method} {request.full_url.split('http://test', 1)[1]}" for request in calls],
         )
@@ -189,9 +271,61 @@ cases:
         self.assertTrue(calls[1].headers.get("Idempotency-key"))
         self.assertNotEqual(calls[0].headers["Idempotency-key"], calls[1].headers["Idempotency-key"])
 
-    def test_core_suite_contains_three_credential_free_cases(self):
+    def test_client_paginates_process_events_and_marks_truncation_at_limit(self):
+        event_requests = []
+        def transport(request, timeout):
+            path = request.full_url.split("http://test", 1)[1]
+            if path.startswith("/api/v1/tasks/task-1/runs/run-1/process-events"):
+                event_requests.append(path)
+                after = int(path.split("after=", 1)[1]) if "after=" in path else 0
+                if after == 0:
+                    events = [{"eventId": f"e{n}", "sequence": n, "eventType": "note", "payload": {}}
+                              for n in range(1, 101)]
+                elif after == 100:
+                    events = [{"eventId": f"e{n}", "sequence": n, "eventType": "note", "payload": {}}
+                              for n in range(101, 201)]
+                else:
+                    events = []
+                return 200, {}, json.dumps(events).encode()
+            if path.endswith("/tree") or path.endswith("/decisions"):
+                return 200, {}, b"[]"
+            if path.endswith("/result"):
+                return 200, {}, json.dumps({"status": "SUCCEEDED"}).encode()
+            if path == "/api/v1/tasks/task-1":
+                return 200, {}, json.dumps({"id": "task-1", "phase": "SUCCEEDED"}).encode()
+            raise AssertionError(path)
+
+        observation = AgentTeamsClient("http://test", "token", transport=transport).get_observation("task-1", "run-1")
+
+        self.assertEqual(3, len(event_requests))
+        self.assertEqual(200, observation["evidenceCompleteness"]["observedEventCount"])
+        self.assertEqual("COMPLETE", observation["evidenceCompleteness"]["status"])
+
+    def test_client_marks_event_limit_truncation_without_claiming_complete(self):
+        def transport(request, timeout):
+            path = request.full_url.split("http://test", 1)[1]
+            if "/process-events" in path:
+                after = int(path.split("after=", 1)[1]) if "after=" in path else 0
+                events = [{"eventId": f"e{n}", "sequence": n, "eventType": "note", "payload": {}}
+                          for n in range(after + 1, after + 101)]
+                return 200, {}, json.dumps(events).encode()
+            if path.endswith("/result"):
+                return 200, {}, json.dumps({"status": "SUCCEEDED"}).encode()
+            if path.endswith("/tree") or path.endswith("/decisions"):
+                return 200, {}, b"[]"
+            if path == "/api/v1/tasks/task-1":
+                return 200, {}, json.dumps({"id": "task-1", "phase": "SUCCEEDED"}).encode()
+            raise AssertionError(path)
+
+        observation = AgentTeamsClient("http://test", "token", transport=transport).get_observation("task-1", "run-1")
+
+        self.assertEqual("TRUNCATED", observation["evidenceCompleteness"]["status"])
+        self.assertEqual(1001, observation["evidenceCompleteness"]["observedEventCount"])
+
+    def test_core_suite_contains_credential_free_cases(self):
         cases = load_cases(Path(__file__).parents[1] / "eval/cases/core.yaml")
-        self.assertEqual({"mcp-web-search-title", "no-tool-simple-answer", "artifact-integrity"},
+        self.assertEqual({"mcp-web-search-title", "no-tool-simple-answer", "artifact-integrity",
+                          "multi-agent-pdf-positive"},
                          {case.case_id for case in cases})
         for case in cases:
             self.assertTrue(case.task.get("taskType"))
@@ -217,10 +351,15 @@ cases:
             if request.method == "GET" and path == "/api/v1/tasks/task-1/runs":
                 return 200, {}, json.dumps([{"id": "run-1", "tokenCost": 3}]).encode()
             if request.method == "GET" and path.endswith("/process-events"):
-                return 200, {}, json.dumps([{
-                    "eventType": "tool.called",
-                    "payload": {"tool": "web_search"},
-                }]).encode()
+                return 200, {}, json.dumps([
+                    {"eventType": "tool.called", "sequence": 1,
+                     "payload": {"tool": "web_search", "sequence": 1, "arguments": "private"}},
+                    {"eventType": "tool.finished", "sequence": 2,
+                     "payload": {"tool": "web_search", "sequence": 2, "ok": True,
+                                 "result": "private response"}},
+                ]).encode()
+            if request.method == "GET" and (path.endswith("/tree") or path.endswith("/decisions")):
+                return 200, {}, b"[]"
             if request.method == "GET" and path.endswith("/result"):
                 return 200, {}, json.dumps({
                     "summary": "Model Context Protocol",
