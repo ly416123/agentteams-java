@@ -98,7 +98,8 @@ class EvaluationServiceTest {
         EvaluationCaseRecord evaluationCase = new EvaluationCaseRecord(CASE_ID, SUITE_ID, "case-1", "Case 1",
                 JSON.createObjectNode(), JSON.readTree("[{\"type\":\"phase\",\"expected\":\"SUCCEEDED\"},{\"type\":\"artifact_integrity\"}]"), NOW);
         EvidenceBundle bundle = bundle("SUCCEEDED", List.of());
-        EvidenceBundle.ArtifactRef artifact = new EvidenceBundle.ArtifactRef("result.json", "artifact:abc",
+        String storageRef = "tasks/00000000-0000-0000-0000-000000000003/attempts/00000000-0000-0000-0000-000000000099/artifacts/result.json";
+        EvidenceBundle.ArtifactRef artifact = new EvidenceBundle.ArtifactRef("result.json", storageRef,
                 "application/json", 12, "a".repeat(64));
         TaskResultManifest manifest = new TaskResultManifest(TASK_ID, EXECUTION_RUN_ID, "SUCCEEDED", "done",
                 List.of(new TaskResultManifest.ArtifactMetadata("result.json", "artifact:abc", "application/json",
