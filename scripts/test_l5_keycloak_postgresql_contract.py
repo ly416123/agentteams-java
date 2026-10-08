@@ -28,7 +28,7 @@ class KeycloakPostgresqlManifestContractTest(unittest.TestCase):
         self.assertIn("jdbc:postgresql://postgresql:5432/keycloak", text)
         self.assertIn("keycloak-database", text)
         self.assertIn("KC_HTTP_ENABLED", text)
-        self.assertIn("http://192.168.1.13:30082", text)
+        self.assertIn("http://192.168.122.55:30082", text)
         self.assertIn("nodePort: 30082", text)
         self.assertIn("nodePort: 30083", text)
         self.assertIn("quay.io/keycloak/keycloak:25.0.6", text)

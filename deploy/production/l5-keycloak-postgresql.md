@@ -6,7 +6,7 @@ L5 Keycloak 已使用现有 PostgreSQL 中独立的 `keycloak` 数据库作为�
 
 ## 前置检查
 
-在 L5 主机 `ly@192.168.1.13` 上执行：
+在 L5 主机 `ly@192.168.122.55` 上执行：
 
 ```bash
 set -euo pipefail
@@ -81,7 +81,7 @@ kubectl -n agentteams get pod -l app.kubernetes.io/name=keycloak -o wide
 ## 验收
 
 - Pod 1/1 Ready，启动参数为 `start`，`KC_DB=postgres`，日志无数据库认证或 migration 错误。
-- Discovery issuer 是 `http://192.168.1.13:30082/realms/agentteams`，JWK endpoint 可由 Control Plane Pod 访问。
+- Discovery issuer 是 `http://192.168.122.55:30082/realms/agentteams`，JWK endpoint 可由 Control Plane Pod 访问。
 - 用 Alice 和 `agentteams-mcp-task-bot` 凭据获取 token；检查 `iss`、`sub`、tenant/project/team、permissions 与切换前基线。access token 不得写入终端记录或日志。
 - Alice 与 MCP service user 对既有项目接口的访问结果符合切换前预期；Control Plane 中 membership 行数与 subject 不因迁移改变。
 - Keycloak Pod 重建一次、PostgreSQL StatefulSet 滚动重启一次；二者恢复后重复 Ready、用户 UUID、discovery、登录与项目 API 检查。

@@ -4,6 +4,8 @@
 **状态：** 已批准；实现记录见 [实现计划](../plans/2026-10-07-l5-keycloak-postgresql.md)
 **范围：** 将 L5 K3s 上的 Keycloak 从临时 H2 切换到现有持久化 PostgreSQL。
 
+**环境地址更新（2026-10-08）：** L5 主机当前地址为 `192.168.122.55`。本规格和实现计划中记录的 `192.168.1.13` 是 2026-10-07 执行迁移时的历史地址；现行部署清单、L5 values、客户端回调地址和运维命令使用当前地址。
+
 ## 背景与目标
 
 2026-10-07 的 L5 子任务 PDF 验收期间，Keycloak Deployment 重启后丢失了原 realm 数据。当前 Pod 使用 `start-dev`，未配置数据库，也没有数据卷。恢复 Keycloak 用户后，Control Plane 中基于 OIDC `sub` 的成员关系仍需单独补齐，证明身份存储丢失会破坏应用授权关联。
@@ -56,7 +58,7 @@ JSON realm 导出不包含已登录会话等瞬态数据；切换后现有用户
 - PostgreSQL PVC 为 Bound，`keycloak` 数据库只由专用 Keycloak 凭据访问；Deployment 中不再出现 `start-dev`，Pod 重启后保持 Ready。
 - `keycloak` 数据库与 `agentteams` 数据库分别可备份、可恢复；Keycloak Pod 重建后用户与 realm 仍存在。
 - 用户 UUID 清单切换前后完全一致；客户端 redirect URI、web origins、realm roles 与用户 realm roles 映射一致。
-- OIDC discovery 返回 `http://192.168.1.13:30082/realms/agentteams`；JWK、Alice 和 MCP service user 登录成功；现有 API 权限行为和项目成员关系不变。
+- OIDC discovery 返回当前地址 `http://192.168.122.55:30082/realms/agentteams`；JWK、Alice 和 MCP service user 登录成功；现有 API 权限行为和项目成员关系不变。2026-10-07 的迁移验收使用当时地址 `192.168.1.13`，历史执行证据不随地址变更改写。
 - 执行一次 PostgreSQL StatefulSet 重启和一次 Keycloak Pod 重建，重复用户、issuer 和 API 权限检查。
 - `git diff --check`、相关配置契约检查通过；保留 L5 rollout、PVC、subject 集合对比和验证结果作为验收记录。
 

@@ -6,7 +6,7 @@
 
 **目标：** 将 L5 Keycloak 的身份数据从临时 H2 迁移到现有持久化 PostgreSQL，并保持当前有效用户 UUID 与 Control Plane 成员关系不变。
 
-**架构：** 复用 `agentteams` 命名空间中的 PostgreSQL StatefulSet 和 5Gi PVC，为 Keycloak 建独立数据库、账号及 Kubernetes Secret。添加 L5 专用 Deployment 清单和安全引导脚本；先从当前 H2 数据导出 realm/用户并比对 UUID，再导入新数据库后切换 Keycloak，Kind 开发配置保持不变。
+**架构：** 复用 `agentteams` 命名空间中的 PostgreSQL StatefulSet 和 5Gi PVC，为 Keycloak 建独立数据库、账号及 Kubernetes Secret。添加 L5 专用 Deployment 清单和安全引导脚本；先从当前 H2 数据导出 realm/用户并比对 UUID，再导入新数据库后切换 Keycloak，Kind 开发配置保持不变。当前 L5 地址更新见设计规格顶部的环境变更记录；下方执行记录中的旧地址保留为当日历史事实。
 
 **技术栈：** Keycloak 25.0.6 CLI、PostgreSQL 16、K3s/kubectl、Kubernetes Secret、Python unittest。
 
@@ -87,7 +87,7 @@ bash -n deploy/production/bootstrap-l5-keycloak-db.sh
 
 - [x] **步骤 3：创建 L5 专用 Deployment 与 Service 清单**
 
-清单保留当前 `keycloak` 标签、单副本、镜像、资源边界、健康探针、Service NodePort 与 `KC_HOSTNAME=http://192.168.1.13:30082`。数据库配置只引用 `keycloak-database` Secret。启动参数使用 `start --http-port=8080`；启用 HTTP、health 和非严格 hostname；移除 `start-dev` 与 realm ConfigMap 挂载。清单仅管理 L5 Keycloak，不改 `deploy/kind-keycloak.yaml`。
+清单保留当前 `keycloak` 标签、单副本、镜像、资源边界、健康探针、Service NodePort 与 `KC_HOSTNAME=http://192.168.122.55:30082`。数据库配置只引用 `keycloak-database` Secret。启动参数使用 `start --http-port=8080`；启用 HTTP、health 和非严格 hostname；移除 `start-dev` 与 realm ConfigMap 挂载。清单仅管理 L5 Keycloak，不改 `deploy/kind-keycloak.yaml`。
 
 - [x] **步骤 4：执行配置测试与 YAML 解析**
 
@@ -135,7 +135,7 @@ python3 -c 'import yaml; yaml.safe_load_all(open("deploy/production/l5-keycloak-
 
 - [x] **步骤 1：记录集群和身份基线**
 
-检查 L5 `192.168.1.13` 上 Keycloak/PostgreSQL Ready 状态、NodePort、PVC Bound 状态、当前 issuer、Secret 名称、realm 用户 UUID 集合和应用 membership subjects。输出不得包含任何密码或 access token。
+检查当前 L5 主机 `192.168.122.55` 上 Keycloak/PostgreSQL Ready 状态、NodePort、PVC Bound 状态、当前 issuer、Secret 名称、realm 用户 UUID 集合和应用 membership subjects。输出不得包含任何密码或 access token。
 
 - [x] **步骤 2：执行 H2 迁移导出并记录证据边界**
 
