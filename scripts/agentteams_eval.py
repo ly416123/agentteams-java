@@ -228,8 +228,7 @@ def _sanitize_value(value: Any) -> Any:
         return [_sanitize_value(item) for item in value]
     if isinstance(value, str):
         value = _redact_common_credentials(value)
-        if _is_signed_url(value):
-            return "[REDACTED_URL]"
+        value = _redact_signed_url_substrings(value)
     return value
 
 
@@ -242,6 +241,20 @@ def _is_signed_url(value: str) -> bool:
         return False
     signature_names = {"signature", "x-amz-signature", "x-goog-signature", "x-ms-signature", "sig"}
     return any(part.partition("=")[0].lower() in signature_names for part in parsed.query.split("&"))
+
+
+def _redact_signed_url_substrings(value: str) -> str:
+    url_pattern = re.compile(r"https?://[^\s<>\"']+", re.I)
+
+    def replace(match: re.Match[str]) -> str:
+        candidate = match.group(0)
+        trailing = ""
+        while candidate and candidate[-1] in ".,;:!?)]}":
+            trailing = candidate[-1] + trailing
+            candidate = candidate[:-1]
+        return "[REDACTED_URL]" + trailing if _is_signed_url(candidate) else match.group(0)
+
+    return url_pattern.sub(replace, value)
 
 
 def _redact_common_credentials(value: str) -> str:
@@ -351,7 +364,7 @@ def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dic
             bad.append("non-object artifact")
             continue
         ref = str(artifact.get("storageRef", ""))
-        size = artifact.get("sizeBytes", 0)
+        size = artifact.get("sizeBytes")
         digest = str(artifact.get("sha256", ""))
         if not _is_safe_storage_ref(ref):
             bad.append(f"{artifact.get('name', '<unnamed>')}: storageRef is not durable")

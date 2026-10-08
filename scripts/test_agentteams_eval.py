@@ -124,15 +124,21 @@ class EvaluationCoreTest(unittest.TestCase):
 
         statuses = [evaluate_observation(case, {"result": {"artifacts": [{**base, "sizeBytes": size}]}})[0].status
                     for size in (True, 1.5)]
-        self.assertEqual(["FAILED", "FAILED"], statuses)
+        missing = evaluate_observation(case, {"result": {"artifacts": [base]}})[0]
+        self.assertEqual(["FAILED", "FAILED", "FAILED"], statuses + [missing.status])
 
     def test_signed_url_variants_are_removed_as_whole_urls(self):
-        bundles = [build_evidence_bundle({"id": "task-1"}, {"id": "run-1", "status": url}, [], [], [], None)
-                   for url in ("https://storage.example/file?X-Goog-Signature=secret",
-                               "https://storage.example/file?Signature=secret")]
+        statuses = ["https://storage.example/file?X-Goog-Signature=secret",
+                    "https://storage.example/file?Signature=secret",
+                    "prefix https://storage.example/file?X-Goog-Signature=secret suffix",
+                    "prefix https://storage.example/file?Signature=secret"]
+        bundles = [build_evidence_bundle({"id": "task-1"}, {"id": "run-1", "status": status}, [], [], [], None)
+                   for status in statuses]
 
+        self.assertEqual(["[REDACTED_URL]", "[REDACTED_URL]",
+                          "prefix [REDACTED_URL] suffix", "prefix [REDACTED_URL]"],
+                         [bundle["runStatus"] for bundle in bundles])
         for bundle in bundles:
-            self.assertEqual("[REDACTED_URL]", bundle["runStatus"])
             self.assertNotIn("storage.example", json.dumps(bundle))
             self.assertNotIn("secret", json.dumps(bundle))
 
