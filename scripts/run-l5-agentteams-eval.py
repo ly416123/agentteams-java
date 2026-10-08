@@ -2,7 +2,7 @@
 """Run the AgentTeams core evaluation suite from an L5 host.
 
 This entrypoint intentionally runs inside the K3s host network. It resolves the
-Control Plane ClusterIP, checks that the Worker fleet is ready, reads a short
+Control Plane ClusterIP, checks that a target-scope Worker is ready, reads a short
 lived bearer token from the environment, and writes the same redacted report
 used by the offline and L5 acceptance flows. It does not create memberships or
 change cluster resources.
@@ -53,17 +53,19 @@ def cluster_service_url(namespace: str, service: str, port: int) -> str:
     return f"http://{value}:{port}"
 
 
-def assert_workers_ready(namespace: str) -> None:
+def assert_workers_ready(namespace: str, tenant: str, project_id: str, team: str) -> None:
     raw = command(*kubectl_command(), "-n", namespace, "get", "worker", "-o", "json")
     payload = json.loads(raw)
     workers = payload.get("items", [])
-    if not workers:
-        raise EvalError("no Worker resources found in the L5 namespace")
-    not_ready = [item.get("metadata", {}).get("name", "<unnamed>")
-                 for item in workers
-                 if item.get("status", {}).get("phase") != "Ready"]
-    if not_ready:
-        raise EvalError(f"L5 Workers are not Ready: {', '.join(not_ready)}")
+    if not isinstance(workers, list):
+        raise EvalError("L5 Worker listing returned an invalid response")
+    target = {"agentteams.io/tenant": tenant, "agentteams.io/project": project_id,
+              "agentteams.io/team": team}
+    if not any(isinstance(item, dict)
+               and all(item.get("metadata", {}).get("labels", {}).get(key) == value
+                       for key, value in target.items())
+               and item.get("status", {}).get("phase") == "Ready" for item in workers):
+        raise EvalError("no Ready Worker found for the selected L5 target")
 
 
 def write_report(path: Path, report: dict, token: str = "") -> None:
@@ -92,7 +94,7 @@ def validate_case_scopes(cases: list, tenant: str, project: str, team: str) -> N
                 raise EvalError(f"case {case_id} {key} does not match the selected L5 target")
 
 
-def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, team: str) -> None:
+def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, team: str) -> str:
     projects_payload = client._request("GET", f"/api/v1/projects?q={quote(project, safe='')}")
     projects = projects_payload.get("items", []) if isinstance(projects_payload, dict) else projects_payload
     if not isinstance(projects, list):
@@ -113,6 +115,7 @@ def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, tea
                       and item.get("status") == "ACTIVE"]
     if len(matching_teams) != 1:
         raise EvalError("selected L5 team was not found uniquely in the selected project")
+    return project_id
 
 
 def validate_report_safety(report: dict, token: str = "") -> None:
@@ -149,8 +152,8 @@ def main(argv: list[str] | None = None) -> int:
         base_url = args.base_url.rstrip("/") or cluster_service_url(
             args.namespace, "agentteams-agentteams-java-control-plane", 8080)
         client = AgentTeamsClient(base_url, token)
-        assert_scope_access(client, args.tenant, args.project, args.team)
-        assert_workers_ready(args.namespace)
+        project_id = assert_scope_access(client, args.tenant, args.project, args.team)
+        assert_workers_ready(args.namespace, args.tenant, project_id, args.team)
         report = run_suite(client, cases,
                            args.timeout_seconds, args.poll_seconds,
                            deepeval_export_dir=args.deepeval_export_dir)

@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 import os
 import unittest
 from pathlib import Path
@@ -72,7 +73,27 @@ class L5AgentEvaluationProcessResultTest(unittest.TestCase):
                     return [{"id": "team-id", "name": "team-a", "status": "ACTIVE"}]
                 raise AssertionError(path)
 
-        ENTRYPOINT.assert_scope_access(Client(), "tenant-a", "project-a", "team-a")
+        self.assertEqual("project-id", ENTRYPOINT.assert_scope_access(Client(), "tenant-a", "project-a", "team-a"))
+
+    def test_worker_preflight_ignores_historical_and_other_scope_workers(self):
+        workers = {"items": [
+            {"metadata": {"name": "old", "labels": {"agentteams.io/tenant": "tenant-a",
+                "agentteams.io/project": "project-id", "agentteams.io/team": "team-a"}},
+                "status": {"phase": "Terminated"}},
+            {"metadata": {"name": "other", "labels": {"agentteams.io/tenant": "tenant-b",
+                "agentteams.io/project": "other-project", "agentteams.io/team": "team-b"}},
+                "status": {"phase": "Ready"}},
+            {"metadata": {"name": "target", "labels": {"agentteams.io/tenant": "tenant-a",
+                "agentteams.io/project": "project-id", "agentteams.io/team": "team-a"}},
+                "status": {"phase": "Ready"}},
+        ]}
+        with patch.object(ENTRYPOINT, "command", return_value=json.dumps(workers)):
+            ENTRYPOINT.assert_workers_ready("agentteams", "tenant-a", "project-id", "team-a")
+
+        workers["items"][2]["status"]["phase"] = "Progressing"
+        with patch.object(ENTRYPOINT, "command", return_value=json.dumps(workers)):
+            with self.assertRaises(ENTRYPOINT.EvalError):
+                ENTRYPOINT.assert_workers_ready("agentteams", "tenant-a", "project-id", "team-a")
 
     def test_report_rejects_token_and_signed_download_url(self):
         with self.assertRaises(ENTRYPOINT.EvalError):
