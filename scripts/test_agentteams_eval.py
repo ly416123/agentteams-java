@@ -107,6 +107,35 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertNotIn("stage", bundle["artifactRefs"][0])
         self.assertNotIn("visibility", bundle["artifactRefs"][0])
 
+    def test_opaque_tasks_storage_path_is_replaced_with_digest_reference(self):
+        bundle = build_evidence_bundle(
+            {"id": "task-1"}, {"id": "run-1"}, [], [], [],
+            {"status": "SUCCEEDED", "artifacts": [{
+                "name": "report.pdf", "storageRef": "tasks/opaqueCredentialValue",
+                "sizeBytes": 12, "sha256": "b" * 64,
+            }]})
+
+        self.assertEqual("artifact:" + "b" * 64, bundle["artifactRefs"][0]["storageRef"])
+
+    def test_artifact_integrity_rejects_boolean_and_float_sizes(self):
+        case = EvalCase("artifact-size", "Artifact size", {}, [{"type": "artifact_integrity"}], {})
+        base = {"name": "result.json", "storageRef": "tasks/11111111-1111-1111-1111-111111111111/attempts/22222222-2222-2222-2222-222222222222/artifacts/result.json",
+                "sha256": "a" * 64}
+
+        statuses = [evaluate_observation(case, {"result": {"artifacts": [{**base, "sizeBytes": size}]}})[0].status
+                    for size in (True, 1.5)]
+        self.assertEqual(["FAILED", "FAILED"], statuses)
+
+    def test_signed_url_variants_are_removed_as_whole_urls(self):
+        bundles = [build_evidence_bundle({"id": "task-1"}, {"id": "run-1", "status": url}, [], [], [], None)
+                   for url in ("https://storage.example/file?X-Goog-Signature=secret",
+                               "https://storage.example/file?Signature=secret")]
+
+        for bundle in bundles:
+            self.assertEqual("[REDACTED_URL]", bundle["runStatus"])
+            self.assertNotIn("storage.example", json.dumps(bundle))
+            self.assertNotIn("secret", json.dumps(bundle))
+
     def test_missing_result_manifest_marks_evidence_inconclusive(self):
         bundle = build_evidence_bundle({"id": "task-1"}, {"id": "run-1"}, [], [], [], None)
 
@@ -438,7 +467,7 @@ cases:
         writer.write(buffer)
         pdf_bytes = buffer.getvalue()
         good_meta = {"name": "report.pdf", "contentType": "application/pdf", "sizeBytes": len(pdf_bytes),
-                     "sha256": hashlib.sha256(pdf_bytes).hexdigest(), "storageRef": "tasks/a/report.pdf",
+                     "sha256": hashlib.sha256(pdf_bytes).hexdigest(), "storageRef": "tasks/11111111-1111-1111-1111-111111111111/attempts/22222222-2222-2222-2222-222222222222/artifacts/report.pdf",
                      "downloadUrl": "https://storage.example/download?X-Amz-Signature=secret",
                      "contentBytes": pdf_bytes}
         good = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {"artifacts": [good_meta]}})[0]
@@ -453,7 +482,8 @@ cases:
         self.assertNotIn("contentBytes", json.dumps(good.as_dict()))
         self.assertNotIn("X-Amz-Signature", json.dumps(good.as_dict()))
         multiple = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
-            "artifacts": [good_meta, {**good_meta, "name": "second.pdf", "storageRef": "tasks/a/second.pdf"}]}})[0]
+            "artifacts": [good_meta, {**good_meta, "name": "second.pdf",
+                                       "storageRef": "tasks/11111111-1111-1111-1111-111111111111/attempts/22222222-2222-2222-2222-222222222222/artifacts/second.pdf"}]}})[0]
         non_durable = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
             "artifacts": [{**good_meta, "storageRef": "https://storage.example/report.pdf"}]}})[0]
         missing_download = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
@@ -478,7 +508,7 @@ cases:
                 "artifacts": [
                     {
                         "name": "result.json",
-                        "storageRef": "tasks/task-1/attempts/attempt-1/artifacts/result.json",
+                        "storageRef": "tasks/11111111-1111-1111-1111-111111111111/attempts/22222222-2222-2222-2222-222222222222/artifacts/result.json",
                         "sizeBytes": 12,
                         "sha256": "a" * 64,
                         "downloadUrl": "http://minio.invalid/presigned-secret",

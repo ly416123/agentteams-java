@@ -41,7 +41,8 @@ PROCESS_EVENT_PAGE_SIZE = 100
 PROCESS_EVENT_LIMIT = 1000
 SENSITIVE_KEY_PARTS = ("token", "secret", "password", "cookie", "authorization", "apikey", "credential", "privatekey")
 SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-SAFE_STORAGE_REF = re.compile(r"tasks/[A-Za-z0-9][A-Za-z0-9._/-]{0,255}\Z")
+UUID_PATH_SEGMENT = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
+SAFE_STORAGE_REF = re.compile(rf"tasks/{UUID_PATH_SEGMENT}/attempts/{UUID_PATH_SEGMENT}/artifacts/[A-Za-z0-9][A-Za-z0-9._-]{{0,127}}\Z")
 SAFE_MIME_TYPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*/[A-Za-z0-9][A-Za-z0-9.+-]*(?:; charset=[A-Za-z0-9._-]+)?\Z", re.I)
 ARTIFACT_STAGES = {"DRAFT", "INTERMEDIATE", "FINAL"}
 ARTIFACT_VISIBILITIES = {"REQUESTER", "PROJECT_MEMBER", "TENANT_ADMIN", "SECURITY_AUDITOR", "INTERNAL_ONLY"}
@@ -177,8 +178,7 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     if re.fullmatch(r"[0-9a-f]{64}", digest):
         metadata["sha256"] = digest
     raw_ref = _sanitize_value(artifact.get("storageRef"))
-    if isinstance(raw_ref, str) and SAFE_STORAGE_REF.fullmatch(raw_ref) and all(
-            segment not in {"", ".", ".."} for segment in raw_ref.split("/")[1:]):
+    if isinstance(raw_ref, str) and SAFE_STORAGE_REF.fullmatch(raw_ref):
         metadata["storageRef"] = raw_ref
     else:
         metadata["storageRef"] = f"artifact:{digest}" if "sha256" in metadata else "artifact:metadata-only"
@@ -198,6 +198,10 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(visibility, str) and visibility.upper() in ARTIFACT_VISIBILITIES:
         metadata["visibility"] = visibility.upper()
     return _sanitize_value(metadata)
+
+
+def _is_safe_storage_ref(value: Any) -> bool:
+    return isinstance(value, str) and SAFE_STORAGE_REF.fullmatch(value) is not None
 
 
 def _safe_id_list(value: Any) -> list[str]:
@@ -224,9 +228,20 @@ def _sanitize_value(value: Any) -> Any:
         return [_sanitize_value(item) for item in value]
     if isinstance(value, str):
         value = _redact_common_credentials(value)
-        if "x-amz-" in value.lower() or "?signature=" in value.lower():
+        if _is_signed_url(value):
             return "[REDACTED_URL]"
     return value
+
+
+def _is_signed_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return False
+    signature_names = {"signature", "x-amz-signature", "x-goog-signature", "x-ms-signature", "sig"}
+    return any(part.partition("=")[0].lower() in signature_names for part in parsed.query.split("&"))
 
 
 def _redact_common_credentials(value: str) -> str:
@@ -338,10 +353,10 @@ def _artifact_check(observation: Mapping[str, Any]) -> tuple[bool, str, list[dic
         ref = str(artifact.get("storageRef", ""))
         size = artifact.get("sizeBytes", 0)
         digest = str(artifact.get("sha256", ""))
-        if not ref.startswith("tasks/"):
+        if not _is_safe_storage_ref(ref):
             bad.append(f"{artifact.get('name', '<unnamed>')}: storageRef is not durable")
-        if not isinstance(size, (int, float)) or size <= 0:
-            bad.append(f"{artifact.get('name', '<unnamed>')}: sizeBytes must be positive")
+        if type(size) is not int or size < 0:
+            bad.append(f"{artifact.get('name', '<unnamed>')}: sizeBytes must be a non-negative integer")
         if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest.lower()):
             bad.append(f"{artifact.get('name', '<unnamed>')}: invalid sha256")
     return not bad, "; ".join(bad) if bad else "all artifacts have durable metadata", [
@@ -568,8 +583,7 @@ def _pdf_check(observation: Mapping[str, Any], assertion: Mapping[str, Any]) -> 
         except ValueError:
             return False, "PDF download URL is malformed", [{"count": len(pdfs)}]
         data = artifact.get("contentBytes")
-        invalid_reference = assertion.get("durable") is True and (
-            not storage_ref.startswith("tasks/") or "?" in storage_ref or "x-amz-" in storage_ref.lower())
+        invalid_reference = assertion.get("durable") is True and not _is_safe_storage_ref(storage_ref)
         invalid_download = False
         if assertion.get("downloadable") is True:
             invalid_download = (parsed_download.scheme.lower() not in {"http", "https"} or not download_hostname

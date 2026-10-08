@@ -139,7 +139,7 @@ offlineFixtures:
         artifacts:
           - name: report.pdf
             contentType: application/pdf
-            storageRef: tasks/fixture/report.pdf
+            storageRef: tasks/33333333-3333-3333-3333-333333333333/attempts/44444444-4444-4444-4444-444444444444/artifacts/report.pdf
             sizeBytes: 9
             sha256: 55e6967dae43099b5d6822df808b06e30454a2be93475a3d82ba612d8dd3bf29
             downloadUrl: https://storage.example/report.pdf?X-Amz-Signature=fixture
@@ -168,10 +168,10 @@ offlineFixtures:
       result:
         status: SUCCEEDED
         artifacts:
-          - {name: one.pdf, contentType: application/pdf, storageRef: tasks/fixture/one.pdf,
+          - {name: one.pdf, contentType: application/pdf, storageRef: tasks/33333333-3333-3333-3333-333333333333/attempts/44444444-4444-4444-4444-444444444444/artifacts/one.pdf,
              sizeBytes: 9, sha256: 55e6967dae43099b5d6822df808b06e30454a2be93475a3d82ba612d8dd3bf29,
              downloadUrl: "https://storage.example/one.pdf?X-Amz-Signature=fixture", contentBase64: bm90LWEtcGRm}
-          - {name: two.pdf, contentType: application/pdf, storageRef: tasks/fixture/two.pdf,
+          - {name: two.pdf, contentType: application/pdf, storageRef: tasks/33333333-3333-3333-3333-333333333333/attempts/44444444-4444-4444-4444-444444444444/artifacts/two.pdf,
              sizeBytes: 9, sha256: 55e6967dae43099b5d6822df808b06e30454a2be93475a3d82ba612d8dd3bf29,
              downloadUrl: "https://storage.example/two.pdf?X-Amz-Signature=fixture", contentBase64: bm90LWEtcGRm}
   - id: multi-agent-pdf-partial-tool
