@@ -442,7 +442,9 @@ public final class AgentTeamsWorker implements AutoCloseable {
                     } catch (NumberFormatException error) {
                         throw new IllegalArgumentException("RUNTIME_UNSUPPORTED: MCP revision must be numeric");
                     }
-                    mcpServers.put(binding.key(), new RuntimeMcpServer(binding.serverId(), revision,
+                    // Skill capability manifests declare MCPs by their stable registry reference
+                    // (for example "agentteams-web-search"), while serverId is an internal UUID.
+                    mcpServers.put(binding.key(), new RuntimeMcpServer(binding.reference(), revision,
                             binding.transport(), binding.endpoint(), binding.credentialRef(), binding.digest()));
                 }
             }

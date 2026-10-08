@@ -64,14 +64,44 @@ class AgentScopeRuntimeTest {
     @Test
     void placesTeamPhaseContractAfterOriginalPrompt() throws Exception {
         java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
-                "agentInput", String.class, Set.class);
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+
+        UUID taskId = UUID.fromString("167624c4-c261-48f7-8461-36bab1d343e2");
+        String prompt = (String) method.invoke(null,
+                "{\"prompt\":\"请直接给出结论\",\"orchestrationPhase\":\"PLAN\"}", Set.of(), taskId);
+
+        assertThat(prompt).startsWith("{\"prompt\":\"请直接给出结论\"");
+        assertThat(prompt).contains("exactly two subtasks", "dependencyIds", "fresh UUID",
+                "Do not use dependsOn in the plan_subtasks call", "task_id=\"" + taskId + "\"",
+                "Do not add requiredCapabilities unless the task input explicitly supplies an executor capability registry");
+    }
+
+    @Test
+    void suppliesParentTaskIdForRequiredPdfArtifactToolDuringAggregation() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+        UUID taskId = UUID.fromString("c2a4c900-1ba0-4b31-ae58-f13ea56d868b");
+
+        String prompt = (String) method.invoke(null,
+                "{\"orchestrationPhase\":\"AGGREGATE\",\"childResults\":[]}",
+                Set.of("create_task_pdf_artifact"), taskId);
+
+        assertThat(prompt).contains("create_task_pdf_artifact", taskId.toString(), "quarterly-project-report.pdf");
+    }
+
+    @Test
+    void tellsDependentSubtaskToUseInjectedDependencyResults() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
         method.setAccessible(true);
 
         String prompt = (String) method.invoke(null,
-                "{\"prompt\":\"请直接给出结论\",\"orchestrationPhase\":\"PLAN\"}", Set.of());
+                "{\"prompt\":\"Summarize\",\"dependencyResults\":[{\"taskId\":\"a\",\"result\":\"facts\"}]}",
+                Set.of(), UUID.randomUUID());
 
-        assertThat(prompt).startsWith("{\"prompt\":\"请直接给出结论\"");
-        assertThat(prompt).endsWith("Use dependsOn=[] for independent work.\n\n");
+        assertThat(prompt).contains("dependencyResults", "Use the dependencyResults in the input");
     }
 
     @Test

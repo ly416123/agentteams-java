@@ -202,6 +202,51 @@ class ConfiguredAgentScopeHarnessFactoryTest {
     }
 
     @Test
+    void configuresTaskMcpToolsEvenWhenTeamHasNoMcpServerBindings() throws Exception {
+        AtomicReference<List<io.agentteams.runtime.RuntimeMcpServer>> receivedServers = new AtomicReference<>();
+        AtomicReference<java.util.Set<String>> receivedTools = new AtomicReference<>();
+        AtomicReference<McpExecutionContext> receivedContext = new AtomicReference<>();
+        McpRuntimePort port = new McpRuntimePort() {
+            @Override public void configure(io.agentscope.core.tool.Toolkit toolkit,
+                    List<io.agentteams.runtime.RuntimeMcpServer> servers) { }
+
+            @Override public void configure(io.agentscope.core.tool.Toolkit toolkit,
+                    List<io.agentteams.runtime.RuntimeMcpServer> servers,
+                    List<io.agentteams.application.api.SkillCapabilityPolicy> policies,
+                    java.util.Set<String> requiredTaskTools) {
+                receivedServers.set(List.copyOf(servers));
+                receivedTools.set(java.util.Set.copyOf(requiredTaskTools));
+            }
+
+            @Override public void configure(io.agentscope.core.tool.Toolkit toolkit,
+                    List<io.agentteams.runtime.RuntimeMcpServer> servers,
+                    List<io.agentteams.application.api.SkillCapabilityPolicy> policies,
+                    java.util.Set<String> requiredTaskTools, McpExecutionContext context) {
+                receivedServers.set(List.copyOf(servers));
+                receivedTools.set(java.util.Set.copyOf(requiredTaskTools));
+                receivedContext.set(context);
+            }
+        };
+        ConfiguredAgentScopeHarnessFactory factory = new ConfiguredAgentScopeHarnessFactory(
+                new TestModel(), AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(),
+                        Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC), root), root, port);
+        factory.applyConfig(new RuntimeConfigSnapshot(2, "sha-2", Map.of(), Map.of(), Map.of(), Map.of()));
+        RuntimeTask task = new RuntimeTask(UUID.randomUUID(), "agentscope",
+                "{\"prompt\":\"plan\",\"requiredMcpTools\":[\"plan_subtasks\"]}", Map.of(
+                        "tenantId", "tenant-a", "projectId", "project-a", "teamId", "team-a",
+                        "agentId", "agent-a", "attemptId", "attempt-task-mcp-no-binding",
+                        "leaseId", "lease-task-mcp-no-binding"));
+
+        var harness = factory.create(task, context());
+
+        assertThat(receivedServers.get()).isEmpty();
+        assertThat(receivedTools.get()).containsExactly("plan_subtasks");
+        assertThat(receivedContext.get()).isEqualTo(new McpExecutionContext(task.id(),
+                "attempt-task-mcp-no-binding", "lease-task-mcp-no-binding"));
+        harness.close();
+    }
+
+    @Test
     void allowsConfiguredRuntimeToolsInUnattendedWorkerSessions() throws Exception {
         ConfiguredAgentScopeHarnessFactory factory = new ConfiguredAgentScopeHarnessFactory(
                 new TestModel(), AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(),

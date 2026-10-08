@@ -31,6 +31,7 @@ import io.agentscope.core.tool.Toolkit;
 
 /** Production AgentScope Harness factory with bounded workspace and sandbox observation. */
 public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarnessFactory {
+    private static final System.Logger LOG = System.getLogger(ConfiguredAgentScopeHarnessFactory.class.getName());
     private static final Set<String> SANDBOX_METADATA = Set.of("sandboxId", "providerSandboxId", "profile",
             "status", "endpointRef", "expiresAt", "ownerTaskId", "ownerAttemptId");
     private final Model model;
@@ -162,9 +163,15 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
                             .build())
                     .maxIters(10);
             List<RuntimeMcpServer> mcpServers = activeMcpServers.get();
-            if (!mcpServers.isEmpty()) {
+                Set<String> requiredTaskTools = requiredTaskTools(task.inputJson());
+            if (!mcpServers.isEmpty() || !requiredTaskTools.isEmpty()) {
                 Toolkit toolkit = new Toolkit();
-                mcpRuntime.configure(toolkit, mcpServers, activeSkillCapabilities.get().values().stream().toList());
+                McpExecutionContext executionContext = task.metadata().containsKey("attemptId")
+                        && task.metadata().containsKey("leaseId") ? McpExecutionContext.from(task) : null;
+                mcpRuntime.configure(toolkit, mcpServers, activeSkillCapabilities.get().values().stream().toList(),
+                        requiredTaskTools, executionContext);
+                LOG.log(System.Logger.Level.INFO, "AgentScope toolkit MCP tools task={0} tools={1}",
+                        new Object[] {task.id(), toolkit.getToolNames()});
                 builder.toolkit(toolkit);
             }
             Path skillRoot = activeSkillRoot.get();
@@ -180,6 +187,21 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
         } catch (RuntimeException error) {
             release(task.id());
             throw error;
+        }
+    }
+
+    private static Set<String> requiredTaskTools(String inputJson) {
+        try {
+            var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(inputJson);
+            var required = root == null ? null : root.get("requiredMcpTools");
+            if (required == null || !required.isArray()) return Set.of();
+            var tools = new java.util.LinkedHashSet<String>();
+            required.forEach(node -> {
+                if (node.isTextual() && !node.asText().isBlank()) tools.add(node.asText().trim());
+            });
+            return Set.copyOf(tools);
+        } catch (IOException | RuntimeException ignored) {
+            return Set.of();
         }
     }
 

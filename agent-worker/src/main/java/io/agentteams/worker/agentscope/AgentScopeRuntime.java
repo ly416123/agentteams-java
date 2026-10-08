@@ -192,7 +192,8 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     .put("correlationId", correlationId)
                     .put("runtime", currentContext.runtimeName())
                     .build();
-            Disposable disposable = agent.streamEvents(new UserMessage(agentInput(task.inputJson(), requiredMcpTools)), agentContext)
+            Disposable disposable = agent.streamEvents(
+                    new UserMessage(agentInput(task.inputJson(), requiredMcpTools, task.id())), agentContext)
                     .subscribe(event -> onEvent(execution, event),
                     error -> onStreamError(execution, error),
                             () -> onStreamComplete(execution));
@@ -574,8 +575,18 @@ public final class AgentScopeRuntime implements AgentRuntime {
         }
     }
 
-    private static String agentInput(String inputJson, Set<String> requiredMcpTools) {
+    private static String agentInput(String inputJson, Set<String> requiredMcpTools, UUID taskId) {
         StringBuilder prefix = new StringBuilder();
+        try {
+            JsonNode root = JSON.readTree(inputJson);
+            if (root != null && root.path("dependencyResults").isArray()
+                    && !root.path("dependencyResults").isEmpty()) {
+                prefix.append("Use the dependencyResults in the input as the verified outputs of prerequisite subtasks. "
+                        + "Base your answer on those results and identify any missing information.\n\n");
+            }
+        } catch (java.io.IOException ignored) {
+            // Existing plain-text task inputs do not carry dependency results.
+        }
         if (!requiredMcpTools.isEmpty()) {
             prefix.append("Before answering, you MUST call each of these MCP tools exactly as required by the task: ")
                     .append(String.join(", ", requiredMcpTools))
@@ -586,13 +597,24 @@ public final class AgentScopeRuntime implements AgentRuntime {
             String phase = root == null ? "" : root.path("orchestrationPhase").asText("");
             if ("PLAN".equalsIgnoreCase(phase)) {
                 prefix.append("You are the Team Leader in the planning phase. Analyze the user request and do not execute the subtasks. "
-                        + "Return ONLY a JSON object with a plan array containing exactly two independent subtasks. "
-                        + "Each item must have sequence (1 or 2), title, requiredCapabilities (array), and dependsOn (array of sequence numbers). "
-                        + "Use dependsOn=[] for independent work.\n\n");
+                        + "Return ONLY a JSON object with a plan array containing exactly two subtasks. "
+                        + "When calling plan_subtasks, set task_id=\"").append(taskId).append("\", "
+                        + "give each new subtask a fresh UUID and use the tool's dependencyIds field. "
+                        + "Each tool item must have subtaskId, sequence (1 or 2), title, and dependencyIds. "
+                        + "Do not add requiredCapabilities unless the task input explicitly supplies an executor capability registry; "
+                        + "when no registry is supplied, omit requiredCapabilities (the platform will use an empty requirement). "
+                        + "Set subtask 1 dependencyIds=[] and, when subtask 2 needs its result, set subtask 2 dependencyIds to [the subtask 1 UUID]. "
+                        + "Do not use dependsOn in the plan_subtasks call.\n\n");
             } else if ("AGGREGATE".equalsIgnoreCase(phase)) {
                 prefix.append("You are the Team Leader in the aggregation phase. Use the childResults in the input, synthesize their outputs, "
                         + "and return ONLY a JSON object with an artifacts array. Each artifact must have name and content. "
                         + "Include a concise final answer in output.md.\n\n");
+                if (requiredMcpTools.contains("create_task_pdf_artifact")) {
+                    prefix.append("You must also call create_task_pdf_artifact with task_id=\"")
+                            .append(taskId).append("\", filename=\"quarterly-project-report.pdf\", "
+                                    + "and the complete aggregated report in Markdown. "
+                                    + "The tool uploads the PDF as a downloadable task OUTPUT file; do not return PDF bytes.\n\n");
+                }
             }
         } catch (java.io.IOException ignored) {
             // Existing plain-text tasks keep their original input contract.

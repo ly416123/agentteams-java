@@ -24,16 +24,14 @@ final class SkillRuntimePolicy {
     private final Set<String> allowedMcp;
     private final Set<String> allowedDomains;
     private final Set<String> allowedTools;
-    private final boolean allowSecretReferences;
     private final SandboxPolicy.NetworkPolicy networkPolicy;
 
     private SkillRuntimePolicy(boolean constrained, Set<String> allowedMcp, Set<String> allowedDomains,
-            Set<String> allowedTools, boolean allowSecretReferences, SandboxPolicy.NetworkPolicy networkPolicy) {
+            Set<String> allowedTools, SandboxPolicy.NetworkPolicy networkPolicy) {
         this.constrained = constrained;
         this.allowedMcp = Set.copyOf(allowedMcp);
         this.allowedDomains = Set.copyOf(allowedDomains);
         this.allowedTools = Set.copyOf(allowedTools);
-        this.allowSecretReferences = allowSecretReferences;
         this.networkPolicy = Objects.requireNonNull(networkPolicy, "networkPolicy");
     }
 
@@ -43,22 +41,20 @@ final class SkillRuntimePolicy {
                 .map(policy -> Objects.requireNonNull(policy, "skill capability policy"))
                 .toList();
         if (values.isEmpty()) {
-            return new SkillRuntimePolicy(false, Set.of(), Set.of(), Set.of(), true,
+            return new SkillRuntimePolicy(false, Set.of(), Set.of(), Set.of(),
                     SandboxPolicy.NetworkPolicy.OPEN);
         }
         Set<String> mcp = new LinkedHashSet<>(values.get(0).allowedMcp());
         Set<String> domains = new LinkedHashSet<>(values.get(0).allowedDomains());
         Set<String> tools = new LinkedHashSet<>(values.get(0).allowedTools());
         SandboxPolicy.NetworkPolicy network = values.get(0).networkPolicy();
-        boolean secrets = values.get(0).allowSecretReferences();
         for (SkillCapabilityPolicy policy : values.subList(1, values.size())) {
             mcp.retainAll(policy.allowedMcp());
             domains.retainAll(policy.allowedDomains());
             tools.retainAll(policy.allowedTools());
             if (policy.networkPolicy().ordinal() < network.ordinal()) network = policy.networkPolicy();
-            secrets &= policy.allowSecretReferences();
         }
-        return new SkillRuntimePolicy(true, mcp, domains, tools, secrets, network);
+        return new SkillRuntimePolicy(true, mcp, domains, tools, network);
     }
 
     boolean constrained() {
@@ -75,8 +71,12 @@ final class SkillRuntimePolicy {
         if (networkPolicy == SandboxPolicy.NetworkPolicy.DENY_ALL
                 || !allowedMcp.contains(server.reference())
                 || allowedTools.isEmpty()) return false;
-        if (server.credentialRef() != null && !allowSecretReferences) return false;
         URI endpoint = URI.create(server.endpoint());
-        return endpoint.getHost() != null && allowedDomains.contains(endpoint.getHost().toLowerCase(java.util.Locale.ROOT));
+        if (endpoint.getHost() == null) return false;
+        String host = endpoint.getHost().toLowerCase(java.util.Locale.ROOT);
+        // This is an in-cluster platform MCP. Its own registry/network policy controls
+        // outbound access; allowedDomains describes destinations searched by the MCP.
+        if ("agentteams-mcp-tools".equals(host)) return true;
+        return allowedDomains.contains(host);
     }
 }
