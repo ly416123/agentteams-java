@@ -116,7 +116,7 @@ public final class EvaluationService {
         if (outcomes.isEmpty()) return inconclusive(runId, "required_tool:" + expected,
                 "tool completion outcome is unavailable", "task-events:" + bundle.executionRunId(), at);
         if (outcomes.size() != calls.size()) return inconclusive(runId, "required_tool:" + expected,
-                "tool completion outcomes do not cover every call", "task-events:" + bundle.executionRunId(), at);
+                "tool completion count does not match call count", "task-events:" + bundle.executionRunId(), at);
         if (outcomes.stream().anyMatch(Boolean.TRUE::equals)) return result(runId, "required_tool:" + expected,
                 true, "successful completion", "succeeded", "task-events:" + bundle.executionRunId(), at);
         return result(runId, "required_tool:" + expected, false, "successful completion", "failed",
@@ -145,6 +145,11 @@ public final class EvaluationService {
 
     private static EvaluationResultRecord failedTool(UUID runId, JsonNode assertion, EvidenceBundle bundle, Instant at) {
         String name = text(assertion, "name");
+        List<ToolLifecycle> visibleOutcomes = toolEvents(bundle, "tool.finished", name);
+        if (visibleOutcomes.stream().anyMatch(outcome -> Boolean.FALSE.equals(outcome.ok()))) {
+            return result(runId, "failed_tool:" + name, false, "no failed calls", "failed call observed",
+                    "task-events:" + bundle.executionRunId(), at);
+        }
         if (!eventsComplete(bundle)) return inconclusive(runId, "failed_tool:" + name,
                 "tool event evidence is incomplete", "task-events:" + bundle.executionRunId(), at);
         if (hasUnparseableToolEvent(bundle, "tool.called")) return inconclusive(runId, "failed_tool:" + name,
@@ -152,7 +157,7 @@ public final class EvaluationService {
         if (hasUnparseableToolEvent(bundle, "tool.finished")) return inconclusive(runId, "failed_tool:" + name,
                 "tool completion details are unavailable", "task-events:" + bundle.executionRunId(), at);
         List<ToolLifecycle> calls = toolEvents(bundle, "tool.called", name);
-        List<Boolean> outcomes = toolEvents(bundle, "tool.finished", name).stream().map(ToolLifecycle::ok).toList();
+        List<Boolean> outcomes = visibleOutcomes.stream().map(ToolLifecycle::ok).toList();
         if (calls.isEmpty() && !outcomes.isEmpty()) return inconclusive(runId, "failed_tool:" + name,
                 "tool completion is present without a matching call event", "task-events:" + bundle.executionRunId(), at);
         if (calls.isEmpty()) return result(runId, "failed_tool:" + name, true, "no failed calls", "not called",
@@ -161,7 +166,7 @@ public final class EvaluationService {
                 "tool completion outcome is unavailable", "task-events:" + bundle.executionRunId(), at);
         boolean failed = outcomes.stream().anyMatch(Boolean.FALSE::equals);
         if (!failed && outcomes.size() != calls.size()) return inconclusive(runId, "failed_tool:" + name,
-                "tool completion outcomes do not cover every call", "task-events:" + bundle.executionRunId(), at);
+                "tool completion count does not match call count", "task-events:" + bundle.executionRunId(), at);
         return result(runId, "failed_tool:" + name, !failed, "no failed calls", failed ? "failed call observed" : "no failed call",
                 "task-events:" + bundle.executionRunId(), at);
     }

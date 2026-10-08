@@ -71,6 +71,15 @@ class EvaluationServiceDeterministicAssertionsTest {
                         event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(partialOutcomes.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome extraCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":2}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":3}")),
+                        List.of(), List.of(), null));
+        assertThat(extraCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+        assertThat(extraCompletion.results().getFirst().findingSummary()).contains("count does not match");
     }
 
     @Test
@@ -101,6 +110,20 @@ class EvaluationServiceDeterministicAssertionsTest {
                         event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(partialOutcomes.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        EvidenceBundle.EvidenceCompleteness truncated = new EvidenceBundle.EvidenceCompleteness("TRUNCATED", 1001, 1000);
+        Outcome visibleFailure = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("RUNNING", "RUNNING", truncated, List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"ok\":false,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(visibleFailure.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
+
+        Outcome noVisibleFailure = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("RUNNING", "RUNNING", truncated,
+                        List.of(event("tool.called", "{\"tool\":\"search\",\"sequence\":1}")),
+                        List.of(), List.of(), null));
+        assertThat(noVisibleFailure.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
     }
 
     @Test
