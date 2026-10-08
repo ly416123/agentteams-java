@@ -121,29 +121,31 @@
 
 **文件：** `AgentScopeRuntime.java`、`AgentScopeRuntimeTest.java`；如 AgentScope 事件没有可靠失败信号，修改其事件适配接口所在文件，并在计划执行时把真实来源类型一并测试。
 
-- [ ] **步骤 1：写工具生命周期测试**
+- [x] **步骤 1：写工具生命周期测试**
 
 验证开始事件为 `tool.called`；正常返回产生 `tool.finished` 且脱敏 payload 含 `ok:true`；工具抛出异常产生 `tool.finished` 且 payload 含 `ok:false` 和稳定错误分类；原始异常消息和工具正文不出现在事件中。
 
-- [ ] **步骤 2：运行 Worker 测试确认失败**
+- [x] **步骤 2：运行 Worker 测试确认失败**
 
 运行：`mvn -q -pl agent-worker -Dtest=AgentScopeRuntimeTest test`
 
 预期：失败事件当前被无条件记录为 `ok:true`，或 AgentScope 原始事件缺乏失败语义。
 
-- [ ] **步骤 3：从执行结果传播完成状态**
+- [x] **步骤 3：从执行结果传播完成状态**
 
 修改事件映射，让完成事件从真实工具执行状态获取 success/failure；只允许输出工具名、布尔结果、稳定错误类别和序号。若上游 AgentScope 事件在工具异常时不发完成事件，则在工具包装器边界捕获并发失败事件，不得根据 `safeMessage` 字符串猜测结果。
 
-- [ ] **步骤 4：运行 Worker 生命周期测试**
+- [x] **步骤 4：运行 Worker 生命周期测试**
 
 运行：`mvn -q -pl agent-worker -Dtest=AgentScopeRuntimeTest test`
 
 预期：PASS，成功和失败均可区分且不含原始响应。
 
-- [ ] **步骤 5：提交工具事件变更**
+- [x] **步骤 5：提交工具事件变更**
 
 提交范围仅限 Worker 运行时与测试，提交说明：`fix(worker): report MCP tool completion outcome`。
+
+**任务 3 执行记录（2026-10-08）：** AgentScope 2.0.1 的真实工具执行结果来自 `ToolResultEndEvent.state`，不是模型工具块结束事件。运行时现按 SUCCESS 与 ERROR/DENIED/INTERRUPTED 生成安全生命周期事件；仅成功工具满足 required tool。HarnessAgent stream 测试覆盖成功、错误、事件序号、稳定错误分类、正文脱敏及 required-tool 成败门禁。`mvn -q -pl agent-worker test` 最终 159 项通过。规格审查提出的事件流测试缺口及质量审查提出的门禁测试缺口均已补齐并复核。实现提交 `91279b10`；事件流测试提交 `39233e28`；required-tool 回归测试提交 `5603f1f0`。
 
 ## 任务 4：实现 Control Plane 确定性过程和结果断言
 
