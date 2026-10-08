@@ -173,13 +173,21 @@ class AgentScopeRuntimeTest {
 
     @Test
     void streamsSuccessfulAndFailedToolResultsToRuntimeEventSinkWithoutToolContent() throws Exception {
-        assertToolLifecycleThroughAgentStream(false, true);
-        assertToolLifecycleThroughAgentStream(true, false);
+        assertToolLifecycleThroughAgentStream(false, true, false);
+        assertToolLifecycleThroughAgentStream(true, false, false);
     }
 
-    private void assertToolLifecycleThroughAgentStream(boolean toolFails, boolean expectedSuccess)
+    @Test
+    void requiredToolGateOnlyAcceptsSuccessfulToolResultFromAgentStream() throws Exception {
+        assertToolLifecycleThroughAgentStream(false, true, true);
+        assertToolLifecycleThroughAgentStream(true, false, true);
+    }
+
+    private void assertToolLifecycleThroughAgentStream(boolean toolFails, boolean expectedSuccess,
+            boolean requiredTool)
             throws Exception {
         List<RuntimeEvent> runtimeEvents = new CopyOnWriteArrayList<>();
+        List<RuntimeResult> runtimeResults = new CopyOnWriteArrayList<>();
         CountDownLatch completed = new CountDownLatch(1);
         AtomicInteger modelCalls = new AtomicInteger();
         runtime = new AgentScopeRuntime((task, ignoredContext) -> {
@@ -233,9 +241,15 @@ class AgentScopeRuntimeTest {
                 throw new IllegalStateException(error);
             }
         }, event -> { }, WorkspaceActiveGuard.noop());
-        runtime.start(context(1, result -> completed.countDown()));
+        runtime.start(context(1, result -> {
+            runtimeResults.add(result);
+            completed.countDown();
+        }));
         runtime.setEventSink(runtimeEvents::add);
-        RuntimeTask task = task("attempt-tool-stream", "lease-tool-stream", "corr-tool-stream");
+        RuntimeTask task = requiredTool
+                ? taskWithInput("attempt-tool-stream", "lease-tool-stream", "corr-tool-stream",
+                        "{\"prompt\":\"answer\",\"requiredMcpTools\":[\"web_search\"]}")
+                : task("attempt-tool-stream", "lease-tool-stream", "corr-tool-stream");
 
         assertThat(runtime.submit(task).accepted()).isTrue();
         assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
@@ -253,6 +267,14 @@ class AgentScopeRuntimeTest {
         }
         assertThat(toolEvents).allSatisfy(event -> assertThat(event.payloadJson())
                 .doesNotContain("PRIVATE_TOOL_RESPONSE_DO_NOT_EMIT"));
+        if (requiredTool) {
+            assertThat(runtimeResults).singleElement().satisfies(result -> {
+                assertThat(result.success()).isEqualTo(expectedSuccess);
+                if (toolFails) {
+                    assertThat(result.output()).contains("REQUIRED_TOOL_NOT_CALLED: web_search");
+                }
+            });
+        }
         runtime.stop();
         runtime = null;
     }
