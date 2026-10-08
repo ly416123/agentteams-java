@@ -127,6 +127,17 @@ class AgentScopeEventTranslatorTest {
     }
 
     @Test
+    void translatesSuccessfulToolResultStateAsSuccessfulCompletion() {
+        AgentScopeExecutionEvent completed = translator.translate(withAttempt(
+                new ToolResultEndEvent("tool-result-success", CREATED_AT, "reply", "call", "shell",
+                        ToolResultState.SUCCESS)));
+
+        assertThat(completed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED);
+        assertThat(completed.success()).isTrue();
+        assertThat(completed.safeMessage()).isEqualTo("tool shell completed");
+    }
+
+    @Test
     void translatesAgentResultBeforeAgentEndWithoutPrematureTerminalState() {
         AgentScopeExecutionEvent result = translator.translate(
                 withAttempt(new AgentResultEvent("result-id", CREATED_AT, null)));

@@ -4,13 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.agentscope.core.message.ContentBlock;
+import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.message.TextBlock;
+import io.agentscope.core.message.ToolUseBlock;
+import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.model.ToolSchema;
 import io.agentscope.core.message.Msg;
-import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.tool.AgentTool;
+import io.agentscope.core.tool.ToolCallParam;
+import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentteams.runtime.AgentRuntimeContext;
 import io.agentteams.runtime.RuntimeResult;
@@ -32,12 +38,14 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 class AgentScopeRuntimeTest {
     private static final Instant NOW = Instant.parse("2026-08-25T00:00:00Z");
@@ -161,6 +169,92 @@ class AgentScopeRuntimeTest {
                     "TOOL_EXECUTION_FAILED", "\"sequence\":2");
             assertThat(event.payloadJson()).doesNotContain("raw response", "secret", "authorization");
         });
+    }
+
+    @Test
+    void streamsSuccessfulAndFailedToolResultsToRuntimeEventSinkWithoutToolContent() throws Exception {
+        assertToolLifecycleThroughAgentStream(false, true);
+        assertToolLifecycleThroughAgentStream(true, false);
+    }
+
+    private void assertToolLifecycleThroughAgentStream(boolean toolFails, boolean expectedSuccess)
+            throws Exception {
+        List<RuntimeEvent> runtimeEvents = new CopyOnWriteArrayList<>();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicInteger modelCalls = new AtomicInteger();
+        runtime = new AgentScopeRuntime((task, ignoredContext) -> {
+            try {
+                Toolkit toolkit = new Toolkit();
+                toolkit.registerAgentTool(new AgentTool() {
+                    @Override public String getName() { return "web_search"; }
+                    @Override public String getDescription() { return "test search"; }
+                    @Override public Map<String, Object> getParameters() { return Map.of(); }
+                    @Override public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
+                        return Mono.just(toolFails
+                                ? ToolResultBlock.error("PRIVATE_TOOL_RESPONSE_DO_NOT_EMIT")
+                                : ToolResultBlock.text("PRIVATE_TOOL_RESPONSE_DO_NOT_EMIT"));
+                    }
+                });
+                HarnessAgent agent = HarnessAgent.builder()
+                        .name("tool-lifecycle-agent")
+                        .agentId("agent-" + task.id())
+                        .defaultSessionId(task.metadata().get("attemptId"))
+                        .model(new Model() {
+                            @Override
+                            public Flux<ChatResponse> stream(List<Msg> messages, List<ToolSchema> tools,
+                                    GenerateOptions options) {
+                                if (modelCalls.getAndIncrement() == 0) {
+                                    return Flux.just(ChatResponse.builder().id("tool-call")
+                                            .content(List.of(ToolUseBlock.builder()
+                                                    .id("call-web-search").name("web_search").input(Map.of()).build()))
+                                            .finishReason("tool_calls").build());
+                                }
+                                return Flux.just(ChatResponse.builder().id("final-answer")
+                                        .content(List.of(TextBlock.builder().text("safe final answer").build()))
+                                        .finishReason("stop").build());
+                            }
+
+                            @Override
+                            public String getModelName() {
+                                return "tool-lifecycle-model";
+                            }
+                        })
+                        .toolkit(toolkit)
+                        .workspace(Files.createTempDirectory("agentscope-tool-lifecycle-"))
+                        .disableFilesystemTools()
+                        .disableShellTool()
+                        .disableSubagents()
+                        .disableSessionPersistence()
+                        .maxIters(2)
+                        .build();
+                agents.add(agent);
+                return agent;
+            } catch (java.io.IOException error) {
+                throw new IllegalStateException(error);
+            }
+        }, event -> { }, WorkspaceActiveGuard.noop());
+        runtime.start(context(1, result -> completed.countDown()));
+        runtime.setEventSink(runtimeEvents::add);
+        RuntimeTask task = task("attempt-tool-stream", "lease-tool-stream", "corr-tool-stream");
+
+        assertThat(runtime.submit(task).accepted()).isTrue();
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        List<RuntimeEvent> toolEvents = runtimeEvents.stream()
+                .filter(event -> event.taskId().equals(task.id()))
+                .toList();
+        String expectedCategory = toolFails ? "TOOL_EXECUTION_FAILED" : "";
+        assertThat(toolEvents).extracting(RuntimeEvent::eventType)
+                .containsExactly("tool.called", "tool.finished");
+        assertThat(toolEvents.get(0).payloadJson()).contains("\"tool\":\"web_search\"", "\"sequence\":1");
+        assertThat(toolEvents.get(1).payloadJson()).contains("\"tool\":\"web_search\"",
+                "\"ok\":" + expectedSuccess, "\"sequence\":2");
+        if (toolFails) {
+            assertThat(toolEvents.get(1).payloadJson()).contains(expectedCategory);
+        }
+        assertThat(toolEvents).allSatisfy(event -> assertThat(event.payloadJson())
+                .doesNotContain("PRIVATE_TOOL_RESPONSE_DO_NOT_EMIT"));
+        runtime.stop();
+        runtime = null;
     }
 
     @Test
