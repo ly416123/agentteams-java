@@ -20,6 +20,8 @@ import io.agentteams.controlplane.task.TaskResultManifestRepository;
 import io.agentteams.controlplane.task.TaskRunObservationRepository;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeRepository;
+import io.agentteams.controlplane.task.TaskSourceEvidence;
+import io.agentteams.controlplane.task.TaskSourceEvidenceRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +35,52 @@ class EvidenceBundleAssemblerTest {
     private static final UUID TASK_ID = UUID.fromString("00000000-0000-0000-0000-000000000003");
     private static final UUID RUN_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
     private static final ExecutionContext CONTEXT = new ExecutionContext("org-a", "tenant-a", "project-a", "team-a", "alice");
+
+    @Test
+    void includesOnlySuccessfulScopedChildRunSourcesForParentCitationEvidence() throws Exception {
+        UUID childId = UUID.fromString("00000000-0000-0000-0000-000000000005");
+        UUID childRunId = UUID.fromString("00000000-0000-0000-0000-000000000006");
+        TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
+        TaskProcessEventRepository events = mock(TaskProcessEventRepository.class);
+        TaskTreeRepository tree = mock(TaskTreeRepository.class);
+        TaskDecisionRecordRepository decisions = mock(TaskDecisionRecordRepository.class);
+        TaskResultManifestRepository manifests = mock(TaskResultManifestRepository.class);
+        TaskSourceEvidenceRepository sources = mock(TaskSourceEvidenceRepository.class);
+        TaskProcessEvent childSearch = new TaskProcessEvent(UUID.randomUUID(), childId, childRunId, 1, "tool.called",
+                TaskEventVisibility.REQUESTER, NOW, "correlation", "{\"tool\":\"web_search\",\"sequence\":1}", null);
+        String url = "https://www.w3.org/TR/WCAG20-TECHS/pdf.html";
+        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(url.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        TaskSourceEvidence.SearchCall call = new TaskSourceEvidence.SearchCall(childId, childRunId, UUID.randomUUID(),
+                "call-child", "bailian_web_search", true,
+                List.of(new TaskSourceEvidence.Source("W3C", url, hash, "task-source:call-child:" + hash)), NOW);
+        when(runs.snapshotForRun(CONTEXT, TASK_ID, RUN_ID)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskRunSnapshot("RUNNING", "SUCCEEDED", NOW, NOW, "chat", null)));
+        when(runs.latestRunId(childId)).thenReturn(Optional.of(childRunId));
+        when(runs.snapshotForRun(CONTEXT, childId, childRunId)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskRunSnapshot("SUCCEEDED", "SUCCEEDED", NOW, NOW, "chat", null)));
+        when(events.find(CONTEXT, TASK_ID, RUN_ID, 0, Set.of(TaskEventVisibility.REQUESTER), 1001)).thenReturn(List.of());
+        when(events.find(CONTEXT, childId, childRunId, 0, Set.of(TaskEventVisibility.REQUESTER), 1001))
+                .thenReturn(List.of(childSearch));
+        when(tree.find(CONTEXT, RUN_ID)).thenReturn(List.of(new TaskTreeNode(TASK_ID, null, 0, "SUCCEEDED", List.of(), NOW),
+                new TaskTreeNode(childId, TASK_ID, 1, "SUCCEEDED", List.of(), NOW)));
+        when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
+        when(manifests.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(Optional.of(
+                new TaskResultManifest(TASK_ID, RUN_ID, "SUCCEEDED", "answer", List.of())));
+        when(sources.find(CONTEXT, TASK_ID, RUN_ID, 500, 10_000)).thenReturn(
+                new TaskSourceEvidence(TASK_ID, RUN_ID, List.of(), false, 0, 0));
+        when(sources.find(CONTEXT, childId, childRunId, 500, 10_000)).thenReturn(
+                new TaskSourceEvidence(childId, childRunId, List.of(call), false, 1, 1));
+
+        EvidenceBundle bundle = new EvidenceBundleAssembler(runs, events, tree, decisions, manifests, sources)
+                .assemble(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER));
+
+        assertThat(bundle.sourceEvidenceCompleteness().status()).isEqualTo("COMPLETE");
+        assertThat(bundle.sourceEvidence().calls()).singleElement().satisfies(value -> {
+            assertThat(value.taskId()).isEqualTo(childId);
+            assertThat(value.runId()).isEqualTo(childRunId);
+        });
+    }
 
     @Test
     void assemblesScopedEvidenceAndSummarizesToolCallsAndArtifacts() throws Exception {

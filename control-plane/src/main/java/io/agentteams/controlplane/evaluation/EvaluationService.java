@@ -21,6 +21,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.net.URI;
 
 /** Runs deterministic checks over an immutable evidence bundle; it never mutates Task state. */
 public final class EvaluationService {
@@ -29,6 +30,7 @@ public final class EvaluationService {
     private static final String UUID_PATH_SEGMENT = "[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}";
     private static final Pattern SAFE_STORAGE_REF = Pattern.compile("tasks/" + UUID_PATH_SEGMENT
             + "/attempts/" + UUID_PATH_SEGMENT + "/artifacts/[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
+    private static final Pattern CITED_URL = Pattern.compile("https?://[^\\s<>\\\"]+", Pattern.CASE_INSENSITIVE);
     private final EvaluationRepository repository;
     private final EvidenceBundleAssembler assembler;
     private final Clock clock;
@@ -88,11 +90,58 @@ public final class EvaluationService {
                 case "artifact_integrity" -> artifactIntegrity(runId, bundle, createdAt);
                 case "artifact_pdf" -> artifactPdf(runId, bundle, createdAt);
                 case "schema" -> schema(runId, assertion, bundle, createdAt);
+                case "source_citation" -> sourceCitation(runId, bundle, createdAt);
                 default -> inconclusive(runId, type, "unsupported deterministic assertion", createdAt);
             };
             results.add(result);
         }
         return results;
+    }
+
+    private static EvaluationResultRecord sourceCitation(UUID runId, EvidenceBundle bundle, Instant at) {
+        EvidenceBundle.SourceEvidenceCompleteness coverage = bundle.sourceEvidenceCompleteness();
+        if (!"COMPLETE".equals(coverage.status()) || coverage.observedSearchCalls() == 0
+                || coverage.observedSearchCalls() != coverage.recordedSearchCalls()
+                || bundle.sourceEvidence() == null || !bundle.sourceEvidence().taskId().equals(bundle.taskId())
+                || !bundle.sourceEvidence().runId().equals(bundle.executionRunId())) {
+            return inconclusive(runId, "source_citation", "search source evidence is incomplete",
+                    "task-source:" + bundle.executionRunId(), at);
+        }
+        if (bundle.resultManifest() == null || bundle.resultManifest().summary() == null) {
+            return inconclusive(runId, "source_citation", "result summary is unavailable",
+                    "task-result:" + bundle.executionRunId(), at);
+        }
+        List<String> cited = new ArrayList<>();
+        var matcher = CITED_URL.matcher(bundle.resultManifest().summary());
+        while (matcher.find()) {
+            String candidate = matcher.group().replaceAll("[),.;]+$", "");
+            try {
+                URI uri = URI.create(candidate).normalize();
+                if (uri.getHost() == null || uri.getRawUserInfo() != null || uri.getRawFragment() != null
+                        || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+                    return inconclusive(runId, "source_citation", "result contains an invalid citation URL",
+                            "task-result:" + bundle.executionRunId(), at);
+                }
+                cited.add(uri.getScheme().toLowerCase(Locale.ROOT) + "://"
+                        + uri.getRawAuthority().toLowerCase(Locale.ROOT)
+                        + (uri.getRawPath() == null ? "" : uri.getRawPath())
+                        + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery()));
+            } catch (IllegalArgumentException error) {
+                return inconclusive(runId, "source_citation", "result citation URL cannot be parsed",
+                        "task-result:" + bundle.executionRunId(), at);
+            }
+        }
+        if (cited.isEmpty()) return inconclusive(runId, "source_citation", "result contains no explicit citation URL",
+                "task-result:" + bundle.executionRunId(), at);
+        Map<String, String> available = new HashMap<>();
+        bundle.sourceEvidence().calls().stream().flatMap(call -> call.sources().stream())
+                .forEach(source -> available.put(source.url(), source.evidenceRef()));
+        List<String> matchedRefs = cited.stream().filter(available::containsKey).map(available::get).distinct().toList();
+        boolean match = !cited.isEmpty() && cited.stream().allMatch(available::containsKey);
+        return new EvaluationResultRecord(UUID.randomUUID(), runId, "source_citation", match ? BigDecimal.ONE : BigDecimal.ZERO,
+                BigDecimal.ONE, match ? EvaluationResultRecord.Status.PASSED : EvaluationResultRecord.Status.FAILED,
+                match ? matchedRefs : List.of("task-source:" + bundle.executionRunId()),
+                match ? "citation URL matched this Run search evidence" : "no citation URL matched this Run search evidence", at);
     }
 
     private static EvaluationResultRecord phase(UUID runId, JsonNode assertion, EvidenceBundle bundle, Instant at) {

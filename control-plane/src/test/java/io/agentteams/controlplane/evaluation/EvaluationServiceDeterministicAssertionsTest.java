@@ -12,6 +12,7 @@ import io.agentteams.application.api.TaskProcessEvent;
 import io.agentteams.application.api.TaskResultManifest;
 import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.task.TaskTreeNode;
+import io.agentteams.controlplane.task.TaskSourceEvidence;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -25,6 +26,38 @@ class EvaluationServiceDeterministicAssertionsTest {
     private static final Instant NOW = Instant.parse("2026-10-08T00:00:00Z");
     private static final UUID SUITE = id(1), CASE = id(2), TASK = id(3), EXECUTION = id(4), EVAL = id(5);
     private static final ExecutionContext CONTEXT = new ExecutionContext("org", "tenant", "project", "team", "user");
+
+    @Test
+    void sourceCitationRequiresCompleteRunBoundEvidenceAndExactUrlMatch() throws Exception {
+        String sourceUrl = "https://www.w3.org/TR/WCAG20-TECHS/pdf.html";
+        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(sourceUrl.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        TaskSourceEvidence sourceEvidence = new TaskSourceEvidence(TASK, EXECUTION,
+                List.of(new TaskSourceEvidence.SearchCall(TASK, EXECUTION, id(9), "call-9", "bailian_web_search", true,
+                        List.of(new TaskSourceEvidence.Source("W3C guidance", sourceUrl, hash,
+                                "task-source:call-9:" + hash)), NOW)), false, 1, 1);
+        EvidenceBundle base = bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(), List.of(),
+                new TaskResultManifest(TASK, EXECUTION, "SUCCEEDED", "See " + sourceUrl, List.of()));
+        EvidenceBundle completeBundle = new EvidenceBundle(base.taskId(), base.executionRunId(), base.taskSnapshot(),
+                base.runSnapshot(), base.evidenceCompleteness(), base.taskEvents(), base.taskTree(), base.decisions(),
+                base.toolCallSummaries(), base.resultManifest(), base.artifactRefs(), base.approvalHistory(),
+                base.agentMetadata(), base.policyOutcomes(), sourceEvidence,
+                new EvidenceBundle.SourceEvidenceCompleteness("COMPLETE", 1, 1, 1, 10_000));
+        assertThat(evaluate("[{\"type\":\"source_citation\"}]", completeBundle).statuses())
+                .containsExactly(EvaluationResultRecord.Status.PASSED);
+
+        TaskResultManifest mismatched = new TaskResultManifest(TASK, EXECUTION, "SUCCEEDED",
+                "See https://example.test/fake", List.of());
+        EvidenceBundle mismatchBundle = new EvidenceBundle(base.taskId(), base.executionRunId(), base.taskSnapshot(),
+                base.runSnapshot(), base.evidenceCompleteness(), base.taskEvents(), base.taskTree(), base.decisions(),
+                base.toolCallSummaries(), mismatched, base.artifactRefs(), base.approvalHistory(), base.agentMetadata(),
+                base.policyOutcomes(), sourceEvidence, new EvidenceBundle.SourceEvidenceCompleteness("COMPLETE", 1, 1, 1, 10_000));
+        assertThat(evaluate("[{\"type\":\"source_citation\"}]", mismatchBundle).statuses())
+                .containsExactly(EvaluationResultRecord.Status.FAILED);
+
+        assertThat(evaluate("[{\"type\":\"source_citation\"}]", base).statuses())
+                .containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+    }
 
     @Test
     void comparesTaskPhaseAndRunStatusIndependentlyAndKeepsTaskSuccessSeparate() throws Exception {

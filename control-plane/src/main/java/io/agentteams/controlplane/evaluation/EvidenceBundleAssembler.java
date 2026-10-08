@@ -11,6 +11,8 @@ import io.agentteams.controlplane.task.TaskDecisionRecordRepository;
 import io.agentteams.controlplane.task.TaskProcessEventRepository;
 import io.agentteams.controlplane.task.TaskResultManifestRepository;
 import io.agentteams.controlplane.task.TaskRunObservationRepository;
+import io.agentteams.controlplane.task.TaskSourceEvidence;
+import io.agentteams.controlplane.task.TaskSourceEvidenceRepository;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeRepository;
 import java.nio.charset.StandardCharsets;
@@ -39,15 +41,40 @@ public final class EvidenceBundleAssembler {
     private final TaskTreeRepository tree;
     private final TaskDecisionRecordRepository decisions;
     private final TaskResultManifestRepository manifests;
+    private final TaskSourceEvidenceRepository sourceEvidence;
 
     public EvidenceBundleAssembler(TaskRunObservationRepository runs, TaskProcessEventRepository events,
             TaskTreeRepository tree, TaskDecisionRecordRepository decisions,
             TaskResultManifestRepository manifests) {
+        this(runs, events, tree, decisions, manifests, emptySourceRepository());
+    }
+
+    private static TaskSourceEvidenceRepository emptySourceRepository() {
+        return new TaskSourceEvidenceRepository() {
+                    @Override public java.util.UUID activeRun(ExecutionContext ignored, java.util.UUID ignoredTask) {
+                        throw new UnsupportedOperationException();
+                    }
+                    @Override public boolean isActiveExecution(java.util.UUID ignoredTask, java.util.UUID ignoredAttempt,
+                            java.util.UUID ignoredLease, java.time.Instant ignoredAt) { return false; }
+                    @Override public void save(ExecutionContext ignored, java.util.UUID ignoredTask,
+                            java.util.UUID ignoredRun, java.util.UUID ignoredAttempt, String ignoredCall,
+                            String ignoredProvider, String ignoredIdempotency, List<TaskSourceEvidence.Source> ignoredSources) { }
+                    @Override public TaskSourceEvidence find(ExecutionContext ignored, java.util.UUID ignoredTask,
+                            java.util.UUID ignoredRun, int ignoredCalls, int ignoredSources) {
+                        return new TaskSourceEvidence(ignoredTask, ignoredRun, List.of(), false, 0, 0);
+                    }
+                };
+    }
+
+    public EvidenceBundleAssembler(TaskRunObservationRepository runs, TaskProcessEventRepository events,
+            TaskTreeRepository tree, TaskDecisionRecordRepository decisions,
+            TaskResultManifestRepository manifests, TaskSourceEvidenceRepository sourceEvidence) {
         this.runs = Objects.requireNonNull(runs, "runs");
         this.events = Objects.requireNonNull(events, "events");
         this.tree = Objects.requireNonNull(tree, "tree");
         this.decisions = Objects.requireNonNull(decisions, "decisions");
         this.manifests = Objects.requireNonNull(manifests, "manifests");
+        this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     }
 
     public EvidenceBundle assemble(ExecutionContext context, UUID taskId, UUID runId,
@@ -76,9 +103,46 @@ public final class EvidenceBundleAssembler {
                         ? "INCONCLUSIVE" : "COMPLETE";
         EvidenceBundle.EvidenceCompleteness completeness = new EvidenceBundle.EvidenceCompleteness(
                 completenessStatus, observedEventCount, EVENT_LIMIT);
+        TaskSourceEvidence ownSources = sourceEvidence.find(context, taskId, runId, 500, 10_000);
+        List<TaskSourceEvidence.SearchCall> sourceCalls = new ArrayList<>(ownSources.calls());
+        long observedSearchCalls = countSearchCalls(safeEvents);
+        boolean sourceTruncated = ownSources.truncated() || observedEventCount > EVENT_LIMIT;
+        Set<UUID> childTasks = new HashSet<>();
+        for (TaskTreeNode node : taskTree) {
+            if (node.taskId().equals(taskId) || !childTasks.add(node.taskId())) continue;
+            Optional<UUID> childRun = runs.latestRunId(node.taskId());
+            if (childRun.isEmpty()) continue;
+            Optional<TaskRunObservationRepository.TaskRunSnapshot> childSnapshot =
+                    runs.snapshotForRun(context, node.taskId(), childRun.get());
+            if (childSnapshot.isEmpty() || !"SUCCEEDED".equalsIgnoreCase(childSnapshot.get().taskPhase())
+                    || !"SUCCEEDED".equalsIgnoreCase(childSnapshot.get().runStatus())) continue;
+            TaskSourceEvidence childSources = sourceEvidence.find(context, node.taskId(), childRun.get(), 500, 10_000);
+            sourceCalls.addAll(childSources.calls());
+            List<TaskProcessEvent> childEvents = events.find(context, node.taskId(), childRun.get(), 0, allowed,
+                    EVENT_LIMIT + 1);
+            sourceTruncated |= childSources.truncated() || childEvents.size() > EVENT_LIMIT;
+            observedSearchCalls += countSearchCalls(childEvents.stream().limit(EVENT_LIMIT).toList());
+        }
+        int observedCallCount = Math.toIntExact(observedSearchCalls);
+        int observedSourceCount = sourceCalls.stream().mapToInt(call -> call.sources().size()).sum();
+        TaskSourceEvidence sources = new TaskSourceEvidence(taskId, runId, sourceCalls, sourceTruncated,
+                observedCallCount, observedSourceCount);
+        boolean sourceComplete = !sources.truncated() && sources.observedCallCount() == sources.calls().size()
+                && !sources.calls().isEmpty() && sources.calls().stream().allMatch(TaskSourceEvidence.SearchCall::complete);
+        EvidenceBundle.SourceEvidenceCompleteness sourceCompleteness = new EvidenceBundle.SourceEvidenceCompleteness(
+                sourceComplete ? "COMPLETE" : sources.truncated() ? "TRUNCATED" : "INCONCLUSIVE",
+                observedSearchCalls > 0 ? (int) observedSearchCalls : sources.observedCallCount(), sources.calls().size(),
+                sources.observedSourceCount(), 10_000);
         return new EvidenceBundle(taskId, runId, snapshot, runSnapshot, completeness, safeEvents, taskTree, safeDecisions,
                 summarizeTools(safeEvents), manifest.orElse(null), artifactRefs(manifest), List.of(),
-                new EvidenceBundle.AgentMetadata("unknown", "unknown", "unknown"), List.of());
+                new EvidenceBundle.AgentMetadata("unknown", "unknown", "unknown"), List.of(), sources, sourceCompleteness);
+    }
+
+    private static long countSearchCalls(List<TaskProcessEvent> events) {
+        return events.stream().filter(event -> "tool.called".equalsIgnoreCase(event.eventType()))
+                .map(TaskProcessEvent::payload).filter(Objects::nonNull).map(EvidenceBundleAssembler::parseObject)
+                .map(payload -> textOrNull(payload, "tool"))
+                .filter(tool -> tool != null && tool.toLowerCase(Locale.ROOT).contains("search")).count();
     }
 
     private static EvidenceBundle.TaskSnapshot snapshot(UUID taskId,

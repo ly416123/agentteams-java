@@ -4,6 +4,7 @@ import io.agentteams.application.api.TaskProcessEvent;
 import io.agentteams.application.api.TaskResultManifest;
 import io.agentteams.controlplane.task.TaskDecisionRecord;
 import io.agentteams.controlplane.task.TaskTreeNode;
+import io.agentteams.controlplane.task.TaskSourceEvidence;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -15,7 +16,8 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
         RunSnapshot runSnapshot, EvidenceCompleteness evidenceCompleteness,
         List<TaskProcessEvent> taskEvents, List<TaskTreeNode> taskTree, List<TaskDecisionRecord> decisions,
         List<ToolCallSummary> toolCallSummaries, TaskResultManifest resultManifest, List<ArtifactRef> artifactRefs,
-        List<ApprovalRecord> approvalHistory, AgentMetadata agentMetadata, List<PolicyOutcome> policyOutcomes) {
+        List<ApprovalRecord> approvalHistory, AgentMetadata agentMetadata, List<PolicyOutcome> policyOutcomes,
+        TaskSourceEvidence sourceEvidence, SourceEvidenceCompleteness sourceEvidenceCompleteness) {
     public EvidenceBundle {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(executionRunId, "executionRunId");
@@ -30,10 +32,21 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
         approvalHistory = List.copyOf(Objects.requireNonNull(approvalHistory, "approvalHistory"));
         Objects.requireNonNull(agentMetadata, "agentMetadata");
         policyOutcomes = List.copyOf(Objects.requireNonNull(policyOutcomes, "policyOutcomes"));
+        Objects.requireNonNull(sourceEvidenceCompleteness, "sourceEvidenceCompleteness");
         if (resultManifest != null && (!taskId.equals(resultManifest.taskId())
                 || !executionRunId.equals(resultManifest.runId()))) {
             throw new IllegalArgumentException("resultManifest must belong to the bundle task and run");
         }
+    }
+
+    public EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot taskSnapshot, RunSnapshot runSnapshot,
+            EvidenceCompleteness evidenceCompleteness, List<TaskProcessEvent> taskEvents, List<TaskTreeNode> taskTree,
+            List<TaskDecisionRecord> decisions, List<ToolCallSummary> toolCallSummaries,
+            TaskResultManifest resultManifest, List<ArtifactRef> artifactRefs, List<ApprovalRecord> approvalHistory,
+            AgentMetadata agentMetadata, List<PolicyOutcome> policyOutcomes) {
+        this(taskId, executionRunId, taskSnapshot, runSnapshot, evidenceCompleteness, taskEvents, taskTree, decisions,
+                toolCallSummaries, resultManifest, artifactRefs, approvalHistory, agentMetadata, policyOutcomes, null,
+                new SourceEvidenceCompleteness("INCONCLUSIVE", 0, 0, 0, 10_000));
     }
 
     /** Source-compatible constructor for callers creating legacy/incomplete bundles directly. */
@@ -44,7 +57,7 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
         this(taskId, executionRunId, taskSnapshot, new RunSnapshot("UNKNOWN", null, null),
                 new EvidenceCompleteness("INCONCLUSIVE", taskEvents == null ? 0 : taskEvents.size(), 1000),
                 taskEvents, taskTree, decisions, toolCallSummaries, resultManifest, artifactRefs, approvalHistory,
-                agentMetadata, policyOutcomes);
+                agentMetadata, policyOutcomes, null, new SourceEvidenceCompleteness("INCONCLUSIVE", 0, 0, 0, 10_000));
     }
 
     /** Reports whether the assembled evidence is usable as a complete input, including Run and truncation checks. */
@@ -53,6 +66,17 @@ public record EvidenceBundle(UUID taskId, UUID executionRunId, TaskSnapshot task
     }
 
     public enum InputStatus { COMPLETE, INCONCLUSIVE }
+
+    public record SourceEvidenceCompleteness(String status, int observedSearchCalls, int recordedSearchCalls,
+            int observedSources, int sourceLimit) {
+        public SourceEvidenceCompleteness {
+            status = required(status, "status").toUpperCase(java.util.Locale.ROOT);
+            if (!Set.of("COMPLETE", "TRUNCATED", "INCONCLUSIVE").contains(status)
+                    || observedSearchCalls < 0 || recordedSearchCalls < 0 || observedSources < 0 || sourceLimit < 1) {
+                throw new IllegalArgumentException("source evidence completeness is invalid");
+            }
+        }
+    }
 
     public record RunSnapshot(String status, Instant startedAt, Instant completedAt) {
         private static final Set<String> ALLOWED = Set.of("UNKNOWN", "QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED");
