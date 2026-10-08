@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.agentteams.application.api.TaskEventVisibility;
+import io.agentteams.application.api.TaskResultManifest;
 import io.agentteams.controlplane.security.ExecutionContext;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -96,10 +98,14 @@ class EvaluationServiceTest {
         EvaluationCaseRecord evaluationCase = new EvaluationCaseRecord(CASE_ID, SUITE_ID, "case-1", "Case 1",
                 JSON.createObjectNode(), JSON.readTree("[{\"type\":\"phase\",\"expected\":\"SUCCEEDED\"},{\"type\":\"artifact_integrity\"}]"), NOW);
         EvidenceBundle bundle = bundle("SUCCEEDED", List.of());
-        bundle = new EvidenceBundle(bundle.taskId(), bundle.executionRunId(), bundle.taskSnapshot(), bundle.taskEvents(),
-                bundle.taskTree(), bundle.decisions(), bundle.toolCallSummaries(),
-                bundle.resultManifest(), List.of(new EvidenceBundle.ArtifactRef("artifact:abc", "artifact:abc",
-                        "application/json", 12, "a".repeat(64))), bundle.approvalHistory(), bundle.agentMetadata(),
+        EvidenceBundle.ArtifactRef artifact = new EvidenceBundle.ArtifactRef("result.json", "artifact:abc",
+                "application/json", 12, "a".repeat(64));
+        TaskResultManifest manifest = new TaskResultManifest(TASK_ID, EXECUTION_RUN_ID, "SUCCEEDED", "done",
+                List.of(new TaskResultManifest.ArtifactMetadata("result.json", "artifact:abc", "application/json",
+                        12, "a".repeat(64), 1, "FINAL", TaskEventVisibility.REQUESTER)));
+        bundle = new EvidenceBundle(bundle.taskId(), bundle.executionRunId(), bundle.taskSnapshot(), bundle.runSnapshot(),
+                bundle.evidenceCompleteness(), bundle.taskEvents(), bundle.taskTree(), bundle.decisions(),
+                bundle.toolCallSummaries(), manifest, List.of(artifact), bundle.approvalHistory(), bundle.agentMetadata(),
                 bundle.policyOutcomes());
         EvaluationReportRecord report = new EvaluationReportRecord(UUID.randomUUID(), EVALUATION_RUN_ID,
                 BigDecimal.ONE, JSON.createObjectNode(), EvaluationRunRecord.Status.PASSED, true, NOW);
@@ -153,7 +159,10 @@ class EvaluationServiceTest {
 
     private static EvidenceBundle bundle(String phase, List<EvidenceBundle.ToolCallSummary> tools) {
         return new EvidenceBundle(TASK_ID, EXECUTION_RUN_ID,
-                new EvidenceBundle.TaskSnapshot(TASK_ID, phase, "chat", null), List.of(), List.of(), List.of(),
-                tools, null, List.of(), List.of(), new EvidenceBundle.AgentMetadata("runtime", "model", "1"), List.of());
+                new EvidenceBundle.TaskSnapshot(TASK_ID, phase, "chat", null),
+                new EvidenceBundle.RunSnapshot("SUCCEEDED", NOW, NOW),
+                new EvidenceBundle.EvidenceCompleteness("COMPLETE", 0, 1000), List.of(), List.of(), List.of(),
+                tools, new TaskResultManifest(TASK_ID, EXECUTION_RUN_ID, "SUCCEEDED", "done", List.of()), List.of(),
+                List.of(), new EvidenceBundle.AgentMetadata("runtime", "model", "1"), List.of());
     }
 }

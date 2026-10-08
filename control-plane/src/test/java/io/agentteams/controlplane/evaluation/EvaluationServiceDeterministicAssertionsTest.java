@@ -1,0 +1,149 @@
+package io.agentteams.controlplane.evaluation;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.agentteams.application.api.TaskEventVisibility;
+import io.agentteams.application.api.TaskProcessEvent;
+import io.agentteams.application.api.TaskResultManifest;
+import io.agentteams.controlplane.security.ExecutionContext;
+import io.agentteams.controlplane.task.TaskTreeNode;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+class EvaluationServiceDeterministicAssertionsTest {
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Instant NOW = Instant.parse("2026-10-08T00:00:00Z");
+    private static final UUID SUITE = id(1), CASE = id(2), TASK = id(3), EXECUTION = id(4), EVAL = id(5);
+    private static final ExecutionContext CONTEXT = new ExecutionContext("org", "tenant", "project", "team", "user");
+
+    @Test
+    void comparesTaskPhaseAndRunStatusIndependentlyAndKeepsTaskSuccessSeparate() throws Exception {
+        Outcome outcome = evaluate("[{\"type\":\"phase\",\"expected\":\"SUCCEEDED\"},"
+                + "{\"type\":\"run_status\",\"expected\":\"FAILED\"}]",
+                bundle("SUCCEEDED", "FAILED", complete(), List.of(), List.of(), List.of(), null));
+
+        assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED,
+                EvaluationResultRecord.Status.PASSED);
+        assertThat(outcome.report().taskSuccess()).isTrue();
+        assertThat(outcome.report().executionGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.PASSED);
+        assertThat(outcome.report().resultGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.INCONCLUSIVE);
+    }
+
+    @Test
+    void requiredToolNeedsSuccessfulCompletionAndFailureHasEvidence() throws Exception {
+        Outcome failed = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":false,\"errorCategory\":\"timeout\",\"sequence\":1}")), List.of(), List.of(), null));
+        assertThat(failed.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
+        assertThat(failed.results().getFirst().evidenceRefs()).contains("task-events:" + EXECUTION);
+        assertThat(failed.report().taskSuccess()).isTrue();
+        assertThat(failed.report().executionGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.FAILED);
+        assertThat(failed.report().resultGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.INCONCLUSIVE);
+
+        Outcome missingCompletion = evaluate("[{\"type\":\"required_tool\",\"name\":\"web_search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}")), List.of(), List.of(), null));
+        assertThat(missingCompletion.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+    }
+
+    @Test
+    void checksToolOrderAndCountsFromSuccessfulLifecycleEvents() throws Exception {
+        List<TaskProcessEvent> events = List.of(event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
+                event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":1}"),
+                event("tool.called", "{\"tool\":\"fetch\",\"sequence\":2}"),
+                event("tool.finished", "{\"tool\":\"fetch\",\"ok\":true,\"sequence\":2}"));
+        Outcome outcome = evaluate("[{\"type\":\"tool_order\",\"names\":[\"search\",\"fetch\"]},"
+                + "{\"type\":\"tool_count\",\"name\":\"search\",\"expected\":1}]",
+                bundle("RUNNING", "SUCCEEDED", complete(), events, List.of(), List.of(), null));
+        assertThat(outcome.statuses()).containsOnly(EvaluationResultRecord.Status.PASSED);
+    }
+
+    @Test
+    void checksDependencySuccessButDoesNotInventHandoffOrRetryEvidence() throws Exception {
+        TaskTreeNode parent = new TaskTreeNode(TASK, null, 0, "SUCCEEDED", List.of(), NOW);
+        TaskTreeNode dependency = new TaskTreeNode(id(6), TASK, 1, "SUCCEEDED", List.of(), NOW);
+        TaskTreeNode dependent = new TaskTreeNode(id(7), TASK, 2, "SUCCEEDED", List.of(id(6)), NOW);
+        Outcome outcome = evaluate("[{\"type\":\"dependency_success\"},{\"type\":\"dependency_handoff\"},"
+                + "{\"type\":\"retry_limit\",\"max\":2}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(parent, dependency, dependent), List.of(), null));
+        assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED,
+                EvaluationResultRecord.Status.INCONCLUSIVE, EvaluationResultRecord.Status.INCONCLUSIVE);
+        assertThat(outcome.results().get(1).evidenceRefs()).contains("task-tree:" + EXECUTION);
+    }
+
+    @Test
+    void checksArtifactMetadataAndLeavesPdfSignatureInconclusiveWithoutBytes() throws Exception {
+        EvidenceBundle.ArtifactRef pdf = new EvidenceBundle.ArtifactRef("report.pdf", "artifact:pdf", "application/pdf",
+                128, "a".repeat(64));
+        TaskResultManifest manifest = new TaskResultManifest(TASK, EXECUTION, "SUCCEEDED", "done", List.of());
+        Outcome outcome = evaluate("[{\"type\":\"artifact_integrity\"},{\"type\":\"artifact_pdf\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(), List.of(pdf), manifest));
+        assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED,
+                EvaluationResultRecord.Status.INCONCLUSIVE);
+        assertThat(outcome.results().get(1).findingSummary()).contains("signature");
+    }
+
+    @Test
+    void incompleteEvidenceMakesEvidenceDependentAssertionInconclusive() throws Exception {
+        Outcome outcome = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"},"
+                + "{\"type\":\"phase\",\"expected\":\"SUCCEEDED\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", new EvidenceBundle.EvidenceCompleteness("TRUNCATED", 1001, 1000),
+                        List.of(), List.of(), List.of(), null));
+        assertThat(outcome.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE,
+                EvaluationResultRecord.Status.PASSED);
+        assertThat(outcome.report().executionGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.INCONCLUSIVE);
+    }
+
+    private static Outcome evaluate(String assertions, EvidenceBundle evidence) throws Exception {
+        EvaluationRepository repository = mock(EvaluationRepository.class);
+        EvidenceBundleAssembler assembler = mock(EvidenceBundleAssembler.class);
+        EvaluationRunRecord queued = EvaluationRunRecord.queued(EVAL, SUITE, CASE, TASK, EXECUTION, "v1", NOW);
+        EvaluationCaseRecord evaluationCase = new EvaluationCaseRecord(CASE, SUITE, "case", "Case", JSON.createObjectNode(),
+                JSON.readTree(assertions), NOW);
+        when(repository.createRun(CONTEXT, command())).thenReturn(queued);
+        when(repository.findCase(CONTEXT, CASE)).thenReturn(Optional.of(evaluationCase));
+        when(assembler.assemble(any(), any(), any(), any())).thenReturn(evidence);
+        when(repository.updateRunStatus(any(), any(), any(), any(), any())).thenAnswer(invocation ->
+                new EvaluationRunRecord(EVAL, SUITE, CASE, TASK, EXECUTION, "v1", invocation.getArgument(2), NOW,
+                        invocation.getArgument(2) == EvaluationRunRecord.Status.RUNNING ? null : NOW, NOW));
+        when(repository.saveReport(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+        EvaluationService.EvaluationOutcome outcome = new EvaluationService(repository, assembler,
+                Clock.fixed(NOW, ZoneOffset.UTC)).evaluate(CONTEXT, command(), false);
+        return new Outcome(outcome.results(), outcome.report());
+    }
+
+    private static EvaluationRepository.CreateEvaluationRun command() {
+        return new EvaluationRepository.CreateEvaluationRun(EVAL, SUITE, CASE, TASK, EXECUTION, "v1", NOW);
+    }
+
+    private static EvidenceBundle bundle(String phase, String runStatus, EvidenceBundle.EvidenceCompleteness completeness,
+            List<TaskProcessEvent> events, List<TaskTreeNode> tree, List<EvidenceBundle.ArtifactRef> artifacts,
+            TaskResultManifest manifest) {
+        return new EvidenceBundle(TASK, EXECUTION, new EvidenceBundle.TaskSnapshot(TASK, phase, "agentscope", null),
+                new EvidenceBundle.RunSnapshot(runStatus, NOW, NOW), completeness, events, tree, List.of(), List.of(),
+                manifest, artifacts, List.of(), new EvidenceBundle.AgentMetadata("runtime", "model", "1"), List.of());
+    }
+
+    private static EvidenceBundle.EvidenceCompleteness complete() {
+        return new EvidenceBundle.EvidenceCompleteness("COMPLETE", 2, 1000);
+    }
+
+    private static TaskProcessEvent event(String type, String payload) {
+        return new TaskProcessEvent(UUID.randomUUID(), TASK, EXECUTION, 1, type, TaskEventVisibility.REQUESTER,
+                NOW, "correlation", payload, null);
+    }
+
+    private static UUID id(long value) { return new UUID(0, value); }
+    private record Outcome(List<EvaluationResultRecord> results, EvaluationReportRecord report) {
+        List<EvaluationResultRecord.Status> statuses() { return results.stream().map(EvaluationResultRecord::status).toList(); }
+    }
+}
