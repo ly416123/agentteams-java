@@ -115,10 +115,10 @@ public final class EvaluationService {
                 "task-events:" + bundle.executionRunId(), at);
         if (outcomes.isEmpty()) return inconclusive(runId, "required_tool:" + expected,
                 "tool completion outcome is unavailable", "task-events:" + bundle.executionRunId(), at);
-        if (outcomes.stream().anyMatch(Boolean.TRUE::equals)) return result(runId, "required_tool:" + expected,
-                true, "successful completion", "succeeded", "task-events:" + bundle.executionRunId(), at);
         if (outcomes.size() != calls.size()) return inconclusive(runId, "required_tool:" + expected,
                 "tool completion outcomes do not cover every call", "task-events:" + bundle.executionRunId(), at);
+        if (outcomes.stream().anyMatch(Boolean.TRUE::equals)) return result(runId, "required_tool:" + expected,
+                true, "successful completion", "succeeded", "task-events:" + bundle.executionRunId(), at);
         return result(runId, "required_tool:" + expected, false, "successful completion", "failed",
                 "task-events:" + bundle.executionRunId(), at);
     }

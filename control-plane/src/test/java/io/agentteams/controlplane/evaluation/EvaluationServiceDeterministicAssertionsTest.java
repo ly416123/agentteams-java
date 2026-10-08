@@ -68,7 +68,7 @@ class EvaluationServiceDeterministicAssertionsTest {
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
                         event("tool.called", "{\"tool\":\"web_search\",\"sequence\":1}"),
                         event("tool.called", "{\"tool\":\"web_search\",\"sequence\":3}"),
-                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":false,\"sequence\":2}")),
+                        event("tool.finished", "{\"tool\":\"web_search\",\"ok\":true,\"sequence\":2}")),
                         List.of(), List.of(), null));
         assertThat(partialOutcomes.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
     }
