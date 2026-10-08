@@ -18,6 +18,10 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 class ApiAuthenticationFilterTest {
+    private static final String TASK_MCP_TOKEN = "task-mcp-test-token";
+    private static final String TASK_ID = "11111111-1111-1111-1111-111111111111";
+    private static final String SUBTASK_ID = "22222222-2222-2222-2222-222222222222";
+
     @Test
     void rejectsApiRequestsWithoutBearerToken() throws Exception {
         IdentityTokenValidator validator = token -> Optional.empty();
@@ -29,6 +33,104 @@ class ApiAuthenticationFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("Bearer");
+    }
+
+    @Test
+    void acceptsTaskMcpTokenOnlyOnSubtaskAndOutputUploadRoutes() throws Exception {
+        ApiAuthenticationFilter filter = new ApiAuthenticationFilter(token -> Optional.empty(), null,
+                TASK_MCP_TOKEN);
+        MockHttpServletRequest plan = new MockHttpServletRequest("PUT",
+                "/api/v1/tasks/" + TASK_ID + "/subtasks");
+        plan.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse planResponse = new MockHttpServletResponse();
+
+        filter.doFilter(plan, planResponse, new MockFilterChain());
+
+        assertThat(planResponse.getStatus()).isEqualTo(200);
+        assertThat(PrincipalContext.current()).isEmpty();
+
+        MockHttpServletRequest status = new MockHttpServletRequest("PUT",
+                "/api/v1/tasks/" + TASK_ID + "/subtasks/" + SUBTASK_ID + "/status");
+        status.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse statusResponse = new MockHttpServletResponse();
+
+        filter.doFilter(status, statusResponse, new MockFilterChain());
+
+        assertThat(statusResponse.getStatus()).isEqualTo(200);
+
+        MockHttpServletRequest outputUpload = new MockHttpServletRequest("POST",
+                "/api/v1/tasks/" + TASK_ID + "/files");
+        outputUpload.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse uploadResponse = new MockHttpServletResponse();
+
+        filter.doFilter(outputUpload, uploadResponse, new MockFilterChain());
+
+        assertThat(uploadResponse.getStatus()).isEqualTo(200);
+        assertThat(PrincipalContext.current()).isEmpty();
+
+        MockHttpServletRequest sourceCapture = new MockHttpServletRequest("POST",
+                "/api/v1/tasks/" + TASK_ID + "/source-evidence");
+        sourceCapture.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse sourceCaptureResponse = new MockHttpServletResponse();
+
+        filter.doFilter(sourceCapture, sourceCaptureResponse, new MockFilterChain());
+
+        assertThat(sourceCaptureResponse.getStatus()).isEqualTo(200);
+        assertThat(PrincipalContext.current()).isEmpty();
+    }
+
+    @Test
+    void rejectsTaskMcpTokenOnOtherRoutesOrWithWrongValue() throws Exception {
+        ApiAuthenticationFilter filter = new ApiAuthenticationFilter(token -> Optional.empty(), null,
+                TASK_MCP_TOKEN);
+        MockHttpServletRequest wrongRoute = new MockHttpServletRequest("GET", "/api/v1/tasks/" + TASK_ID);
+        wrongRoute.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse wrongRouteResponse = new MockHttpServletResponse();
+
+        filter.doFilter(wrongRoute, wrongRouteResponse, new MockFilterChain());
+
+        assertThat(wrongRouteResponse.getStatus()).isEqualTo(401);
+
+        MockHttpServletRequest fileList = new MockHttpServletRequest("GET",
+                "/api/v1/tasks/" + TASK_ID + "/files");
+        fileList.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse fileListResponse = new MockHttpServletResponse();
+
+        filter.doFilter(fileList, fileListResponse, new MockFilterChain());
+
+        assertThat(fileListResponse.getStatus()).isEqualTo(401);
+
+        MockHttpServletRequest attachmentUpload = new MockHttpServletRequest("POST",
+                "/api/v1/tasks/" + TASK_ID + "/attachments");
+        attachmentUpload.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse attachmentResponse = new MockHttpServletResponse();
+
+        filter.doFilter(attachmentUpload, attachmentResponse, new MockFilterChain());
+
+        assertThat(attachmentResponse.getStatus()).isEqualTo(401);
+
+        MockHttpServletRequest wrongToken = new MockHttpServletRequest("GET",
+                "/api/v1/tasks/" + TASK_ID + "/subtasks");
+        wrongToken.addHeader("Authorization", "Bearer wrong-token");
+        MockHttpServletResponse wrongTokenResponse = new MockHttpServletResponse();
+
+        filter.doFilter(wrongToken, wrongTokenResponse, new MockFilterChain());
+
+        assertThat(wrongTokenResponse.getStatus()).isEqualTo(401);
+
+        MockHttpServletRequest sourceRead = new MockHttpServletRequest("GET",
+                "/api/v1/tasks/" + TASK_ID + "/source-evidence");
+        sourceRead.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse sourceReadResponse = new MockHttpServletResponse();
+        filter.doFilter(sourceRead, sourceReadResponse, new MockFilterChain());
+        assertThat(sourceReadResponse.getStatus()).isEqualTo(401);
+
+        MockHttpServletRequest malformedSourceCapture = new MockHttpServletRequest("POST",
+                "/api/v1/tasks/not-a-uuid/source-evidence");
+        malformedSourceCapture.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
+        MockHttpServletResponse malformedCaptureResponse = new MockHttpServletResponse();
+        filter.doFilter(malformedSourceCapture, malformedCaptureResponse, new MockFilterChain());
+        assertThat(malformedCaptureResponse.getStatus()).isEqualTo(401);
     }
 
     @Test

@@ -81,7 +81,6 @@ import io.agentteams.controlplane.security.ValidationOnlySecretResolver;
 import io.agentteams.controlplane.security.CredentialSecretProvider;
 import io.agentteams.controlplane.security.UnavailableCredentialSecretProvider;
 import io.agentteams.controlplane.security.ExecutionContextResolver;
-import io.agentteams.controlplane.security.JdbcExecutionContextDirectory;
 import io.agentteams.controlplane.service.ModelProviderConnectionProbe;
 import io.agentteams.controlplane.service.ValidationOnlyModelProviderConnectionProbe;
 import io.agentteams.controlplane.dashboard.DashboardAlertDeliveryService;
@@ -180,10 +179,11 @@ public class ControlPlaneConfiguration {
     @Bean
     @ConditionalOnProperty(name = "agentteams.security.api.enabled", havingValue = "true")
     FilterRegistrationBean<ApiAuthenticationFilter> apiAuthenticationFilter(IdentityTokenValidator validator,
-            io.agentteams.controlplane.project.ProjectRepository projects) {
+            io.agentteams.controlplane.project.ProjectRepository projects,
+            @Value("${AGENTTEAMS_TASK_MCP_TOKEN:}") String taskMcpToken) {
         FilterRegistrationBean<ApiAuthenticationFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new ApiAuthenticationFilter(validator,
-                new io.agentteams.controlplane.security.ProjectScopeResolver(projects)));
+                new io.agentteams.controlplane.security.ProjectScopeResolver(projects), taskMcpToken));
         registration.addUrlPatterns("/api/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
         return registration;
@@ -201,7 +201,7 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
-    ExecutionContextResolver executionContextResolver(JdbcExecutionContextDirectory directory) {
+    ExecutionContextResolver executionContextResolver(ExecutionContextResolver.ScopeDirectory directory) {
         return new ExecutionContextResolver(directory);
     }
 
