@@ -107,6 +107,66 @@ class JdbcTaskTreeRepositoryTest {
                 .containsExactly(taskId);
     }
 
+    @Test
+    void findLatestForParentUsesNewestRunThatContainsChildren() {
+        UUID taskId = UUID.randomUUID();
+        UUID firstRunId = UUID.randomUUID();
+        UUID aggregationRunId = UUID.randomUUID();
+        UUID childId = UUID.randomUUID();
+        runs.ensureRun(CONTEXT, taskId, firstRunId, "RUNNING", NOW);
+        upsert(childId, taskId, firstRunId, 1);
+        runs.ensureRun(CONTEXT, taskId, aggregationRunId, "RUNNING", NOW.plusSeconds(1));
+        repository.upsert(CONTEXT, aggregationRunId,
+                new TaskTreeNode(taskId, null, 0, "PENDING", List.of(), NOW.plusSeconds(1)));
+
+        assertThat(repository.findLatestForParent(CONTEXT, taskId))
+                .extracting(TaskTreeNode::taskId)
+                .containsExactly(childId);
+    }
+
+    @Test
+    void findUsesTaskPhaseAsTheCurrentSubtaskStatus() {
+        UUID taskId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID childId = UUID.randomUUID();
+        runs.ensureRun(CONTEXT, taskId, runId, "SUCCEEDED", NOW);
+        upsert(childId, taskId, runId, 1);
+        insertTask(taskId, "SUCCEEDED", "{}", null);
+        insertTask(childId, "SUCCEEDED", "{}", taskId);
+
+        assertThat(repository.find(CONTEXT, runId)).singleElement()
+                .extracting(TaskTreeNode::status).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void findProjectsOnlyDependenciesWhoseResultsWereHandedToTheSubtask() {
+        UUID taskId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID dependencyId = UUID.randomUUID();
+        UUID childId = UUID.randomUUID();
+        runs.ensureRun(CONTEXT, taskId, runId, "RUNNING", NOW);
+        String dependencyResults = "{\"dependencyIds\":[\"" + dependencyId + "\"],"
+                + "\"inputJson\":{\"dependencyResults\":[{\"taskId\":\"" + dependencyId
+                + "\",\"result\":\"verified output\"}]}}";
+        insertTask(taskId, "RUNNING", "{}", null);
+        insertTask(dependencyId, "SUCCEEDED", "{}", taskId);
+        insertTask(childId, "QUEUED", dependencyResults, taskId);
+        repository.upsert(CONTEXT, runId,
+                new TaskTreeNode(childId, taskId, 1, "PENDING", List.of(dependencyId), NOW));
+
+        TaskTreeNode projected = repository.find(CONTEXT, runId).getFirst();
+
+        assertThat(projected.dependencyResultRefs())
+                .containsEntry(dependencyId, "task-result:" + dependencyId);
+    }
+
+    private void insertTask(UUID id, String phase, String spec, UUID parentId) {
+        jdbc.update("""
+                INSERT INTO tasks (id, title, phase, spec, actor, source, parent_task_id, created_at, updated_at)
+                VALUES (?, 'task', ?, ?::jsonb, 'test', 'test', ?, ?, ?)
+                """, id, phase, spec, parentId, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW));
+    }
+
     private void upsert(UUID subtaskId, UUID taskId, UUID runId, int sequence) {
         repository.upsert(CONTEXT, runId,
                 new TaskTreeNode(subtaskId, taskId, sequence, "PENDING", List.of(), NOW));

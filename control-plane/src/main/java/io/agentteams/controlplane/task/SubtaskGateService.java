@@ -86,14 +86,41 @@ public class SubtaskGateService {
                 if (!ready) {
                     continue;
                 }
-                TaskRecord updated = tx.tasks().updatePhase(child.id(), TaskPhase.QUEUED,
-                        child.version(), at);
+                TaskRecord updated = tx.tasks().updateState(TeamOrchestrationService.copy(child,
+                        withDependencyResults(child, children, dependencies), at, child.version(), TaskPhase.QUEUED),
+                        child.version());
                 FoundationPersistenceService.appendEvent(tx, "task", child.id(), "TaskPhaseChanged",
                         idPayload(child.id()), at, updated.version());
                 released++;
             }
             return released;
         });
+    }
+
+    private static String withDependencyResults(TaskRecord child, List<TaskRecord> children, List<UUID> dependencies) {
+        if (dependencies.isEmpty()) return child.specJson();
+        try {
+            JsonNode parsed = JSON.readTree(child.specJson());
+            ObjectNode root = parsed != null && parsed.isObject()
+                    ? (ObjectNode) parsed : JSON.createObjectNode();
+            ObjectNode input = root.path("inputJson").isObject()
+                    ? ((ObjectNode) root.path("inputJson")).deepCopy() : JSON.createObjectNode();
+            ArrayNode results = input.putArray("dependencyResults");
+            for (UUID dependencyId : dependencies) {
+                children.stream().filter(candidate -> candidate.id().equals(dependencyId)).findFirst()
+                        .ifPresent(dependency -> {
+                            String result = childResult(dependency.specJson());
+                            if (!result.isBlank()) {
+                                results.addObject().put("taskId", dependency.id().toString())
+                                        .put("title", dependency.title()).put("result", result);
+                            }
+                        });
+            }
+            root.set("inputJson", input);
+            return root.toString();
+        } catch (Exception error) {
+            throw new IllegalArgumentException("child task spec is not valid JSON", error);
+        }
     }
 
     /** 子任务全部 SUCCEEDED 且主任务处于等待态 → 系统转 QUEUED 进入汇总轮。 */
@@ -145,6 +172,17 @@ public class SubtaskGateService {
                     ? (ObjectNode) parsed : JSON.createObjectNode();
             ObjectNode input = root.path("inputJson").isObject()
                     ? ((ObjectNode) root.path("inputJson")).deepCopy() : JSON.createObjectNode();
+            // Tool requirements are attempt-scoped: never carry plan tools into
+            // aggregation, but allow a task to declare a narrower aggregate tool set.
+            JsonNode aggregatePrompt = input.remove("aggregatePrompt");
+            if (aggregatePrompt != null && aggregatePrompt.isTextual() && !aggregatePrompt.asText().isBlank()) {
+                input.put("prompt", aggregatePrompt.asText());
+            }
+            JsonNode aggregateTools = input.remove("aggregateMcpTools");
+            input.remove("requiredMcpTools");
+            if (aggregateTools != null && aggregateTools.isArray() && !aggregateTools.isEmpty()) {
+                input.set("requiredMcpTools", aggregateTools.deepCopy());
+            }
             ArrayNode results = input.putArray("childResults");
             for (TaskRecord child : children) {
                 ObjectNode item = results.addObject().put("taskId", child.id().toString())

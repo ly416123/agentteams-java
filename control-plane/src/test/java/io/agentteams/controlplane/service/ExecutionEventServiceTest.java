@@ -129,8 +129,55 @@ class ExecutionEventServiceTest {
             assertThat(lease.status()).isEqualTo("RELEASED");
             assertThat(lease.releasedAt()).isEqualTo(completedAt);
         });
+        var completedAssignment = persistence.inTransaction(tx -> tx.findAssignmentByAttemptId(assignment.attempt().id()));
+        assertThat(completedAssignment).get().satisfies(value -> {
+            assertThat(value.phase()).isEqualTo(TaskPhase.CANCELLED);
+            assertThat(value.releasedAt()).isEqualTo(completedAt);
+        });
         assertThat(persistedArtifact).contains(artifact);
         assertThat(artifactCount).isEqualTo(1);
+    }
+
+    @Test
+    void terminalEventRebasesAfterAConcurrentLeaseRenewal() {
+        UUID taskId = UUID.randomUUID();
+        AgentRecord agent = AgentRecord.create(UUID.randomUUID(), "rebase-agent", AgentPhase.READY,
+                "fake", "{\"python\":true}", START);
+        TaskRecord queued = new TaskRecord(taskId, "rebase-terminal", "terminal version race", TaskPhase.QUEUED, 0,
+                "{\"requiredCapabilities\":[\"python\"]}", "test", "test", null, null,
+                START, START, 0);
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            tx.tasks().insert(queued);
+            tx.insertResourceScope("WORKER", agent.id(), "test", "test", "test", START);
+            tx.insertResourceScope("TASK", taskId, "test", "test", "test", START);
+            return null;
+        });
+
+        TaskAssignmentService.AssignmentResult assignment =
+                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, START);
+        ExecutionEventService service = new ExecutionEventService(persistence);
+        TaskTransitionResult accepted = service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), assignment.task().version(), TaskPhase.ACCEPTED,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(1),
+                agent.id().toString(), "fake"), List.of());
+        TaskTransitionResult running = service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), accepted.task().version(), TaskPhase.RUNNING,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(2),
+                agent.id().toString(), "fake"), List.of());
+
+        service.renewLease(taskId, new io.agentteams.domain.task.LeaseRenewalCommand(
+                UUID.randomUUID(), running.task().version(), assignment.attempt().id(), assignment.lease().id(),
+                START.plusSeconds(3), START.plusSeconds(120), agent.id().toString(), "fake"));
+
+        TaskTransitionResult completion = service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), running.task().version(), TaskPhase.SUCCEEDED,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(4),
+                agent.id().toString(), "fake"), List.of());
+
+        assertThat(completion).isInstanceOf(AppliedTransition.class);
+        assertThat(completion.task().phase()).isEqualTo(TaskPhase.SUCCEEDED);
+        assertThat(completion.task().version()).isEqualTo(running.task().version() + 2);
     }
 
     @Test

@@ -167,7 +167,10 @@ public class SubtaskService {
         if (runId.isEmpty() || context.isEmpty()) {
             return List.of();
         }
-        return tree.find(context.get(), runId.get());
+        List<TaskTreeNode> currentRun = tree.find(context.get(), runId.get()).stream()
+                .filter(node -> taskId.equals(node.parentTaskId()))
+                .toList();
+        return currentRun.isEmpty() ? tree.findLatestForParent(context.get(), taskId) : currentRun;
     }
 
     private ExecutionContext requireTaskContext(UUID taskId) {

@@ -36,4 +36,22 @@ class TeamPlanParserTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exactly two");
     }
+
+    @Test
+    void parsesJsonCodeBlockAfterLeaderExplanation() {
+        String output = """
+                计划如下，两个子任务相互独立：
+
+                ```json
+                {"plan":[
+                  {"sequence":1,"title":"健康检查","dependsOn":[]},
+                  {"sequence":2,"title":"背景整理","dependsOn":[]}
+                ]}
+                ```
+                """;
+
+        assertThat(TeamPlanParser.parse(PARENT_ID, output))
+                .extracting(SubtaskService.SubtaskSpec::title)
+                .containsExactly("健康检查", "背景整理");
+    }
 }

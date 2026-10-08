@@ -126,12 +126,17 @@ public class TaskRepository implements ConversationTaskRepository {
     }
 
     public List<UUID> findIdsByPhase(TaskPhase phase, int limit) {
-        return findIdsByPhase(phase, limit, null);
+        return findIdsByPhase(phase, limit, null, 0);
     }
 
     public List<UUID> findIdsByPhase(TaskPhase phase, int limit, Instant now) {
+        return findIdsByPhase(phase, limit, now, 0);
+    }
+
+    public List<UUID> findIdsByPhase(TaskPhase phase, int limit, Instant now, long offset) {
         if (phase == null) throw new IllegalArgumentException("phase must not be null");
         if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
+        if (offset < 0) throw new IllegalArgumentException("offset must not be negative");
         String recoveryFilter = now == null ? "" : """
                 AND NOT EXISTS (SELECT 1 FROM task_recovery_states recovery
                                  WHERE recovery.task_id = tasks.id
@@ -144,7 +149,8 @@ public class TaskRepository implements ConversationTaskRepository {
                  WHERE phase = ?
                  ORDER BY priority DESC, created_at ASC, id ASC
                  LIMIT ?
-                """, (rs, row) -> rs.getObject("id", UUID.class), phase.name(), limit);
+                 OFFSET ?
+                """, (rs, row) -> rs.getObject("id", UUID.class), phase.name(), limit, offset);
         }
         return jdbc.query("""
                 SELECT tasks.id FROM tasks
@@ -152,7 +158,9 @@ public class TaskRepository implements ConversationTaskRepository {
                 """ + recoveryFilter + """
                  ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC
                  LIMIT ?
-                """, (rs, row) -> rs.getObject("id", UUID.class), phase.name(), JdbcSupport.timestamp(now), limit);
+                 OFFSET ?
+                """, (rs, row) -> rs.getObject("id", UUID.class), phase.name(), JdbcSupport.timestamp(now),
+                limit, offset);
     }
 
     public TaskRecord updateState(TaskRecord next, long expectedVersion) {

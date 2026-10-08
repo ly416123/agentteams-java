@@ -149,6 +149,18 @@ class SubtaskServiceTest {
     }
 
     @Test
+    void listProjectionFallsBackWhenLatestRunHasNoChildProjection() {
+        UUID subtaskId = UUID.randomUUID();
+        TaskTreeNode rootOnly = new TaskTreeNode(taskId, null, 0, "PENDING", List.of(), NOW);
+        TaskTreeNode child = new TaskTreeNode(subtaskId, taskId, 1, "PENDING", List.of(), NOW);
+        when(tree.find(CONTEXT, runId)).thenReturn(List.of(rootOnly));
+        when(tree.findLatestForParent(CONTEXT, taskId)).thenReturn(List.of(child));
+
+        assertThat(service.listProjection(taskId)).containsExactly(child);
+        verify(tree).findLatestForParent(CONTEXT, taskId);
+    }
+
+    @Test
     void updateStatusUpsertsNodeAndEmitsTypedEvent() {
         UUID subtaskId = UUID.randomUUID();
         TaskTreeNode pending = new TaskTreeNode(subtaskId, taskId, 1, "PENDING", List.of(), NOW);

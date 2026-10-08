@@ -245,8 +245,13 @@ public final class TaskAssignmentService {
     }
 
     public java.util.List<UUID> queuedTaskIds(int limit, Instant now) {
+        return queuedTaskIds(limit, now, 0);
+    }
+
+    public java.util.List<UUID> queuedTaskIds(int limit, Instant now, long offset) {
         if (limit <= 0 || limit > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
-        return persistence.inTransaction(tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, limit, now));
+        if (offset < 0) throw new IllegalArgumentException("offset must not be negative");
+        return persistence.inTransaction(tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, limit, now, offset));
     }
 
     public static String taskAssignedPayload(TaskRecord task, AgentRecord agent, TaskAttemptRecord attempt,

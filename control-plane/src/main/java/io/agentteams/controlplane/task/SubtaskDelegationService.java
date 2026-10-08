@@ -1,5 +1,6 @@
 package io.agentteams.controlplane.task;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -183,8 +184,14 @@ public class SubtaskDelegationService {
             ObjectNode root = (ObjectNode) JSON.readTree(parentSpecJson);
             root.remove("approvalGranted");
             root.remove("cancelReason");
+            JsonNode parentInput = root.path("inputJson");
+            JsonNode executorMcpTools = parentInput.path("executorMcpTools");
             root.remove("inputJson");
-            root.putObject("inputJson").put("prompt", spec.title());
+            ObjectNode childInput = root.putObject("inputJson");
+            childInput.put("prompt", spec.title());
+            if (executorMcpTools.isArray() && !executorMcpTools.isEmpty()) {
+                childInput.set("requiredMcpTools", executorMcpTools.deepCopy());
+            }
             if (spec.requiredCapabilities().isEmpty()) {
                 root.remove("requiredCapabilities");
             } else {

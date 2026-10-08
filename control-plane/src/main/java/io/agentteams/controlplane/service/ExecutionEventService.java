@@ -10,9 +10,11 @@ import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.domain.task.AppliedTransition;
 import io.agentteams.domain.task.DuplicateTransition;
+import io.agentteams.domain.task.StaleTaskVersionException;
 import io.agentteams.domain.task.Task;
 import io.agentteams.domain.task.TaskAttempt;
 import io.agentteams.domain.task.LeaseRenewalCommand;
+import io.agentteams.domain.task.TaskPhase;
 import io.agentteams.domain.task.TaskTransitionCommand;
 import io.agentteams.domain.task.TaskTransitionResult;
 import io.agentteams.domain.task.TaskTransitionService;
@@ -57,7 +59,7 @@ public final class ExecutionEventService {
         Objects.requireNonNull(artifacts, "artifacts");
         TaskTransitionResult result = persistence.inTransaction(tx -> applyInTransaction(tx, taskId, command, artifacts));
         if (result instanceof AppliedTransition applied && applied.task().phase().terminal()) {
-            if (applied.task().phase() == io.agentteams.domain.task.TaskPhase.SUCCEEDED) {
+            if (applied.task().phase() == TaskPhase.SUCCEEDED) {
                 metrics.taskCompleted();
             } else {
                 metrics.taskFailed();
@@ -155,7 +157,18 @@ public final class ExecutionEventService {
             return new DuplicateTransition(command.eventId(), domain);
         }
 
-        TaskTransitionResult result = transitions.transition(domain, command);
+        TaskTransitionResult result;
+        try {
+            result = transitions.transition(domain, command);
+        } catch (StaleTaskVersionException stale) {
+            if (!whenTerminalEventCanBeRebased(current, currentAttempt, command)) {
+                throw stale;
+            }
+            // Heartbeats are legitimate task-version advances but are not part of
+            // the runtime's terminal result. Rebase only a terminal event for the
+            // same still-active attempt; never revive a replaced or terminal task.
+            result = transitions.transition(domain, rebaseTerminalCommand(command, current.version()));
+        }
         if (result instanceof DuplicateTransition) {
             return result;
         }
@@ -175,6 +188,13 @@ public final class ExecutionEventService {
         }
         if (next.phase().terminal()) {
             requestSandboxTermination(tx, next.attempt(), next.updatedAt());
+            if (next.attempt() != null) {
+                tx.findAssignmentByAttemptId(next.attempt().id()).ifPresent(assignment -> {
+                    if (assignment.releasedAt() == null) {
+                        tx.releaseAssignment(assignment.id(), next.updatedAt(), assignment.version());
+                    }
+                });
+            }
             teamId(current).ifPresent(team -> tx.teams().releaseTaskAssignment(team, taskId, next.updatedAt()));
             if (next.attempt() != null) {
                 var lease = tx.agentLeases().findById(next.attempt().leaseId())
@@ -198,6 +218,23 @@ public final class ExecutionEventService {
         FoundationPersistenceService.appendEvent(tx, command.eventId(), "task", taskId, "TaskTransitionApplied",
                 transitionPayload(command, applied), command.occurredAt(), next.version());
         return result;
+    }
+
+    private static boolean whenTerminalEventCanBeRebased(TaskRecord current,
+            TaskAttemptRecord currentAttempt, TaskTransitionCommand command) {
+        return command.targetPhase().terminal()
+                && current.phase() == TaskPhase.RUNNING
+                && currentAttempt != null
+                && currentAttempt.id().equals(command.attemptId())
+                && currentAttempt.leaseId().equals(command.leaseId())
+                && currentAttempt.phase() == TaskPhase.RUNNING
+                && currentAttempt.completedAt() == null;
+    }
+
+    private static TaskTransitionCommand rebaseTerminalCommand(TaskTransitionCommand command, long version) {
+        return new TaskTransitionCommand(command.eventId(), version, command.targetPhase(), command.attemptId(),
+                command.leaseId(), command.occurredAt(), command.leaseExpiresAt(), command.actor(),
+                command.source(), command.failure());
     }
 
     private static void requestSandboxTermination(FoundationTransaction tx, TaskAttempt attempt, java.time.Instant at) {

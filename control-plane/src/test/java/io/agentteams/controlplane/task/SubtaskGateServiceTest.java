@@ -92,6 +92,29 @@ class SubtaskGateServiceTest {
     }
 
     @Test
+    void injectsSucceededDependencyResultsBeforeReleasingChild() throws Exception {
+        UUID taskId = createMainTask();
+        UUID first = UUID.randomUUID();
+        UUID dependent = UUID.randomUUID();
+        delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(first, "Research", 1, List.of()),
+                new SubtaskService.SubtaskSpec(dependent, "Summarize research", 2, List.of(first))));
+        TeamOrchestrationService orchestration = new TeamOrchestrationService(
+                persistence, org.mockito.Mockito.mock(SubtaskService.class), Clock.systemUTC());
+        orchestration.recordSubtaskResult(first, "{\"findings\":[\"W3C finding\"]}", Instant.now());
+        setPhase(first, TaskPhase.SUCCEEDED);
+
+        assertThat(gate.releaseReadyChildren(taskId)).isEqualTo(1);
+        TaskRecord released = persistence.findTask(dependent).orElseThrow();
+        assertThat(released.phase()).isEqualTo(TaskPhase.QUEUED);
+        var input = new com.fasterxml.jackson.databind.ObjectMapper().readTree(released.specJson()).path("inputJson");
+        assertThat(input.path("prompt").asText()).isEqualTo("Summarize research");
+        assertThat(input.path("dependencyResults").get(0).path("taskId").asText()).isEqualTo(first.toString());
+        assertThat(input.path("dependencyResults").get(0).path("result").asText())
+                .isEqualTo("{\"findings\":[\"W3C finding\"]}");
+    }
+
+    @Test
     void aggregatesParentOnlyAfterAllChildrenSucceeded() {
         UUID taskId = createMainTask();
         UUID a = UUID.randomUUID();
@@ -168,6 +191,32 @@ class SubtaskGateServiceTest {
 
         assertThat(gate.releaseParentForAggregation(taskId)).isTrue();
         assertThat(persistence.findTask(taskId).orElseThrow().phase()).isEqualTo(TaskPhase.QUEUED);
+    }
+
+    @Test
+    void teamAggregationRemovesPlanningToolRequirementFromAggregateInput() {
+        TaskRecord created = persistence.createTask(new CreateTaskCommand(
+                "key-" + UUID.randomUUID(), "team-parent-with-tool", "description", "alice", "test",
+                "{\"teamId\":\"team-1\",\"teamRole\":\"LEADER\","
+                        + "\"orchestrationPhase\":\"PLAN\","
+                        + "\"inputJson\":{\"prompt\":\"plan\","
+                        + "\"aggregatePrompt\":\"create pdf report\","
+                        + "\"requiredMcpTools\":[\"plan_subtasks\"],"
+                        + "\"aggregateMcpTools\":[\"create_task_pdf_artifact\"]}}",
+                Instant.now()));
+        persistence.updateTaskPhase(created.id(), TaskPhase.QUEUED, created.version(), Instant.now());
+        UUID child = UUID.randomUUID();
+        delegation.plan(created.id(), List.of(
+                new SubtaskService.SubtaskSpec(child, "A", 1, List.of())));
+        setPhase(child, TaskPhase.SUCCEEDED);
+        setPhase(created.id(), TaskPhase.WAITING_SUBTASKS);
+
+        assertThat(gate.releaseParentForAggregation(created.id())).isTrue();
+        String inputJson = persistence.findTask(created.id()).orElseThrow().specJson();
+        assertThat(inputJson).contains("\"orchestrationPhase\": \"AGGREGATE\"");
+        assertThat(inputJson).contains("\"prompt\": \"create pdf report\"");
+        assertThat(inputJson).contains("\"requiredMcpTools\": [\"create_task_pdf_artifact\"]");
+        assertThat(inputJson).doesNotContain("aggregateMcpTools", "aggregatePrompt", "plan_subtasks");
     }
 
     @Test

@@ -79,7 +79,7 @@ public final class TeamPlanParser {
     private static JsonNode parseObject(String value) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException("Leader plan is empty");
         try {
-            String normalized = stripCodeFence(value);
+            String normalized = extractJsonPayload(value);
             JsonNode root = JSON.readTree(normalized);
             if (root == null || !root.isObject()) throw new IllegalArgumentException("Leader plan must be a JSON object");
             return root;
@@ -90,12 +90,26 @@ public final class TeamPlanParser {
         }
     }
 
-    private static String stripCodeFence(String value) {
+    /**
+     * Models commonly wrap a valid plan in a short explanation and a fenced JSON
+     * block. Keep the persisted plan contract JSON-only while accepting that
+     * presentation form at the boundary.
+     */
+    private static String extractJsonPayload(String value) {
         String normalized = value.trim();
-        if (!normalized.startsWith("```")) return normalized;
-        int newline = normalized.indexOf('\n');
-        if (newline < 0) return normalized;
-        String body = normalized.substring(newline + 1);
-        return body.endsWith("```") ? body.substring(0, body.length() - 3).trim() : body.trim();
+        int fenceStart = normalized.indexOf("```");
+        if (fenceStart >= 0) {
+            int contentStart = normalized.indexOf('\n', fenceStart);
+            int fenceEnd = contentStart < 0 ? -1 : normalized.indexOf("```", contentStart + 1);
+            if (fenceEnd > contentStart) {
+                return normalized.substring(contentStart + 1, fenceEnd).trim();
+            }
+        }
+        int objectStart = normalized.indexOf('{');
+        int objectEnd = normalized.lastIndexOf('}');
+        if (objectStart >= 0 && objectEnd > objectStart) {
+            return normalized.substring(objectStart, objectEnd + 1).trim();
+        }
+        return normalized;
     }
 }

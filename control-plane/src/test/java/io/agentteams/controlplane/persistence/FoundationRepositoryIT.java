@@ -78,6 +78,32 @@ class FoundationRepositoryIT {
     }
 
     @Test
+    void pagesQueuedTaskIdsWithAnOffset() {
+        Instant now = Instant.parse("2026-10-07T00:00:00Z");
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID third = UUID.randomUUID();
+        persistence.inTransaction(tx -> {
+            tx.tasks().insert(queuedTask(first, "first", now));
+            tx.tasks().insert(queuedTask(second, "second", now.plusSeconds(1)));
+            tx.tasks().insert(queuedTask(third, "third", now.plusSeconds(2)));
+            return null;
+        });
+
+        List<UUID> firstPage = persistence.inTransaction(
+                tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, 2, now.plusSeconds(3), 0));
+        List<UUID> secondPage = persistence.inTransaction(
+                tx -> tx.tasks().findIdsByPhase(TaskPhase.QUEUED, 2, now.plusSeconds(3), 2));
+        assertThat(firstPage).containsExactly(first, second);
+        assertThat(secondPage).containsExactly(third);
+    }
+
+    private static TaskRecord queuedTask(UUID id, String title, Instant at) {
+        return new TaskRecord(id, title, "description", TaskPhase.QUEUED, 0, "{}", "actor", "test",
+                null, null, at, at, 0, "AGENTSCOPE");
+    }
+
+    @Test
     void bridgesLegacyTenantScopeToUnifiedOrganizationMemberships() {
         Flyway.configure().locations("filesystem:src/main/resources/db/migration")
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())

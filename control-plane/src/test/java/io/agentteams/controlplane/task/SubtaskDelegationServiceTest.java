@@ -60,7 +60,8 @@ class SubtaskDelegationServiceTest {
     @Test
     void planCreatesFirstClassSubtaskRows() throws Exception {
         UUID taskId = createMainTask(
-                "{\"scope\":\"tenant-a\",\"inputJson\":{\"prompt\":\"PARENT_PROMPT_MARKER\"}}");
+                "{\"scope\":\"tenant-a\",\"inputJson\":{\"prompt\":\"PARENT_PROMPT_MARKER\","
+                        + "\"executorMcpTools\":[\"web_search\",\"load_skill_through_path\"]}}");
         List<SubtaskDelegationService.PlannedSubtask> nodes = delegation.plan(taskId, List.of(
                 new SubtaskService.SubtaskSpec(UUID.randomUUID(), "抓取", 1, List.of(), List.of("web")),
                 new SubtaskService.SubtaskSpec(UUID.randomUUID(), "摘要", 2, List.of(), List.of()))).planned();
@@ -82,6 +83,9 @@ class SubtaskDelegationServiceTest {
         assertThat(new ObjectMapper()
                 .readTree(child.specJson()).path("inputJson").path("prompt").asText())
                 .isEqualTo("抓取");
+        assertThat(new ObjectMapper().readTree(child.specJson())
+                .path("inputJson").path("requiredMcpTools").toString())
+                .isEqualTo("[\"web_search\",\"load_skill_through_path\"]");
         assertThat(child.specJson()).doesNotContain("PARENT_PROMPT_MARKER");
     }
 

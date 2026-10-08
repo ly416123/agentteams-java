@@ -23,6 +23,7 @@ public final class TaskAssignmentScheduler {
     private final String owner;
     private final Duration leaseDuration;
     private final int batchSize;
+    private long queuedTaskOffset;
 
     public TaskAssignmentScheduler(TaskAssignmentService assignments, SubtaskGateService gate,
             SchedulerLeaseService schedulerLease,
@@ -66,7 +67,8 @@ public final class TaskAssignmentScheduler {
             }
             int assigned = 0;
             int unavailable = 0;
-            for (UUID taskId : assignments.queuedTaskIds(batchSize, now)) {
+            java.util.List<UUID> queuedTaskIds = assignments.queuedTaskIds(batchSize, now, queuedTaskOffset);
+            for (UUID taskId : queuedTaskIds) {
                 try {
                     assignments.queueReadyTask(taskId, clock.instant());
                     assigned++;
@@ -79,6 +81,9 @@ public final class TaskAssignmentScheduler {
                             invalidTask);
                 }
             }
+            // Keep scanning past an older page when its tasks have no eligible agent. Without
+            // rotation, the first batch can remain QUEUED forever and starve later arrivals.
+            queuedTaskOffset = queuedTaskIds.size() < batchSize ? 0 : queuedTaskOffset + queuedTaskIds.size();
             return new RunResult(recovered, assigned, unavailable, gated);
         }).valueOr(new RunResult(0, 0, 0, 0));
     }
