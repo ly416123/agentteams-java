@@ -102,7 +102,7 @@ class EvaluationServiceTest {
         EvidenceBundle.ArtifactRef artifact = new EvidenceBundle.ArtifactRef("result.json", storageRef,
                 "application/json", 12, "a".repeat(64));
         TaskResultManifest manifest = new TaskResultManifest(TASK_ID, EXECUTION_RUN_ID, "SUCCEEDED", "done",
-                List.of(new TaskResultManifest.ArtifactMetadata("result.json", "artifact:abc", "application/json",
+                List.of(new TaskResultManifest.ArtifactMetadata("result.json", storageRef, "application/json",
                         12, "a".repeat(64), 1, "FINAL", TaskEventVisibility.REQUESTER)));
         bundle = new EvidenceBundle(bundle.taskId(), bundle.executionRunId(), bundle.taskSnapshot(), bundle.runSnapshot(),
                 bundle.evidenceCompleteness(), bundle.taskEvents(), bundle.taskTree(), bundle.decisions(),
