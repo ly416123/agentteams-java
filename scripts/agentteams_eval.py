@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -385,13 +387,15 @@ def _dependency_handoff(tree: Any) -> tuple[bool | None, Any]:
         for dependency in dependencies:
             dep_id = str(dependency.get("taskId", dependency.get("id", ""))) if isinstance(dependency, Mapping) else str(dependency)
             ref = refs.get(dep_id) if isinstance(refs, Mapping) else None
-            if not isinstance(ref, str) or not ref or "?" in ref or "x-amz-" in ref.lower():
+            if not isinstance(ref, str) or not ref:
                 return None, {"missingReferenceFor": dep_id}
+            if not re.fullmatch(r"task-result:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", ref) or ref != f"task-result:{dep_id}":
+                return False, {"invalidReferenceFor": dep_id}
             references.append(f"dependency-result:{dep_id}")
     return (True, references) if saw_dependency else (None, None)
 
 
-def _pdf_check(observation: Mapping[str, Any]) -> tuple[bool | None, str, Any]:
+def _pdf_check(observation: Mapping[str, Any], assertion: Mapping[str, Any]) -> tuple[bool | None, str, Any]:
     result = observation.get("result")
     if not isinstance(result, Mapping):
         return None, "result manifest is unavailable", None
@@ -403,15 +407,29 @@ def _pdf_check(observation: Mapping[str, Any]) -> tuple[bool | None, str, Any]:
                  or str(artifact.get("contentType", "")).lower() == "application/pdf")]
     if not pdfs:
         return False, "PDF artifact is missing", []
+    if assertion.get("exactlyOne") is True and len(pdfs) != 1:
+        return False, "exactly one PDF artifact is required", [{"count": len(pdfs)}]
     checked = []
     for artifact in pdfs:
         name = str(artifact.get("name", ""))
         content_type = str(artifact.get("contentType", ""))
         size = artifact.get("sizeBytes")
         digest = str(artifact.get("sha256", "")).lower()
+        storage_ref = str(artifact.get("storageRef", ""))
+        download_url = str(artifact.get("downloadUrl", ""))
+        parsed_download = urlsplit(download_url)
         data = artifact.get("contentBytes")
-        if not name.lower().endswith(".pdf") or content_type.lower() != "application/pdf" or not isinstance(size, int) or size <= 0 or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-            return False, "PDF MIME, extension, size or SHA-256 metadata is invalid", [{"name": name}]
+        invalid_reference = assertion.get("durable") is True and (
+            not storage_ref.startswith("tasks/") or "?" in storage_ref or "x-amz-" in storage_ref.lower())
+        invalid_download = False
+        if assertion.get("downloadable") is True:
+            invalid_download = (parsed_download.scheme.lower() not in {"http", "https"} or not parsed_download.hostname
+                               or bool(parsed_download.username) or bool(parsed_download.password))
+        if (not name.lower().endswith(".pdf") or content_type.lower() != "application/pdf"
+                or not isinstance(size, int) or size <= 0 or len(digest) != 64
+                or any(c not in "0123456789abcdef" for c in digest)
+                or invalid_reference or invalid_download):
+                return False, "PDF count, MIME, extension, size or SHA-256 metadata is invalid", [{"name": name}]
         if data is None or not isinstance(data, bytes):
             return None, "PDF signature bytes are unavailable; remote downloads are disabled", [{"name": name}]
         if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
@@ -459,10 +477,10 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
                 passed, message = None, "tool completion is present without a matching call event"
             elif not lifecycle[0]:
                 passed, message = False, f"required tool {expected} was not called"
-            elif any(outcome is True for outcome in lifecycle[1]):
-                passed, message = True, f"required tool {expected} completed successfully"
             elif len(lifecycle[1]) < len(lifecycle[0]):
                 passed, message = None, f"required tool {expected} completion outcome is unavailable"
+            elif any(outcome is True for outcome in lifecycle[1]):
+                passed, message = True, f"required tool {expected} completed successfully"
             else:
                 passed, message = False, f"required tool {expected} failed"
             results.append(AssertionResult(assertion_type, passed, message, expected,
@@ -485,10 +503,15 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
         elif assertion_type == "failed_tool":
             expected = str(assertion.get("name", ""))
             lifecycle = _tool_lifecycle(events, expected)
-            if truncated or lifecycle is None or (not lifecycle[0] and lifecycle[1]) or (lifecycle[0] and len(lifecycle[1]) < len(lifecycle[0])):
+            if truncated or lifecycle is None or (not lifecycle[0] and lifecycle[1]):
+                passed = None
+            elif not lifecycle[0]:
+                passed = True
+            elif not lifecycle[1]:
                 passed = None
             else:
-                passed = not any(outcome is False for outcome in lifecycle[1])
+                failed = any(outcome is False for outcome in lifecycle[1])
+                passed = None if not failed and len(lifecycle[1]) < len(lifecycle[0]) else not failed
             results.append(AssertionResult(assertion_type, passed, "failed tool lifecycle evaluated", expected,
                                            lifecycle[1] if lifecycle else None, (events_ref,)))
         elif assertion_type == "tool_order":
@@ -504,12 +527,15 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             results.append(AssertionResult(assertion_type, passed, "tool call count evaluated", expected_count, actual, (events_ref,)))
         elif assertion_type == "dependency_success":
             passed, actual = _dependency_success(observation.get("taskTree"))
-            results.append(AssertionResult(assertion_type, None if truncated else passed,
+            results.append(AssertionResult(assertion_type, passed,
                                            "dependency statuses evaluated", "all dependencies SUCCEEDED", actual, (tree_ref,)))
         elif assertion_type == "dependency_handoff":
             passed, actual = _dependency_handoff(observation.get("taskTree"))
-            results.append(AssertionResult(assertion_type, None if truncated else passed,
+            results.append(AssertionResult(assertion_type, passed,
                                            "dependency result references evaluated", "result reference for every dependency", actual, (tree_ref,)))
+        elif assertion_type == "retry_limit":
+            results.append(AssertionResult(assertion_type, None, "retry attempt evidence is unavailable",
+                                           assertion.get("maxAttempts"), None, (f"task-run:{run_id}",)))
         elif assertion_type == "run_status":
             run = observation.get("run") or {}
             actual, expected = run.get("status"), str(assertion.get("expected", ""))
@@ -522,12 +548,13 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             results.append(AssertionResult(assertion_type, passed, message,
                                            "durable metadata", artifacts, (manifest_ref,)))
         elif assertion_type == "artifact_pdf":
-            passed, message, details = _pdf_check(observation)
+            passed, message, details = _pdf_check(observation, assertion)
             results.append(AssertionResult(assertion_type, passed, message,
                                            "valid PDF MIME, extension, size, SHA-256 and signature", details, (manifest_ref,)))
         else:
-            results.append(AssertionResult(assertion_type, False,
-                                           f"unknown assertion type: {assertion_type}"))
+            results.append(AssertionResult(assertion_type, None,
+                                           f"unsupported deterministic assertion: {assertion_type}",
+                                           evidence_refs=(f"evaluation:{assertion_type or 'unknown'}",)))
     return results
 
 

@@ -134,6 +134,19 @@ cases:
         self.assertEqual(("task-events:r1",), success.evidence_refs)
         self.assertNotIn("private body", json.dumps(called_only.as_dict()))
 
+    def test_required_tool_is_inconclusive_when_any_call_has_no_completion(self):
+        case = EvalCase("tool-retries", "Tool retries", {}, [{"type": "required_tool", "name": "search"}], {})
+        events = [
+            {"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
+            {"eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "ok": True}},
+            {"eventType": "tool.called", "sequence": 3, "payload": {"tool": "search", "sequence": 3}},
+        ]
+
+        self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": events})[0].status)
+        events.append({"eventType": "tool.finished", "sequence": 4,
+                       "payload": {"tool": "search", "sequence": 4, "ok": False}})
+        self.assertEqual("PASSED", evaluate_observation(case, {"events": events})[0].status)
+
     def test_tool_lifecycle_order_count_and_failed_outcome(self):
         events = [
             {"eventId": "c1", "eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
@@ -150,6 +163,16 @@ cases:
         self.assertEqual(["FAILED", "PASSED", "PASSED"], [result.status for result in results])
         self.assertTrue(all(result.evidence_refs == ("task-events:run-7",) for result in results))
 
+    def test_failed_tool_fails_as_soon_as_failure_is_observed(self):
+        case = EvalCase("tool-failure", "Tool failure", {}, [{"type": "failed_tool", "name": "search"}], {})
+        events = [
+            {"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
+            {"eventType": "tool.called", "sequence": 2, "payload": {"tool": "search", "sequence": 2}},
+            {"eventType": "tool.finished", "sequence": 3, "payload": {"tool": "search", "sequence": 3, "ok": False}},
+        ]
+
+        self.assertEqual("FAILED", evaluate_observation(case, {"events": events})[0].status)
+
     def test_dependency_assertions_require_success_and_handoff_reference(self):
         case = EvalCase("deps", "Dependencies", {}, [
             {"type": "dependency_success"}, {"type": "dependency_handoff"}], {})
@@ -162,6 +185,32 @@ cases:
         observation["taskTree"][0]["status"] = "FAILED"
         self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
 
+    def test_dependency_assertions_ignore_event_truncation_and_validate_safe_handoff_refs(self):
+        case = EvalCase("deps", "Dependencies", {}, [
+            {"type": "dependency_success"}, {"type": "dependency_handoff"}], {})
+        tree = [
+            {"taskId": "a", "status": "SUCCEEDED", "dependencyIds": []},
+            {"taskId": "b", "status": "SUCCEEDED", "dependencyIds": ["a"],
+             "dependencyResults": {"a": "task-result:a?token=secret"}},
+        ]
+        results = evaluate_observation(case, {"taskTree": tree, "events": [],
+                                              "evidenceCompleteness": {"status": "TRUNCATED"}})
+        self.assertEqual(["PASSED", "FAILED"], [result.status for result in results])
+        tree[1]["dependencyResults"]["a"] = "task-result:a"
+        self.assertEqual("PASSED", evaluate_observation(case, {"taskTree": tree, "events": []})[1].status)
+
+    def test_retry_limit_and_unknown_assertions_are_inconclusive(self):
+        case = EvalCase("retry", "Retry", {}, [
+            {"type": "retry_limit", "maxAttempts": 2}, {"type": "not_supported"}], {})
+
+        self.assertEqual(["INCONCLUSIVE", "INCONCLUSIVE"],
+                         [result.status for result in evaluate_observation(case, {"events": []})])
+
+    def test_run_status_is_inconclusive_when_run_snapshot_is_missing(self):
+        case = EvalCase("run", "Run", {}, [{"type": "run_status", "expected": "SUCCEEDED"}], {})
+
+        self.assertEqual("INCONCLUSIVE", evaluate_observation(case, {"events": []})[0].status)
+
     def test_truncated_events_and_missing_dependency_are_inconclusive(self):
         case = EvalCase("partial", "Partial", {}, [
             {"type": "required_tool", "name": "search"}, {"type": "dependency_success"}], {})
@@ -172,7 +221,8 @@ cases:
         self.assertEqual(["INCONCLUSIVE", "INCONCLUSIVE"], [result.status for result in results])
 
     def test_pdf_metadata_and_signature_are_checked_from_bytes_only(self):
-        case = EvalCase("pdf", "PDF", {}, [{"type": "artifact_pdf"}], {})
+        case = EvalCase("pdf", "PDF", {}, [{"type": "artifact_pdf", "exactlyOne": True,
+                                             "durable": True, "downloadable": True}], {})
         buffer = BytesIO()
         writer = PdfWriter()
         writer.add_blank_page(width=72, height=72)
@@ -180,6 +230,7 @@ cases:
         pdf_bytes = buffer.getvalue()
         good_meta = {"name": "report.pdf", "contentType": "application/pdf", "sizeBytes": len(pdf_bytes),
                      "sha256": hashlib.sha256(pdf_bytes).hexdigest(), "storageRef": "tasks/a/report.pdf",
+                     "downloadUrl": "https://storage.example/download?X-Amz-Signature=secret",
                      "contentBytes": pdf_bytes}
         good = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {"artifacts": [good_meta]}})[0]
         bad = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {"artifacts": [
@@ -191,6 +242,15 @@ cases:
         self.assertEqual("FAILED", bad.status)
         self.assertEqual("INCONCLUSIVE", unavailable.status)
         self.assertNotIn("contentBytes", json.dumps(good.as_dict()))
+        self.assertNotIn("X-Amz-Signature", json.dumps(good.as_dict()))
+        multiple = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
+            "artifacts": [good_meta, {**good_meta, "name": "second.pdf", "storageRef": "tasks/a/second.pdf"}]}})[0]
+        non_durable = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
+            "artifacts": [{**good_meta, "storageRef": "https://storage.example/report.pdf"}]}})[0]
+        missing_download = evaluate_observation(case, {"run": {"id": "r"}, "events": [], "result": {
+            "artifacts": [{key: value for key, value in good_meta.items() if key != "downloadUrl"}]}})[0]
+        self.assertEqual(["FAILED", "FAILED", "FAILED"],
+                         [multiple.status, non_durable.status, missing_download.status])
 
     def test_artifact_integrity_requires_durable_metadata(self):
         case = EvalCase(
@@ -327,6 +387,10 @@ cases:
         self.assertEqual({"mcp-web-search-title", "no-tool-simple-answer", "artifact-integrity",
                           "multi-agent-pdf-positive"},
                          {case.case_id for case in cases})
+        pdf_case = next(case for case in cases if case.case_id == "multi-agent-pdf-positive")
+        self.assertIn({"type": "required_tool", "name": "load_skill_through_path"}, pdf_case.assertions)
+        self.assertIn({"type": "artifact_pdf", "exactlyOne": True, "durable": True,
+                       "downloadable": True}, pdf_case.assertions)
         for case in cases:
             self.assertTrue(case.task.get("taskType"))
             self.assertTrue(case.task.get("inputJson", {}).get("prompt"))

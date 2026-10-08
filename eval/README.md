@@ -147,15 +147,18 @@ python3 scripts/run-l5-agentteams-eval.py \
 
 ## 用例和断言
 
-核心套件当前包含三个用例：
+核心套件当前包含四个用例：
 
 - `mcp-web-search-title`：将任务路由到 L5 的 AgentScope Worker，确认成功调用 `web_search`，并从结果制品读取 MCP 相关内容。
 - `no-tool-simple-answer`：确认简单问题不触发搜索工具。
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
+- `multi-agent-pdf-positive`：要求工具成功加载 Skill、调用搜索、完成依赖拆分，并产出唯一且有持久化引用及 HTTP(S) 下载地址的 PDF。
 
-支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus` 和 `evidenceCompleteness`，不会从 `tool.called` 推断工具成功。
+支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus` 和 `evidenceCompleteness`，不会从 `tool.called` 推断工具成功。缺少任一调用的完成事件时，`required_tool` 为 `INCONCLUSIVE`；成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
 
-Runner 会按事件序号分页读取 `/process-events`（每页 100 条），最多检查 1001 条以确认是否超过 1000 条证据上限。PDF 断言先检查 MIME、扩展名、大小和 SHA-256，再用 `pypdf` 检查本地可用字节的 `%PDF-` 签名、文件结束标记和页树。YAML 中的 `offlineFixtures` 仅用于本地单元测试，不会被 Runner 当作 Suite Case 或 L5 执行报告。远端 artifact API 不提供正文时，签名检查为 `INCONCLUSIVE`；Runner 不会跟随下载 URL。
+没有重试次数证据时 `retry_limit` 为 `INCONCLUSIVE`；Run 状态缺失时 `run_status` 也为 `INCONCLUSIVE`。依赖状态只依据 taskTree 可用性，不受过程事件截断影响。Task 4 尚无依赖交接引用数据源，因此缺少引用时为 `INCONCLUSIVE`；若观察数据包含引用，Runner 只接受 `task-result:<dependencyId>` 稳定格式。当前证据 Bundle 没有来源引用字段，所以来源引用校验应为 `INCONCLUSIVE`；正向 Case 只要求 Agent 输出来源引用，不把正文文本当成已验证的引用证据。
+
+Runner 会按事件序号分页读取 `/process-events`（每页 100 条），最多检查 1001 条以确认是否超过 1000 条证据上限。PDF 断言先检查 MIME、扩展名、大小和 SHA-256，再用 `pypdf` 检查本地可用字节的 `%PDF-` 签名、文件结束标记和页树。Case 可要求唯一 PDF、持久化 `tasks/` 引用和 HTTP(S) 下载地址；报告只保留清单引用，不输出下载 URL。YAML 中的 `offlineFixtures` 仅用于本地单元测试，不会被 Runner 当作 Suite Case 或 L5 执行报告。远端 artifact API 不提供正文时，签名检查为 `INCONCLUSIVE`；Runner 不会跟随下载 URL。
 
 运行离线契约测试：
 

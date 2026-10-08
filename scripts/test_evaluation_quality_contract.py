@@ -78,7 +78,8 @@ class EvaluationQualityContractTest(unittest.TestCase):
         suite = yaml.safe_load((ROOT / "eval/cases/core.yaml").read_text(encoding="utf-8"))
         fixture_ids = {fixture["id"] for fixture in suite["offlineFixtures"]}
         self.assertEqual({"multi-agent-pdf-failed-tool", "multi-agent-pdf-missing-dependency",
-                          "multi-agent-pdf-corrupt-and-truncated"}, fixture_ids)
+                          "multi-agent-pdf-corrupt-and-truncated", "multi-agent-pdf-invalid-handoff",
+                          "multi-agent-pdf-multiple-pdfs", "multi-agent-pdf-partial-tool"}, fixture_ids)
         executable_ids = {case.case_id for case in load_cases(ROOT / "eval/cases/core.yaml")}
         self.assertTrue(fixture_ids.isdisjoint(executable_ids))
         for fixture in suite["offlineFixtures"]:

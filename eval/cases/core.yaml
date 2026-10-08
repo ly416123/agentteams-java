@@ -89,7 +89,12 @@ cases:
       - type: dependency_handoff
       - type: required_tool
         name: web_search
+      - type: required_tool
+        name: load_skill_through_path
       - type: artifact_pdf
+        exactlyOne: true
+        durable: true
+        downloadable: true
     limits:
       timeoutSeconds: 300
 
@@ -120,7 +125,7 @@ offlineFixtures:
       result: {status: SUCCEEDED}
   - id: multi-agent-pdf-corrupt-and-truncated
     assertions:
-      - {type: artifact_pdf}
+      - {type: artifact_pdf, exactlyOne: true, durable: true, downloadable: true}
       - {type: required_tool, name: web_search}
     expectedStatuses: [FAILED, INCONCLUSIVE]
     observation:
@@ -133,6 +138,48 @@ offlineFixtures:
           - name: report.pdf
             contentType: application/pdf
             storageRef: tasks/fixture/report.pdf
-            sizeBytes: 8
-            sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            sizeBytes: 9
+            sha256: 55e6967dae43099b5d6822df808b06e30454a2be93475a3d82ba612d8dd3bf29
+            downloadUrl: https://storage.example/report.pdf?X-Amz-Signature=fixture
             contentBase64: bm90LWEtcGRm
+  - id: multi-agent-pdf-invalid-handoff
+    assertions:
+      - {type: dependency_handoff}
+    expectedStatuses: [FAILED]
+    observation:
+      run: {id: fixture-run}
+      events: []
+      taskTree:
+        - {taskId: parent, status: SUCCEEDED, dependencyIds: []}
+        - taskId: child
+          status: SUCCEEDED
+          dependencyIds: [parent]
+          dependencyResults: {parent: "https://storage.example/result?token=secret"}
+      result: {status: SUCCEEDED}
+  - id: multi-agent-pdf-multiple-pdfs
+    assertions:
+      - {type: artifact_pdf, exactlyOne: true, durable: true, downloadable: true}
+    expectedStatuses: [FAILED]
+    observation:
+      run: {id: fixture-run}
+      events: []
+      result:
+        status: SUCCEEDED
+        artifacts:
+          - {name: one.pdf, contentType: application/pdf, storageRef: tasks/fixture/one.pdf,
+             sizeBytes: 9, sha256: 55e6967dae43099b5d6822df808b06e30454a2be93475a3d82ba612d8dd3bf29,
+             downloadUrl: "https://storage.example/one.pdf?X-Amz-Signature=fixture", contentBase64: bm90LWEtcGRm}
+          - {name: two.pdf, contentType: application/pdf, storageRef: tasks/fixture/two.pdf,
+             sizeBytes: 9, sha256: 55e6967dae43099b5d6822df808b06e30454a2be93475a3d82ba612d8dd3bf29,
+             downloadUrl: "https://storage.example/two.pdf?X-Amz-Signature=fixture", contentBase64: bm90LWEtcGRm}
+  - id: multi-agent-pdf-partial-tool
+    assertions:
+      - {type: required_tool, name: web_search}
+    expectedStatuses: [INCONCLUSIVE]
+    observation:
+      run: {id: fixture-run}
+      events:
+        - {eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1}}
+        - {eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, ok: true}}
+        - {eventType: tool.called, sequence: 3, payload: {tool: web_search, sequence: 3}}
+      result: {status: SUCCEEDED}
