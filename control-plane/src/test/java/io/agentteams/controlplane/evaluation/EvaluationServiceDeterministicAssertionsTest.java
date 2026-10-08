@@ -164,6 +164,34 @@ class EvaluationServiceDeterministicAssertionsTest {
         assertThat(outcome.report().executionGateStatus()).isEqualTo(EvaluationReportRecord.GateStatus.INCONCLUSIVE);
     }
 
+    @Test
+    void nonEventEvidenceGapsDoNotInvalidateCompleteToolEventsOrTaskTreeAssertions() throws Exception {
+        EvidenceBundle.EvidenceCompleteness missingRunOrManifest =
+                new EvidenceBundle.EvidenceCompleteness("INCONCLUSIVE", 4, 1000);
+        Outcome toolOutcome = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "UNKNOWN", missingRunOrManifest, List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"ok\":true,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(toolOutcome.statuses()).containsExactly(EvaluationResultRecord.Status.PASSED);
+
+        TaskTreeNode failedDependency = new TaskTreeNode(id(6), TASK, 1, "FAILED", List.of(), NOW);
+        TaskTreeNode dependent = new TaskTreeNode(id(7), TASK, 2, "SUCCEEDED", List.of(id(6)), NOW);
+        Outcome dependencyFailure = evaluate("[{\"type\":\"dependency_success\"}]",
+                bundle("SUCCEEDED", "UNKNOWN", missingRunOrManifest, List.of(),
+                        List.of(failedDependency, dependent), List.of(), null));
+        assertThat(dependencyFailure.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
+
+        Outcome emptyTree = evaluate("[{\"type\":\"dependency_success\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(), List.of(), null));
+        assertThat(emptyTree.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        TaskTreeNode missingDependency = new TaskTreeNode(id(7), TASK, 2, "SUCCEEDED", List.of(id(6)), NOW);
+        Outcome missingNode = evaluate("[{\"type\":\"dependency_success\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(), List.of(missingDependency), List.of(), null));
+        assertThat(missingNode.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+    }
+
     private static Outcome evaluate(String assertions, EvidenceBundle evidence) throws Exception {
         EvaluationRepository repository = mock(EvaluationRepository.class);
         EvidenceBundleAssembler assembler = mock(EvidenceBundleAssembler.class);

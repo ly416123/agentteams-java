@@ -196,7 +196,7 @@ public final class EvaluationService {
     }
 
     private static EvaluationResultRecord dependencySuccess(UUID runId, EvidenceBundle bundle, Instant at) {
-        if (!eventsComplete(bundle)) return inconclusive(runId, "dependency_success", "task tree evidence is incomplete",
+        if (bundle.taskTree().isEmpty()) return inconclusive(runId, "dependency_success", "task tree evidence is unavailable",
                 "task-tree:" + bundle.executionRunId(), at);
         Map<UUID, TaskTreeNode> nodes = new HashMap<>();
         bundle.taskTree().forEach(node -> nodes.put(node.taskId(), node));
@@ -257,7 +257,9 @@ public final class EvaluationService {
     }
 
     private static boolean eventsComplete(EvidenceBundle bundle) {
-        return "COMPLETE".equals(bundle.evidenceCompleteness().status());
+        EvidenceBundle.EvidenceCompleteness completeness = bundle.evidenceCompleteness();
+        return !"TRUNCATED".equals(completeness.status())
+                && completeness.observedEventCount() <= completeness.eventLimit();
     }
 
     private static boolean hasUnparseableToolEvent(EvidenceBundle bundle, String eventType) {
