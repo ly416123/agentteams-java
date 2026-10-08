@@ -127,6 +127,8 @@ public final class EvaluationService {
         String forbidden = text(assertion, "name");
         if (!eventsComplete(bundle)) return inconclusive(runId, "forbidden_tool:" + forbidden,
                 "tool event evidence is incomplete", "task-events:" + bundle.executionRunId(), at);
+        if (hasUnparseableToolEvent(bundle, "tool.called")) return inconclusive(runId, "forbidden_tool:" + forbidden,
+                "tool call details are unavailable", "task-events:" + bundle.executionRunId(), at);
         boolean passed = bundle.toolCallSummaries().stream().noneMatch(tool -> tool.toolName().equals(forbidden));
         return result(runId, "forbidden_tool:" + forbidden, passed, "absent", passed ? "absent" : "present",
                 "task-events:" + bundle.executionRunId(), at);

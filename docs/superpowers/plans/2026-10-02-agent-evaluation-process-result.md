@@ -153,7 +153,7 @@
 
 - [ ] **步骤 1：先写断言矩阵测试**
 
-覆盖：Run 状态与 Task phase 分开比对；required tool 必须有成功事件；failed tool 不通过且有失败证据；调用顺序/次数；子任务依赖成功及交接引用；失败重试超限；manifest/PDF 的 MIME、扩展名、`%PDF-` 签名元数据、大小和 SHA-256；截断证据返回 `INCONCLUSIVE`。
+覆盖：Run 状态与 Task phase 分开比对；required tool 必须有成功事件；failed tool 不通过且有失败证据；调用顺序/次数；子任务依赖成功及交接引用；失败重试超限；manifest/PDF 的 MIME、扩展名、大小和 SHA-256 元数据；`%PDF-` 文件头签名需要实际字节，未采集字节时返回 `INCONCLUSIVE`；截断证据返回 `INCONCLUSIVE`。
 
 - [ ] **步骤 2：运行服务测试确认失败**
 
@@ -163,7 +163,7 @@
 
 - [ ] **步骤 3：实现 typed evaluator 和证据引用**
 
-把每种断言拆为小型 evaluator，统一输出 `EvaluationResultRecord`。只有已验证的必需证据缺失/条件不满足才判 `FAILED`；由于截断或缺失关键证据无法判断时判 `INCONCLUSIVE`。`executionGate` 汇总过程断言，`resultGate` 汇总结果契约；语义指标不参与两个门禁。
+把每种断言拆为小型 evaluator，统一输出 `EvaluationResultRecord`。只有已验证的必需证据缺失/条件不满足才判 `FAILED`；由于截断或缺失关键证据无法判断时判 `INCONCLUSIVE`。`executionGate` 汇总过程断言，`resultGate` 汇总结果契约；语义指标不参与两个门禁。PDF MIME、扩展名、大小和 SHA-256 属于 manifest 元数据校验；`%PDF-` 文件头签名必须检查文件字节。当前 Evidence Bundle 不采集制品字节，因此不能声称已验证 PDF 签名，该子断言必须返回 `INCONCLUSIVE`。
 
 - [ ] **步骤 4：实现硬门禁聚合测试**
 
@@ -174,6 +174,8 @@
 - [ ] **步骤 5：提交 evaluator**
 
 提交范围仅限服务、报告持久化和相关测试，提交说明：`feat(eval): add deterministic process and artifact assertions`。
+
+**任务 4 执行补充记录（2026-10-08）：** Control Plane 可读取 manifest 中的 MIME、扩展名、大小和 SHA-256 元数据，但当前 Evidence Bundle 不读取制品正文。因此 `artifact_pdf` 只在元数据明确不匹配时判 `FAILED`；元数据通过时，因缺少实际字节无法检查 `%PDF-` 文件头，必须判 `INCONCLUSIVE`。不得把元数据校验描述成 PDF 内容或签名验证。
 
 ## 任务 5：让 YAML Runner 遵循同一证据和断言语义
 

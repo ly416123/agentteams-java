@@ -80,7 +80,8 @@ class EvaluationServiceDeterministicAssertionsTest {
         Outcome outcome = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"},"
                 + "{\"type\":\"tool_order\",\"names\":[\"search\"]},"
                 + "{\"type\":\"tool_count\",\"name\":\"search\",\"expected\":1},"
-                + "{\"type\":\"failed_tool\",\"name\":\"search\"}]", evidence);
+                + "{\"type\":\"failed_tool\",\"name\":\"search\"},"
+                + "{\"type\":\"forbidden_tool\",\"name\":\"search\"}]", evidence);
         assertThat(outcome.statuses()).containsOnly(EvaluationResultRecord.Status.INCONCLUSIVE);
     }
 
