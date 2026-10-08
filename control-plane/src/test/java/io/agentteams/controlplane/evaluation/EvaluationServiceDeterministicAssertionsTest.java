@@ -176,6 +176,16 @@ class EvaluationServiceDeterministicAssertionsTest {
                         List.of(), List.of(), null));
         assertThat(visibleFailure.statuses()).containsExactly(EvaluationResultRecord.Status.FAILED);
 
+        Outcome visibleFailureWithUnrelatedIncompleteCall = evaluate(
+                "[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("RUNNING", "RUNNING", truncated, List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":false,\"sequence\":2}"),
+                        event("tool.called", "{\"tool\":\"other\",\"callId\":\"other-1\",\"sequence\":3}")),
+                        List.of(), List.of(), null));
+        assertThat(visibleFailureWithUnrelatedIncompleteCall.statuses())
+                .containsExactly(EvaluationResultRecord.Status.FAILED);
+
         Outcome noVisibleFailure = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
                 bundle("RUNNING", "RUNNING", truncated,
                         List.of(event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}")),

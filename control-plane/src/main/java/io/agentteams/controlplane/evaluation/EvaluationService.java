@@ -151,15 +151,21 @@ public final class EvaluationService {
             return inconclusive(runId, "failed_tool:" + name, "tool lifecycle details are unavailable",
                     "task-events:" + bundle.executionRunId(), at);
         }
+        List<ToolLifecycle> visibleOutcomes = toolEvents(bundle, "tool.finished", name);
+        if (!eventsComplete(bundle)) {
+            if (hasObservedFailedToolPair(bundle, name)) {
+                return result(runId, "failed_tool:" + name, false, "no failed calls", "failed call observed",
+                        "task-events:" + bundle.executionRunId(), at);
+            }
+            return inconclusive(runId, "failed_tool:" + name,
+                    "tool event evidence is incomplete", "task-events:" + bundle.executionRunId(), at);
+        }
         if (!hasValidToolLifecyclePairs(bundle)) return inconclusive(runId, "failed_tool:" + name,
                 "tool call identifiers are missing, duplicated, or unmatched", "task-events:" + bundle.executionRunId(), at);
-        List<ToolLifecycle> visibleOutcomes = toolEvents(bundle, "tool.finished", name);
         if (visibleOutcomes.stream().anyMatch(outcome -> Boolean.FALSE.equals(outcome.ok()))) {
             return result(runId, "failed_tool:" + name, false, "no failed calls", "failed call observed",
                     "task-events:" + bundle.executionRunId(), at);
         }
-        if (!eventsComplete(bundle)) return inconclusive(runId, "failed_tool:" + name,
-                "tool event evidence is incomplete", "task-events:" + bundle.executionRunId(), at);
         if (hasUnparseableToolEvent(bundle, "tool.called")) return inconclusive(runId, "failed_tool:" + name,
                 "tool call details are unavailable", "task-events:" + bundle.executionRunId(), at);
         if (hasUnparseableToolEvent(bundle, "tool.finished")) return inconclusive(runId, "failed_tool:" + name,
@@ -300,6 +306,24 @@ public final class EvaluationService {
             if (call == null || !call.toolName().equals(finish.toolName()) || finish.sequence() <= call.sequence()) return false;
         }
         return true;
+    }
+
+    private static boolean hasObservedFailedToolPair(EvidenceBundle bundle, String toolName) {
+        List<ToolLifecycle> calls = toolEvents(bundle, "tool.called", null);
+        List<ToolLifecycle> finishes = toolEvents(bundle, "tool.finished", null);
+        for (ToolLifecycle failed : finishes) {
+            if (!toolName.equals(failed.toolName()) || !Boolean.FALSE.equals(failed.ok())
+                    || failed.callId() == null || failed.callId().isBlank()) continue;
+            List<ToolLifecycle> matchingCalls = calls.stream()
+                    .filter(call -> failed.callId().equals(call.callId())).toList();
+            List<ToolLifecycle> matchingFinishes = finishes.stream()
+                    .filter(finish -> failed.callId().equals(finish.callId())).toList();
+            if (matchingCalls.size() == 1 && matchingFinishes.size() == 1
+                    && toolName.equals(matchingCalls.getFirst().toolName())
+                    && matchingFinishes.getFirst() == failed
+                    && failed.sequence() > matchingCalls.getFirst().sequence()) return true;
+        }
+        return false;
     }
 
     private static List<ToolLifecycle> toolEvents(EvidenceBundle bundle, String eventType, String toolName) {
