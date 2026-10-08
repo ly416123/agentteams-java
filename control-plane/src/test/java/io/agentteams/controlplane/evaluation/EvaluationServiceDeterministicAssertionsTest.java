@@ -107,6 +107,15 @@ class EvaluationServiceDeterministicAssertionsTest {
                         List.of(), List.of(), null));
         assertThat(duplicateId.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
 
+        Outcome duplicateAcrossTools = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
+                bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"shared-id\",\"sequence\":1}"),
+                        event("tool.called", "{\"tool\":\"fetch\",\"callId\":\"shared-id\",\"sequence\":2}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"shared-id\",\"ok\":true,\"sequence\":3}"),
+                        event("tool.finished", "{\"tool\":\"fetch\",\"callId\":\"shared-id\",\"ok\":true,\"sequence\":4}")),
+                        List.of(), List.of(), null));
+        assertThat(duplicateAcrossTools.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
         Outcome missingId = evaluate("[{\"type\":\"required_tool\",\"name\":\"search\"}]",
                 bundle("SUCCEEDED", "SUCCEEDED", complete(), List.of(
                         event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
