@@ -186,6 +186,28 @@ class EvaluationServiceDeterministicAssertionsTest {
         assertThat(visibleFailureWithUnrelatedIncompleteCall.statuses())
                 .containsExactly(EvaluationResultRecord.Status.FAILED);
 
+        Outcome duplicateCallId = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("RUNNING", "RUNNING", truncated, List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":2}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":false,\"sequence\":3}")),
+                        List.of(), List.of(), null));
+        assertThat(duplicateCallId.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome missingCallId = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("RUNNING", "RUNNING", truncated, List.of(
+                        event("tool.called", "{\"tool\":\"search\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":false,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(missingCallId.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
+        Outcome mismatchedTool = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
+                bundle("RUNNING", "RUNNING", truncated, List.of(
+                        event("tool.called", "{\"tool\":\"other\",\"callId\":\"search-1\",\"sequence\":1}"),
+                        event("tool.finished", "{\"tool\":\"search\",\"callId\":\"search-1\",\"ok\":false,\"sequence\":2}")),
+                        List.of(), List.of(), null));
+        assertThat(mismatchedTool.statuses()).containsExactly(EvaluationResultRecord.Status.INCONCLUSIVE);
+
         Outcome noVisibleFailure = evaluate("[{\"type\":\"failed_tool\",\"name\":\"search\"}]",
                 bundle("RUNNING", "RUNNING", truncated,
                         List.of(event("tool.called", "{\"tool\":\"search\",\"callId\":\"search-1\",\"sequence\":1}")),
