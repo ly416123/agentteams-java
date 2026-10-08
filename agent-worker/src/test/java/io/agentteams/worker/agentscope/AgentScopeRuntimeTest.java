@@ -259,9 +259,10 @@ class AgentScopeRuntimeTest {
         String expectedCategory = toolFails ? "TOOL_EXECUTION_FAILED" : "";
         assertThat(toolEvents).extracting(RuntimeEvent::eventType)
                 .containsExactly("tool.called", "tool.finished");
-        assertThat(toolEvents.get(0).payloadJson()).contains("\"tool\":\"web_search\"", "\"sequence\":1");
+        assertThat(toolEvents.get(0).payloadJson()).contains("\"tool\":\"web_search\"",
+                "\"callId\":\"call-web-search\"", "\"sequence\":1");
         assertThat(toolEvents.get(1).payloadJson()).contains("\"tool\":\"web_search\"",
-                "\"ok\":" + expectedSuccess, "\"sequence\":2");
+                "\"callId\":\"call-web-search\"", "\"ok\":" + expectedSuccess, "\"sequence\":2");
         if (toolFails) {
             assertThat(toolEvents.get(1).payloadJson()).contains(expectedCategory);
         }

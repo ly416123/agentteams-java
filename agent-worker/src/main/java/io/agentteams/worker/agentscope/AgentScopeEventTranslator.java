@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
  */
 public final class AgentScopeEventTranslator {
     private static final int MAX_SAFE_MESSAGE_LENGTH = 128;
+    private static final int MAX_SAFE_TOOL_CALL_ID_LENGTH = 96;
     /**
      * Final answers need enough bounded context for semantic evaluation and artifact consumers.
      * Process events keep the smaller message limit above to protect the event stream.
@@ -121,7 +122,7 @@ public final class AgentScopeEventTranslator {
         if (event instanceof ToolResultStartEvent toolResultStart) {
             return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED,
                     "tool " + safeToolName(toolResultStart.getToolCallName()) + " started",
-                    false, true, duplicate);
+                    false, true, duplicate, safeToolCallId(toolResultStart.getToolCallId()));
         }
         if (event instanceof ToolCallEndEvent) {
             // TOOL_CALL_END closes the model's tool-call block; execution outcome arrives
@@ -134,7 +135,8 @@ public final class AgentScopeEventTranslator {
             ToolResultState state = toolResultEnd.getState();
             if (state == ToolResultState.SUCCESS) {
                 return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
-                        "tool " + tool + " completed", false, true, duplicate);
+                        "tool " + tool + " completed", false, true, duplicate,
+                        safeToolCallId(toolResultEnd.getToolCallId()));
             }
             if (state == ToolResultState.ERROR || state == ToolResultState.DENIED
                     || state == ToolResultState.INTERRUPTED) {
@@ -144,7 +146,8 @@ public final class AgentScopeEventTranslator {
                     default -> "TOOL_EXECUTION_FAILED";
                 };
                 return mapped(eventId, AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED,
-                        "tool " + tool + " failed: " + category, false, false, duplicate);
+                        "tool " + tool + " failed: " + category, false, false, duplicate,
+                        safeToolCallId(toolResultEnd.getToolCallId()));
             }
             return mapped(eventId, AgentScopeExecutionEvent.Kind.IGNORED,
                     "tool result pending", false, true, duplicate);
@@ -181,6 +184,12 @@ public final class AgentScopeEventTranslator {
         return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, correlationId, runtime, kind,
                 safeMessage,
                 terminal, success, duplicate);
+    }
+
+    private AgentScopeExecutionEvent mapped(String eventId, AgentScopeExecutionEvent.Kind kind,
+            String safeMessage, boolean terminal, boolean success, boolean duplicate, String safeToolCallId) {
+        return new AgentScopeExecutionEvent(taskId, attemptId, leaseId, eventId, correlationId, runtime, kind,
+                safeMessage, terminal, success, duplicate, safeToolCallId);
     }
 
     private AgentScopeExecutionEvent lifecycleEvent(String eventId, String message) {
@@ -223,6 +232,17 @@ public final class AgentScopeEventTranslator {
         candidate = candidate.replaceAll("[^A-Za-z0-9_.:-]", "_");
         candidate = truncate(candidate, MAX_SAFE_MESSAGE_LENGTH);
         return candidate.isBlank() ? "unknown" : candidate;
+    }
+
+    private static String safeToolCallId(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String candidate = value.replaceAll("[^A-Za-z0-9_.:-]", "_");
+        if (candidate.length() > MAX_SAFE_TOOL_CALL_ID_LENGTH) {
+            candidate = candidate.substring(0, MAX_SAFE_TOOL_CALL_ID_LENGTH);
+        }
+        return candidate.isBlank() ? null : candidate;
     }
 
     private static int firstBoundary(String value) {

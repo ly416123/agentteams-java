@@ -14,7 +14,15 @@ public record AgentScopeExecutionEvent(
         String safeMessage,
         boolean terminal,
         boolean success,
-        boolean duplicate) {
+        boolean duplicate,
+        String safeToolCallId) {
+
+    public AgentScopeExecutionEvent(String taskId, String attemptId, String leaseId, String eventId,
+            String correlationId, String runtime, Kind kind, String safeMessage,
+            boolean terminal, boolean success, boolean duplicate) {
+        this(taskId, attemptId, leaseId, eventId, correlationId, runtime, kind, safeMessage,
+                terminal, success, duplicate, null);
+    }
 
     public AgentScopeExecutionEvent {
         if (taskId == null || taskId.isBlank()) {
@@ -37,6 +45,9 @@ public record AgentScopeExecutionEvent(
         }
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(safeMessage, "safeMessage");
+        if (safeToolCallId != null && safeToolCallId.isBlank()) {
+            throw new IllegalArgumentException("safeToolCallId must not be blank when present");
+        }
     }
 
     public enum Kind {

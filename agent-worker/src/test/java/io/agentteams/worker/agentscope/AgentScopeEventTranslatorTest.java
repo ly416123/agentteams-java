@@ -109,6 +109,7 @@ class AgentScopeEventTranslatorTest {
         assertThat(modelCallStarted.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.IGNORED);
         assertThat(started.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED);
         assertThat(started.safeMessage()).isEqualTo("tool shell started");
+        assertThat(started.safeToolCallId()).isEqualTo("call");
         assertThat(started.safeMessage()).doesNotContain("do-not-copy-this-secret");
         assertThat(completed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.IGNORED);
         assertThat(completed.safeMessage()).isEqualTo("tool call emitted");
@@ -123,6 +124,7 @@ class AgentScopeEventTranslatorTest {
         assertThat(failed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED);
         assertThat(failed.success()).isFalse();
         assertThat(failed.safeMessage()).contains("shell", "TOOL_EXECUTION_FAILED");
+        assertThat(failed.safeToolCallId()).isEqualTo("call");
         assertThat(failed.safeMessage()).doesNotContain("secret", "command", "response");
     }
 
@@ -135,6 +137,25 @@ class AgentScopeEventTranslatorTest {
         assertThat(completed.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED);
         assertThat(completed.success()).isTrue();
         assertThat(completed.safeMessage()).isEqualTo("tool shell completed");
+        assertThat(completed.safeToolCallId()).isEqualTo("call");
+    }
+
+    @Test
+    void sanitizesToolCallIdsToBoundedIdentifierCharacters() {
+        String rawId = "call/id with spaces and newline\n" + "x".repeat(120);
+        AgentScopeExecutionEvent started = translator.translate(withAttempt(
+                new ToolResultStartEvent("tool-result-unsafe-id", CREATED_AT, "reply", rawId, "shell")));
+
+        assertThat(started.safeToolCallId()).hasSize(96).matches("[A-Za-z0-9_.:-]+");
+        assertThat(started.safeToolCallId()).doesNotContain("/", " ", "\n");
+    }
+
+    @Test
+    void omitsMissingToolCallIdInsteadOfInventingAnUnpairableIdentifier() {
+        AgentScopeExecutionEvent started = translator.translate(withAttempt(
+                new ToolResultStartEvent("tool-result-missing-id", CREATED_AT, "reply", null, "shell")));
+
+        assertThat(started.safeToolCallId()).isNull();
     }
 
     @Test

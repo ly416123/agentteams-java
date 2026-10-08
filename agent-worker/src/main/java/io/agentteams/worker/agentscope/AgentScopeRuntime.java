@@ -104,14 +104,20 @@ public final class AgentScopeRuntime implements AgentRuntime {
             return;
         }
         String tool = toolName(event.safeMessage());
+        String callId = event.safeToolCallId() == null
+                ? ""
+                : ",\"callId\":\"" + jsonEscape(event.safeToolCallId()) + "\"";
         String payload;
         if (eventType.equals("tool.called")) {
-            payload = "{\"tool\":\"" + jsonEscape(tool) + "\",\"sequence\":" + sequence + "}";
+            payload = "{\"tool\":\"" + jsonEscape(tool) + "\"" + callId
+                    + ",\"sequence\":" + sequence + "}";
         } else if (event.success()) {
-            payload = "{\"tool\":\"" + jsonEscape(tool) + "\",\"ok\":true,\"sequence\":"
+            payload = "{\"tool\":\"" + jsonEscape(tool) + "\"" + callId
+                    + ",\"ok\":true,\"sequence\":"
                     + sequence + "}";
         } else {
-            payload = "{\"tool\":\"" + jsonEscape(tool) + "\",\"ok\":false,\"errorCategory\":\""
+            payload = "{\"tool\":\"" + jsonEscape(tool) + "\"" + callId
+                    + ",\"ok\":false,\"errorCategory\":\""
                     + jsonEscape(toolErrorCategory(event.safeMessage())) + "\",\"sequence\":" + sequence + "}";
         }
         try {
