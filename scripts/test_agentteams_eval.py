@@ -206,9 +206,9 @@ cases:
     def test_failed_tool_fails_as_soon_as_failure_is_observed(self):
         case = EvalCase("tool-failure", "Tool failure", {}, [{"type": "failed_tool", "name": "search"}], {})
         events = [
-            {"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
-            {"eventType": "tool.called", "sequence": 2, "payload": {"tool": "search", "sequence": 2}},
-            {"eventType": "tool.finished", "sequence": 3, "payload": {"tool": "search", "sequence": 3, "ok": False}},
+            {"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1, "callId": "call-1"}},
+            {"eventType": "tool.called", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "callId": "call-2"}},
+            {"eventType": "tool.finished", "sequence": 3, "payload": {"tool": "search", "sequence": 3, "callId": "call-2", "ok": False}},
         ]
 
         self.assertEqual("FAILED", evaluate_observation(case, {"events": events})[0].status)
@@ -216,11 +216,33 @@ cases:
     def test_observed_failed_tool_still_fails_when_event_stream_is_truncated(self):
         case = EvalCase("tool-truncated", "Tool truncated", {}, [{"type": "failed_tool", "name": "search"}], {})
         observation = {"events": [
-            {"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1}},
-            {"eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "ok": False}},
+            {"eventType": "tool.called", "sequence": 1, "payload": {"tool": "search", "sequence": 1, "callId": "call-1"}},
+            {"eventType": "tool.finished", "sequence": 2, "payload": {"tool": "search", "sequence": 2, "callId": "call-1", "ok": False}},
         ], "evidenceCompleteness": {"status": "TRUNCATED", "observedEventCount": 1001, "eventLimit": 1000}}
 
         self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
+
+    def test_truncated_failed_tool_requires_unique_correlated_call_id(self):
+        case = EvalCase("failed-pair", "Failed pair", {}, [{"type": "failed_tool", "name": "search"}], {})
+        def event(kind, call_id, sequence, ok=None):
+            payload = {"tool": "search", "sequence": sequence}
+            if call_id is not None:
+                payload["callId"] = call_id
+            if ok is not None:
+                payload["ok"] = ok
+            return {"eventType": kind, "sequence": sequence, "payload": payload}
+        def status(events):
+            return evaluate_observation(case, {"events": events, "eventCompleteness": "TRUNCATED"})[0].status
+
+        valid = [event("tool.called", "call-1", 1), event("tool.finished", "call-1", 2, False)]
+        no_id = [event("tool.called", None, 1), event("tool.finished", None, 2, False)]
+        orphan = [event("tool.finished", "call-1", 2, False)]
+        duplicate = [event("tool.called", "call-1", 1), event("tool.called", "call-1", 2),
+                     event("tool.finished", "call-1", 3, False)]
+        mismatch = [event("tool.called", "call-1", 1), event("tool.finished", "call-2", 2, False)]
+
+        self.assertEqual("FAILED", status(valid))
+        self.assertEqual(["INCONCLUSIVE"] * 4, [status(events) for events in (no_id, orphan, duplicate, mismatch)])
 
     def test_dependency_assertions_require_success_and_handoff_reference(self):
         case = EvalCase("deps", "Dependencies", {}, [

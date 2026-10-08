@@ -371,7 +371,28 @@ def _has_observed_failed_tool(events: list[Mapping[str, Any]], name: str) -> boo
         if _event_type(event) not in {"tool.finished", "tool.completed"} or _tool_name(event) != name:
             continue
         payload = _payload(event)
-        if payload.get("ok") is False or str(payload.get("status", "")).upper() == "FAILED":
+        if payload.get("ok") is not False and str(payload.get("status", "")).upper() != "FAILED":
+            continue
+        call_id = payload.get("callId")
+        if not isinstance(call_id, str) or not call_id:
+            continue
+        matching_calls = []
+        matching_completions = []
+        for candidate in events:
+            candidate_type = _event_type(candidate)
+            if candidate_type not in {"tool.called", "tool.finished", "tool.completed"}:
+                continue
+            candidate_payload = _payload(candidate)
+            if candidate_payload.get("callId") != call_id:
+                continue
+            if candidate_type == "tool.called":
+                matching_calls.append(candidate)
+            else:
+                matching_completions.append(candidate)
+        if (len(matching_calls) == 1 and len(matching_completions) == 1
+                and _tool_name(matching_calls[0]) == name
+                and _tool_name(matching_completions[0]) == name
+                and matching_completions[0] is event):
             return True
     return False
 

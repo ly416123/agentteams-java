@@ -181,9 +181,9 @@ offlineFixtures:
     observation:
       run: {id: fixture-run}
       events:
-        - {eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1}}
-        - {eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, ok: true}}
-        - {eventType: tool.called, sequence: 3, payload: {tool: web_search, sequence: 3}}
+        - {eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1, callId: search-1}}
+        - {eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, callId: search-1, ok: true}}
+        - {eventType: tool.called, sequence: 3, payload: {tool: web_search, sequence: 3, callId: search-2}}
       result: {status: SUCCEEDED}
   - id: multi-agent-pdf-failed-tool-truncated
     assertions:
@@ -192,7 +192,7 @@ offlineFixtures:
     observation:
       run: {id: fixture-run}
       events:
-        - {eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1}}
-        - {eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, ok: false}}
+        - {eventType: tool.called, sequence: 1, payload: {tool: web_search, sequence: 1, callId: search-1}}
+        - {eventType: tool.finished, sequence: 2, payload: {tool: web_search, sequence: 2, callId: search-1, ok: false}}
       evidenceCompleteness: {status: TRUNCATED, observedEventCount: 1001, eventLimit: 1000}
       result: {status: SUCCEEDED}
