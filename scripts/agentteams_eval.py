@@ -232,7 +232,15 @@ def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], event
     run_value = {key: _sanitize_value(run[key]) for key in ("id", "runId", "status") if key in run}
     observed_tool_names = sorted(_tool_names({"events": events}))
     safe_events = [_sanitize_event(event) for event in events if isinstance(event, Mapping)][:PROCESS_EVENT_LIMIT]
-    completeness = dict(evidence_completeness or (result.get("evidenceCompleteness", {}) if isinstance(result, Mapping) else {}) or {})
+    raw_completeness = evidence_completeness or (result.get("evidenceCompleteness", {}) if isinstance(result, Mapping) else {}) or {}
+    completeness = {}
+    if isinstance(raw_completeness, Mapping):
+        for key in ("status", "observedEventCount", "eventLimit"):
+            value = raw_completeness.get(key)
+            if key == "status" and isinstance(value, str):
+                completeness[key] = value
+            elif key != "status" and isinstance(value, int) and not isinstance(value, bool):
+                completeness[key] = value
     completeness_status = str(completeness.get("status", "UNKNOWN")).upper()
     event_completeness = str(event_completeness or completeness_status).upper()
     if event_completeness not in {"COMPLETE", "TRUNCATED", "INCONCLUSIVE"}:
@@ -377,6 +385,13 @@ def _tool_lifecycle(events: list[Mapping[str, Any]], name: str) -> tuple[list[Ma
                 or sum(_event_type(event) in {"tool.finished", "tool.completed"} for event in correlated) != 1
                 or any(_tool_name(event) != name for event in correlated)):
             return None
+        call_event = next(event for event in correlated if _event_type(event) == "tool.called")
+        completion_event = next(event for event in correlated if _event_type(event) in {"tool.finished", "tool.completed"})
+        call_sequence = call_event.get("sequence", _payload(call_event).get("sequence"))
+        completion_sequence = completion_event.get("sequence", _payload(completion_event).get("sequence"))
+        if (not isinstance(call_sequence, int) or not isinstance(completion_sequence, int)
+                or completion_sequence <= call_sequence):
+            return None
     outcome_by_id = {call_id: ok for _, ok, call_id in outcomes}
     return [event for _, event, _ in calls], [outcome_by_id[call_id] for _, _, call_id in calls]
 
@@ -408,7 +423,11 @@ def _has_observed_failed_tool(events: list[Mapping[str, Any]], name: str) -> boo
                 and _tool_name(matching_calls[0]) == name
                 and _tool_name(matching_completions[0]) == name
                 and matching_completions[0] is event):
-            return True
+            call_sequence = matching_calls[0].get("sequence", _payload(matching_calls[0]).get("sequence"))
+            completion_sequence = event.get("sequence", payload.get("sequence"))
+            if (isinstance(call_sequence, int) and isinstance(completion_sequence, int)
+                    and completion_sequence > call_sequence):
+                return True
     return False
 
 
@@ -746,8 +765,12 @@ class AgentTeamsClient:
             if isinstance(page, Mapping):
                 page_values = page.get("events", [])
                 upstream = page.get("evidenceCompleteness") or {}
-                if isinstance(upstream, Mapping) and str(upstream.get("status", "")).upper() == "TRUNCATED":
-                    event_status = "TRUNCATED"
+                if isinstance(upstream, Mapping):
+                    upstream_status = str(upstream.get("status", "")).upper()
+                    if upstream_status == "TRUNCATED":
+                        event_status = "TRUNCATED"
+                    elif upstream_status == "INCONCLUSIVE" and event_status == "COMPLETE":
+                        event_status = "INCONCLUSIVE"
             else:
                 page_values = page
             if not isinstance(page_values, list):

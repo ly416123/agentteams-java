@@ -54,7 +54,8 @@ class EvaluationCoreTest(unittest.TestCase):
              "content": "private content", "apiKey": "secret-f", "artifacts": [{
                  "name": "safe.pdf", "contentType": "application/pdf", "storageRef": "tasks/task-1/safe.pdf",
                  "sizeBytes": 12, "sha256": "a" * 64, "downloadUrl": "https://x.invalid?X-Amz-Signature=secret"}]},
-            {"status": "COMPLETE", "observedEventCount": 1, "eventLimit": 1000},
+            {"status": "COMPLETE", "observedEventCount": 1, "eventLimit": 1000,
+             "privateBody": "private completeness body", "apiKey": "secret-completeness"},
         )
         encoded = json.dumps(bundle, ensure_ascii=False)
 
@@ -66,6 +67,7 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertEqual(["parent-1"], bundle["taskTree"][0]["dependencyIds"])
         self.assertEqual({"id", "taskId"}, set(bundle["decisions"][0]))
         self.assertEqual({"status", "artifacts"}, set(bundle["resultManifest"]))
+        self.assertEqual({"status", "observedEventCount", "eventLimit"}, set(bundle["evidenceCompleteness"]))
 
     def test_output_contains_report_has_no_expected_or_actual_body(self):
         case = EvalCase("contains", "Contains", {}, [{"type": "output_contains", "value": "private answer secret"}], {})
@@ -315,6 +317,41 @@ cases:
         self.assertEqual("INCONCLUSIVE", observation["eventCompleteness"])
         self.assertEqual(observation["evidenceCompleteness"], bundle["evidenceCompleteness"])
         self.assertEqual("INCONCLUSIVE", bundle["eventCompleteness"])
+
+    def test_upstream_event_inconclusive_survives_local_pagination_completion(self):
+        def transport(request, timeout):
+            path = request.full_url.split("http://test", 1)[1]
+            if "/process-events" in path:
+                return 200, {}, json.dumps({"events": [], "evidenceCompleteness": {
+                    "status": "INCONCLUSIVE", "observedEventCount": 0, "eventLimit": 1000,
+                    "privateBody": "must not be retained"}}).encode()
+            if path.endswith("/result"):
+                return 200, {}, json.dumps({"status": "SUCCEEDED"}).encode()
+            if path.endswith("/tree") or path.endswith("/decisions"):
+                return 200, {}, b"[]"
+            if path == "/api/v1/tasks/task-1":
+                return 200, {}, json.dumps({"id": "task-1", "phase": "SUCCEEDED"}).encode()
+            raise AssertionError(path)
+
+        observation = AgentTeamsClient("http://test", "token", transport=transport).get_observation("task-1", "run-1")
+        self.assertEqual("INCONCLUSIVE", observation["eventCompleteness"])
+        self.assertEqual({"status": "INCONCLUSIVE", "observedEventCount": 0, "eventLimit": 1000},
+                         observation["evidenceCompleteness"])
+
+    def test_lifecycle_rejects_completion_before_call_sequence(self):
+        events = [
+            {"eventType": "tool.finished", "sequence": 1,
+             "payload": {"tool": "search", "sequence": 1, "callId": "order-1", "ok": False}},
+            {"eventType": "tool.called", "sequence": 2,
+             "payload": {"tool": "search", "sequence": 2, "callId": "order-1"}},
+        ]
+        case = EvalCase("wrong-order", "Wrong order", {}, [
+            {"type": "required_tool", "name": "search"}, {"type": "failed_tool", "name": "search"}], {})
+        complete = evaluate_observation(case, {"events": events, "eventCompleteness": "COMPLETE"})
+        truncated = evaluate_observation(case, {"events": events, "eventCompleteness": "TRUNCATED"})
+
+        self.assertEqual(["INCONCLUSIVE", "INCONCLUSIVE"], [result.status for result in complete])
+        self.assertEqual(["INCONCLUSIVE", "INCONCLUSIVE"], [result.status for result in truncated])
 
     def test_tool_lifecycle_requires_unique_matching_call_ids(self):
         case = EvalCase("pair", "Pair", {}, [{"type": "required_tool", "name": "search"}], {})
