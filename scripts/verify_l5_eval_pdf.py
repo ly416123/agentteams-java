@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from pypdf import PdfReader
 
@@ -36,7 +36,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 def fetch_pdf(url: str, limit: int) -> bytes:
     try:
-        with build_opener(_NoRedirect()).open(Request(url, method="GET"), timeout=20) as response:
+        with build_opener(ProxyHandler({}), _NoRedirect()).open(Request(url, method="GET"), timeout=20) as response:
             return response.read(limit + 1)
     except (HTTPError, URLError, OSError, ValueError):
         raise EvalError("PDF delivery request failed") from None

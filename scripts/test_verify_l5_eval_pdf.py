@@ -1,10 +1,12 @@
 import hashlib
 import io
 import unittest
+from unittest.mock import patch
+from urllib.request import ProxyHandler
 
 from pypdf import PdfWriter
 
-from scripts.verify_l5_eval_pdf import EvalError, verify_pdf
+from scripts.verify_l5_eval_pdf import EvalError, fetch_pdf, verify_pdf
 
 
 class VerifyL5EvalPdfTest(unittest.TestCase):
@@ -41,6 +43,12 @@ class VerifyL5EvalPdfTest(unittest.TestCase):
             verify_pdf(self.artifact, "192.168.122.55", lambda url, limit: b"not-a-pdf")
         self.assertNotIn("secret", str(raised.exception))
 
+    def test_delivery_fetch_bypasses_environment_proxy(self):
+        with patch("scripts.verify_l5_eval_pdf.build_opener") as opener:
+            opener.return_value.open.return_value = io.BytesIO(self.pdf)
+            self.assertEqual(self.pdf, fetch_pdf(self.artifact["downloadUrl"], len(self.pdf)))
+            self.assertTrue(any(isinstance(handler, ProxyHandler) and not handler.proxies
+                                for handler in opener.call_args.args))
 
 if __name__ == "__main__":
     unittest.main()
