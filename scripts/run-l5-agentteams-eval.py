@@ -11,12 +11,15 @@ change cluster resources.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 # Allow direct execution from the repository root or from scripts/.
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,9 +66,63 @@ def assert_workers_ready(namespace: str) -> None:
         raise EvalError(f"L5 Workers are not Ready: {', '.join(not_ready)}")
 
 
-def write_report(path: Path, report: dict) -> None:
+def write_report(path: Path, report: dict, token: str = "") -> None:
+    validate_report_safety(report, token)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _field(value: object, key: str) -> object:
+    return value.get(key) if isinstance(value, dict) else getattr(value, key, None)
+
+
+def validate_case_scopes(cases: list, tenant: str, project: str, team: str) -> None:
+    expected = {"tenant": tenant, "project": project, "team": team}
+    if any(not isinstance(value, str) or not value.strip() for value in expected.values()):
+        raise EvalError("expected L5 tenant, project and team must be provided")
+    for case in cases:
+        task = _field(case, "task")
+        scope = _field(task, "scope")
+        if not isinstance(scope, dict):
+            raise EvalError("every L5 case must declare a target scope")
+        for key, expected_value in expected.items():
+            actual = scope.get(key)
+            if actual != expected_value:
+                case_id = _field(case, "case_id") or "unknown"
+                raise EvalError(f"case {case_id} {key} does not match the selected L5 target")
+
+
+def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, team: str) -> None:
+    projects_payload = client._request("GET", f"/api/v1/projects?q={quote(project, safe='')}")
+    projects = projects_payload.get("items", []) if isinstance(projects_payload, dict) else projects_payload
+    if not isinstance(projects, list):
+        raise EvalError("project access preflight returned an invalid response")
+    matches = [item for item in projects if isinstance(item, dict)
+               and item.get("name") == project and item.get("tenantId") == tenant
+               and item.get("status") == "ACTIVE" and item.get("id")]
+    if len(matches) != 1:
+        raise EvalError("selected L5 project was not found uniquely in the selected tenant")
+    project_id = str(matches[0]["id"])
+    role = client._request("GET", f"/api/v1/projects/{quote(project_id, safe='')}/role?requiredRole=ADMIN")
+    if not isinstance(role, dict) or role.get("allowed") is not True:
+        raise EvalError("selected L5 identity lacks project task creation and execution permission")
+    teams = client._request("GET", f"/api/v1/teams?projectId={quote(project_id, safe='')}")
+    if not isinstance(teams, list):
+        raise EvalError("team access preflight returned an invalid response")
+    matching_teams = [item for item in teams if isinstance(item, dict) and item.get("name") == team
+                      and item.get("status") == "ACTIVE"]
+    if len(matching_teams) != 1:
+        raise EvalError("selected L5 team was not found uniquely in the selected project")
+
+
+def validate_report_safety(report: dict, token: str = "") -> None:
+    serialized = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    if token and token in serialized:
+        raise EvalError("refusing to write a report containing the evaluation token")
+    if re.search(r"(?i)https?://", serialized):
+        raise EvalError("refusing to write a report containing a URL")
+    if re.search(r'(?i)"(?:authorization|access[_-]?token|refresh[_-]?token|password|client[_-]?secret|downloadUrl)"\s*:', serialized):
+        raise EvalError("refusing to write a report containing a credential or download URL field")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,6 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cases", default="eval/cases/core.yaml")
     parser.add_argument("--report", default="eval/reports/l5-core-latest.json")
     parser.add_argument("--token-env", default="AGENTTEAMS_EVAL_TOKEN")
+    parser.add_argument("--tenant", default=os.environ.get("AGENTTEAMS_EVAL_TENANT", ""))
+    parser.add_argument("--project", default=os.environ.get("AGENTTEAMS_EVAL_PROJECT", ""))
+    parser.add_argument("--team", default=os.environ.get("AGENTTEAMS_EVAL_TEAM", ""))
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--poll-seconds", type=float, default=3.0)
     parser.add_argument("--deepeval-export-dir", type=Path,
@@ -84,13 +144,20 @@ def main(argv: list[str] | None = None) -> int:
         token = os.environ.get(args.token_env, "")
         if not token:
             raise EvalError(f"environment variable {args.token_env} is not set")
-        assert_workers_ready(args.namespace)
+        cases = load_cases(args.cases)
+        validate_case_scopes(cases, args.tenant, args.project, args.team)
         base_url = args.base_url.rstrip("/") or cluster_service_url(
             args.namespace, "agentteams-agentteams-java-control-plane", 8080)
-        report = run_suite(AgentTeamsClient(base_url, token), load_cases(args.cases),
+        client = AgentTeamsClient(base_url, token)
+        assert_scope_access(client, args.tenant, args.project, args.team)
+        assert_workers_ready(args.namespace)
+        report = run_suite(client, cases,
                            args.timeout_seconds, args.poll_seconds,
                            deepeval_export_dir=args.deepeval_export_dir)
-        write_report(Path(args.report), report)
+        report["evaluatorVersion"] = "deterministic-v1"
+        report["suiteVersion"] = hashlib.sha256(Path(args.cases).read_bytes()).hexdigest()
+        report["targetScope"] = {"tenant": args.tenant, "project": args.project, "team": args.team}
+        write_report(Path(args.report), report, token)
         return 0 if report["passed"] else 1
     except (EvalError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"L5 evaluation error: {exc}", file=sys.stderr)

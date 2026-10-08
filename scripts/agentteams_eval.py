@@ -725,6 +725,10 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
         elif assertion_type == "retry_limit":
             results.append(AssertionResult(assertion_type, None, "retry attempt evidence is unavailable",
                                            assertion.get("maxAttempts"), None, (f"task-run:{run_id}",)))
+        elif assertion_type == "source_citation":
+            results.append(AssertionResult(assertion_type, None,
+                                           "structured source citation evidence is unavailable",
+                                           "structured source references", None, (manifest_ref,)))
         elif assertion_type == "run_status":
             run = observation.get("run") or {}
             actual, expected = run.get("status"), str(assertion.get("expected", ""))
@@ -782,9 +786,7 @@ class AgentTeamsClient:
         request = Request(self.base_url + path, data=data, headers=headers, method=method)
         status, _, raw = self.transport(request, self.timeout)
         if status < 200 or status >= 300:
-            detail = raw.decode("utf-8", errors="replace")[:300]
-            detail = detail.replace(self.token, "[REDACTED]")
-            raise EvalTransportError(f"HTTP {status} {method} {path}: {detail}")
+            raise EvalTransportError(f"HTTP {status} {method} {path}")
         if not raw:
             return None
         try:

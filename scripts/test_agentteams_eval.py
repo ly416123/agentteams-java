@@ -595,6 +595,22 @@ cases:
         self.assertTrue(calls[1].headers.get("Idempotency-key"))
         self.assertNotEqual(calls[0].headers["Idempotency-key"], calls[1].headers["Idempotency-key"])
 
+    def test_client_error_does_not_log_untrusted_response_body(self):
+        from scripts.agentteams_eval import EvalTransportError
+
+        body = b'{"error":"secret context https://storage.example/file?X-Goog-Signature=leak"}'
+        client = AgentTeamsClient("http://test", "test-token",
+                                  transport=lambda request, timeout: (403, {}, body))
+
+        with self.assertRaises(EvalTransportError) as raised:
+            client._request("GET", "/api/v1/tasks/task-1")
+
+        message = str(raised.exception)
+        self.assertIn("403", message)
+        self.assertNotIn("secret context", message)
+        self.assertNotIn("storage.example", message)
+        self.assertNotIn("leak", message)
+
     def test_client_paginates_process_events_and_marks_truncation_at_limit(self):
         event_requests = []
         def transport(request, timeout):

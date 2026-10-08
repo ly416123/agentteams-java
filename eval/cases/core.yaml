@@ -92,6 +92,7 @@ cases:
         name: web_search
       - type: required_tool
         name: load_skill_through_path
+      - type: source_citation
       - type: artifact_pdf
         exactlyOne: true
         durable: true

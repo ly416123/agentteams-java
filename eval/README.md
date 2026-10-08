@@ -133,17 +133,20 @@ python3 eval/deepeval_calibration.py \
 
 ## L5 受控入口
 
-L5 主机可以直接运行受控入口。它会检查 Worker CR 是否全部 Ready，自动解析集群内 Control Plane ClusterIP，并且只从环境变量读取短期 Token：
+L5 主机可以直接运行受控入口。必须显式指定目标 tenant/project/team（命令行参数或同名环境变量），且与 YAML 中每个 Case 的 scope 完全一致。入口会先只读检查项目是否属于该 tenant、目标 team 是否存在，并确认当前身份具有 ADMIN 角色（覆盖任务创建和执行权限），再检查 Worker CR 是否全部 Ready、自动解析集群内 Control Plane ClusterIP。短期 Token 只从环境变量读取：
 
 ```bash
 export AGENTTEAMS_EVAL_TOKEN='短期 Bearer Token'
+export AGENTTEAMS_EVAL_TENANT='tenant-a'
+export AGENTTEAMS_EVAL_PROJECT='project-a'
+export AGENTTEAMS_EVAL_TEAM='team-a'
 python3 scripts/run-l5-agentteams-eval.py \
   --cases eval/cases/core.yaml \
   --report eval/reports/l5-core-latest.json \
   --deepeval-export-dir /tmp/agentteams-l5-deepeval
 ```
 
-入口不会创建身份映射、修改 Kubernetes 资源或保存 Token。运行身份必须已经具备目标租户、项目和团队的读取、创建及执行权限。当前环境没有 GitHub self-hosted L5 Runner，因此没有把私网 L5 地址直接写入 GitHub 定时 Job；未来配置 self-hosted Runner 或主机 cron 时，复用此入口即可。
+入口不会创建身份映射、修改 Kubernetes 资源或保存 Token。报告在写入前会拒绝凭证字段、Token 和 URL；报告记录 Suite 摘要版本、Evaluator 版本、Case/Task/Run 标识、双门禁及安全证据引用。当前环境没有 GitHub self-hosted L5 Runner，因此没有把私网 L5 地址直接写入 GitHub 定时 Job；未来配置 self-hosted Runner 或主机 cron 时，复用此入口即可。
 
 ## 用例和断言
 
@@ -154,9 +157,9 @@ python3 scripts/run-l5-agentteams-eval.py \
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
 - `multi-agent-pdf-positive`：要求工具成功加载 Skill、调用搜索、完成依赖拆分，并产出唯一且有持久化引用及 HTTP(S) 下载地址的 PDF。
 
-支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus`、原始 `evidenceCompleteness` 和独立的 `eventCompleteness`，不会从 `tool.called` 推断工具成功。全事件断言只有在事件完整度为 `COMPLETE` 时才可通过或否定；已观察到的失败调用可立即令 `failed_tool` 失败。工具调用和完成事件必须通过唯一 `callId` 配对；缺少、重复或不匹配的 ID 会令生命周期断言为 `INCONCLUSIVE`。成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
+支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`source_citation`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus`、原始 `evidenceCompleteness` 和独立的 `eventCompleteness`，不会从 `tool.called` 推断工具成功。全事件断言只有在事件完整度为 `COMPLETE` 时才可通过或否定；已观察到的失败调用可立即令 `failed_tool` 失败。工具调用和完成事件必须通过唯一 `callId` 配对；缺少、重复或不匹配的 ID 会令生命周期断言为 `INCONCLUSIVE`。成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
 
-没有重试次数证据时 `retry_limit` 为 `INCONCLUSIVE`；Run 状态缺失时 `run_status` 也为 `INCONCLUSIVE`。依赖状态只依据 taskTree 可用性，不受过程事件截断影响。Task 4 尚无依赖交接引用数据源，因此缺少引用时为 `INCONCLUSIVE`；若观察数据包含引用，Runner 只接受 `task-result:<dependencyId>` 稳定格式。当前证据 Bundle 没有来源引用字段，所以来源引用校验应为 `INCONCLUSIVE`；正向 Case 只要求 Agent 输出来源引用，不把正文文本当成已验证的引用证据。
+没有重试次数证据时 `retry_limit` 为 `INCONCLUSIVE`；Run 状态缺失时 `run_status` 也为 `INCONCLUSIVE`。依赖状态只依据 taskTree 可用性，不受过程事件截断影响。Task 4 尚无依赖交接引用数据源，因此缺少引用时为 `INCONCLUSIVE`；若观察数据包含引用，Runner 只接受 `task-result:<dependencyId>` 稳定格式。当前证据 Bundle 没有来源引用字段，所以 `source_citation` 明确返回 `INCONCLUSIVE`；正向 Case 要求 Agent 输出来源引用，但正文文本不会被误报为已验证的引用证据。
 
 Runner 会按事件序号分页读取 `/process-events`（每页 100 条），最多检查 1001 条以确认是否超过 1000 条证据上限。PDF 断言先检查 MIME、扩展名、大小和 SHA-256，再用 `pypdf` 检查本地可用字节的 `%PDF-` 签名、文件结束标记和页树。Case 可要求唯一 PDF、持久化 `tasks/` 引用和 HTTP(S) 下载地址；报告只保留清单引用，不输出下载 URL。YAML 中的 `offlineFixtures` 仅用于本地单元测试，不会被 Runner 当作 Suite Case 或 L5 执行报告。远端 artifact API 不提供正文时，签名检查为 `INCONCLUSIVE`；Runner 不会跟随下载 URL。
 
