@@ -1,6 +1,6 @@
 # AI 新闻与 Web Search 团队集成评测设计
 
-**状态：** 设计待用户审阅  
+**状态：** 用户已确认；按隔离 Executor 的运行策略调整
 **日期：** 2026-10-09  
 **目标环境：** L5，`tenant-a / project-a / team-a`
 
@@ -14,7 +14,7 @@
 
 - L5 尚未登记 `ai-news`；已有 `agentteams-web-search` 和 `agentteams-mcp-tools`。
 - L5 上的隔离 Team `l5-agentteams-pdf-eval-20261008-1705-6d4a` 当前有 2 名成员，Team revision 为 `PUBLISHED`，Leader 和 Executor Worker 均为 Ready。
-- Executor AgentSpec 已绑定 `agentteams-web-search` 和 `industry-research@0.0.5`；Leader AgentSpec 已绑定 `agentteams-mcp-tools`，可执行任务编排和 PDF 工具。
+- Executor AgentSpec 当前绑定 `agentteams-web-search` 和 `industry-research@0.0.5`；Leader AgentSpec 已绑定 `agentteams-mcp-tools`，可执行任务编排和 PDF 工具。
 - `quota-admin` 在 `tenant-a / project-a` 的成员状态为 `ACTIVE`，角色为 `ADMIN`。隔离 Team 的资源范围是 `tenant-a / project-a / team-a`。
 - L5 节点内存使用率约为 66%，主机没有 Docker 命令，但 K3s 可以运行工作负载并导入本地构建的 OCI 镜像。
 - `ai-news` 提供 `search_news(query, limit)`，返回标题、原文链接、来源、分类、相关度和发布时间。
@@ -51,11 +51,11 @@
 ```json
 {
   "mcpRefs": ["agentteams-web-search", "ai-news"],
-  "skillRefs": ["industry-research@0.0.5"]
+  "skillRefs": []
 }
 ```
 
-通过正式 AgentSpec 发布、Worker 配置 ACK、Team revision 发布和显式部署流程生效。Leader 保留现有任务编排与 PDF 工具。完成后检查 Executor 的运行时配置同时包含两个 MCP binding，且 `search_news` 与 `web_search` 均在发现工具列表中。
+现有 `industry-research@0.0.5` 的 MCP capability policy 只允许 `web_search`，Worker 会对多个 Skill policy 取交集，因此保留它会过滤 `search_news`。用户已选择仅对隔离评测 Executor 移除此非必需 Skill binding；不修改共享 Team 或 Skill 资源。两项 MCP 都通过精确的 AgentSpec `mcpRefs` 绑定，Executor 子任务仅请求 `search_news` 与 `web_search`；AI News MCP 本身只暴露 `search_news`，平台 MCP 的任务工具过滤仅启用本 Case 请求的 `web_search`。通过正式 AgentSpec 发布、Worker 配置 ACK、Team revision 发布和显式部署流程生效。Leader 保留现有任务编排与 PDF 工具。完成后检查 Executor 的运行时配置同时包含两个 MCP binding，并确认实际工具调用集合仅包含预期工具。
 
 ### 4.3 端到端任务
 
@@ -92,6 +92,7 @@ Leader 计划研究和撰写子任务，并要求：
 - Control Plane 用 MCP 连接器进行发现和连通性检查；Agent Worker 的 AgentScope MCP Runtime 会直接连接 MCP Endpoint 执行工具调用。因此两者都必须能访问 `ai-news-mcp:8000`，并由 NetworkPolicy 将访问范围限制到该服务和端口。
 - 不在仓库、ConfigMap、日志和报告中存放密码、Token 或外部 MCP 凭证。
 - 用户的 `quota-admin` Project ADMIN 权限保持现状；不创建或临时提升其他成员。
+- 只调整隔离评测 Executor 的 Skill 引用；Skill 资源和共享 Team 配置保持不变。
 - 所有新用例和报告使用独立文件名；部署仅涉及新增 AI 新闻工作负载、MCP 注册和隔离评测 Team 的新 revision。
 
 ## 7. 验收与交付

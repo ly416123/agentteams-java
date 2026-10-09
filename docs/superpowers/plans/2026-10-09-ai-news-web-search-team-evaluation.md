@@ -57,7 +57,6 @@ git commit --only -m 'test(评测): 增加双 MCP PDF 集成用例' -- eval/case
 **文件：**
 - 创建：`deploy/l5/ai-news-mcp.yaml`
 - 创建：`deploy/helm/l5-ai-news-values.yaml`
-- 创建：`deploy/l5/ai-news-mcp.yaml`
 
 - [ ] **步骤 1：创建 Kubernetes 清单**
 
@@ -77,7 +76,7 @@ git commit --only -m 'test(评测): 增加双 MCP PDF 集成用例' -- eval/case
 
 - [ ] **步骤 4：本地构建 linux/amd64 镜像并检查镜像身份**
 
-在临时构建目录中只复制 `/Users/gecko/code/news/Dockerfile`、`pyproject.toml`、`src/`、`config/`，确认不复制 `.env`、`.git/`、`.venv/`，再从该临时目录执行 `docker buildx build --platform linux/amd64 --load -t agentteams-ai-news:2026-10-09-1 .`。确认 `docker image inspect agentteams-ai-news:2026-10-09-1 --format '{{.Os}}/{{.Architecture}}'` 输出 `linux/amd64`；保存镜像摘要和 tar SHA-256 作为 L5 核验信息。
+在临时构建目录中只复制 `/Users/gecko/code/news/Dockerfile`、`pyproject.toml`、`src/`、`config/`，确认不复制 `.env`、`.git/`、`.venv/`，再从该临时目录执行 `docker buildx build --platform linux/amd64 --load -t agentteams-ai-news:2026-10-09-1 .`。确认 `docker image inspect agentteams-ai-news:2026-10-09-1 --format '{{.Os}}/{{.Architecture}}'` 输出 `linux/amd64`；执行 以临时上下文中的 Dockerfile `FROM redis:7.4.2-alpine` 执行 `docker buildx build --platform linux/amd64 --load -t agentteams-redis:7.4.2-alpine <context>`，确认输出架构为 linux/amd64；随后用 `docker save -o /tmp/agentteams-ai-news-l5-20261009.tar agentteams-ai-news:2026-10-09-1 agentteams-redis:7.4.2-alpine` 将两个单架构镜像写入同一 tar。保存两个镜像摘要和 tar SHA-256 作为 L5 核验信息。
 
 - [ ] **步骤 5：提交部署清单**
 
@@ -99,15 +98,15 @@ git commit --only -m 'feat(部署): 添加 L5 AI 新闻 MCP 服务' -- deploy/l5
 
 - [ ] **步骤 2：传输镜像并导入 K3s**
 
-使用 SSH/SCP 将本地保存的镜像 tar 传到 L5 临时目录；在 L5 运行 `sudo /usr/local/bin/k3s ctr -n k8s.io images import <tar>`，随后检查 `k3s crictl images` 中存在目标镜像。删除传输 tar 前记录其 SHA-256 并与本地值比较。
+使用 `scp /tmp/agentteams-ai-news-l5-20261009.tar ly@192.168.122.55:/tmp/agentteams-ai-news-l5-20261009.tar` 传输镜像；在 L5 运行 `sudo -n /usr/local/bin/k3s ctr -n k8s.io images import /tmp/agentteams-ai-news-l5-20261009.tar`，随后运行 `sudo -n /usr/local/bin/k3s crictl images` 并确认 `agentteams-ai-news:2026-10-09-1` 和 `agentteams-redis:7.4.2-alpine` 两个目标镜像都已导入。传输前后运行 `shasum -a 256` / `sha256sum` 比较 tar SHA-256 一致后再清理临时文件。
 
 - [ ] **步骤 3：应用 Redis 与 MCP 清单**
 
-运行 `kubectl apply -f deploy/l5/ai-news-mcp.yaml`。确认 Redis Service 没有 NodePort/LoadBalancer，并检查 Redis ingress NetworkPolicy 的来源仅为 AI News MCP 与 CronJob Pod。更新现有 release：`helm upgrade agentteams deploy/helm/agentteams-java -n agentteams --reuse-values -f deploy/helm/l5-ai-news-values.yaml`。
+先运行 `helm upgrade agentteams deploy/helm/agentteams-java -n agentteams --reuse-values -f deploy/helm/l5-ai-news-values.yaml`，等待 Control Plane rollout 成功；再运行 `kubectl apply -f deploy/l5/ai-news-mcp.yaml`。确认 Redis Service 没有 NodePort/LoadBalancer，并检查 Redis ingress NetworkPolicy 的来源仅为 AI News MCP 与 CronJob Pod。
 
 - [ ] **步骤 4：等待存储、MCP 与抓取 Job Ready**
 
-运行 `kubectl -n agentteams rollout status statefulset/ai-news-redis --timeout=180s` 和 `kubectl -n agentteams rollout status deployment/ai-news-mcp --timeout=180s`；触发一次抓取 Job，确认成功后再检查 MCP readiness。任何失败都停止后续 registry/Team 更新，并仅收集脱敏日志。
+运行 `kubectl -n agentteams rollout status statefulset/ai-news-redis --timeout=180s` 和 `kubectl -n agentteams rollout status deployment/ai-news-mcp --timeout=180s`；运行 `kubectl -n agentteams create job --from=cronjob/ai-news-fetch ai-news-fetch-initial-20261009`，确认 Job Complete 且 MCP readiness 为 Ready。任何失败都停止后续 registry/Team 更新，并仅收集脱敏日志。
 
 - [ ] **步骤 5：验证 MCP 工具与 NetworkPolicy**
 
@@ -127,7 +126,7 @@ git commit --only -m 'feat(部署): 添加 L5 AI 新闻 MCP 服务' -- deploy/l5
 
 - [ ] **步骤 2：更新现有 Executor AgentSpec**
 
-只修改现有隔离评测 Team 的 Executor AgentSpec，保留 provider/model/skill 和 `agentteams-web-search`，将 `ai-news` 加入 `mcpRefs`。通过正式 API 发布配置并等待对应 Worker 配置 ACK；确认 discovery 工具集同时含 `search_news` 与 `web_search`。
+只修改现有隔离评测 Team 的 Executor AgentSpec，保留 provider/model 和 `agentteams-web-search`，将 `ai-news` 加入 `mcpRefs` 并将 `skillRefs` 设为空列表。该隔离 Case 不依赖 industry-research Skill；移除它是因为其 `allowedMcp`/`allowedTools` 交集排除 `ai-news/search_news`。不改 Skill 资源或其他 Team。通过正式 API 发布配置并等待对应 Worker 配置 ACK；确认 discovery 工具集同时含 `search_news` 与 `web_search`，且子任务运行时只启用 `search_news` 与 `web_search`。
 
 - [ ] **步骤 3：发布隔离 Team 新 revision**
 
@@ -161,6 +160,6 @@ git commit --only -m 'feat(部署): 添加 L5 AI 新闻 MCP 服务' -- deploy/l5
 
 - 设计目标中的部署、目录注册、Executor 更新、Team revision、依赖任务、PDF、确定性门禁和人工验收都有对应任务。
 - 网络策略同时覆盖 Control Plane MCP discovery 与 Agent Worker 工具运行时连接。
-- AI News 服务不配置 Webhook 或翻译凭证；专用 Redis 通过 NetworkPolicy 限制入站，仓库、日志和报告不包含 Token 或外部 MCP 凭证。
+- AI News 服务不配置 Webhook 或翻译凭证；专用 Redis 通过 NetworkPolicy 限制入站，仓库、日志和报告不包含 Token 或外部 MCP 凭证。隔离评测 Executor 移除不兼容的 Skill 绑定，但不修改 Skill 定义或共享 Team。
 - 新评测文件和报告均独立，不覆盖此前历史结果。
 - 代码和文档变更只在 `main` 分支；每次提交使用路径限定，不包含工作区已有的其他 staged/unstaged 修改。
