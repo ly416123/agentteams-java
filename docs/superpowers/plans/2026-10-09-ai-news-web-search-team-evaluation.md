@@ -12,8 +12,8 @@
 
 ## 文件结构与职责
 
-- 创建 `deploy/l5/ai-news-mcp.yaml`：Redis 持久化、只读新闻配置、AI News MCP Deployment/Service、抓取 CronJob，以及仅允许 Control Plane/Worker 访问该 MCP 的 NetworkPolicy。
-- 修改 `deploy/helm/l5-values.yaml`：将 Control Plane 的 MCP HTTP 主机 allowlist 增加 `ai-news-mcp`；保留已有值及本地未提交修改。
+- 创建 `deploy/l5/ai-news-mcp.yaml`：Redis 持久化、只读新闻配置、AI News MCP Deployment/Service、抓取 CronJob，以及仅允许 Control Plane/Worker 入站访问该 MCP 的 NetworkPolicy。
+- 创建 `deploy/helm/l5-ai-news-values.yaml`：以 Helm overlay 将 Control Plane MCP HTTP 主机 allowlist 设为 `agentteams-mcp-tools,ai-news-mcp`，作为现有 L5 Release values 的附加覆盖文件。
 - 创建 `eval/cases/ai-news-web-search.yaml`：仅包含新的双 MCP、多 Agent、依赖交接、PDF 正向 Case，不改历史 Case 和报告。
 - 创建 `scripts/test_ai_news_web_search_eval_contract.py`：验证 Case scope、两项 Executor 工具、领导编排/PDF 工具及关键确定性断言，避免误删任一 MCP 门禁。
 - 创建 `docs/superpowers/plans/2026-10-09-ai-news-web-search-team-evaluation.md`：记录可复现的实现和 L5 验收步骤。
@@ -56,41 +56,42 @@ git commit --only -m 'test(评测): 增加双 MCP PDF 集成用例' -- eval/case
 
 **文件：**
 - 创建：`deploy/l5/ai-news-mcp.yaml`
-- 修改：`deploy/helm/l5-values.yaml`
+- 创建：`deploy/helm/l5-ai-news-values.yaml`
+- 创建：`deploy/l5/ai-news-mcp.yaml`
 
 - [ ] **步骤 1：创建 Kubernetes 清单**
 
-清单放在 `agentteams` namespace，包括：`ai-news-redis` PVC/StatefulSet/Service；从现有 `/app/config` 容器路径只读挂载 `config/sources.yaml` 与 `config/settings.yaml` 的 ConfigMap；`ai-news-mcp` Deployment/ClusterIP Service，端口 8000、MCP 路径 `/mcp`，使用 `IfNotPresent` 固定版本镜像；调用 `python -m news run-once --dry-run` 的 CronJob，执行镜像中已有 CLI；匹配 `app.kubernetes.io/name=ai-news-mcp` Pod 的 ingress NetworkPolicy 只允许 CP 和 Worker 来源 TCP 8000；额外 egress NetworkPolicy 只选择 `agentteams-control-plane` 与 `agentteams-worker`，目标仅为 AI News Pod TCP 8000。Redis 口令以 Kubernetes Secret 挂载，清单不包含密码、Keycloak Token、Webhook 或 `.env`。
+清单放在 `agentteams` namespace，包括：`ai-news-redis` PVC/StatefulSet/Service；从镜像 `/app/config` 只读挂载 `config/sources.yaml` 与 `config/settings.yaml` 的 ConfigMap；`ai-news-mcp` Deployment/ClusterIP Service，端口 8000、MCP 路径 `/mcp`，环境变量 `MCP_HOST=0.0.0.0`、`MCP_PORT=8000`、`REDIS_URL=redis://ai-news-redis:6379/0`，使用 `IfNotPresent` 固定版本镜像并以 `python -m news mcp` 启动；调用 `python -m news run-once --dry-run` 的 CronJob，沿用同一只读配置和 Redis URL。匹配 `app.kubernetes.io/name=ai-news-mcp` Pod 的 ingress NetworkPolicy 只允许 Control Plane 和 Worker 来源 TCP 8000。另建只选择 `agentteams-control-plane` 的 egress NetworkPolicy，目标仅为 AI News Pod TCP 8000，以补充现有 Control Plane egress allowlist；不创建选择 Worker 的 egress NetworkPolicy，避免改变 Worker 现有 Gateway/模型访问能力。Redis 独立 PVC，并用 ingress NetworkPolicy 仅允许 MCP/CronJob Pod 访问 TCP 6379。该服务不配置推送 Webhook 或翻译 API 凭证，清单不包含密码、Token 或 `.env`。
 
 - [ ] **步骤 2：将 Control Plane 主机加入 allowlist**
 
-在 `deploy/helm/l5-values.yaml` 的现有 `AGENTTEAMS_MCP_HTTP_ALLOWED_HOSTS` 值中追加 `ai-news-mcp`，保留 `agentteams-mcp-tools`；不改变 scheme 或凭证环境变量。
+在 `deploy/helm/l5-ai-news-values.yaml` 中定义 `controlPlane.env.AGENTTEAMS_MCP_HTTP_ALLOWED_HOSTS: "agentteams-mcp-tools,ai-news-mcp"`，不覆盖已有 L5 values 的其他键。
 
 - [ ] **步骤 3：渲染并静态检查 Helm 与 YAML**
 
-运行：`helm template agentteams deploy/helm/agentteams-java -f deploy/helm/l5-values.yaml >/tmp/agentteams-l5-rendered.yaml`
+运行：`helm template agentteams deploy/helm/agentteams-java -f deploy/helm/l5-values.yaml -f deploy/helm/l5-ai-news-values.yaml >/tmp/agentteams-l5-rendered.yaml`
 
 运行：`python3 -c 'import yaml; list(yaml.safe_load_all(open("deploy/l5/ai-news-mcp.yaml"))); print("manifest YAML OK")'`
 
-预期：两个命令退出码为 `0`；渲染输出中 CP MCP allowlist 包含两个服务名。NetworkPolicy 的 AI News 目标端口为 `8000/TCP`，Redis 仅允许 MCP/CronJob 所需 TCP 6379 访问。
+预期：两个命令退出码为 `0`；使用 `helm template agentteams deploy/helm/agentteams-java -f deploy/helm/l5-values.yaml -f deploy/helm/l5-ai-news-values.yaml` 渲染后 CP allowlist 包含两个服务名。清单 NetworkPolicy 的 AI News 目标端口为 `8000/TCP`，Redis 仅接受 MCP/CronJob 来源的 TCP 6379 入站。
 
 - [ ] **步骤 4：本地构建 linux/amd64 镜像并检查镜像身份**
 
-在干净且确认无 `.env` build context 的 `/Users/gecko/code/news` 仓库执行：`docker buildx build --platform linux/amd64 --load -t agentteams-ai-news:2026-10-09-1 .`。确认 `docker image inspect agentteams-ai-news:2026-10-09-1 --format '{{.Os}}/{{.Architecture}}'` 输出 `linux/amd64`；保存镜像摘要和 tar SHA-256 作为 L5 核验信息。
+在临时构建目录中只复制 `/Users/gecko/code/news/Dockerfile`、`pyproject.toml`、`src/`、`config/`，确认不复制 `.env`、`.git/`、`.venv/`，再从该临时目录执行 `docker buildx build --platform linux/amd64 --load -t agentteams-ai-news:2026-10-09-1 .`。确认 `docker image inspect agentteams-ai-news:2026-10-09-1 --format '{{.Os}}/{{.Architecture}}'` 输出 `linux/amd64`；保存镜像摘要和 tar SHA-256 作为 L5 核验信息。
 
 - [ ] **步骤 5：提交部署清单**
 
 ```bash
-git add -- deploy/l5/ai-news-mcp.yaml deploy/helm/l5-values.yaml
-git commit --only -m 'feat(部署): 添加 L5 AI 新闻 MCP 服务' -- deploy/l5/ai-news-mcp.yaml deploy/helm/l5-values.yaml
+git add -- deploy/l5/ai-news-mcp.yaml deploy/helm/l5-ai-news-values.yaml
+git commit --only -m 'feat(部署): 添加 L5 AI 新闻 MCP 服务' -- deploy/l5/ai-news-mcp.yaml deploy/helm/l5-ai-news-values.yaml
 ```
 
 ## 任务 3：部署并验证 MCP 服务及网络边界
 
 **文件/对象：**
 - 使用：`deploy/l5/ai-news-mcp.yaml`
-- 更新：L5 上现有 Helm Release 的 Control Plane allowlist
-- 创建：L5 `ai-news-redis` Secret（运行时通过 stdin/安全提示创建，不落入仓库）
+- 更新：L5 上名为 `agentteams` 的 Helm Release Control Plane allowlist
+- 不创建 Secret；AI News MCP 和 CronJob 通过专用 Redis Service 访问无认证 Redis，Redis 入站策略仅允许这两个 Pod。
 
 - [ ] **步骤 1：部署前核对 L5 资源与目标对象**
 
@@ -100,9 +101,9 @@ git commit --only -m 'feat(部署): 添加 L5 AI 新闻 MCP 服务' -- deploy/l5
 
 使用 SSH/SCP 将本地保存的镜像 tar 传到 L5 临时目录；在 L5 运行 `sudo /usr/local/bin/k3s ctr -n k8s.io images import <tar>`，随后检查 `k3s crictl images` 中存在目标镜像。删除传输 tar 前记录其 SHA-256 并与本地值比较。
 
-- [ ] **步骤 3：安全创建 Redis Secret 并应用清单**
+- [ ] **步骤 3：应用 Redis 与 MCP 清单**
 
-通过隐藏输入读取 Redis 随机密码并以 `kubectl create secret ... --dry-run=client -o yaml | kubectl apply -f -` 写入 L5；不回显密码。替换 manifest 里的镜像版本为构建 tag 后运行 `kubectl apply -f deploy/l5/ai-news-mcp.yaml`。
+运行 `kubectl apply -f deploy/l5/ai-news-mcp.yaml`。确认 Redis Service 没有 NodePort/LoadBalancer，并检查 Redis ingress NetworkPolicy 的来源仅为 AI News MCP 与 CronJob Pod。更新现有 release：`helm upgrade agentteams deploy/helm/agentteams-java -n agentteams --reuse-values -f deploy/helm/l5-ai-news-values.yaml`。
 
 - [ ] **步骤 4：等待存储、MCP 与抓取 Job Ready**
 
@@ -160,6 +161,6 @@ git commit --only -m 'feat(部署): 添加 L5 AI 新闻 MCP 服务' -- deploy/l5
 
 - 设计目标中的部署、目录注册、Executor 更新、Team revision、依赖任务、PDF、确定性门禁和人工验收都有对应任务。
 - 网络策略同时覆盖 Control Plane MCP discovery 与 Agent Worker 工具运行时连接。
-- Redis 凭证仅在 L5 Secret 中生成；镜像、配置、仓库、日志、报告均不包含外部 MCP 凭证。
+- AI News 服务不配置 Webhook 或翻译凭证；专用 Redis 通过 NetworkPolicy 限制入站，仓库、日志和报告不包含 Token 或外部 MCP 凭证。
 - 新评测文件和报告均独立，不覆盖此前历史结果。
 - 代码和文档变更只在 `main` 分支；每次提交使用路径限定，不包含工作区已有的其他 staged/unstaged 修改。
