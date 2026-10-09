@@ -128,7 +128,8 @@ def bind_team_id(cases: list, team_id: str) -> list:
     return bound
 
 
-def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, team: str) -> tuple[str, str]:
+def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, team: str,
+                        team_id: str = "") -> tuple[str, str]:
     projects_payload = client._request("GET", f"/api/v1/projects?q={quote(project, safe='')}")
     projects = projects_payload.get("items", []) if isinstance(projects_payload, dict) else projects_payload
     if not isinstance(projects, list):
@@ -142,6 +143,11 @@ def assert_scope_access(client: AgentTeamsClient, tenant: str, project: str, tea
     role = client._request("GET", f"/api/v1/projects/{quote(project_id, safe='')}/role?requiredRole=ADMIN")
     if not isinstance(role, dict) or role.get("allowed") is not True:
         raise EvalError("selected L5 identity lacks project task creation and execution permission")
+    if team_id:
+        selected = client._request("GET", f"/api/v1/teams/{quote(team_id, safe='')}?projectId={quote(project_id, safe='')}")
+        if not isinstance(selected, dict) or selected.get("id") != team_id or selected.get("status") != "ACTIVE":
+            raise EvalError("selected L5 team id was not found as an active team in the selected project")
+        return project_id, team_id
     teams = client._request("GET", f"/api/v1/teams?projectId={quote(project_id, safe='')}")
     if not isinstance(teams, list):
         raise EvalError("team access preflight returned an invalid response")
@@ -174,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tenant", default=os.environ.get("AGENTTEAMS_EVAL_TENANT", ""))
     parser.add_argument("--project", default=os.environ.get("AGENTTEAMS_EVAL_PROJECT", ""))
     parser.add_argument("--team", default=os.environ.get("AGENTTEAMS_EVAL_TEAM", ""))
+    parser.add_argument("--team-id", default=os.environ.get("AGENTTEAMS_EVAL_TEAM_ID", ""),
+                        help="select a specific active Team while retaining the case scope team claim")
     parser.add_argument("--timeout-seconds", type=float, default=None,
                         help="override the per-case timeoutSeconds limit")
     parser.add_argument("--poll-seconds", type=float, default=3.0)
@@ -189,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url = args.base_url.rstrip("/") or cluster_service_url(
             args.namespace, "agentteams-agentteams-java-control-plane", 8080)
         client = AgentTeamsClient(base_url, token)
-        project_id, team_id = assert_scope_access(client, args.tenant, args.project, args.team)
+        project_id, team_id = assert_scope_access(client, args.tenant, args.project, args.team, args.team_id)
         assert_workers_ready(args.namespace, args.tenant, project_id, args.team)
         report = run_suite(client, bind_team_id(cases, team_id),
                            args.timeout_seconds, args.poll_seconds,
