@@ -16,7 +16,8 @@ class PromptfooContractTest(unittest.TestCase):
         self.assertEqual("file://promptfoo_assert.py", config["defaultTest"]["assert"][0]["value"])
 
         cases = yaml.safe_load((ROOT / "eval/cases/core.yaml").read_text(encoding="utf-8"))["cases"]
-        self.assertEqual(3, len(cases))
+        case_ids = {case["id"] for case in cases}
+        self.assertTrue({"mcp-web-search-title", "no-tool-simple-answer", "artifact-integrity"} <= case_ids)
         for case in cases:
             serialized = json.dumps(case, ensure_ascii=False).lower()
             for marker in ("bearer ", "api_key", "password", "cookie"):
