@@ -1,0 +1,69 @@
+# Isolated L5 case requiring both AI news discovery and official web research.
+cases:
+  - id: ai-news-web-search-pdf-positive
+    name: Multi-agent AI news research delivers a referenced PDF
+    task:
+      scope:
+        tenant: tenant-a
+        project: project-a
+        team: team-a
+      taskType: agentscope
+      inputJson:
+        prompt: >-
+          Research recent AI agent and Model Context Protocol industry developments.
+          Plan the work and delegate research and drafting to dependent subtasks.
+          Do not invent requiredCapabilities; leave them empty because no executor
+          capability registry is supplied. Every executor must call both the
+          search_news MCP tool for recent industry reporting and the web_search MCP
+          tool for official Model Context Protocol documentation. Use the official
+          documentation to verify a relevant technical claim from the news results.
+          Preserve the returned news title, source, publication date and URL, as well
+          as the exact official-source URL. The second subtask drafts the final
+          concise report using the research result and must not create a PDF. After
+          all subtasks succeed, the aggregate leader creates exactly one downloadable
+          PDF containing a conclusion, news findings, official-documentation check,
+          impact analysis and a source list.
+        requiredMcpTools:
+          - plan_subtasks
+        executorMcpTools:
+          - search_news
+          - web_search
+        aggregatePrompt: >-
+          Use childResults as the source material and preserve dependency provenance.
+          Include the returned news links in the PDF source list. For the official
+          documentation citation, copy a URL from a childSourceEvidence source entry
+          whose `verified` field is true. If that entry is incomplete, use only the
+          listed verified sources and do not infer omitted sources. Keep the complete
+          final answer under 2,000 characters so the task result summary retains it.
+          Put a concise conclusion first, followed immediately by a `Sources:` section.
+          Include at least one full HTTP(S) URL copied verbatim from a successful
+          web_search result on its own line, without Markdown link or code formatting.
+          The final task result summary itself must contain that exact URL; including
+          it only in the PDF or child results is insufficient. After creating the PDF,
+          return the complete concise final answer rather than a completion notice,
+          and make the final response's last non-empty line that same verbatim URL.
+          Do not invent, shorten, or normalize URLs. The aggregate leader creates
+          exactly one downloadable PDF containing the complete final answer.
+        aggregateMcpTools:
+          - create_task_pdf_artifact
+      requiredCapabilities:
+        - runtime-agentscope-v1
+    assertions:
+      - type: phase
+        expected: SUCCEEDED
+      - type: run_status
+        expected: SUCCEEDED
+      - type: dependency_success
+        requireDependencies: true
+      - type: dependency_handoff
+      - type: required_tool
+        name: search_news
+      - type: required_tool
+        name: web_search
+      - type: source_citation
+      - type: artifact_pdf
+        exactlyOne: true
+        durable: true
+        downloadable: true
+    limits:
+      timeoutSeconds: 360
