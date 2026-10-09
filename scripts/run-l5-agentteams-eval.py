@@ -182,6 +182,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--team", default=os.environ.get("AGENTTEAMS_EVAL_TEAM", ""))
     parser.add_argument("--team-id", default=os.environ.get("AGENTTEAMS_EVAL_TEAM_ID", ""),
                         help="select a specific active Team while retaining the case scope team claim")
+    parser.add_argument("--artifact-origin", default=os.environ.get(
+        "AGENTTEAMS_EVAL_ARTIFACT_ORIGIN", "http://192.168.122.55:30090"),
+        help="exact origin allowed for downloading the final output.md artifact")
     parser.add_argument("--timeout-seconds", type=float, default=None,
                         help="override the per-case timeoutSeconds limit")
     parser.add_argument("--poll-seconds", type=float, default=3.0)
@@ -196,7 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         validate_case_scopes(cases, args.tenant, args.project, args.team)
         base_url = args.base_url.rstrip("/") or cluster_service_url(
             args.namespace, "agentteams-agentteams-java-control-plane", 8080)
-        client = AgentTeamsClient(base_url, token)
+        client = AgentTeamsClient(base_url, token,
+                                  allowed_artifact_origins=(args.artifact_origin,) if args.artifact_origin else ())
         project_id, team_id = assert_scope_access(client, args.tenant, args.project, args.team, args.team_id)
         assert_workers_ready(args.namespace, args.tenant, project_id, args.team)
         report = run_suite(client, bind_team_id(cases, team_id),

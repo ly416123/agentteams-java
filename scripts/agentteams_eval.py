@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
 from urllib.parse import urlsplit
 
 import yaml
@@ -39,6 +39,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 TERMINAL_PHASES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 PROCESS_EVENT_PAGE_SIZE = 100
 PROCESS_EVENT_LIMIT = 1000
+MAX_TEXT_ARTIFACT_BYTES = 2 * 1024 * 1024
 SOURCE_SEARCH_TOOL = "web_search"
 SENSITIVE_KEY_PARTS = ("token", "secret", "password", "cookie", "authorization", "apikey", "credential", "privatekey")
 SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -55,6 +56,15 @@ class EvalError(RuntimeError):
 
 class EvalTransportError(EvalError):
     """The API could not be called or returned an unusable response."""
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def _read_limited(response: Any, limit: int) -> bytes:
+    return response.read(limit + 1)
 
 
 @dataclass(frozen=True)
@@ -844,8 +854,16 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             result_manifest = observation.get("result") or {}
             calls = source_evidence.get("calls") if isinstance(source_evidence, Mapping) else None
             coverage = source_evidence.get("completeness") if isinstance(source_evidence, Mapping) else None
-            summary = _source_citation_summary(
-                result_manifest.get("summary") if isinstance(result_manifest, Mapping) else None)
+            summary_values = []
+            if isinstance(result_manifest, Mapping):
+                summary_value = _source_citation_summary(result_manifest.get("summary"))
+                if summary_value:
+                    summary_values.append(summary_value)
+                for artifact in result_manifest.get("artifacts", []) or []:
+                    if isinstance(artifact, Mapping) and artifact.get("name") == "output.md" \
+                            and isinstance(artifact.get("content"), str):
+                        summary_values.append(artifact["content"])
+            summary = "\n".join(summary_values)
             cited = re.findall(r"https?://[^\s<>\"]+", summary, flags=re.I) if isinstance(summary, str) else []
             source_refs: dict[str, str] = {}
             allowed_pairs = {tuple(pair) for pair in source_evidence.get("allowedTaskRuns", [])
@@ -882,10 +900,15 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
                                                "complete run-bound citation evidence", None, (f"task-source:{run_id}",)))
             else:
                 matched = [source_refs[url] for url in cited_urls if url in source_refs]
-                passed = bool(cited_urls) and all(url in source_refs for url in cited_urls)
+                if assertion.get("allowUnverifiedCitations") is True:
+                    passed = bool(matched)
+                else:
+                    passed = bool(cited_urls) and all(url in source_refs for url in cited_urls)
                 results.append(AssertionResult(assertion_type, passed,
                                                "citation URL checked against this Run's search sources",
-                                               "all cited URLs from this Run", "matched" if passed else "citation URL did not match",
+                                               ("at least one cited URL from this Run" if assertion.get("allowUnverifiedCitations") is True
+                                                else "all cited URLs from this Run"),
+                                               "matched" if passed else "citation URL did not match",
                                                tuple(sorted(set(matched)) or {f"task-source:{run_id}"})))
         elif assertion_type == "run_status":
             run = observation.get("run") or {}
@@ -913,13 +936,17 @@ class AgentTeamsClient:
     """Small urllib client; transport can be injected for unit tests."""
 
     def __init__(self, base_url: str, token: str, timeout: float = 30.0,
-                 transport: Callable[..., tuple[int, Mapping[str, str], bytes]] | None = None):
+                 transport: Callable[..., tuple[int, Mapping[str, str], bytes]] | None = None,
+                 allowed_artifact_origins: tuple[str, ...] = ()):
         if not token or token.strip() != token:
             raise EvalError("evaluation token is missing or has surrounding whitespace")
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self._custom_transport = transport is not None
         self.transport = transport or self._urllib_transport
+        self.allowed_artifact_origins = frozenset(
+            origin.rstrip("/").lower() for origin in allowed_artifact_origins)
 
     def _urllib_transport(self, request: Request, timeout: float) -> tuple[int, Mapping[str, str], bytes]:
         try:
@@ -959,6 +986,58 @@ class AgentTeamsClient:
         if status < 200 or status >= 300:
             raise EvalTransportError(f"HTTP {status} GET {path}")
         return raw
+
+    def _request_text_artifact(self, artifact: Mapping[str, Any]) -> str | None:
+        url = artifact.get("downloadUrl")
+        if not isinstance(url, str) or not self.allowed_artifact_origins:
+            return None
+        try:
+            parsed = urlsplit(url)
+            origin = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+            size = artifact.get("sizeBytes")
+            digest = str(artifact.get("sha256", "")).lower()
+            if (origin not in self.allowed_artifact_origins or parsed.username or parsed.password
+                    or not parsed.query or parsed.fragment or type(size) is not int
+                    or not 0 < size <= 2 * 1024 * 1024
+                    or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                return None
+        except ValueError:
+            return None
+        request = Request(url, headers={"Accept": "text/markdown, text/plain"}, method="GET")
+        try:
+            if self._custom_transport:
+                status, headers, raw = self.transport(request, self.timeout)
+            else:
+                with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=self.timeout) as response:
+                    status, headers = response.status, response.headers
+                    raw = _read_limited(response, MAX_TEXT_ARTIFACT_BYTES)
+        except HTTPError as error:
+            status, headers, raw = error.code, error.headers, b""
+        except (URLError, OSError, ValueError, EvalError):
+            return None
+        if status < 200 or status >= 300 or len(raw) != size or hashlib.sha256(raw).hexdigest() != digest:
+            return None
+        content_type = next((value for key, value in headers.items() if key.lower() == "content-type"), "")
+        if not content_type.lower().startswith(("text/markdown", "text/plain")):
+            return None
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+    def _hydrate_text_artifacts(self, result: Any) -> Any:
+        if not isinstance(result, Mapping) or not isinstance(result.get("artifacts"), list):
+            return result
+        artifacts = []
+        for artifact in result["artifacts"]:
+            if (isinstance(artifact, Mapping) and artifact.get("name") == "output.md"
+                    and str(artifact.get("contentType", "")).lower().startswith(("text/markdown", "text/plain"))):
+                content = self._request_text_artifact(artifact)
+                if content is not None:
+                    artifacts.append({**artifact, "content": content})
+                    continue
+            artifacts.append(artifact)
+        return {**result, "artifacts": artifacts}
 
     def _collect_events(self, task_id: str, run_id: str) -> tuple[list[Any], str]:
         events: list[Any] = []
@@ -1075,6 +1154,7 @@ class AgentTeamsClient:
             except EvalError:
                 event_status = "INCONCLUSIVE"
         result = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/result")
+        result = self._hydrate_text_artifacts(result)
         task_tree = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/tree")
         decisions = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/decisions")
         source_evidence = None

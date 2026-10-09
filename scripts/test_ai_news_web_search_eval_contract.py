@@ -29,6 +29,7 @@ def validate_case(case) -> None:
     assert set(task_input["executorMcpTools"]) == {"search_news", "web_search"}
     assert task_input["aggregateMcpTools"] == ["create_task_pdf_artifact"]
     assert "childSourceEvidence" in task_input["aggregatePrompt"]
+    assert "Do not return a JSON artifacts envelope" in task_input["aggregatePrompt"]
 
     assertions = case.assertions
     assertion_types = {assertion["type"] for assertion in assertions}

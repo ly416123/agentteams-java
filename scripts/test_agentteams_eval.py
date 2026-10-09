@@ -12,6 +12,10 @@ from pypdf import PdfWriter
 from scripts.agentteams_eval import (
     AgentTeamsClient,
     EvalCase,
+    EvalTransportError,
+    MAX_TEXT_ARTIFACT_BYTES,
+    _NoRedirect,
+    _read_limited,
     build_evidence_bundle,
     evaluate_observation,
     load_cases,
@@ -178,6 +182,44 @@ class EvaluationCoreTest(unittest.TestCase):
         observation["sourceEvidence"]["runId"] = "other-run"
         self.assertEqual("INCONCLUSIVE", evaluate_observation(case, observation)[0].status)
 
+    def test_source_citation_can_require_one_verified_url_while_allowing_other_tool_sources(self):
+        url = "https://www.w3.org/TR/mcp/"
+        call = {"taskId": "task-1", "runId": "run-1", "complete": True,
+                "sources": [{"url": url, "evidenceRef": "task-source:call-1:" + "a" * 64}]}
+        observation = {"task": {"id": "task-1"}, "run": {"id": "run-1"},
+                       "result": {"summary": "Task completed", "artifacts": [
+                           {"name": "output.md", "content": "News: https://news.example/article\nOfficial: " + url}]},
+                       "sourceEvidence": {"taskId": "task-1", "runId": "run-1",
+                           "allowedTaskRuns": [["task-1", "run-1"]], "calls": [call],
+                           "completeness": {"status": "COMPLETE", "observedSearchCalls": 1,
+                                            "recordedSearchCalls": 1}}}
+        case = EvalCase("citation", "Citation", {}, [
+            {"type": "source_citation", "allowUnverifiedCitations": True}], {})
+
+        self.assertEqual("PASSED", evaluate_observation(case, observation)[0].status)
+        observation["result"]["artifacts"][0]["content"] = "News: https://news.example/article"
+        self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
+
+    def test_source_citation_reads_final_output_artifact_when_manifest_summary_is_generic(self):
+        url = "https://www.w3.org/TR/mcp/"
+        observation = {
+            "task": {"id": "task-1"},
+            "run": {"id": "run-1"},
+            "result": {"summary": "Task completed", "artifacts": [
+                {"name": "output.md", "content": "Sources:\n" + url},
+            ]},
+            "sourceEvidence": {
+                "taskId": "task-1", "runId": "run-1", "allowedTaskRuns": [["task-1", "run-1"]],
+                "calls": [{"taskId": "task-1", "runId": "run-1", "complete": True,
+                           "sources": [{"url": url, "evidenceRef": "task-source:call-1:" + "a" * 64}]}],
+                "completeness": {"status": "COMPLETE", "observedSearchCalls": 1,
+                                 "recordedSearchCalls": 1},
+            },
+        }
+        case = EvalCase("citation", "Citation", {}, [{"type": "source_citation"}], {})
+
+        self.assertEqual("PASSED", evaluate_observation(case, observation)[0].status)
+
     def test_source_citation_decodes_summary_from_json_wrapped_aggregate_result(self):
         url = "https://www.w3.org/WAI/WCAG21/Techniques"
         observation = {
@@ -195,6 +237,113 @@ class EvaluationCoreTest(unittest.TestCase):
         case = EvalCase("citation", "Citation", {}, [{"type": "source_citation"}], {})
 
         self.assertEqual("PASSED", evaluate_observation(case, observation)[0].status)
+
+    def test_result_output_artifact_is_downloaded_only_from_configured_origin(self):
+        task_id, run_id = "task-1", "run-1"
+        content = b"Sources:\nhttps://www.w3.org/TR/mcp/\n"
+        digest = hashlib.sha256(content).hexdigest()
+        requested = []
+
+        def transport(request, timeout):
+            requested.append((request.full_url, dict(request.header_items())))
+            path = request.full_url.split("http://control-plane", 1)[-1]
+            if path.endswith("/process-events"):
+                return 200, {}, b"[]"
+            if path.endswith("/result"):
+                payload = {"status": "SUCCEEDED", "summary": "Task completed",
+                           "artifacts": [{"name": "output.md", "contentType": "text/markdown; charset=UTF-8",
+                                          "sizeBytes": len(content), "sha256": digest,
+                                          "downloadUrl": "http://files.example:30090/signed?sig=redacted"}]}
+                return 200, {}, json.dumps(payload).encode()
+            if path.endswith("/tree") or path.endswith("/decisions"):
+                return 200, {}, b"[]"
+            if request.full_url.startswith("http://files.example:30090/"):
+                return 200, {"Content-Type": "text/markdown; charset=UTF-8"}, content
+            if path == f"/api/v1/tasks/{task_id}/runs":
+                return 200, {}, json.dumps([{"id": run_id, "startedAt": "2026-10-09T05:05:00Z"}]).encode()
+            if path == f"/api/v1/tasks/{task_id}":
+                return 200, {}, json.dumps({"id": task_id, "phase": "SUCCEEDED"}).encode()
+            raise AssertionError(request.full_url)
+
+        client = AgentTeamsClient("http://control-plane", "token", transport=transport,
+                                  allowed_artifact_origins=("http://files.example:30090",))
+        observation = client.get_observation(task_id, run_id)
+
+        self.assertEqual(content.decode(), observation["result"]["artifacts"][0]["content"])
+        artifact_requests = [headers for url, headers in requested if url.startswith("http://files.example")]
+        self.assertEqual(1, len(artifact_requests))
+        self.assertNotIn("Authorization", artifact_requests[0])
+        bundle = build_evidence_bundle(observation["task"], observation["run"], observation["events"],
+                                       observation["taskTree"], observation["decisions"], observation["result"])
+        self.assertNotIn(content.decode(), json.dumps(bundle))
+
+    def test_output_artifact_download_rejects_bad_metadata_and_response(self):
+        content = b"markdown"
+        digest = hashlib.sha256(content).hexdigest()
+        requests = []
+        client = AgentTeamsClient("http://control-plane", "token",
+                                  transport=lambda request, timeout: requests.append(request) or
+                                  (200, {"Content-Type": "text/markdown"}, content),
+                                  allowed_artifact_origins=("http://files.example:30090",))
+        base = {"downloadUrl": "http://files.example:30090/output.md?sig=redacted",
+                "sizeBytes": len(content), "sha256": digest}
+
+        self.assertIsNone(client._request_text_artifact({**base, "sizeBytes": MAX_TEXT_ARTIFACT_BYTES + 1}))
+        self.assertIsNone(client._request_text_artifact({**base, "downloadUrl": "http://files.example:30090/output.md"}))
+        self.assertEqual([], requests)
+        self.assertIsNone(client._request_text_artifact({**base, "sha256": "0" * 64}))
+        self.assertEqual(1, len(requests))
+
+        bad_mime = AgentTeamsClient("http://control-plane", "token",
+                                    transport=lambda request, timeout: (200, {"Content-Type": "application/pdf"}, content),
+                                    allowed_artifact_origins=("http://files.example:30090",))
+        self.assertIsNone(bad_mime._request_text_artifact(base))
+        bad_utf8 = AgentTeamsClient("http://control-plane", "token",
+                                    transport=lambda request, timeout: (200, {"Content-Type": "text/plain"}, b"\xff"),
+                                    allowed_artifact_origins=("http://files.example:30090",))
+        self.assertIsNone(bad_utf8._request_text_artifact({**base, "sizeBytes": 1,
+                                                           "sha256": hashlib.sha256(b"\xff").hexdigest()}))
+
+    def test_output_artifact_download_failure_never_exposes_signed_url(self):
+        signed_url = "http://files.example:30090/object?X-Amz-Signature=secret-value"
+        def transport(request, timeout):
+            raise EvalTransportError(f"network failure for {request.full_url}")
+
+        client = AgentTeamsClient("http://control-plane", "token", transport=transport,
+                                  allowed_artifact_origins=("http://files.example:30090",))
+        artifact = {"downloadUrl": signed_url, "sizeBytes": 12, "sha256": "a" * 64}
+
+        self.assertIsNone(client._request_text_artifact(artifact))
+
+    def test_output_artifact_download_rejects_unapproved_origin_without_request(self):
+        requests = []
+        client = AgentTeamsClient("http://control-plane", "token",
+                                  transport=lambda request, timeout: requests.append(request) or (200, {}, b""),
+                                  allowed_artifact_origins=("http://files.example:30090",))
+
+        self.assertIsNone(client._request_text_artifact({
+            "downloadUrl": "http://127.0.0.1:9000/object?sig=redacted",
+            "sizeBytes": 1, "sha256": "a" * 64}))
+        self.assertEqual([], requests)
+
+    def test_output_artifact_response_reads_at_most_limit_plus_one_byte(self):
+        class ReadProbe:
+            requested = None
+            def read(self, size):
+                self.requested = size
+                return b"x" * size
+
+        response = ReadProbe()
+        data = _read_limited(response, MAX_TEXT_ARTIFACT_BYTES)
+
+        self.assertEqual(MAX_TEXT_ARTIFACT_BYTES + 1, len(data))
+        self.assertEqual(MAX_TEXT_ARTIFACT_BYTES + 1, response.requested)
+
+    def test_artifact_redirect_handler_refuses_redirects(self):
+        handler = _NoRedirect()
+
+        self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {},
+                                                   "http://elsewhere.invalid/"))
 
     def test_source_evidence_fetch_is_scoped_and_export_redacts_source_urls(self):
         task_id, run_id = "task-1", "run-1"
