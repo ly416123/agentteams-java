@@ -1,0 +1,30 @@
+# Isolated L5 negative probe. Run this file explicitly; its expected outcome is
+# a FAILED source_citation assertion, so it is kept out of the passing core suite.
+cases:
+  - id: source-citation-rejects-unsearched-url
+    name: Source citation rejects a URL absent from search evidence
+    task:
+      scope:
+        tenant: tenant-a
+        project: project-a
+        team: team-a
+      taskType: agentscope
+      inputJson:
+        prompt: >-
+          Call web_search once to find the official W3C WCAG 2.1 standard. After the
+          search succeeds, return a brief answer whose only citation URL is exactly
+          https://example.invalid/forged-source. Do not cite or include any other URL.
+          This is a negative provenance probe: do not replace the requested URL with a
+          search result link.
+        requiredMcpTools:
+          - web_search
+      requiredCapabilities:
+        - runtime-agentscope-v1
+    assertions:
+      - type: phase
+        expected: SUCCEEDED
+      - type: required_tool
+        name: web_search
+      - type: source_citation
+    limits:
+      timeoutSeconds: 180

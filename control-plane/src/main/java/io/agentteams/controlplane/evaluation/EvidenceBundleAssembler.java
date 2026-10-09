@@ -16,6 +16,7 @@ import io.agentteams.controlplane.task.TaskSourceEvidenceRepository;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeRepository;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -91,6 +92,11 @@ public final class EvidenceBundleAssembler {
         int observedEventCount = Math.min(observedEvents.size(), EVENT_LIMIT + 1);
         List<TaskProcessEvent> safeEvents = observedEvents.stream().limit(EVENT_LIMIT).toList();
         List<TaskTreeNode> taskTree = List.copyOf(tree.find(context, runId));
+        if (taskTree.stream().noneMatch(node -> taskId.equals(node.parentTaskId()))) {
+            // Team aggregation runs do not write a second task_subtasks projection.
+            // Keep the child handoff attached to the evidence for the same parent task.
+            taskTree = List.copyOf(tree.findLatestForParent(context, taskId));
+        }
         List<TaskDecisionRecord> safeDecisions = List.copyOf(decisions.find(context, taskId, runId, allowed));
         Optional<TaskResultManifest> manifest = manifests.find(context, taskId, runId, allowed).map(
                 EvidenceBundleAssembler::sanitizeManifest);
@@ -107,15 +113,27 @@ public final class EvidenceBundleAssembler {
         List<TaskSourceEvidence.SearchCall> sourceCalls = new ArrayList<>(ownSources.calls());
         long observedSearchCalls = countSearchCalls(safeEvents);
         boolean sourceTruncated = ownSources.truncated() || observedEventCount > EVENT_LIMIT;
+        boolean sourceAssociationIncomplete = false;
+        Instant parentStartedAt = taskRun.map(TaskRunObservationRepository.TaskRunSnapshot::startedAt)
+                .orElse(null);
         Set<UUID> childTasks = new HashSet<>();
         for (TaskTreeNode node : taskTree) {
             if (node.taskId().equals(taskId) || !childTasks.add(node.taskId())) continue;
+            if (parentStartedAt == null || node.updatedAt() == null || node.updatedAt().isAfter(parentStartedAt)) {
+                sourceAssociationIncomplete = true;
+                continue;
+            }
             Optional<UUID> childRun = runs.latestRunId(node.taskId());
             if (childRun.isEmpty()) continue;
             Optional<TaskRunObservationRepository.TaskRunSnapshot> childSnapshot =
                     runs.snapshotForRun(context, node.taskId(), childRun.get());
             if (childSnapshot.isEmpty() || !"SUCCEEDED".equalsIgnoreCase(childSnapshot.get().taskPhase())
                     || !"SUCCEEDED".equalsIgnoreCase(childSnapshot.get().runStatus())) continue;
+            Instant childCompletedAt = childSnapshot.get().completedAt();
+            if (parentStartedAt == null || childCompletedAt == null || childCompletedAt.isAfter(parentStartedAt)) {
+                sourceAssociationIncomplete = true;
+                continue;
+            }
             TaskSourceEvidence childSources = sourceEvidence.find(context, node.taskId(), childRun.get(), 500, 10_000);
             sourceCalls.addAll(childSources.calls());
             List<TaskProcessEvent> childEvents = events.find(context, node.taskId(), childRun.get(), 0, allowed,
@@ -127,7 +145,8 @@ public final class EvidenceBundleAssembler {
         int observedSourceCount = sourceCalls.stream().mapToInt(call -> call.sources().size()).sum();
         TaskSourceEvidence sources = new TaskSourceEvidence(taskId, runId, sourceCalls, sourceTruncated,
                 observedCallCount, observedSourceCount);
-        boolean sourceComplete = !sources.truncated() && sources.observedCallCount() == sources.calls().size()
+        boolean sourceComplete = !sourceAssociationIncomplete && !sources.truncated()
+                && sources.observedCallCount() == sources.calls().size()
                 && !sources.calls().isEmpty() && sources.calls().stream().allMatch(TaskSourceEvidence.SearchCall::complete);
         EvidenceBundle.SourceEvidenceCompleteness sourceCompleteness = new EvidenceBundle.SourceEvidenceCompleteness(
                 sourceComplete ? "COMPLETE" : sources.truncated() ? "TRUNCATED" : "INCONCLUSIVE",
@@ -142,7 +161,7 @@ public final class EvidenceBundleAssembler {
         return events.stream().filter(event -> "tool.called".equalsIgnoreCase(event.eventType()))
                 .map(TaskProcessEvent::payload).filter(Objects::nonNull).map(EvidenceBundleAssembler::parseObject)
                 .map(payload -> textOrNull(payload, "tool"))
-                .filter(tool -> tool != null && tool.toLowerCase(Locale.ROOT).contains("search")).count();
+                .filter(tool -> "web_search".equalsIgnoreCase(tool)).count();
     }
 
     private static EvidenceBundle.TaskSnapshot snapshot(UUID taskId,

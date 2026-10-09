@@ -48,6 +48,10 @@ class EvidenceBundleAssemblerTest {
         TaskSourceEvidenceRepository sources = mock(TaskSourceEvidenceRepository.class);
         TaskProcessEvent childSearch = new TaskProcessEvent(UUID.randomUUID(), childId, childRunId, 1, "tool.called",
                 TaskEventVisibility.REQUESTER, NOW, "correlation", "{\"tool\":\"web_search\",\"sequence\":1}", null);
+        TaskProcessEvent memorySearch = new TaskProcessEvent(UUID.randomUUID(), childId, childRunId, 2, "tool.called",
+                TaskEventVisibility.REQUESTER, NOW, "correlation", "{\"tool\":\"memory_search\",\"sequence\":2}", null);
+        TaskProcessEvent sessionSearch = new TaskProcessEvent(UUID.randomUUID(), childId, childRunId, 3, "tool.called",
+                TaskEventVisibility.REQUESTER, NOW, "correlation", "{\"tool\":\"session_search\",\"sequence\":3}", null);
         String url = "https://www.w3.org/TR/WCAG20-TECHS/pdf.html";
         String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                 .digest(url.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
@@ -61,7 +65,7 @@ class EvidenceBundleAssemblerTest {
                 new TaskRunObservationRepository.TaskRunSnapshot("SUCCEEDED", "SUCCEEDED", NOW, NOW, "chat", null)));
         when(events.find(CONTEXT, TASK_ID, RUN_ID, 0, Set.of(TaskEventVisibility.REQUESTER), 1001)).thenReturn(List.of());
         when(events.find(CONTEXT, childId, childRunId, 0, Set.of(TaskEventVisibility.REQUESTER), 1001))
-                .thenReturn(List.of(childSearch));
+                .thenReturn(List.of(childSearch, memorySearch, sessionSearch));
         when(tree.find(CONTEXT, RUN_ID)).thenReturn(List.of(new TaskTreeNode(TASK_ID, null, 0, "SUCCEEDED", List.of(), NOW),
                 new TaskTreeNode(childId, TASK_ID, 1, "SUCCEEDED", List.of(), NOW)));
         when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
@@ -76,10 +80,124 @@ class EvidenceBundleAssemblerTest {
                 .assemble(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER));
 
         assertThat(bundle.sourceEvidenceCompleteness().status()).isEqualTo("COMPLETE");
+        assertThat(bundle.sourceEvidenceCompleteness().observedSearchCalls()).isEqualTo(1);
         assertThat(bundle.sourceEvidence().calls()).singleElement().satisfies(value -> {
             assertThat(value.taskId()).isEqualTo(childId);
             assertThat(value.runId()).isEqualTo(childRunId);
         });
+    }
+
+    @Test
+    void fallsBackToLatestParentTreeWhenAggregateRunHasNoSubtaskProjection() throws Exception {
+        UUID childId = UUID.fromString("00000000-0000-0000-0000-000000000015");
+        UUID childRunId = UUID.fromString("00000000-0000-0000-0000-000000000016");
+        TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
+        TaskProcessEventRepository events = mock(TaskProcessEventRepository.class);
+        TaskTreeRepository tree = mock(TaskTreeRepository.class);
+        TaskDecisionRecordRepository decisions = mock(TaskDecisionRecordRepository.class);
+        TaskResultManifestRepository manifests = mock(TaskResultManifestRepository.class);
+        TaskSourceEvidenceRepository sources = mock(TaskSourceEvidenceRepository.class);
+        String url = "https://www.w3.org/TR/WCAG20-TECHS/pdf.html";
+        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(url.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        TaskSourceEvidence.SearchCall call = new TaskSourceEvidence.SearchCall(childId, childRunId, UUID.randomUUID(),
+                "call-aggregate-child", "bailian_web_search", true,
+                List.of(new TaskSourceEvidence.Source("W3C", url, hash, "task-source:call-aggregate-child:" + hash)), NOW);
+        when(runs.snapshotForRun(CONTEXT, TASK_ID, RUN_ID)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskRunSnapshot("SUCCEEDED", "SUCCEEDED", NOW, NOW, "chat", null)));
+        when(runs.latestRunId(childId)).thenReturn(Optional.of(childRunId));
+        when(runs.snapshotForRun(CONTEXT, childId, childRunId)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskRunSnapshot("SUCCEEDED", "SUCCEEDED", NOW, NOW, "chat", null)));
+        when(events.find(CONTEXT, TASK_ID, RUN_ID, 0, Set.of(TaskEventVisibility.REQUESTER), 1001)).thenReturn(List.of());
+        when(events.find(CONTEXT, childId, childRunId, 0, Set.of(TaskEventVisibility.REQUESTER), 1001))
+                .thenReturn(List.of(new TaskProcessEvent(UUID.randomUUID(), childId, childRunId, 1, "tool.called",
+                        TaskEventVisibility.REQUESTER, NOW, "correlation", "{\"tool\":\"web_search\"}", null)));
+        when(tree.find(CONTEXT, RUN_ID)).thenReturn(List.of());
+        when(tree.findLatestForParent(CONTEXT, TASK_ID)).thenReturn(List.of(
+                new TaskTreeNode(childId, TASK_ID, 1, "SUCCEEDED", List.of(), NOW)));
+        when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
+        when(manifests.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(Optional.of(
+                new TaskResultManifest(TASK_ID, RUN_ID, "SUCCEEDED", "Sources: " + url, List.of())));
+        when(sources.find(CONTEXT, TASK_ID, RUN_ID, 500, 10_000)).thenReturn(
+                new TaskSourceEvidence(TASK_ID, RUN_ID, List.of(), false, 0, 0));
+        when(sources.find(CONTEXT, childId, childRunId, 500, 10_000)).thenReturn(
+                new TaskSourceEvidence(childId, childRunId, List.of(call), false, 1, 1));
+
+        EvidenceBundle bundle = new EvidenceBundleAssembler(runs, events, tree, decisions, manifests, sources)
+                .assemble(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER));
+
+        assertThat(bundle.sourceEvidenceCompleteness().status()).isEqualTo("COMPLETE");
+        assertThat(bundle.sourceEvidence().calls()).singleElement().satisfies(value -> {
+            assertThat(value.taskId()).isEqualTo(childId);
+            assertThat(value.runId()).isEqualTo(childRunId);
+        });
+    }
+
+    @Test
+    void doesNotAttachChildSourcesFromRunsCompletedAfterEvaluatedParentRunStarts() throws Exception {
+        UUID childId = UUID.fromString("00000000-0000-0000-0000-000000000025");
+        UUID childRunId = UUID.fromString("00000000-0000-0000-0000-000000000026");
+        UUID laterProjectionChildId = UUID.fromString("00000000-0000-0000-0000-000000000027");
+        UUID laterProjectionChildRunId = UUID.fromString("00000000-0000-0000-0000-000000000028");
+        Instant parentCompletedAt = NOW.plusSeconds(5);
+        Instant childStartedAt = NOW.plusSeconds(10);
+        TaskRunObservationRepository runs = mock(TaskRunObservationRepository.class);
+        TaskProcessEventRepository events = mock(TaskProcessEventRepository.class);
+        TaskTreeRepository tree = mock(TaskTreeRepository.class);
+        TaskDecisionRecordRepository decisions = mock(TaskDecisionRecordRepository.class);
+        TaskResultManifestRepository manifests = mock(TaskResultManifestRepository.class);
+        TaskSourceEvidenceRepository sources = mock(TaskSourceEvidenceRepository.class);
+        String url = "https://www.w3.org/TR/WCAG20-TECHS/pdf.html";
+        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(url.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        TaskSourceEvidence.SearchCall call = new TaskSourceEvidence.SearchCall(childId, childRunId, UUID.randomUUID(),
+                "call-future-child", "bailian_web_search", true,
+                List.of(new TaskSourceEvidence.Source("W3C", url, hash, "task-source:call-future-child:" + hash)),
+                childStartedAt);
+        TaskSourceEvidence.SearchCall laterProjectionCall = new TaskSourceEvidence.SearchCall(laterProjectionChildId,
+                laterProjectionChildRunId, UUID.randomUUID(), "call-later-projection", "bailian_web_search", true,
+                List.of(new TaskSourceEvidence.Source("W3C", url, hash,
+                        "task-source:call-later-projection:" + hash)), NOW);
+        when(runs.snapshotForRun(CONTEXT, TASK_ID, RUN_ID)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskRunSnapshot("SUCCEEDED", "SUCCEEDED", NOW, parentCompletedAt,
+                        "chat", null)));
+        when(runs.latestRunId(childId)).thenReturn(Optional.of(childRunId));
+        when(runs.snapshotForRun(CONTEXT, childId, childRunId)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskRunSnapshot("SUCCEEDED", "SUCCEEDED", childStartedAt,
+                        childStartedAt.plusSeconds(10), "chat", null)));
+        when(runs.latestRunId(laterProjectionChildId)).thenReturn(Optional.of(laterProjectionChildRunId));
+        when(runs.snapshotForRun(CONTEXT, laterProjectionChildId, laterProjectionChildRunId)).thenReturn(Optional.of(
+                new TaskRunObservationRepository.TaskRunSnapshot("SUCCEEDED", "SUCCEEDED", NOW.minusSeconds(20),
+                        NOW.minusSeconds(10), "chat", null)));
+        when(events.find(CONTEXT, TASK_ID, RUN_ID, 0, Set.of(TaskEventVisibility.REQUESTER), 1001)).thenReturn(List.of());
+        when(events.find(CONTEXT, childId, childRunId, 0, Set.of(TaskEventVisibility.REQUESTER), 1001)).thenReturn(List.of(
+                new TaskProcessEvent(UUID.randomUUID(), childId, childRunId, 1, "tool.called",
+                        TaskEventVisibility.REQUESTER, childStartedAt, "correlation", "{\"tool\":\"web_search\"}", null)));
+        when(events.find(CONTEXT, laterProjectionChildId, laterProjectionChildRunId, 0,
+                Set.of(TaskEventVisibility.REQUESTER), 1001)).thenReturn(List.of(new TaskProcessEvent(UUID.randomUUID(),
+                        laterProjectionChildId, laterProjectionChildRunId, 1, "tool.called",
+                        TaskEventVisibility.REQUESTER, NOW.minusSeconds(15), "correlation",
+                        "{\"tool\":\"web_search\"}", null)));
+        when(tree.find(CONTEXT, RUN_ID)).thenReturn(List.of());
+        when(tree.findLatestForParent(CONTEXT, TASK_ID)).thenReturn(List.of(
+                new TaskTreeNode(childId, TASK_ID, 1, "SUCCEEDED", List.of(), NOW),
+                new TaskTreeNode(laterProjectionChildId, TASK_ID, 2, "SUCCEEDED", List.of(), childStartedAt)));
+        when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
+        when(manifests.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(Optional.of(
+                new TaskResultManifest(TASK_ID, RUN_ID, "SUCCEEDED", "Sources: " + url, List.of())));
+        when(sources.find(CONTEXT, TASK_ID, RUN_ID, 500, 10_000)).thenReturn(
+                new TaskSourceEvidence(TASK_ID, RUN_ID, List.of(), false, 0, 0));
+        when(sources.find(CONTEXT, childId, childRunId, 500, 10_000)).thenReturn(
+                new TaskSourceEvidence(childId, childRunId, List.of(call), false, 1, 1));
+        when(sources.find(CONTEXT, laterProjectionChildId, laterProjectionChildRunId, 500, 10_000)).thenReturn(
+                new TaskSourceEvidence(laterProjectionChildId, laterProjectionChildRunId,
+                        List.of(laterProjectionCall), false, 1, 1));
+
+        EvidenceBundle bundle = new EvidenceBundleAssembler(runs, events, tree, decisions, manifests, sources)
+                .assemble(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER));
+
+        assertThat(bundle.sourceEvidenceCompleteness().status()).isEqualTo("INCONCLUSIVE");
+        assertThat(bundle.sourceEvidence().calls()).isEmpty();
     }
 
     @Test

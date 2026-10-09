@@ -40,7 +40,7 @@
 
 ### Control Plane 来源写入、存储和 Evidence Bundle
 
-- 创建迁移：`control-plane/src/main/resources/db/migration/V113__task_source_evidence.sql` — 当前 V112 已用于 Evaluation 门禁；实现时重新检查版本并顺延。建立搜索调用回执及来源项表、task/run/attempt 外键或范围约束、唯一幂等键与读取索引。
+- 创建迁移：`control-plane/src/main/resources/db/migration/V116__task_source_evidence.sql` — L5 数据库已有 V113–V115 Evaluation 兼容迁移；来源证据迁移必须从 V116 接续，避免在 L5 被跳过。建立搜索调用回执及来源项表、task/run/attempt 外键或范围约束、唯一幂等键与读取索引。
 - 创建：`control-plane/src/main/java/io/agentteams/controlplane/task/TaskSourceEvidence.java`、`TaskSourceEvidenceRepository.java`、`JdbcTaskSourceEvidenceRepository.java`、`TaskSourceEvidenceService.java`、`TaskSourceEvidenceController.java` — 输入校验、授权范围解析、幂等写入与只读查询。摄取接口为 `POST /api/v1/tasks/{taskId}/source-evidence`；评测读取接口为 `GET /api/v1/tasks/{taskId}/runs/{runId}/source-evidence`。
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/security/ApiAuthenticationFilter.java` — 精确允许来源摄取 POST 路径通过现有 task-MCP 内部凭证；不扩大该凭证到其他 API。评测 GET 继续走现有 OIDC 身份与项目/租户授权。
 - 修改：`control-plane/src/main/java/io/agentteams/controlplane/ControlPlaneConfiguration.java` — 注册 repository/service/controller 依赖。
@@ -236,31 +236,44 @@ Runner 通过 `GET /api/v1/tasks/{taskId}/runs/{runId}/source-evidence` 按 task
 
 **文件：** 若来源摄取需要新增配置，修改 `deploy/helm/agentteams-java/values.yaml`、`values.schema.json`、Control Plane/MCP deployment template 及 `agentteams-mcp-tools/deploy/l5` 的对应文件；只改本功能所需配置。
 
-- [ ] **步骤 1：写部署契约测试**
+- [x] **步骤 1：写部署契约测试**
 
 验证内部 task-MCP token 只注入 MCP 服务与 Control Plane 的窄范围配置，不进入 Worker 日志、公共 values 明文或 Evaluation 报告；NetworkPolicy 仅开放现有 MCP 到 Control Plane 路径。
 
-- [ ] **步骤 2：运行离线配置检查确认失败**
+- [x] **步骤 2：运行离线配置检查确认失败**
 
 运行：`cd /Users/gecko/code/agentteams-java && python3 scripts/test_kind_infra_image_contract.py && python3 scripts/validate-kind-manifests.py`
 
 预期：若需要新增配置，先由新断言定位缺少的 chart/schema/manifest contract。
 
-- [ ] **步骤 3：完成构建与离线验证**
+- [x] **步骤 3：完成构建与离线验证**
 
 执行 Control Plane、Worker 和 MCP tools 相关单测及项目已有 kind 配置校验；不要触碰 L5 直到本地证据链和部署包完整。
 
-- [ ] **步骤 4：部署 L5 并运行正向/负向真实评测**
+- [x] **步骤 4：部署 L5 并运行正向/负向真实评测**
 
-部署两仓库 `main` 对应镜像后，运行 `multi-agent-pdf-positive` 与负向来源引用 Case。真实报告由 runner 命令生成；需短期评测 Token 时沿用已批准的无回显获取方式，绝不打印或提交 Token。
+在 `main` 上部署 Control Plane 与 AgentScope Worker 镜像，运行正向多 Agent PDF 验收，并通过隔离的 `eval/cases/source-citation-negative.yaml` 运行负向来源探针。负向报告整体为 `passed: false` 是预期结果，因为伪造 URL 的 `source_citation` 必须为 `FAILED`。短期评测 Token 使用无回显方式获取，没有写入报告或仓库。
 
-- [ ] **步骤 5：核对报告与工作区**
+- [x] **步骤 5：核对报告与工作区**
 
-确认正向 `source_citation` 的 `PASSED` 有对应本 Run 来源证据引用，负向伪造 URL 为 `FAILED`，摄取不完整为 `INCONCLUSIVE`；执行 `git status --short` 与 `git show --stat` 核实只提交计划路径，并记录剩余既有修改。
+确认正向 `source_citation` 匹配本次成功搜索来源，伪造 URL 被判为 `FAILED`；来源证据不完整/运行身份不匹配的 `INCONCLUSIVE` 由 Python 评测单测覆盖。执行 `git status --short`、相关路径的 `git diff --check` 和报告脱敏检查。工作分支为 `main`；本轮最终修正单独提交，现有工作区其他改动继续保留。
+
+### L5 执行记录（2026-10-09）
+
+- 正向报告：[2026-10-09-l5-source-provenance-positive-final4.json](../../../eval/reports/2026-10-09-l5-source-provenance-positive-final4.json)：复审修复后重新部署，7 项断言全部通过，包含依赖结果交接、6 次成功 `web_search`、来源引用匹配以及单页 PDF。
+- 负向报告：[2026-10-09-l5-source-provenance-negative-final3.json](../../../eval/reports/2026-10-09-l5-source-provenance-negative-final3.json)：任务与 Run 成功，来源证据完整（观察和持久化均为 1 次搜索调用）；唯一失败断言为预期的伪造引用 `source_citation: FAILED`。报告未包含 URL、Token 或密码。
+- 复审补强：Control Plane 只读取父子资源作用域一致且任务与 Run 均成功的最新 Run 来源；聚合注入总计最多 8 条逐条验证的来源，截断时标记证据不完整；单个子任务证据读取失败不会阻断其他子任务。Worker 仅引用 `verified=true` 的来源条目，提示文本已与该契约统一。
+- 历史 Run 隔离：来源证据装配器与 Python Runner 只接受在被评估父 Run 开始前已完成的子 Run；任务树投影时间或运行时间缺失时按 `INCONCLUSIVE` 处理。回归测试先复现为错误完整，再验证隔离行为。若将来支持父子任务跨代复用或重叠执行，应持久化明确的父执行代次关联。
+- 聚合来源上限：正向 Case 允许从 `verified=true` 的来源子集中引用，并明确来源条目不完整时不得推断未注入来源；子任务来源超过 8 条的截断契约已有测试覆盖。
+- 验收范围：`multi-agent-pdf-positive` 当前验证多 Agent 来源引用与 PDF，不要求技能加载；技能工具 smoke 报告仍为失败，作为独立后续验收，不计入本轮来源证据完成条件。
+- 负向复跑排障：子任务已被 Worker 接收并进入 `RUNNING`，但容器在处理包含 9 个 MCP 工具的任务后约 7 秒被 OOM Killer 终止（退出码 137，内存上限 512 MiB）。Lease 到期后调度器重新分配，任务最终成功；随后复用这条已完成任务评估，没有再次创建执行任务。
+- OOM 内存限额调优按用户决定转为后续任务，不阻塞本轮来源证据验收。
+- 评测计数修复：Java Evidence Bundle 与 Python Runner 先前把名称包含 `search` 的所有工具都算作来源搜索，误把 `memory_search`、`session_search` 纳入完整性计数。现在只统计会持久化来源证据的 `web_search`；相应 Java 和 Python 回归测试已覆盖。
+- 本地验证：Control Plane `EvidenceBundleAssemblerTest` 和 `EvaluationServiceTest`、Python 评测与 Runner 契约共 53 项通过；`SubtaskGateSourceEvidenceTest`、`SubtaskGateServiceTest` 与 Worker `AgentScopeRuntimeTest` 也通过。最新 Control Plane 与 Worker 镜像均已部署至 L5。
 
 ## 实施前自检记录
 
 - 规格中的来源解析、可信 task/run 关联、持久化、授权隔离、幂等、脱敏、失败三态、Java Evaluation、Python Runner、L5 验收均各有对应任务。
-- 迁移基线目前包含 V112 Evaluation 门禁；执行时必须重新检查迁移序号，不能覆盖其他未提交迁移。
+- L5 Flyway 历史已到 V115（含 V113–V115 Evaluation 兼容迁移）；来源证据表使用 V116，不能回填占用旧版本号。
 - 结构化来源仅从实际搜索 MCP 响应解析；工具调用回执包括零来源搜索，避免把空结果误判为写入丢失。
 - 当前没有运行测试或修改业务实现；此文件只定义下一步实现顺序。

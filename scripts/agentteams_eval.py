@@ -39,6 +39,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 TERMINAL_PHASES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 PROCESS_EVENT_PAGE_SIZE = 100
 PROCESS_EVENT_LIMIT = 1000
+SOURCE_SEARCH_TOOL = "web_search"
 SENSITIVE_KEY_PARTS = ("token", "secret", "password", "cookie", "authorization", "apikey", "credential", "privatekey")
 SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 UUID_PATH_SEGMENT = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
@@ -94,6 +95,28 @@ def _mapping(value: Any, context: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise EvalError(f"{context} must be an object")
     return dict(value)
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return timestamp.replace(tzinfo=timezone.utc) if timestamp.tzinfo is None else timestamp
+    except ValueError:
+        return None
+
+
+def _run_started_at(run: Mapping[str, Any]) -> datetime | None:
+    for field in ("startedAt", "createdAt", "updatedAt"):
+        timestamp = _parse_timestamp(run.get(field))
+        if timestamp is not None:
+            return timestamp
+    return None
+
+
+def _run_completed_at(run: Mapping[str, Any]) -> datetime | None:
+    return _parse_timestamp(run.get("completedAt"))
 
 
 def load_cases(path: str | Path) -> list[EvalCase]:
@@ -465,6 +488,11 @@ def _called_tools(events: list[Mapping[str, Any]]) -> list[str] | None:
     return [name for _, _, name in sorted(calls)]
 
 
+def _is_source_search_tool(name: str) -> bool:
+    """Only count the MCP tool whose responses are persisted as source evidence."""
+    return name.strip().lower() == SOURCE_SEARCH_TOOL
+
+
 def _tool_lifecycle(events: list[Mapping[str, Any]], name: str) -> tuple[list[Mapping[str, Any]], list[bool]] | None:
     calls: list[tuple[int, Mapping[str, Any], Any]] = []
     outcomes: list[tuple[int, bool, Any]] = []
@@ -698,6 +726,23 @@ def _pdf_check(observation: Mapping[str, Any], assertion: Mapping[str, Any]) -> 
     return True, "PDF metadata, signature, digest and page tree are valid", checked
 
 
+def _source_citation_summary(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if candidate.startswith("```") and candidate.endswith("```"):
+        first_line = candidate.find("\n")
+        if first_line >= 0:
+            candidate = candidate[first_line + 1:-3].strip()
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return value
+    if isinstance(parsed, Mapping) and isinstance(parsed.get("summary"), str):
+        return parsed["summary"]
+    return value
+
+
 def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list[AssertionResult]:
     """Evaluate only deterministic assertions; never invokes an LLM judge."""
     results: list[AssertionResult] = []
@@ -799,7 +844,8 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             result_manifest = observation.get("result") or {}
             calls = source_evidence.get("calls") if isinstance(source_evidence, Mapping) else None
             coverage = source_evidence.get("completeness") if isinstance(source_evidence, Mapping) else None
-            summary = result_manifest.get("summary") if isinstance(result_manifest, Mapping) else None
+            summary = _source_citation_summary(
+                result_manifest.get("summary") if isinstance(result_manifest, Mapping) else None)
             cited = re.findall(r"https?://[^\s<>\"]+", summary, flags=re.I) if isinstance(summary, str) else []
             source_refs: dict[str, str] = {}
             allowed_pairs = {tuple(pair) for pair in source_evidence.get("allowedTaskRuns", [])
@@ -920,7 +966,15 @@ class AgentTeamsClient:
         status = "COMPLETE"
         while len(events) <= PROCESS_EVENT_LIMIT:
             suffix = "" if after == 0 else f"?after={after}"
-            page = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/process-events{suffix}")
+            try:
+                page = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/process-events{suffix}")
+            except EvalTransportError:
+                # A caller can be authorized to inspect task/result metadata but
+                # lack the organization/tenant scope required for process events.
+                # Preserve the run and let evidence-backed assertions report the
+                # missing event coverage as INCONCLUSIVE instead of dropping the
+                # entire evaluation report.
+                return events, "INCONCLUSIVE"
             if isinstance(page, Mapping):
                 values = page.get("events", [])
                 upstream = page.get("evidenceCompleteness") or {}
@@ -980,15 +1034,46 @@ class AgentTeamsClient:
                 raise EvalError(f"task {task_id} did not reach terminal phase within {timeout_seconds:g}s")
             time.sleep(max(0.0, poll_seconds))
 
-    def get_run(self, task_id: str) -> dict[str, Any]:
+    def get_run(self, task_id: str, run_id: str | None = None,
+                before: datetime | None = None) -> dict[str, Any]:
         value = self._request("GET", f"/api/v1/tasks/{task_id}/runs")
         runs = value if isinstance(value, list) else (value or {}).get("runs", [])
         if not runs:
             raise EvalError(f"task {task_id} has no execution run")
-        return _mapping(runs[-1], "run response")
+        indexed_runs = [(index, _mapping(run, "run response")) for index, run in enumerate(runs)]
+        if run_id is not None:
+            match = next((run for _, run in indexed_runs
+                          if str(run.get("id") or run.get("runId") or "") == run_id), None)
+            if match is None:
+                raise EvalError(f"task {task_id} has no execution run {run_id}")
+            return match
+        if before is not None:
+            if before.tzinfo is None:
+                before = before.replace(tzinfo=timezone.utc)
+            latest = max(indexed_runs, key=lambda item: (_run_started_at(item[1]) or
+                        datetime.min.replace(tzinfo=timezone.utc), item[0]))[1]
+            started_at = _run_started_at(latest)
+            completed_at = _run_completed_at(latest)
+            if started_at is None or completed_at is None or started_at > before or completed_at > before:
+                raise EvalError(f"task {task_id} has no execution run before the target run")
+            return latest
+        if any(_run_started_at(run) is not None for _, run in indexed_runs):
+            return max(indexed_runs, key=lambda item: (_run_started_at(item[1]) or
+                    datetime.min.replace(tzinfo=timezone.utc), item[0]))[1]
+        # Older API versions may omit timestamps; retain their list-order fallback.
+        return indexed_runs[-1][1]
 
     def get_observation(self, task_id: str, run_id: str, include_source_evidence: bool = False) -> dict[str, Any]:
         events, event_status = self._collect_events(task_id, run_id)
+        parent_started_at = None
+        if include_source_evidence:
+            try:
+                parent_run = self.get_run(task_id, run_id=run_id)
+                parent_started_at = _parse_timestamp(parent_run.get("startedAt"))
+                if parent_started_at is None:
+                    event_status = "INCONCLUSIVE"
+            except EvalError:
+                event_status = "INCONCLUSIVE"
         result = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/result")
         task_tree = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/tree")
         decisions = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/decisions")
@@ -1021,6 +1106,12 @@ class AgentTeamsClient:
             for node in task_tree:
                 if not isinstance(node, Mapping) or str(node.get("taskId", "")) == task_id:
                     continue
+                if include_source_evidence:
+                    projected_at = _parse_timestamp(node.get("updatedAt"))
+                    if parent_started_at is None or projected_at is None or projected_at > parent_started_at:
+                        if event_status == "COMPLETE":
+                            event_status = "INCONCLUSIVE"
+                        continue
                 child_id = str(node.get("taskId", ""))
                 if not child_id:
                     continue
@@ -1029,7 +1120,26 @@ class AgentTeamsClient:
                     phase = str(child.get("phase", "")).upper()
                     if phase in {"SUCCEEDED", "FAILED", "CANCELLED", "REJECTED"}:
                         node["status"] = "FAILED" if phase == "REJECTED" else phase
-                    child_run = self.get_run(child_id)
+                    try:
+                        if include_source_evidence:
+                            if parent_started_at is None:
+                                if event_status == "COMPLETE":
+                                    event_status = "INCONCLUSIVE"
+                                continue
+                            child_run = self.get_run(child_id, before=parent_started_at)
+                        else:
+                            child_run = self.get_run(child_id)
+                    except EvalError as error:
+                        if str(error) not in {
+                                f"task {child_id} has no execution run",
+                                f"task {child_id} has no execution run before the target run"}:
+                            raise
+                        # A parent can expose its planning tree before the scheduler
+                        # assigns the children. Preserve the observation and mark its
+                        # coverage incomplete instead of aborting the whole report.
+                        if event_status == "COMPLETE":
+                            event_status = "INCONCLUSIVE"
+                        continue
                     child_run_id = str(child_run.get("id") or child_run.get("runId") or "")
                     if child_run_id:
                         child_events, child_status = self._collect_events(child_id, child_run_id)
@@ -1052,7 +1162,7 @@ class AgentTeamsClient:
                                         allowed_source_runs.append([child_id, child_run_id])
                             except EvalTransportError:
                                 child_tools = _called_tools(child_events)
-                                if child_tools is None or any("search" in name.lower() for name in child_tools):
+                                if child_tools is None or any(_is_source_search_tool(name) for name in child_tools):
                                     if event_status == "COMPLETE": event_status = "INCONCLUSIVE"
                         if child_status != "COMPLETE" and event_status == "COMPLETE":
                             event_status = child_status
@@ -1088,7 +1198,7 @@ class AgentTeamsClient:
         if include_source_evidence and isinstance(source_evidence, dict):
             all_events = [event for event in events + successful_source_events if isinstance(event, Mapping)]
             observed_tools = _called_tools(all_events)
-            search_count = sum("search" in name.lower() for name in observed_tools) if observed_tools is not None else None
+            search_count = sum(_is_source_search_tool(name) for name in observed_tools) if observed_tools is not None else None
             recorded = len([call for call in source_calls if isinstance(call, Mapping)])
             complete_calls = all(isinstance(call, Mapping) and call.get("complete") is True for call in source_calls)
             status = "COMPLETE" if not source_identity_invalid and event_status == "COMPLETE" and search_count is not None \
@@ -1168,18 +1278,6 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
             needs_source_evidence = any(str(assertion.get("type", "")).lower() == "source_citation"
                                         for assertion in case.assertions)
             observation = client.get_observation(task_id, run_id, include_source_evidence=needs_source_evidence)
-            if needs_source_evidence and isinstance(observation.get("sourceEvidence"), Mapping):
-                source_evidence = observation["sourceEvidence"]
-                coverage = source_evidence.get("completeness")
-                observed_tools = _called_tools(observation.get("events") or [])
-                search_count = sum("search" in name.lower() for name in observed_tools) if observed_tools is not None else None
-                event_status = str(observation.get("eventCompleteness", "INCONCLUSIVE")).upper()
-                if isinstance(coverage, dict):
-                    coverage["observedSearchCalls"] = search_count
-                    if event_status != "COMPLETE" or search_count is None:
-                        coverage["status"] = "TRUNCATED" if event_status == "TRUNCATED" else "INCONCLUSIVE"
-                    elif search_count != coverage.get("recordedSearchCalls"):
-                        coverage["status"] = "INCONCLUSIVE"
             run_snapshot = dict(run)
             run_snapshot.update(observation.get("run") or {})
             observation["run"] = run_snapshot
