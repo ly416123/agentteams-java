@@ -1,0 +1,5 @@
+# Overlay for the ai-news deployment only. Combine with the currently deployed
+# L5 release values via `helm upgrade --reuse-values -f this-file`.
+controlPlane:
+  env:
+    AGENTTEAMS_MCP_HTTP_ALLOWED_HOSTS: "agentteams-mcp-tools,ai-news-mcp"

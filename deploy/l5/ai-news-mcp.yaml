@@ -1,0 +1,376 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-news-config
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: ai-news
+    app.kubernetes.io/part-of: agentteams
+data:
+  settings.yaml: |
+    timezone: Asia/Shanghai
+    fetch_interval_hours: 2
+    push_times: ["08:00", "12:30", "19:00"]
+    clean_time: "03:30"
+    top_n: 10
+    min_batch: 5
+    retain_days: 7
+  sources.yaml: |
+    sources:
+      # International sources
+      - {name: openai-blog, type: rss, url: "https://openai.com/news/rss.xml", weight: 1.0, lang: en}
+      - {name: anthropic-news, type: rss, url: "https://www.anthropic.com/rss.xml", weight: 1.0, lang: en}
+      - {name: google-ai-blog, type: rss, url: "https://research.google/blog/rss/", weight: 1.0, lang: en}
+      - {name: techcrunch-ai, type: rss, url: "https://techcrunch.com/category/artificial-intelligence/feed/", weight: 0.8, lang: en}
+      - {name: theverge-ai, type: rss, url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", weight: 0.8, lang: en}
+      - {name: arstechnica-ai, type: rss, url: "https://arstechnica.com/ai/feed/", weight: 0.8, lang: en}
+      - {name: venturebeat-ai, type: rss, url: "https://venturebeat.com/category/ai/feed/", weight: 0.8, lang: en}
+      - {name: mittr, type: rss, url: "https://www.technologyreview.com/feed/", weight: 0.8, lang: en}
+      - {name: hacker-news, type: hn_api, url: "https://hacker-news.firebaseio.com/v0", weight: 0.6, lang: en}
+      - {name: youtube-2minpapers, type: youtube, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg", weight: 0.7, lang: en}
+      # Chinese sources
+      - {name: jiqizhixin, type: rss, url: "https://www.jiqizhixin.com/rss", weight: 0.9, lang: zh}
+      - {name: qbitai, type: rss, url: "https://www.qbitai.com/feed", weight: 0.9, lang: zh}
+      - {name: infoq-cn, type: rss, url: "https://www.infoq.cn/feed.xml", weight: 0.8, lang: zh}
+      - {name: 36kr, type: rss, url: "https://36kr.com/feed", weight: 0.7, lang: zh}
+      - {name: ifanr, type: rss, url: "https://www.ifanr.com/feed", weight: 0.7, lang: zh}
+    hotwords:
+      模型发布:
+        en: [GPT-4, GPT-5, Claude, Gemini, Llama, "language model", foundation model]
+        zh: [大模型, 文心, 通义千问, 豆包, 混元, 发布]
+      开源项目:
+        en: [Llama, Mistral, "open source", "open-source", "open weights"]
+        zh: [开源模型, 开源]
+      硬件芯片:
+        en: [GPU, TPU, chip, Nvidia, "Blackwell", silicon]
+        zh: [芯片, 算力, 显卡]
+      投融资:
+        en: [funding, raises, "Series A", "Series B", acquisition, valuation]
+        zh: [融资, 收购, 并购, 估值]
+      行业动态:
+        en: [OpenAI, Anthropic, "Google DeepMind", Meta AI, Microsoft, agent, AGI, regulation]
+        zh: [智谱, 月之暗面, Kimi, 百度, 阿里, 腾讯, Agent, 监管]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-news-redis
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: ai-news-redis
+    app.kubernetes.io/part-of: agentteams
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ai-news-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-news-redis-data
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: ai-news-redis
+    app.kubernetes.io/part-of: agentteams
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ai-news-redis
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: ai-news-redis
+    app.kubernetes.io/part-of: agentteams
+spec:
+  serviceName: ai-news-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-news-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-news-redis
+        app.kubernetes.io/part-of: agentteams
+    spec:
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ai-news-redis-data
+      containers:
+        - name: redis
+          image: agentteams-redis:7.4.2-alpine
+          imagePullPolicy: Never
+          command: [redis-server]
+          args: [--appendonly, "yes", --save, "60", "1"]
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-news-mcp
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: ai-news-mcp
+    app.kubernetes.io/part-of: agentteams
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-news-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-news-mcp
+        app.kubernetes.io/part-of: agentteams
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: agentteams-ai-news:2026-10-09-1
+          imagePullPolicy: Never
+          command: [python, -m, news, mcp]
+          env:
+            - {name: MCP_HOST, value: "0.0.0.0"}
+            - {name: MCP_PORT, value: "8000"}
+            - {name: REDIS_URL, value: redis://ai-news-redis:6379/0}
+            - {name: NEWS_CONFIG_DIR, value: /app/config}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          ports:
+            - {name: mcp, containerPort: 8000, protocol: TCP}
+          readinessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: ai-news-config
+            defaultMode: 0444
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-news-mcp
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: ai-news-mcp
+    app.kubernetes.io/part-of: agentteams
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ai-news-mcp
+  ports:
+    - name: mcp
+      port: 8000
+      targetPort: mcp
+      protocol: TCP
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-news-fetch
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/name: ai-news-fetcher
+    app.kubernetes.io/part-of: agentteams
+spec:
+  schedule: "0 */6 * * *"
+  timeZone: Asia/Shanghai
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-news-fetcher
+        app.kubernetes.io/part-of: agentteams
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ai-news-fetcher
+            app.kubernetes.io/part-of: agentteams
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: fetch
+              image: agentteams-ai-news:2026-10-09-1
+              imagePullPolicy: Never
+              command: [python, -m, news, run-once, --dry-run]
+              env:
+                - {name: REDIS_URL, value: redis://ai-news-redis:6379/0}
+                - {name: NEWS_CONFIG_DIR, value: /app/config}
+                - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 750m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: config
+                  mountPath: /app/config
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: config
+              configMap:
+                name: ai-news-config
+                defaultMode: 0444
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-news-mcp-ingress
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/part-of: agentteams
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-news-mcp
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentteams-control-plane
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentteams-worker
+      ports:
+        - {protocol: TCP, port: 8000}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-news-control-plane-egress
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/part-of: agentteams
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agentteams-control-plane
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-news-mcp
+      ports:
+        - {protocol: TCP, port: 8000}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-news-redis-ingress
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/part-of: agentteams
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-news-redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-news-mcp
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-news-fetcher
+      ports:
+        - {protocol: TCP, port: 6379}
