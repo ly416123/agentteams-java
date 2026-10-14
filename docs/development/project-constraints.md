@@ -1,6 +1,6 @@
 # 当前开发阶段项目约束
 
-更新时间：2026-09-29
+更新时间：2026-10-12
 
 本文件是当前开发阶段的工程约束。若历史文档与本文件冲突，以本文件和最新实现计划为准。
 
@@ -14,6 +14,23 @@
    部署配置、管理后台或 L5 验收路径间接启用，也不得作为旧运行时的兼容入口。
 4. 历史设计文档中的“兼容”“回退”“旧路径”描述不属于当前实现承诺；历史文档仅作背景留档，
    不得继续指导当前接口、部署或测试契约。
+
+## 项目授权与配置 Scope
+
+1. Project UUID 字符串是项目 Scope 的唯一规范值。持久化的资源 Scope、AgentSpec、Team 修订、
+   Config Snapshot 清单、Worker 配置和授权比较必须使用同一个 Project UUID；不得把项目名称写入
+   这些内部字段。
+2. OIDC Token 或用户请求中的项目名称只能作为外部标识。进入资源查询、配置生成或授权比较前，必须
+   通过 `ProjectScopeResolver` 在当前 Tenant 内解析到唯一且有效的项目，并验证主体具有该项目的
+   有效成员关系。不得直接把 Token 中的项目名称复制到配置清单，也不得依赖字符串比较自动兼容名称和 UUID。
+3. 配置 API 按规范 Scope 做严格相等比较。调用方必须先把 Token Scope、请求参数和配置清单中的
+   `scope.project` 规范化为同一 UUID；只要一侧是项目名称、另一侧是 UUID，就会按越权拒绝处理。
+   Console 路由可以继续展示项目名称，但发往 Control Plane 的授权与配置数据必须使用规范 UUID。
+4. 新增或修改 Scope 入口时，必须覆盖“Token 使用项目名称、配置清单使用 UUID”和“请求使用 UUID、
+   Token 使用项目名称”两种回归场景，确认同一项目解析到同一 UUID；同时验证跨 Tenant、跨项目、
+   无有效成员关系仍然拒绝。授权失败不得通过放宽字符串比较或跳过成员校验来修复。
+5. 项目 Scope 的历史规范化设计见
+   [Project Scope 规范化计划](../superpowers/plans/2026-09-03-project-scope-canonicalization.md)。
 
 ## 开发分支约束
 
@@ -31,9 +48,17 @@
 2. 模型凭据只允许通过 Kubernetes Secret 注入 Worker，代码、Helm values、日志和测试输出
    不得出现密钥明文。模型调用必须从 Worker 发起，Manager 不代理模型请求；替换模型只应
    改变模型配置和 Provider 适配，不得复制 Team、调度或任务状态机。
-3. AgentScope 任务必须由 Control Plane 调度，Worker 只消费已分配的 Attempt，不在
+3. ChatGPT 计划额度 OAuth Provider (`chatgpt-plan:<model>`) 只用于显式授权的 L5 双 MCP 评测 Team。
+   Control Plane 必须按 Tenant、Project UUID、Team UUID 拒绝其他 Team 的 Worker provisioning；
+   不得将 OAuth 凭据配置为全局 Worker 环境变量。Worker Secret volume 只投影 access token 键，
+   refresh token 仅由单实例串行刷新作业读取与轮换。Responses 请求必须使用 OAuth Bearer Token、
+   `store=false` 与 `stream=true`，模型/MCP 失败不得回退到 DeepSeek。详细设计见
+   [ChatGPT 单账户接入设计](../superpowers/specs/2026-10-11-chatgpt-plan-single-account-design.md)。
+   可选 HTTP CONNECT 代理也必须只注入通过相同 Scope allowlist 的 ChatGPT Worker 与刷新作业；
+   代理地址不得携带用户名、密码或 Token，默认保持直连。
+4. AgentScope 任务必须由 Control Plane 调度，Worker 只消费已分配的 Attempt，不在
    Manager 或 Console 内实现第二套执行状态机。
-4. L5 真实验收当前以 `api.deepseek.com:443` 作为默认模型出口；更换模型时，验收环境只需
+5. L5 真实验收当前以 `api.deepseek.com:443` 作为默认模型出口；更换模型时，验收环境只需
    为对应 Provider 配置受控 HTTPS 出口。不得通过 Manager 代理请求来掩盖 Worker 的模型
    出口不可用。
 
@@ -72,6 +97,20 @@
    必须覆盖首次 Quarkus augmentation，不能把慢启动误判为服务失效。
 4. 发生节点级 OOM 时，先收敛副本和暂停非主链路工作负载，再滚动更新资源配置；禁止把整机重启
    作为默认修复手段。重启前必须确认数据库、NATS 和任务状态已具备恢复证据。
+
+## MCP 研究来源证据
+
+1. 用于事实评测或来源审计的搜索 MCP，必须将本次 Task、Attempt、Lease 和工具调用标识以传输上下文
+   传给来源采集端；不得把这些标识放入模型可见参数或提示词。Worker 只可向代码明确允许的内部 MCP
+   Endpoint 发送这些标识，禁止向任意注册的第三方 Endpoint 转发。
+2. MCP 服务只能使用 Secret 中的 `AGENTTEAMS_TASK_MCP_TOKEN` 调用 Control Plane 的任务来源证据接口。
+   Control Plane 必须校验活跃 Attempt/Lease，并保存有界的标题、规范 URL、URL SHA-256 和摘要；原始查询、
+   Token、密码、签名 URL 和整段工具响应不得写入来源证据。
+3. 搜索服务来源采集失败时不得丢弃搜索结果或伪报采集成功；必须留下不含来源正文和凭据的失败诊断。
+   评测的引用匹配与事实判断必须基于本次运行采集到的来源证据，不能从最终模型回答或 PDF 的引用反向
+   推导检索证据。
+4. 新增或修改研究类 MCP 时，必须同时验证任务上下文只发往精确允许的内部 Endpoint、无上下文请求不会
+   伪造采集、采集 API 拒绝非活跃 Lease，以及部署配置仅开放 MCP 到 Control Plane/所需数据存储的网络路径。
 
 ## 验收边界
 
