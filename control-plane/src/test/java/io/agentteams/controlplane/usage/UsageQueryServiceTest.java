@@ -120,19 +120,19 @@ class UsageQueryServiceTest {
     @Test
     void scopesTotalsAndGroupsToTheAuthenticatedProject() {
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a")))
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a")))
                 .thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
         when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"))).thenReturn(List.of());
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"))).thenReturn(List.of());
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
         try {
             service().summarize(null, NOW);
             // The team claim is a display name while audits store the team UUID;
             // usage stays project-scoped and never binds the team claim.
-            verify(jdbc).queryForObject(org.mockito.ArgumentMatchers.contains("tenant_id = ? AND project_id = ?"),
+            verify(jdbc).queryForObject(org.mockito.ArgumentMatchers.contains("tenant_id = ? AND (project_id = ?"),
                     ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
-                    any(), any(), eq("tenant-a"), eq("project-a"));
+                    any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"));
             verify(jdbc, org.mockito.Mockito.never())
                     .queryForObject(org.mockito.ArgumentMatchers.contains("team_id IS NULL"),
                             ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
@@ -140,6 +140,27 @@ class UsageQueryServiceTest {
         } finally {
             PrincipalContext.clear();
         }
+    }
+
+    @Test
+    void canonicalizesAuthenticatedProjectNameBeforeFilteringUsage() {
+        when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a")))
+                .thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
+        when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a")))
+                .thenReturn(List.of());
+        PrincipalContext.set(new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        try {
+            UsageQueryService.UsageSummary summary = service().summarize(null, NOW);
+            assertThat(summary.totals().calls()).isEqualTo(1);
+        } finally {
+            PrincipalContext.clear();
+        }
+        verify(jdbc).queryForObject(org.mockito.ArgumentMatchers.contains("p.name = ?"),
+                ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"));
     }
 
     @Test
@@ -164,10 +185,10 @@ class UsageQueryServiceTest {
         // L5 regression: the limit must bind after the scope values, otherwise the
         // integer lands on tenant_id (text) and Postgres rejects "text = integer".
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a")))
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a")))
                 .thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
         when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"), eq(10)))
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"), eq(10)))
                 .thenReturn(List.of());
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
@@ -178,16 +199,16 @@ class UsageQueryServiceTest {
         }
         verify(jdbc).query(org.mockito.ArgumentMatchers.contains("LIMIT ?"),
                 ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"), eq(10));
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"), eq(10));
     }
 
     @Test
     void bindsScopeValuesBeforePaginatedLimitAndOffset() {
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a")))
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a")))
                 .thenReturn(new UsageQueryService.UsageTotals(25, 0, 100, 40, 42.5));
         when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"), eq(11), eq(20)))
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"), eq(11), eq(20)))
                 .thenReturn(List.of());
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
@@ -198,13 +219,13 @@ class UsageQueryServiceTest {
         }
         verify(jdbc).query(org.mockito.ArgumentMatchers.contains("LIMIT ? OFFSET ?"),
                 ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"), eq(11), eq(20));
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"), eq(11), eq(20));
     }
 
     @Test
     void reportsCompletenessForEachUsageDimensionWithinAuthenticatedScope() throws Exception {
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageCompleteness>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"))).thenAnswer(invocation -> {
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"))).thenAnswer(invocation -> {
                     String sql = invocation.getArgument(0);
                     assertThat(sql).contains("NULLIF(BTRIM(CAST(tenant_id AS text)), '')")
                             .contains("NULLIF(BTRIM(CAST(quota_dimension AS text)), '')")
@@ -231,7 +252,7 @@ class UsageQueryServiceTest {
             verify(jdbc).queryForObject(anyString(),
                     ArgumentMatchers.<RowMapper<UsageQueryService.UsageCompleteness>>any(),
                     eq(Timestamp.from(NOW.minusSeconds(3600))), eq(Timestamp.from(NOW)),
-                    eq("tenant-a"), eq("project-a"));
+                    eq("tenant-a"), eq("project-a"), eq("project-a"));
         } finally {
             PrincipalContext.clear();
         }
@@ -274,10 +295,10 @@ class UsageQueryServiceTest {
     @Test
     void appliesTaskProviderAndModelFiltersInsideTheAuthenticatedProjectScope() {
         when(jdbc.queryForObject(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageTotals>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"), eq("task-a"), eq("deepseek"),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"), eq("task-a"), eq("deepseek"),
                 eq("deepseek-chat"))).thenReturn(new UsageQueryService.UsageTotals(1, 0, 10, 5, 0));
         when(jdbc.query(anyString(), ArgumentMatchers.<RowMapper<UsageQueryService.UsageGroup>>any(),
-                any(), any(), eq("tenant-a"), eq("project-a"), eq("task-a"),
+                any(), any(), eq("tenant-a"), eq("project-a"), eq("project-a"), eq("task-a"),
                 eq("deepseek"), eq("deepseek-chat"), eq(10))).thenReturn(List.of());
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));

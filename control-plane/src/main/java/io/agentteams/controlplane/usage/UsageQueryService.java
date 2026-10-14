@@ -506,9 +506,16 @@ public final class UsageQueryService {
                 // name (e.g. "team-a") while model_call_audits.team_id stores the
                 // team UUID, so filtering on it would silently drop every row.
                 // Team-level analysis is served by the groupBy=team dimension.
-                StringBuilder clause = new StringBuilder(" AND tenant_id = ? AND project_id = ?");
+                // OIDC carries the project display name (for example, "project-a"),
+                // while model_call_audits stores the canonical project UUID. Keep the
+                // raw comparison for UUID claims and add the name-to-UUID fallback so
+                // direct Usage API queries do not silently return an empty result.
+                StringBuilder clause = new StringBuilder(
+                        " AND tenant_id = ? AND (project_id = ? OR project_id = "
+                                + "(SELECT p.id::text FROM projects p "
+                                + "WHERE p.tenant_id = model_call_audits.tenant_id AND p.name = ?))");
                 List<Object> values = new java.util.ArrayList<>(List.of(
-                        principal.scope().tenant(), principal.scope().project()));
+                        principal.scope().tenant(), principal.scope().project(), principal.scope().project()));
                 appendFilters(clause, values, filters);
                 return new ScopeFilter(clause.toString(), List.copyOf(values));
             }).orElse(new ScopeFilter("", List.of()));

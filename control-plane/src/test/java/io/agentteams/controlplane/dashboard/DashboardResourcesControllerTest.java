@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.dashboard;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,6 +28,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 class DashboardResourcesControllerTest {
+    private static final UUID DEFAULT_PROJECT_ID = UUID.fromString("ef5916eb-14d9-4e75-9e9c-041c6b5fb447");
     @Mock private DashboardResourcesService service;
     @Mock private ProjectRepository projects;
     private MockMvc mockMvc;
@@ -35,6 +37,13 @@ class DashboardResourcesControllerTest {
     void setUp() {
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        lenient().when(projects.findProjectByName("tenant-a", "project-a"))
+                .thenReturn(java.util.Optional.of(ProjectRecord.create(DEFAULT_PROJECT_ID, "tenant-a", "project-a",
+                        "alice", now)));
+        lenient().when(projects.findMembership("tenant-a", DEFAULT_PROJECT_ID, "alice"))
+                .thenReturn(java.util.Optional.of(ProjectMembershipRecord.create("tenant-a", DEFAULT_PROJECT_ID,
+                        "alice", ProjectRole.DEVELOPER, now)));
         mockMvc = MockMvcBuilders.standaloneSetup(new DashboardResourcesController(service, projects))
                 .setControllerAdvice(new ApiErrorHandler()).build();
     }

@@ -1,6 +1,7 @@
 package io.agentteams.controlplane.dashboard;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,6 +29,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 class DashboardSummaryControllerTest {
+    private static final UUID DEFAULT_PROJECT_ID = UUID.fromString("ef5916eb-14d9-4e75-9e9c-041c6b5fb447");
     @Mock private UsageQueryService usage;
     @Mock private ProjectRepository projects;
     private MockMvc mockMvc;
@@ -36,6 +38,13 @@ class DashboardSummaryControllerTest {
     void setUp() {
         PrincipalContext.set(new Principal("alice",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        ProjectRecord project = ProjectRecord.create(DEFAULT_PROJECT_ID, "tenant-a", "project-a", "alice", now);
+        lenient().when(projects.findProjectByName("tenant-a", "project-a"))
+                .thenReturn(java.util.Optional.of(project));
+        lenient().when(projects.findMembership("tenant-a", DEFAULT_PROJECT_ID, "alice"))
+                .thenReturn(java.util.Optional.of(ProjectMembershipRecord.create("tenant-a", DEFAULT_PROJECT_ID,
+                        "alice", ProjectRole.DEVELOPER, now)));
         mockMvc = MockMvcBuilders.standaloneSetup(new DashboardSummaryController(usage, projects))
                 .setControllerAdvice(new ApiErrorHandler()).build();
     }
@@ -49,7 +58,7 @@ class DashboardSummaryControllerTest {
     void exposesCanonicalUsageTotalsAndProviderModelGroups() throws Exception {
         Instant from = Instant.parse("2026-08-23T00:00:00Z");
         Instant to = Instant.parse("2026-08-23T01:00:00Z");
-        when(usage.summarizeForScope("tenant-a", "project-a", null, null, null, null))
+        when(usage.summarizeForScope("tenant-a", DEFAULT_PROJECT_ID.toString(), null, null, null, null))
                 .thenReturn(new UsageQueryService.UsageSummary(from, to,
                 new UsageQueryService.UsageTotals(3, 1, 10, 20, 12.5),
                 List.of(new UsageQueryService.UsageGroup("deepseek", "chat", 3, 1, 10, 20, 12.5))));
@@ -65,7 +74,7 @@ class DashboardSummaryControllerTest {
     void exposesRequestedOperationalDimensionWithoutChangingLegacyShape() throws Exception {
         Instant from = Instant.parse("2026-08-23T00:00:00Z");
         Instant to = Instant.parse("2026-08-23T01:00:00Z");
-        when(usage.summarizeForScope("tenant-a", "project-a", from, to, "worker", 5))
+        when(usage.summarizeForScope("tenant-a", DEFAULT_PROJECT_ID.toString(), from, to, "worker", 5))
                 .thenReturn(new UsageQueryService.UsageSummary(from, to,
                 new UsageQueryService.UsageTotals(2, 0, 10, 20, 1.25),
                 List.of(new UsageQueryService.UsageGroup(null, null, 2, 0, 10, 20, 1.25,
@@ -84,7 +93,7 @@ class DashboardSummaryControllerTest {
 
     @Test
     void scopesProjectDashboardToAuthenticatedTenantAndProject() throws Exception {
-        when(usage.summarizeForScope("tenant-a", "project-a", null, null, null, null))
+        when(usage.summarizeForScope("tenant-a", DEFAULT_PROJECT_ID.toString(), null, null, null, null))
                 .thenReturn(new UsageQueryService.UsageSummary(Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
                         new UsageQueryService.UsageTotals(2, 0, 10, 20, 1.25), List.of()));
 
@@ -94,8 +103,19 @@ class DashboardSummaryControllerTest {
     }
 
     @Test
+    void canonicalizesDefaultProjectNameBeforeQueryingUsage() throws Exception {
+        when(usage.summarizeForScope("tenant-a", DEFAULT_PROJECT_ID.toString(), null, null, null, null))
+                .thenReturn(new UsageQueryService.UsageSummary(Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                        new UsageQueryService.UsageTotals(5, 0, 20, 10, 1.25), List.of()));
+
+        mockMvc.perform(get("/api/v1/dashboard/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calls").value(5));
+    }
+
+    @Test
     void acceptsAuthorizedProjectUuidAndResolvesItToAuthenticatedProjectScope() throws Exception {
-        UUID projectId = UUID.fromString("ef5916eb-14d9-4e75-9e9c-041c6b5fb447");
+        UUID projectId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
         when(projects.findProject("tenant-a", projectId))
                 .thenReturn(java.util.Optional.of(ProjectRecord.create(projectId, "tenant-a", "project-a", "alice", now)));

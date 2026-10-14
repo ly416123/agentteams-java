@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.agentteams.controlplane.agent.AgentPresenceConsistencyJob;
 import io.agentteams.controlplane.agent.AgentPresenceConsistencyRepository;
 import io.agentteams.controlplane.agent.AgentPresenceConsistencyService;
+import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.controlplane.service.SchedulerLeaseService;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import java.lang.reflect.Method;
@@ -102,6 +103,15 @@ class ControlPlaneConfigurationTest {
                 assertThat(placeholderKey(value.value())).startsWith(root + ".");
             }
         }
+    }
+
+    @Test
+    void executionContextResolverUsesScopeDirectoryAbstraction() throws Exception {
+        Method method = ControlPlaneConfiguration.class.getDeclaredMethod(
+                "executionContextResolver", ExecutionContextResolver.ScopeDirectory.class,
+                io.agentteams.controlplane.security.ProjectScopeResolver.class);
+
+        assertThat(method.getReturnType()).isEqualTo(ExecutionContextResolver.class);
     }
 
     private static String placeholderKey(String expression) {
