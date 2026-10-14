@@ -9,7 +9,7 @@
 # IfNotPresent). Without these pins a Helm upgrade would roll workloads back
 # to the ghcr.io :latest tags, which do not exist on the L5 host.
 images:
-  controlPlane: agentteams-control-plane:l5-quality-ledger-20261013-r6-amd64
+  controlPlane: agentteams-control-plane:l5-quality-ledger-20261014-r7-amd64
   gateway: agentteams-agent-gateway:l5-agentscope-team-20260930-amd64
   operator: agentteams-operator:l5-chatgpt-plan-proxy2-20261011-amd64
 
