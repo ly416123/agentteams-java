@@ -40,9 +40,9 @@ class GatewayRuntimeAdapterArtifactUploadTest {
         assertThat(uploads.calls).hasSize(2);
         RecordingUploadPort.Call first = uploads.calls.get(0);
         assertThat(first.attemptId()).isEqualTo(ATTEMPT_ID);
-        assertThat(first.contentType()).isEqualTo("text/markdown");
+        assertThat(first.contentType()).isEqualTo("text/markdown; charset=UTF-8");
         assertThat(new String(first.payload(), java.nio.charset.StandardCharsets.UTF_8)).isEqualTo("plan body");
-        assertThat(uploads.calls.get(1).contentType()).isEqualTo("application/json");
+        assertThat(uploads.calls.get(1).contentType()).isEqualTo("application/json; charset=UTF-8");
     }
 
     @Test

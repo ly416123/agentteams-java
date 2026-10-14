@@ -413,9 +413,9 @@ public final class GatewayRuntimeAdapter {
 
     private static String contentType(String name) {
         String lower = name.toLowerCase(java.util.Locale.ROOT);
-        if (lower.endsWith(".md")) return "text/markdown";
-        if (lower.endsWith(".json")) return "application/json";
-        if (lower.endsWith(".txt")) return "text/plain";
+        if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown; charset=UTF-8";
+        if (lower.endsWith(".json")) return "application/json; charset=UTF-8";
+        if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain; charset=UTF-8";
         return "application/octet-stream";
     }
 

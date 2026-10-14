@@ -87,17 +87,19 @@ class MinioObjectStorageTest {
     void createsGetPresignedUrlWithRequestedExpiry() throws Exception {
         MinioObjectStorage storage = new MinioObjectStorage(minioClient, "agent-artifacts");
         when(minioClient.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
-                .thenReturn("https://minio.example.test/agent-artifacts/tasks/1/output.txt");
+                .thenReturn("https://minio.example.test/agent-artifacts/tasks/1/output.md");
 
-        URL url = storage.presignGet("tasks/1/output.txt", Duration.ofMinutes(15));
+        URL url = storage.presignGet("tasks/1/output.md", Duration.ofMinutes(15));
 
         assertThat(url.toString()).isEqualTo(
-                "https://minio.example.test/agent-artifacts/tasks/1/output.txt");
+                "https://minio.example.test/agent-artifacts/tasks/1/output.md");
         verify(minioClient).getPresignedObjectUrl(presignedObjectUrlArgs.capture());
         assertThat(presignedObjectUrlArgs.getValue().method()).isEqualTo(Method.GET);
         assertThat(presignedObjectUrlArgs.getValue().bucket()).isEqualTo("agent-artifacts");
-        assertThat(presignedObjectUrlArgs.getValue().object()).isEqualTo("tasks/1/output.txt");
+        assertThat(presignedObjectUrlArgs.getValue().object()).isEqualTo("tasks/1/output.md");
         assertThat(presignedObjectUrlArgs.getValue().expiry()).isEqualTo(900);
+        assertThat(presignedObjectUrlArgs.getValue().extraQueryParams().get("response-content-type"))
+                .containsExactly("text/markdown; charset=UTF-8");
     }
 
     @Test

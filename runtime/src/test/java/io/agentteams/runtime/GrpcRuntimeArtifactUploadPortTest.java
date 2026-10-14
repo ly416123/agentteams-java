@@ -66,7 +66,7 @@ class GrpcRuntimeArtifactUploadPortTest {
             var port = new GrpcRuntimeArtifactUploadPort(channel, "worker-1", Clock.systemUTC(),
                     Duration.ofSeconds(2), () -> "worker-gateway-token", () -> "");
 
-            assertThat(port.upload("task", "attempt", "output.md", "text/markdown",
+            assertThat(port.upload("task", "attempt", "output.md", "text/markdown; charset=UTF-8",
                     "hello".getBytes())).isEqualTo(new RuntimeArtifactUploadPort.UploadedArtifact(
                             "tasks/task/artifacts/output.md", "http://download/output.md"));
             assertThat(token).hasValue("worker-gateway-token");

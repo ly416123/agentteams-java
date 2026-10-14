@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.time.Duration;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -113,6 +115,7 @@ public final class MinioObjectStorage implements ObjectStorage {
                     .bucket(bucket)
                     .object(key)
                     .expiry((int) expirySeconds)
+                    .extraQueryParams(Map.of("response-content-type", contentTypeFor(key)))
                     .build());
             return new URL(url);
         } catch (MalformedURLException error) {
@@ -120,6 +123,20 @@ public final class MinioObjectStorage implements ObjectStorage {
         } catch (Exception error) {
             throw failure("presign", key, error);
         }
+    }
+
+    private static String contentTypeFor(String objectKey) {
+        String lower = objectKey.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+            return "text/markdown; charset=UTF-8";
+        }
+        if (lower.endsWith(".json")) {
+            return "application/json; charset=UTF-8";
+        }
+        if (lower.endsWith(".txt") || lower.endsWith(".log")) {
+            return "text/plain; charset=UTF-8";
+        }
+        return DEFAULT_CONTENT_TYPE;
     }
 
     @Override
