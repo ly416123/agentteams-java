@@ -32,6 +32,7 @@ spec:
                       key: { type: string }
                     required: [secret, key]
                 tlsSecret: { type: string }
+                chatGptPlanTokenSecret: { type: string }
                 specDigest: { type: string }
                 configRevision: { type: string }
                 secretGeneration: { type: string }

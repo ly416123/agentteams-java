@@ -27,6 +27,7 @@ public final class WorkerSpec {
     private Map<String, String> env;
     private Map<String, SecretEnvRef> secretEnv;
     private String tlsSecret;
+    private String chatGptPlanTokenSecret;
     private String specDigest;
     private String configRevision;
     private String secretGeneration;
@@ -39,6 +40,7 @@ public final class WorkerSpec {
         this.env = Map.of();
         this.secretEnv = Map.of();
         this.tlsSecret = "";
+        this.chatGptPlanTokenSecret = "";
         this.specDigest = "";
         this.configRevision = "";
         this.secretGeneration = "";
@@ -73,6 +75,9 @@ public final class WorkerSpec {
     public Map<String, String> env() { return env; }
     public Map<String, SecretEnvRef> secretEnv() { return secretEnv; }
     public String tlsSecret() { return tlsSecret; }
+    public String chatGptPlanTokenSecret() {
+        return chatGptPlanTokenSecret == null ? "" : chatGptPlanTokenSecret;
+    }
     public String specDigest() { return specDigest; }
     public String configRevision() { return configRevision; }
     public String secretGeneration() { return secretGeneration; }
@@ -102,6 +107,10 @@ public final class WorkerSpec {
     }
     public String getTlsSecret() { return tlsSecret; }
     public void setTlsSecret(String value) { tlsSecret = value == null ? "" : value.trim(); }
+    public String getChatGptPlanTokenSecret() { return chatGptPlanTokenSecret; }
+    public void setChatGptPlanTokenSecret(String value) {
+        chatGptPlanTokenSecret = value == null ? "" : value.trim();
+    }
     public String getSpecDigest() { return specDigest; }
     public void setSpecDigest(String value) { specDigest = optionalText(value); }
     public String getConfigRevision() { return configRevision; }

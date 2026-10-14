@@ -44,6 +44,32 @@ class WorkerReconcilerTest {
     }
 
     @Test
+    void treatsReadyDeploymentAsCompleteWhenWorkerCrGenerationIsOlderThanDeploymentHistory() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(20L).build());
+        worker.setSpec(new WorkerSpec("agent-a", "agentscope", "example/worker:v2", 1,
+                Map.of(), "", "digest-v2", "runtime-2", "secret-2"));
+
+        Deployment deployment = new DeploymentBuilder()
+                .withMetadata(new ObjectMetaBuilder().withGeneration(2L).build())
+                .withSpec(new DeploymentSpecBuilder().withTemplate(new PodTemplateSpecBuilder()
+                        .withMetadata(new ObjectMetaBuilder().withAnnotations(Map.of(
+                                WorkerResourceFactory.SPEC_DIGEST_ANNOTATION, "digest-v2",
+                                WorkerResourceFactory.RUNTIME_ANNOTATION, "AGENTSCOPE",
+                                WorkerResourceFactory.CONFIG_REVISION_ANNOTATION, "runtime-2",
+                                WorkerResourceFactory.SECRET_GENERATION_ANNOTATION, "secret-2"))
+                                .build()).build()).build())
+                .withStatus(new DeploymentStatusBuilder().withObservedGeneration(2L).withUpdatedReplicas(1)
+                        .withReadyReplicas(1).withAvailableReplicas(1).build())
+                .build();
+
+        WorkerStatus status = WorkerReconciler.statusFor(worker, deployment);
+
+        assertThat(status.getPhase()).isEqualTo("Ready");
+        assertThat(status.getObservedSpecDigest()).isEqualTo("digest-v2");
+    }
+
+    @Test
     void marksWorkerProgressingWhenDeploymentHasNotConfirmedDesiredReplicas() {
         Worker worker = new Worker();
         worker.setMetadata(new ObjectMetaBuilder().withName("worker-a").withGeneration(8L).build());

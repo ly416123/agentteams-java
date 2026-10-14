@@ -209,4 +209,29 @@ class WorkerResourceFactoryTest {
         assertThat(deployment.getMetadata().getAnnotations())
                 .containsEntry("secret.reloader.stakater.com/reload", "agentteams-worker-mtls");
     }
+
+    @Test
+    void projectsOnlyChatGptAccessTokenKeyIntoAuthorizedWorker() {
+        Worker worker = new Worker();
+        worker.setMetadata(new ObjectMetaBuilder().withName("worker-chatgpt").withNamespace("agentteams").build());
+        WorkerSpec spec = new WorkerSpec("agent-a", "agentscope", "example/worker:v1", 1, Map.of());
+        spec.setChatGptPlanTokenSecret("agentteams-chatgpt-oauth-session");
+        worker.setSpec(spec);
+
+        Deployment deployment = WorkerResourceFactory.deployment(worker);
+
+        var pod = deployment.getSpec().getTemplate().getSpec();
+        assertThat(pod.getVolumes()).anySatisfy(volume -> {
+            assertThat(volume.getSecret().getSecretName()).isEqualTo("agentteams-chatgpt-oauth-session");
+            assertThat(volume.getSecret().getItems()).singleElement()
+                    .satisfies(item -> {
+                        assertThat(item.getKey()).isEqualTo("access-token");
+                        assertThat(item.getPath()).isEqualTo("token");
+                    });
+        });
+        assertThat(pod.getContainers().get(0).getVolumeMounts()).anySatisfy(mount -> {
+            assertThat(mount.getMountPath()).isEqualTo("/var/run/agentteams/chatgpt");
+            assertThat(mount.getReadOnly()).isTrue();
+        });
+    }
 }

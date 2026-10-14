@@ -74,6 +74,18 @@ controlPlane:
     # Secret references, e.g. {"DASHSCOPE_API_KEY":{"secret":"dashscope-credentials","key":"apiKey"}}.
     # Each entry renders a secretKeyRef env var in every provisioned worker.
     credentialSecretEnvs: ""
+  chatgptPlan:
+    # Disabled by default. When enabled, only this exact UUID scope can provision workers
+    # with the OAuth access-token projection.
+    enabled: false
+    allowedTenantId: ""
+    allowedProjectId: ""
+    allowedTeamId: ""
+    sessionSecretName: ""
+    # Optional Team-scoped HTTP CONNECT proxy for OpenAI endpoints.
+    proxyUrl: ""
+    refreshImage: "agentteams-chatgpt-token-refresh:l5-20261011-amd64"
+    refreshSchedule: "*/10 * * * *"
   # Optional credential injection for the control-plane MCP HTTP adapter.
   # Keep this empty unless the deployment explicitly allowlists the environment name.
   mcpCredential:

@@ -7,6 +7,7 @@ import io.agentteams.application.api.ExecutionRuntime;
 import io.agentteams.controlplane.persistence.AgentRecord;
 import io.agentteams.controlplane.service.AgentService;
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ResourceScopeRepository;
 import io.agentteams.controlplane.worker.NoopWorkerCrdProvisioner;
 import io.agentteams.controlplane.worker.WorkerCrdProvisioner;
 import java.util.Map;
@@ -30,6 +31,8 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
     private final String configManifestBaseUrl;
     private final String tlsSecret;
     private final Map<String, WorkerCrdProvisioner.SecretEnvRef> credentialSecretEnvs;
+    private final ChatGptPlanWorkerAccessPolicy chatGptPlanAccessPolicy;
+    private final ResourceScopeRepository resourceScopes;
 
     public AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents) {
         this(specs, agents, new NoopWorkerCrdProvisioner(),
@@ -47,9 +50,18 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             @Value("${agentteams.worker-provisioner.gateway-port:9090}") int gatewayPort,
             @Value("${agentteams.worker-provisioner.config-manifest-base-url:http://agentteams-agentteams-java-control-plane:8080}") String configManifestBaseUrl,
             @Value("${agentteams.worker-provisioner.tls-secret-name:}") String tlsSecret,
-            @Value("${agentteams.worker-provisioner.credential-secret-envs:}") String credentialSecretEnvsJson) {
+            @Value("${agentteams.worker-provisioner.credential-secret-envs:}") String credentialSecretEnvsJson,
+            @Value("${agentteams.chatgpt.plan.allowed-tenant-id:}") String chatGptTenantId,
+            @Value("${agentteams.chatgpt.plan.allowed-project-id:}") String chatGptProjectId,
+            @Value("${agentteams.chatgpt.plan.allowed-team-id:}") String chatGptTeamId,
+            @Value("${agentteams.chatgpt.plan.session-secret-name:}") String chatGptSessionSecret,
+            @Value("${agentteams.chatgpt.plan.proxy-url:}") String chatGptProxyUrl,
+            @Value("${agentteams.chatgpt.plan.enabled:false}") boolean chatGptPlanEnabled,
+            ResourceScopeRepository resourceScopes) {
         this(specs, agents, provisioners.getIfAvailable(NoopWorkerCrdProvisioner::new), workerImage, workerReplicas,
-                gatewayHost, gatewayPort, configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson);
+                gatewayHost, gatewayPort, configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson,
+                chatGptTenantId, chatGptProjectId, chatGptTeamId, chatGptSessionSecret,
+                chatGptProxyUrl, chatGptPlanEnabled, resourceScopes);
     }
 
     AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
@@ -64,6 +76,59 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
             String gatewayHost, int gatewayPort, String configManifestBaseUrl,
             String tlsSecret, String credentialSecretEnvsJson) {
+        this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
+                configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson, "", "", "", "");
+    }
+
+    AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
+            WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
+            String tlsSecret, String credentialSecretEnvsJson,
+            String chatGptTenantId, String chatGptProjectId, String chatGptTeamId, String chatGptSessionSecret) {
+        this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
+                configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson, chatGptTenantId,
+                chatGptProjectId, chatGptTeamId, chatGptSessionSecret, "", true);
+    }
+
+    AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
+            WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
+            String tlsSecret, String credentialSecretEnvsJson,
+            String chatGptTenantId, String chatGptProjectId, String chatGptTeamId,
+            String chatGptSessionSecret, String chatGptProxyUrl) {
+        this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
+                configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson, chatGptTenantId,
+                chatGptProjectId, chatGptTeamId, chatGptSessionSecret, chatGptProxyUrl, true);
+    }
+
+    AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
+            WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
+            String tlsSecret, String credentialSecretEnvsJson,
+            String chatGptTenantId, String chatGptProjectId, String chatGptTeamId, String chatGptSessionSecret,
+            boolean chatGptPlanEnabled) {
+        this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
+                configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson, chatGptTenantId,
+                chatGptProjectId, chatGptTeamId, chatGptSessionSecret, "", chatGptPlanEnabled);
+    }
+
+    AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
+            WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
+            String tlsSecret, String credentialSecretEnvsJson,
+            String chatGptTenantId, String chatGptProjectId, String chatGptTeamId, String chatGptSessionSecret,
+            String chatGptProxyUrl, boolean chatGptPlanEnabled) {
+        this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
+                configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson, chatGptTenantId, chatGptProjectId,
+                chatGptTeamId, chatGptSessionSecret, chatGptProxyUrl, chatGptPlanEnabled, null);
+    }
+
+    AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
+            WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
+            String tlsSecret, String credentialSecretEnvsJson,
+            String chatGptTenantId, String chatGptProjectId, String chatGptTeamId, String chatGptSessionSecret,
+            String chatGptProxyUrl, boolean chatGptPlanEnabled, ResourceScopeRepository resourceScopes) {
         this.specs = specs;
         this.agents = agents;
         this.workerCrdProvisioner = workerCrdProvisioner;
@@ -76,6 +141,9 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
         this.configManifestBaseUrl = required(configManifestBaseUrl, "config manifest base URL");
         this.tlsSecret = tlsSecret == null ? "" : tlsSecret.trim();
         this.credentialSecretEnvs = parseCredentialSecretEnvs(credentialSecretEnvsJson);
+        this.chatGptPlanAccessPolicy = new ChatGptPlanWorkerAccessPolicy(chatGptPlanEnabled,
+                chatGptTenantId, chatGptProjectId, chatGptTeamId, chatGptSessionSecret, chatGptProxyUrl);
+        this.resourceScopes = resourceScopes;
     }
 
     @Override
@@ -88,6 +156,10 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             String name = "template-worker-" + instanceId;
             io.agentteams.controlplane.security.Principal principal = PrincipalContext.current()
                     .orElseThrow(() -> new IllegalStateException("authentication required for Worker provisioning"));
+            String chatGptPlanTokenSecret = chatGptPlanAccessPolicy.secretFor(provider,
+                    principal, revision.workerType(), resourceScopes);
+            String chatGptProxyUrl = chatGptPlanAccessPolicy.proxyUrlFor(provider,
+                    principal, revision.workerType(), resourceScopes);
             var spec = specs.create("template-spec-" + instanceId,
                     new AgentSpecService.Input(name, runtime, provider, model, null, "RUNNING", revision.workerType(),
                             revision.specJson()));
@@ -98,7 +170,9 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
                     principal.scope().tenant(), principal.scope().project(), principal.scope().team(),
                     revision.digest(), "template-" + revision.revision(), "",
                     workerImage, workerReplicas, gatewayHost, gatewayPort, configManifestBaseUrl,
-                    tlsSecret, java.util.Map.of(), credentialSecretEnvs));
+                    tlsSecret, chatGptProxyUrl.isBlank() ? java.util.Map.of()
+                            : java.util.Map.of("AGENTTEAMS_CHATGPT_PROXY_URL", chatGptProxyUrl),
+                    credentialSecretEnvs, chatGptPlanTokenSecret));
             return new ProvisionedInstance(spec.id(), worker.id());
         } catch (Exception error) {
             if (error instanceof RuntimeException runtime) throw runtime;

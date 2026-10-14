@@ -13,6 +13,7 @@ import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.ServicePortBuilder;
 import io.fabric8.kubernetes.api.model.SecretVolumeSourceBuilder;
+import io.fabric8.kubernetes.api.model.KeyToPathBuilder;
 import io.fabric8.kubernetes.api.model.VolumeBuilder;
 import io.fabric8.kubernetes.api.model.VolumeMountBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
@@ -58,6 +59,10 @@ public final class WorkerResourceFactory {
         // through env must not make the worker register as another Agent.
         environment.put("AGENTTEAMS_AGENT_ID", spec.agentId());
         environment.put("AGENTTEAMS_RUNTIME", spec.runtime());
+        environment.remove("AGENTTEAMS_CHATGPT_ACCESS_TOKEN_FILE");
+        if (!spec.chatGptPlanTokenSecret().isBlank()) {
+            environment.put("AGENTTEAMS_CHATGPT_ACCESS_TOKEN_FILE", "/var/run/agentteams/chatgpt/token");
+        }
         putOptionalEnvironment(environment, "AGENTTEAMS_SPEC_DIGEST", spec.specDigest());
         putOptionalEnvironment(environment, "AGENTTEAMS_CONFIG_REVISION", spec.configRevision());
         putOptionalEnvironment(environment, "AGENTTEAMS_SECRET_GENERATION", spec.secretGeneration());
@@ -87,15 +92,29 @@ public final class WorkerResourceFactory {
         PodSpecBuilder podSpec = new PodSpecBuilder()
                 .withAutomountServiceAccountToken(false)
                 .withContainers(container.build());
+        List<io.fabric8.kubernetes.api.model.Volume> volumes = new ArrayList<>();
+        List<io.fabric8.kubernetes.api.model.VolumeMount> mounts = new ArrayList<>();
         if (!spec.tlsSecret().isBlank()) {
-            container.withVolumeMounts(new VolumeMountBuilder()
+            mounts.add(new VolumeMountBuilder()
                     .withName("agentteams-gateway-tls")
                     .withMountPath("/etc/agentteams/gateway-tls")
                     .withReadOnly(true).build());
-            podSpec.withContainers(container.build()).withVolumes(new VolumeBuilder()
+            volumes.add(new VolumeBuilder()
                     .withName("agentteams-gateway-tls")
                     .withSecret(new SecretVolumeSourceBuilder().withSecretName(spec.tlsSecret()).build())
                     .build());
+        }
+        if (!spec.chatGptPlanTokenSecret().isBlank()) {
+            mounts.add(new VolumeMountBuilder().withName("chatgpt-plan-access-token")
+                    .withMountPath("/var/run/agentteams/chatgpt").withReadOnly(true).build());
+            volumes.add(new VolumeBuilder().withName("chatgpt-plan-access-token")
+                    .withSecret(new SecretVolumeSourceBuilder().withSecretName(spec.chatGptPlanTokenSecret())
+                            .withItems(new KeyToPathBuilder().withKey("access-token").withPath("token").build())
+                            .build()).build());
+        }
+        if (!mounts.isEmpty()) {
+            container.withVolumeMounts(mounts);
+            podSpec.withContainers(container.build()).withVolumes(volumes);
         }
         Map<String, String> deploymentAnnotations = new LinkedHashMap<>();
         if (!spec.tlsSecret().isBlank()) {

@@ -50,6 +50,8 @@ spec:
                     required: [secret, key]
                 tlsSecret:
                   type: string
+                chatGptPlanTokenSecret:
+                  type: string
                 specDigest:
                   type: string
                 configRevision:

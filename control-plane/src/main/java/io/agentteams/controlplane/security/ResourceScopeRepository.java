@@ -83,6 +83,35 @@ public class ResourceScopeRepository {
                 .orElse(false);
     }
 
+    /**
+     * Checks whether the caller's legacy name-based scopes resolve to the exact configured
+     * evaluation Team UUID. This keeps the allowlist UUID-based while supporting existing
+     * OIDC claims and resource-scope rows that still use tenant/project/team aliases.
+     */
+    public boolean matchesEvaluationTeamScope(Principal principal, UUID tenantId, UUID projectId, UUID teamId) {
+        if (principal == null || tenantId == null || projectId == null || teamId == null) return false;
+        return jdbc.query("""
+                SELECT 1
+                  FROM tenants tenant
+                  LEFT JOIN legacy_tenant_mappings legacy ON legacy.tenant_id = tenant.id
+                  JOIN projects project ON project.id = ?
+                     AND project.tenant_id IN (tenant.external_key, tenant.id::text, legacy.legacy_tenant_key)
+                  JOIN project_memberships membership ON membership.tenant_id = project.tenant_id
+                     AND membership.project_id = project.id AND membership.subject = ?
+                     AND membership.status = 'ACTIVE'
+                  JOIN resource_scopes scope ON scope.resource_type = 'TEAM' AND scope.resource_id = ?
+                     AND scope.tenant_id IN (project.tenant_id, tenant.id::text)
+                     AND scope.project_id IN (project.id::text, project.name)
+                     AND scope.team = ?
+                  JOIN teams team ON team.id = scope.resource_id AND team.status = 'ACTIVE'
+                 WHERE tenant.id = ? AND tenant.status = 'ACTIVE'
+                   AND (? IN (tenant.id::text, tenant.external_key, legacy.legacy_tenant_key))
+                   AND (? IN (project.id::text, project.name))
+                """, (rs, row) -> Boolean.TRUE, projectId, principal.subject(), teamId,
+                principal.scope().team(), tenantId, principal.scope().tenant(), principal.scope().project())
+                .stream().findFirst().orElse(false);
+    }
+
     /** Canonicalizes an explicitly supplied project route when this repository has project metadata. */
     public Principal canonicalize(Principal principal, String requestedProject) {
         if (projectScopes == null) return principal;

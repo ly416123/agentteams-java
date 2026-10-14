@@ -1,0 +1,120 @@
+{{- if .Values.controlPlane.chatgptPlan.enabled }}
+{{- $secretName := required "controlPlane.chatgptPlan.sessionSecretName is required when enabled" .Values.controlPlane.chatgptPlan.sessionSecretName }}
+{{- $_ := required "controlPlane.chatgptPlan.allowedTenantId is required when enabled" .Values.controlPlane.chatgptPlan.allowedTenantId }}
+{{- $_ := required "controlPlane.chatgptPlan.allowedProjectId is required when enabled" .Values.controlPlane.chatgptPlan.allowedProjectId }}
+{{- $_ := required "controlPlane.chatgptPlan.allowedTeamId is required when enabled" .Values.controlPlane.chatgptPlan.allowedTeamId }}
+{{- range $key := list "allowedTenantId" "allowedProjectId" "allowedTeamId" }}
+{{- $value := index $.Values.controlPlane.chatgptPlan $key }}
+{{- if not (regexMatch "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" $value) }}
+{{- fail (printf "controlPlane.chatgptPlan.%s must be a UUID when enabled" $key) }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-chatgpt-token-refresh
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentteams-chatgpt-token-refresh
+    app.kubernetes.io/part-of: agentteams
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-chatgpt-token-refresh
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentteams-chatgpt-token-refresh
+    app.kubernetes.io/part-of: agentteams
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $secretName | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-chatgpt-token-refresh
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentteams-chatgpt-token-refresh
+    app.kubernetes.io/part-of: agentteams
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "agentteams-java.fullname" . }}-chatgpt-token-refresh
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "agentteams-java.fullname" . }}-chatgpt-token-refresh
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "agentteams-java.fullname" . }}-chatgpt-token-refresh
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentteams-chatgpt-token-refresh
+    app.kubernetes.io/part-of: agentteams
+spec:
+  schedule: {{ .Values.controlPlane.chatgptPlan.refreshSchedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 180
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentteams-chatgpt-token-refresh
+        app.kubernetes.io/part-of: agentteams
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: agentteams-chatgpt-token-refresh
+            app.kubernetes.io/part-of: agentteams
+        spec:
+          serviceAccountName: {{ include "agentteams-java.fullname" . }}-chatgpt-token-refresh
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: token-refresh
+              image: {{ .Values.controlPlane.chatgptPlan.refreshImage | quote }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: CHATGPT_OAUTH_SESSION_SECRET
+                  value: {{ $secretName | quote }}
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+{{- if .Values.controlPlane.chatgptPlan.proxyUrl }}
+                - name: HTTP_PROXY
+                  value: {{ .Values.controlPlane.chatgptPlan.proxyUrl | quote }}
+                - name: HTTPS_PROXY
+                  value: {{ .Values.controlPlane.chatgptPlan.proxyUrl | quote }}
+                - name: NO_PROXY
+                  value: "kubernetes.default.svc,.svc,.cluster.local,127.0.0.1,localhost"
+{{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+{{- end }}

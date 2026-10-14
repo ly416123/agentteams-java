@@ -198,6 +198,18 @@ spec:
               value: {{ .Values.controlPlane.workerProvisioner.tlsSecretName | quote }}
             - name: AGENTTEAMS_WORKER_PROVISIONER_CREDENTIAL_SECRET_ENVS
               value: {{ .Values.controlPlane.workerProvisioner.credentialSecretEnvs | quote }}
+            - name: AGENTTEAMS_CHATGPT_PLAN_ALLOWED_TENANT_ID
+              value: {{ .Values.controlPlane.chatgptPlan.allowedTenantId | quote }}
+            - name: AGENTTEAMS_CHATGPT_PLAN_ENABLED
+              value: {{ .Values.controlPlane.chatgptPlan.enabled | quote }}
+            - name: AGENTTEAMS_CHATGPT_PLAN_ALLOWED_PROJECT_ID
+              value: {{ .Values.controlPlane.chatgptPlan.allowedProjectId | quote }}
+            - name: AGENTTEAMS_CHATGPT_PLAN_ALLOWED_TEAM_ID
+              value: {{ .Values.controlPlane.chatgptPlan.allowedTeamId | quote }}
+            - name: AGENTTEAMS_CHATGPT_PLAN_SESSION_SECRET_NAME
+              value: {{ .Values.controlPlane.chatgptPlan.sessionSecretName | quote }}
+            - name: AGENTTEAMS_CHATGPT_PLAN_PROXY_URL
+              value: {{ .Values.controlPlane.chatgptPlan.proxyUrl | quote }}
 {{- if .Values.controlPlane.mcpCredential.secretName }}
             - name: {{ required "controlPlane.mcpCredential.envName is required when secretName is set" .Values.controlPlane.mcpCredential.envName }}
               valueFrom:

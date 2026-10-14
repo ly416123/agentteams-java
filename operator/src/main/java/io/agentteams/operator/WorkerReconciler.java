@@ -230,8 +230,10 @@ public final class WorkerReconciler implements Reconciler<Worker> {
                 || deploymentStatus.getAvailableReplicas() == null) {
             return false;
         }
-        Long generation = resource.getMetadata().getGeneration();
-        return (generation == null || deploymentStatus.getObservedGeneration() >= generation)
+        Long deploymentGeneration = deployment.getMetadata() == null
+                ? null : deployment.getMetadata().getGeneration();
+        return (deploymentGeneration == null
+                || deploymentStatus.getObservedGeneration() >= deploymentGeneration)
                 && deploymentStatus.getUpdatedReplicas() >= resource.getSpec().replicas()
                 && deploymentStatus.getAvailableReplicas() >= resource.getSpec().replicas();
     }

@@ -10,6 +10,7 @@ import io.agentteams.worker.agentscope.AgentScopeRuntime;
 import io.agentteams.worker.agentscope.ConfiguredAgentScopeHarnessFactory;
 import io.agentteams.worker.agentscope.AgentScopeWorkspaceFactory;
 import io.agentteams.worker.agentscope.SandboxWorkspaceOwnershipPort;
+import io.agentteams.worker.chatgpt.ChatGptPlanModelProvider;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -18,6 +19,10 @@ import java.util.Objects;
 
 /** Composition root for the single AgentScope Harness execution runtime. */
 public final class WorkerRuntimeFactory {
+    static {
+        ChatGptPlanModelProvider.register();
+    }
+
     private final AgentScopeHarnessFactory configuredHarness;
     private final SandboxStateProbePort sandboxStateProbe;
     private final SandboxWorkspaceOwnershipPort workspaceOwnership;

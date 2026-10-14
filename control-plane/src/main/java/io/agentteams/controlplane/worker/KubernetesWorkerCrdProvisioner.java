@@ -70,6 +70,9 @@ public final class KubernetesWorkerCrdProvisioner implements WorkerCrdProvisione
         if (request.tlsSecret() != null && !request.tlsSecret().isBlank()) {
             spec.put("tlsSecret", request.tlsSecret().trim());
         }
+        if (request.chatGptPlanTokenSecret() != null && !request.chatGptPlanTokenSecret().isBlank()) {
+            spec.put("chatGptPlanTokenSecret", request.chatGptPlanTokenSecret().trim());
+        }
         if (request.specDigest() != null && !request.specDigest().isBlank()) {
             spec.put("specDigest", request.specDigest().trim());
         }

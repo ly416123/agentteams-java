@@ -172,6 +172,20 @@
             "credentialSecretEnvs": { "type": "string" }
           }
         },
+        "chatgptPlan": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "allowedTenantId": { "type": "string" },
+            "allowedProjectId": { "type": "string" },
+            "allowedTeamId": { "type": "string" },
+            "sessionSecretName": { "type": "string" },
+            "proxyUrl": { "type": "string", "format": "uri-reference" },
+            "refreshImage": { "type": "string", "minLength": 1 },
+            "refreshSchedule": { "type": "string", "minLength": 1 }
+          }
+        },
         "mcpCredential": {
           "type": "object",
           "additionalProperties": false,

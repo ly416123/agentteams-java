@@ -22,6 +22,15 @@ class WorkerRuntimeFactoryTest {
     }
 
     @Test
+    void registersChatGptPlanProviderWithoutChangingExistingProviders() {
+        new WorkerRuntimeFactory();
+
+        assertThat(ModelRegistry.canResolve("chatgpt-plan:gpt-test")).isTrue();
+        assertThat(ModelRegistry.canResolve("chatgpt-plan:bad:model")).isFalse();
+        assertThat(ModelRegistry.canResolve("deepseek:deepseek-chat")).isTrue();
+    }
+
+    @Test
     void appliesOptionalProviderNeutralBaseUrlToModelCreationContext() {
         ModelCreationContext context = WorkerRuntimeFactory.modelCreationContext(Map.of(
                 "AGENTTEAMS_MODEL_BASE_URL", "https://model-provider.example.com"));
