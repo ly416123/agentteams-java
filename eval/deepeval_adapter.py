@@ -88,6 +88,17 @@ def _actual_output(observation: Mapping[str, Any]) -> str:
         for artifact in result.get("artifacts", []) or []:
             if isinstance(artifact, Mapping) and artifact.get("content") is not None:
                 values.append(_sanitize_text(artifact["content"]))
+            elif isinstance(artifact, Mapping) and isinstance(artifact.get("contentBytes"), bytes) \
+                    and (str(artifact.get("name", "")).lower().endswith(".pdf")
+                         or str(artifact.get("contentType", "")).lower() == "application/pdf"):
+                try:
+                    import fitz
+                    with fitz.open(stream=artifact["contentBytes"], filetype="pdf") as document:
+                        pdf_text = "\n".join(page.get_text(sort=True) for page in document)
+                    if pdf_text.strip():
+                        values.append(_sanitize_text(pdf_text))
+                except Exception as exc:
+                    raise EvalError(f"cannot extract PDF text for DeepEval ({type(exc).__name__})") from exc
     return "\n".join(value for value in values if value)
 
 
@@ -133,6 +144,29 @@ def _retrieval_context(observation: Mapping[str, Any]) -> list[str]:
             if text and text not in seen:
                 seen.add(text)
                 contexts.append(text[:8000])
+    source_values: list[tuple[str, str]] = []
+    source_evidence = observation.get("sourceEvidence")
+    if isinstance(source_evidence, Mapping):
+        for call in source_evidence.get("calls", []) or []:
+            if not isinstance(call, Mapping):
+                continue
+            for source in call.get("sources", []) or []:
+                if not isinstance(source, Mapping):
+                    continue
+                fields = []
+                for key in ("title", "url", "snippet", "description", "text", "content", "summary"):
+                    value = source.get(key)
+                    if isinstance(value, str) and value.strip():
+                        fields.append(f"{key}: {_sanitize_text(value).strip()[:2500]}")
+                if fields:
+                    source_values.append((str(source.get("url", "")), "\n".join(fields)))
+    output_text = _actual_output(observation)
+    cited_sources = [value for url, value in source_values if url and url in output_text]
+    selected_sources = cited_sources or [value for _, value in source_values[:20]]
+    for text in selected_sources:
+        if text not in seen:
+            seen.add(text)
+            contexts.append(text[:8000])
     return contexts
 
 

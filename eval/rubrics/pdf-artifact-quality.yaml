@@ -1,0 +1,49 @@
+# Human/independent-judge rubric for final, user-facing PDF artifacts.
+schemaVersion: pdf-artifact-quality-v1
+scoreRange: [1, 5]
+passThreshold: 4
+dimensions:
+  typography:
+    weight: 0.15
+    criteria: Font embedding, Chinese glyph rendering, readable body size, hierarchy, and consistent typography.
+  visual_design:
+    weight: 0.20
+    criteria: Page balance, whitespace, alignment, contrast, tables/charts, and absence of clipping or awkward page breaks.
+  semantic_completeness:
+    weight: 0.20
+    criteria: Required findings, official verification, impact analysis, limitations, and sources are present and logically connected.
+  question_relevance:
+    weight: 0.20
+    criteria: The report answers the case topic and requested research question; irrelevant or generic filler is penalized.
+  factual_accuracy:
+    weight: 0.25
+    criteria: Material factual claims agree with retrieved news and authoritative web_search sources; uncertainty and dates are represented accurately.
+  citation_integrity:
+    weight: 0.00
+    criteria: Citations identify the source for the relevant claim, resolve to the cited page, and do not invent sources.
+hard_failures:
+  - unreadable_or_missing_glyphs
+  - material_unsupported_or_false_claim
+  - report_does_not_answer_case_question
+  - final_pdf_not_in_simplified_chinese
+evidenceRequirements:
+  - Every score includes a concise reason.
+  - Factual accuracy cites PDF page numbers and the corresponding source URL or evaluator evidence reference.
+  - Visual design review covers every rendered page, not only the cover.
+deepEval:
+  provider: chatgpt-plan-oauth
+  model: gpt-5.6-luna
+  temperature: 0
+  metrics:
+    - id: answer_relevancy
+      dimension: question_relevance
+      threshold: 0.80
+    - id: faithfulness
+      dimension: factual_accuracy
+      threshold: 0.80
+    - id: semantic_completeness
+      dimension: semantic_completeness
+      threshold: 0.80
+    - id: chinese_writing_quality
+      dimension: writing_quality
+      threshold: 0.80
