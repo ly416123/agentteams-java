@@ -17,8 +17,19 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.aop.framework.ProxyFactory;
 
 final class ArtifactQualityQueryContextResolverTest {
+    @Test
+    void remainsProxyableWhenL5UsesClassBasedSpringProxies() {
+        ArtifactQualityQueryContextResolver target =
+                new ArtifactQualityQueryContextResolver(org.mockito.Mockito.mock(JdbcTemplate.class));
+        ProxyFactory factory = new ProxyFactory(target);
+        factory.setProxyTargetClass(true);
+
+        assertThat(factory.getProxy()).isInstanceOf(ArtifactQualityQueryContextResolver.class);
+    }
+
     @Test
     void resolvesReadScopeFromActiveProjectMembershipWithoutRequiringOrgOrTenantMembership() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);

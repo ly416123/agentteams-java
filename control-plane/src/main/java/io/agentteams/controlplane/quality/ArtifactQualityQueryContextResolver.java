@@ -15,7 +15,7 @@ import org.springframework.stereotype.Repository;
  * organization and tenant memberships.
  */
 @Repository
-public final class ArtifactQualityQueryContextResolver {
+public class ArtifactQualityQueryContextResolver {
     private final JdbcTemplate jdbc;
 
     public ArtifactQualityQueryContextResolver(JdbcTemplate jdbc) {
