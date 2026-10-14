@@ -45,6 +45,9 @@ def main() -> None:
         if case.case_id == "dual-mcp-10-agent-evaluation":
             assert "子任务2标题必须包含完整文件名 agent-evaluation-final.pdf" in prompt
         assert "简体中文" in task_input["aggregatePrompt"]
+        assert ("In the PDF's Sources section, include at least one complete original URL copied verbatim "
+                "from a successful web_search result for this task or one of its successful subtasks."
+                in task_input["aggregatePrompt"])
         assert set(task_input["executorMcpTools"]) == {"search_news", "web_search"}
         assert set(task_input["aggregateMcpTools"]) == {
             "list_subtasks", "get_task_result", "create_task_pdf_artifact"
