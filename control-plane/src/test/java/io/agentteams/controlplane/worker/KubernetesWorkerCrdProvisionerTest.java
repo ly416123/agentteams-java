@@ -70,4 +70,18 @@ class KubernetesWorkerCrdProvisionerTest {
 
         assertThat(resource.<Map<String, Object>>get("spec")).doesNotContainKey("secretEnv");
     }
+
+    @Test
+    void forwardsChatGptPlanAccessTokenSecretProjectionReference() {
+        UUID workerId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        WorkerCrdProvisioner.Request request = new WorkerCrdProvisioner.Request(
+                workerId, "agentscope", "chatgpt-plan", "gpt-test", "tenant-a", "project-a", "team-a",
+                "sha256:template", "cfg-1", "", "ghcr.io/ly416123/agentteams-agent-worker:v1",
+                1, "gateway", 9090, "http://control-plane", "", Map.of(), Map.of(), "chatgpt-oauth-session");
+
+        GenericKubernetesResource resource = KubernetesWorkerCrdProvisioner.resource("agentteams", request);
+
+        assertThat(resource.<Map<String, Object>>get("spec"))
+                .containsEntry("chatGptPlanTokenSecret", "chatgpt-oauth-session");
+    }
 }
