@@ -22,6 +22,7 @@ import io.agentteams.contracts.v1.TaskProgress;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -29,7 +30,7 @@ import java.util.UUID;
 public final class ControlPlaneGatewayApplicationHandler implements GatewayApplicationHandler {
 
     private static final String SOURCE = "gateway";
-    private static final String ARTIFACT_CONTENT_TYPE = "application/octet-stream";
+    private static final String DEFAULT_ARTIFACT_CONTENT_TYPE = "application/octet-stream";
     private static final int MAX_EVENT_PAYLOAD_BYTES = ExecutionEventPort.MAX_EVENT_PAYLOAD_BYTES;
 
     private final ExecutionEventPort executionEvents;
@@ -272,8 +273,27 @@ public final class ControlPlaneGatewayApplicationHandler implements GatewayAppli
         if (ref.getName().isBlank() || ref.getUri().isBlank() || ref.getSha256().isBlank()) {
             throw invalid("artifact name, uri and sha256 are required");
         }
-        return new ArtifactReference(ref.getName(), ref.getUri(), ARTIFACT_CONTENT_TYPE,
+        return new ArtifactReference(ref.getName(), ref.getUri(), artifactContentType(ref.getName()),
                 ref.getSizeBytes(), ref.getSha256(), "{}");
+    }
+
+    private static String artifactContentType(String name) {
+        String normalized = name.toLowerCase(Locale.ROOT);
+        int extensionStart = normalized.lastIndexOf('.');
+        if (extensionStart < 0 || extensionStart == normalized.length() - 1) {
+            return DEFAULT_ARTIFACT_CONTENT_TYPE;
+        }
+        return switch (normalized.substring(extensionStart)) {
+            case ".md", ".markdown" -> "text/markdown; charset=UTF-8";
+            case ".json" -> "application/json; charset=UTF-8";
+            case ".txt", ".log" -> "text/plain; charset=UTF-8";
+            case ".csv" -> "text/csv; charset=UTF-8";
+            case ".yaml", ".yml" -> "application/yaml; charset=UTF-8";
+            case ".xml" -> "application/xml; charset=UTF-8";
+            case ".html", ".htm" -> "text/html; charset=UTF-8";
+            case ".pdf" -> "application/pdf";
+            default -> DEFAULT_ARTIFACT_CONTENT_TYPE;
+        };
     }
 
     private static Instant occurredAt(EventMetadata metadata) {

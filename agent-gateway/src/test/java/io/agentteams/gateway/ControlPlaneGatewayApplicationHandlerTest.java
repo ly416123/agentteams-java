@@ -102,9 +102,28 @@ class ControlPlaneGatewayApplicationHandlerTest {
         ArtifactReference record = artifacts.getValue().get(0);
         assertThat(record.name()).isEqualTo("result.json");
         assertThat(record.storageKey()).isEqualTo("s3://bucket/result.json");
+        assertThat(record.contentType()).isEqualTo("application/json; charset=UTF-8");
         assertThat(record.sha256()).isEqualTo("abc");
         assertThat(record.sizeBytes()).isEqualTo(12);
         assertThat(record.metadataJson()).isEqualTo("{}");
+    }
+
+    @Test
+    void infersMarkdownContentTypeAndFallsBackForUnknownArtifactNames() {
+        ExecutionEventPort service = mock(ExecutionEventPort.class);
+        ControlPlaneGatewayApplicationHandler handler = new ControlPlaneGatewayApplicationHandler(service, clock());
+
+        handler.taskCompleted(connection(), TaskCompleted.newBuilder().setMetadata(metadata("artifact-types", 7))
+                .addArtifacts(io.agentteams.contracts.v1.ArtifactRef.newBuilder()
+                        .setName("输出.MD").setUri("s3://bucket/output.md").setSha256("md-sha").setSizeBytes(12).build())
+                .addArtifacts(io.agentteams.contracts.v1.ArtifactRef.newBuilder()
+                        .setName("payload.bin").setUri("s3://bucket/payload.bin").setSha256("bin-sha").setSizeBytes(4).build())
+                .build());
+
+        ArgumentCaptor<List<ArtifactReference>> artifacts = ArgumentCaptor.forClass(List.class);
+        verify(service).apply(eq(TASK_ID), any(), artifacts.capture());
+        assertThat(artifacts.getValue()).extracting(ArtifactReference::contentType)
+                .containsExactly("text/markdown; charset=UTF-8", "application/octet-stream");
     }
 
     @Test
