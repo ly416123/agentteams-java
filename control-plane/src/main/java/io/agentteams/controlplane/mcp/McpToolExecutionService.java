@@ -135,8 +135,7 @@ public final class McpToolExecutionService {
         }
         Timer.Sample connectorTimer = observability.connectorStarted();
         try {
-            Object value = runWithTimeout(() -> connector.callTool(McpConnectorTarget.from(server), invocation.toolName(),
-                    invocation.arguments(), invocation.timeout()), invocation.timeout());
+            Object value = runWithTimeout(() -> callTool(connector, server, invocation), invocation.timeout());
             lease.success();
             observability.connectorSucceeded("tool_call", connectorTimer);
             return audited("MCP_TOOL_CALL", server, invocation.toolName(), McpToolCallResult.success(value));
@@ -183,7 +182,7 @@ public final class McpToolExecutionService {
         Timer.Sample connectorTimer = observability.connectorStarted();
         try {
             List<McpToolDescriptor> tools = runWithTimeout(
-                    () -> connector.discoverTools(McpConnectorTarget.from(server), timeout), timeout);
+                    () -> discoverTools(connector, server, timeout), timeout);
             discoveryCache.put(server.id(), server.version(), tools);
             lease.success();
             observability.connectorSucceeded("tools_list", connectorTimer);
@@ -219,6 +218,25 @@ public final class McpToolExecutionService {
             return httpError.category().name();
         }
         return "CONNECTOR_EXCEPTION";
+    }
+
+    private static Object callTool(McpTransportConnector connector, McpServerRecord server,
+            McpToolInvocation invocation) {
+        McpConnectorTarget target = McpConnectorTarget.from(server);
+        if (connector instanceof CredentialAwareMcpTransportConnector credentialAware) {
+            return credentialAware.callTool(target, invocation.toolName(), invocation.arguments(),
+                    server.credentialRef(), invocation.timeout());
+        }
+        return connector.callTool(target, invocation.toolName(), invocation.arguments(), invocation.timeout());
+    }
+
+    private static List<McpToolDescriptor> discoverTools(McpTransportConnector connector, McpServerRecord server,
+            Duration timeout) {
+        McpConnectorTarget target = McpConnectorTarget.from(server);
+        if (connector instanceof CredentialAwareMcpTransportConnector credentialAware) {
+            return credentialAware.discoverTools(target, server.credentialRef(), timeout);
+        }
+        return connector.discoverTools(target, timeout);
     }
 
     private <T> T runWithTimeout(CheckedSupplier<T> work, Duration timeout)

@@ -11,7 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p>An empty host and endpoint allowlist is intentional and fails closed. Exact endpoints take
  * precedence when configured; otherwise host patterns may be exact names or {@code *.example.com}.
- * Credentials are not a property of this connector and cannot be configured here.</p>
+ * Credential references are resolved only from the explicitly allowlisted deployment environment
+ * names below; credential values are never configuration properties.</p>
  */
 @ConfigurationProperties(prefix = "agentteams.mcp.http")
 public class McpHttpConnectorProperties {
@@ -21,6 +22,7 @@ public class McpHttpConnectorProperties {
     private List<String> allowedSchemes = new ArrayList<>(List.of("https"));
     private List<String> allowedHosts = new ArrayList<>();
     private List<String> allowedEndpoints = new ArrayList<>();
+    private List<String> credentialEnvNames = new ArrayList<>();
     private int maxResponseBytes = 1_048_576;
 
     public void validate() {
@@ -35,6 +37,10 @@ public class McpHttpConnectorProperties {
         requireValues(allowedSchemes, "allowed-schemes");
         requireValues(allowedHosts, "allowed-hosts");
         requireValues(allowedEndpoints, "allowed-endpoints");
+        requireValues(credentialEnvNames, "credential-env-names");
+        if (credentialEnvNames.stream().anyMatch(value -> !value.matches("[A-Z][A-Z0-9_]*"))) {
+            throw new IllegalArgumentException("MCP HTTP credential-env-names must contain environment names");
+        }
         if (allowedSchemes.stream().map(value -> value.toLowerCase(Locale.ROOT))
                 .anyMatch(value -> !value.equals("http") && !value.equals("https"))) {
             throw new IllegalArgumentException("MCP HTTP allowed-schemes must contain only http or https");
@@ -68,6 +74,8 @@ public class McpHttpConnectorProperties {
     public void setAllowedHosts(List<String> values) { this.allowedHosts = values == null ? new ArrayList<>() : new ArrayList<>(values); }
     public List<String> getAllowedEndpoints() { return List.copyOf(allowedEndpoints); }
     public void setAllowedEndpoints(List<String> values) { this.allowedEndpoints = values == null ? new ArrayList<>() : new ArrayList<>(values); }
+    public List<String> getCredentialEnvNames() { return List.copyOf(credentialEnvNames); }
+    public void setCredentialEnvNames(List<String> values) { this.credentialEnvNames = values == null ? new ArrayList<>() : new ArrayList<>(values); }
     public int getMaxResponseBytes() { return maxResponseBytes; }
     public void setMaxResponseBytes(int value) { this.maxResponseBytes = value; }
 }

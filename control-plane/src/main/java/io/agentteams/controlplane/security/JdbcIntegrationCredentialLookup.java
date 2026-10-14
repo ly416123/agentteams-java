@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -18,7 +19,8 @@ public class JdbcIntegrationCredentialLookup implements SdkAuthenticationFilter.
     private final Clock clock;
 
     @Autowired
-    public JdbcIntegrationCredentialLookup(DataSource dataSource, CredentialSecretProvider secrets, Clock clock) {
+    public JdbcIntegrationCredentialLookup(DataSource dataSource,
+            @Qualifier("credentialSecretProvider") CredentialSecretProvider secrets, Clock clock) {
         this(new JdbcTemplate(Objects.requireNonNull(dataSource, "dataSource")), secrets, clock);
     }
 

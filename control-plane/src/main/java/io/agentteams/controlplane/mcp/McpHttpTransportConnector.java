@@ -26,32 +26,46 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.net.ssl.SSLException;
+import io.agentteams.controlplane.security.CredentialSecretProvider;
+import io.agentteams.controlplane.security.UnavailableCredentialSecretProvider;
 
 /**
  * Basic production HTTP connector for MCP Streamable HTTP and legacy SSE endpoints.
  *
- * <p>The connector is deliberately credential-blind: its SPI target has no credential field and
- * this implementation never resolves, logs, or adds an authorization header. It is opt-in via
- * {@link McpHttpConnectorConfiguration}.</p>
+ * <p>The generic connector SPI remains credential-blind. Deployments that explicitly configure
+ * an allowlisted credential provider may use the optional credential-aware adapter extension.</p>
  */
-public final class McpHttpTransportConnector implements McpTransportConnector {
+public final class McpHttpTransportConnector implements McpTransportConnector,
+        CredentialAwareMcpTransportConnector {
     private static final String ACCEPT = "application/json, text/event-stream";
     private static final String MCP_PROTOCOL_VERSION = "2025-06-18";
     private final HttpClient httpClient;
     private final McpHttpConnectorProperties properties;
     private final ObjectMapper objectMapper;
     private final McpToolsListSchemaValidator toolsValidator;
+    private final CredentialSecretProvider credentialSecretProvider;
     private final AtomicLong requestIds = new AtomicLong();
 
     public McpHttpTransportConnector(HttpClient httpClient, McpHttpConnectorProperties properties) {
-        this(httpClient, properties, new ObjectMapper());
+        this(httpClient, properties, new ObjectMapper(), new UnavailableCredentialSecretProvider());
     }
 
     public McpHttpTransportConnector(HttpClient httpClient, McpHttpConnectorProperties properties,
             ObjectMapper objectMapper) {
+        this(httpClient, properties, objectMapper, new UnavailableCredentialSecretProvider());
+    }
+
+    public McpHttpTransportConnector(HttpClient httpClient, McpHttpConnectorProperties properties,
+            CredentialSecretProvider credentialSecretProvider) {
+        this(httpClient, properties, new ObjectMapper(), credentialSecretProvider);
+    }
+
+    public McpHttpTransportConnector(HttpClient httpClient, McpHttpConnectorProperties properties,
+            ObjectMapper objectMapper, CredentialSecretProvider credentialSecretProvider) {
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.credentialSecretProvider = Objects.requireNonNull(credentialSecretProvider, "credentialSecretProvider");
         this.toolsValidator = new McpToolsListSchemaValidator(objectMapper);
         properties.validate();
         if (httpClient.followRedirects() != HttpClient.Redirect.NEVER) {
@@ -71,61 +85,98 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
 
     @Override
     public List<McpToolDescriptor> discoverTools(McpConnectorTarget target, Duration timeout) {
-        JsonNode response = exchangeEnvelope(target, "tools/list", Map.of(), timeout);
+        return discoverTools(target, null, timeout);
+    }
+
+    @Override
+    public List<McpToolDescriptor> discoverTools(McpConnectorTarget target, String credentialRef,
+            Duration timeout) {
+        JsonNode response = exchangeEnvelope(target, "tools/list", Map.of(), timeout,
+                resolveCredential(credentialRef));
         return toolsValidator.validateResult(response);
     }
 
     @Override
     public Object callTool(McpConnectorTarget target, String toolName, Map<String, Object> arguments,
             Duration timeout) {
+        return callTool(target, toolName, arguments, null, timeout);
+    }
+
+    @Override
+    public Object callTool(McpConnectorTarget target, String toolName, Map<String, Object> arguments,
+            String credentialRef, Duration timeout) {
         if (toolName == null || toolName.isBlank()) {
             throw new IllegalArgumentException("toolName is required");
         }
         JsonNode response = exchange(target, "tools/call", Map.of(
-                "name", toolName.trim(), "arguments", arguments == null ? Map.of() : arguments), timeout);
+                "name", toolName.trim(), "arguments", arguments == null ? Map.of() : arguments), timeout,
+                resolveCredential(credentialRef));
         return toJavaValue(response);
+    }
+
+    private String resolveCredential(String credentialRef) {
+        if (credentialRef == null || credentialRef.isBlank()) return null;
+        return credentialSecretProvider.resolve(credentialRef)
+                .filter(value -> !value.isBlank())
+                .orElseThrow(() -> new McpHttpConnectorException(McpHttpFailureCategory.UNAUTHORIZED,
+                        "MCP credential is unavailable"));
     }
 
     private JsonNode exchange(McpConnectorTarget target, String method, Map<String, Object> params,
             Duration timeout) {
-        JsonNode envelope = exchangeEnvelope(target, method, params, timeout);
+        return exchange(target, method, params, timeout, null);
+    }
+
+    private JsonNode exchange(McpConnectorTarget target, String method, Map<String, Object> params,
+            Duration timeout, String credential) {
+        JsonNode envelope = exchangeEnvelope(target, method, params, timeout, credential);
         return envelope.get("result");
     }
 
     private JsonNode exchangeEnvelope(McpConnectorTarget target, String method, Map<String, Object> params,
             Duration timeout) {
+        return exchangeEnvelope(target, method, params, timeout, null);
+    }
+
+    private JsonNode exchangeEnvelope(McpConnectorTarget target, String method, Map<String, Object> params,
+            Duration timeout, String credential) {
         URI endpoint = validateTarget(target, timeout);
         long id = requestIds.incrementAndGet();
         String body = requestBody(id, method, params);
         if (target.transport() == McpTransport.SSE) {
-            return exchangeSse(endpoint, id, body, timeout);
+            return exchangeSse(endpoint, id, body, timeout, credential);
         }
-        return exchangeStreamable(endpoint, id, body, timeout);
+        return exchangeStreamable(endpoint, id, body, timeout, credential);
     }
 
     private JsonNode exchangeStreamable(URI endpoint, long id, String body, Duration timeout) {
-        return exchangeStreamable(endpoint, id, body, timeout, true);
+        return exchangeStreamable(endpoint, id, body, timeout, null);
+    }
+
+    private JsonNode exchangeStreamable(URI endpoint, long id, String body, Duration timeout, String credential) {
+        return exchangeStreamable(endpoint, id, body, timeout, credential, true);
     }
 
     private JsonNode exchangeStreamable(URI endpoint, long id, String body, Duration timeout,
-            boolean retryOnNotFound) {
+            String credential, boolean retryOnNotFound) {
         try {
             long initializeId = requestIds.incrementAndGet();
             HttpResponse<String> initialized = httpClient.send(
-                    request(endpoint, requestBody(initializeId, "initialize", initializeParams()), timeout, null),
+                    request(endpoint, requestBody(initializeId, "initialize", initializeParams()), timeout, null,
+                            null, credential),
                     bodyHandler());
             JsonNode initializeEnvelope = parseEnvelope(classify(initialized), initializeId);
             String protocolVersion = initializeEnvelope.path("result").path("protocolVersion")
                     .asText(MCP_PROTOCOL_VERSION);
             String sessionId = initialized.headers().firstValue("Mcp-Session-Id").orElse(null);
             sendNotification(endpoint, notificationBody("notifications/initialized", Map.of()), timeout, sessionId,
-                    protocolVersion);
+                    protocolVersion, credential);
             HttpResponse<String> response = httpClient.send(
-                    request(endpoint, body, timeout, sessionId, protocolVersion), bodyHandler());
+                    request(endpoint, body, timeout, sessionId, protocolVersion, credential), bodyHandler());
             return parseEnvelope(classify(response), id);
         } catch (McpHttpConnectorException error) {
             if (retryOnNotFound && error.statusCode() == 404) {
-                return exchangeStreamable(endpoint, id, body, timeout, false);
+                return exchangeStreamable(endpoint, id, body, timeout, credential, false);
             }
             throw error;
         } catch (InterruptedException error) {
@@ -136,10 +187,11 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
         }
     }
 
-    private JsonNode exchangeSse(URI endpoint, long id, String body, Duration timeout) {
-        HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout)
-                .header("Accept", "text/event-stream")
-                .GET().build();
+    private JsonNode exchangeSse(URI endpoint, long id, String body, Duration timeout, String credential) {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(endpoint).timeout(timeout)
+                .header("Accept", "text/event-stream");
+        if (credential != null) requestBuilder.header("Authorization", "Bearer " + credential);
+        HttpRequest request = requestBuilder.GET().build();
         CompletableFuture<HttpResponse<InputStream>> future = httpClient.sendAsync(request,
                 HttpResponse.BodyHandlers.ofInputStream());
         HttpResponse<InputStream> response = await(future, timeout);
@@ -160,11 +212,13 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
             long initializeId = requestIds.incrementAndGet();
             var initializeMessage = reader.message(initializeId);
             McpHttpResponse initialized = postSse(messageEndpoint, initializeId,
-                    requestBody(initializeId, "initialize", initializeParams()), timeout, initializeMessage);
+                    requestBody(initializeId, "initialize", initializeParams()), timeout, initializeMessage,
+                    credential);
             parseEnvelope(initialized, initializeId);
-            postSseNotification(messageEndpoint, notificationBody("notifications/initialized", Map.of()), timeout);
+            postSseNotification(messageEndpoint, notificationBody("notifications/initialized", Map.of()), timeout,
+                    credential);
             var responseMessage = reader.message(id);
-            McpHttpResponse result = postSse(messageEndpoint, id, body, timeout, responseMessage);
+            McpHttpResponse result = postSse(messageEndpoint, id, body, timeout, responseMessage, credential);
             return parseEnvelope(result, id);
         } catch (McpHttpConnectorException error) {
             throw error;
@@ -215,9 +269,10 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
     }
 
     private McpHttpResponse postSse(URI messageEndpoint, long id, String body, Duration timeout,
-            CompletableFuture<String> message) {
+            CompletableFuture<String> message, String credential) {
         try {
-            HttpResponse<String> post = httpClient.send(request(messageEndpoint, body, timeout, null), bodyHandler());
+            HttpResponse<String> post = httpClient.send(request(messageEndpoint, body, timeout, null, null, credential),
+                    bodyHandler());
             McpHttpResponse postResponse = classify(post);
             if (postResponse.body().isBlank()) {
                 return new McpHttpResponse(200, "application/json", await(message, timeout));
@@ -233,9 +288,10 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
         }
     }
 
-    private void postSseNotification(URI messageEndpoint, String body, Duration timeout) {
+    private void postSseNotification(URI messageEndpoint, String body, Duration timeout, String credential) {
         try {
-            HttpResponse<String> response = httpClient.send(request(messageEndpoint, body, timeout, null), bodyHandler());
+            HttpResponse<String> response = httpClient.send(
+                    request(messageEndpoint, body, timeout, null, null, credential), bodyHandler());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw statusFailure(response.statusCode());
             }
@@ -250,10 +306,10 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
     }
 
     private void sendNotification(URI endpoint, String body, Duration timeout, String sessionId,
-            String protocolVersion) {
+            String protocolVersion, String credential) {
         try {
             HttpResponse<String> response = httpClient.send(
-                    request(endpoint, body, timeout, sessionId, protocolVersion), bodyHandler());
+                    request(endpoint, body, timeout, sessionId, protocolVersion, credential), bodyHandler());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw statusFailure(response.statusCode());
             }
@@ -268,14 +324,22 @@ public final class McpHttpTransportConnector implements McpTransportConnector {
     }
 
     private HttpRequest request(URI endpoint, String body, Duration timeout, String sessionId) {
-        return request(endpoint, body, timeout, sessionId, null);
+        return request(endpoint, body, timeout, sessionId, null, null);
     }
 
     private HttpRequest request(URI endpoint, String body, Duration timeout, String sessionId,
             String protocolVersion) {
+        return request(endpoint, body, timeout, sessionId, protocolVersion, null);
+    }
+
+    private HttpRequest request(URI endpoint, String body, Duration timeout, String sessionId,
+            String protocolVersion, String credential) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint).timeout(timeout)
                 .header("Accept", ACCEPT)
                 .header("Content-Type", "application/json");
+        if (credential != null) {
+            builder.header("Authorization", "Bearer " + credential);
+        }
         if (sessionId != null && !sessionId.isBlank()) {
             builder.header("Mcp-Session-Id", sessionId);
         }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -24,7 +25,16 @@ public class McpHttpConnectorConfiguration {
 
     @Bean
     McpHttpTransportConnector mcpHttpTransportConnector(HttpClient mcpHttpConnectorHttpClient,
-            McpHttpConnectorProperties properties, ObjectMapper objectMapper) {
-        return new McpHttpTransportConnector(mcpHttpConnectorHttpClient, properties, objectMapper);
+            McpHttpConnectorProperties properties, ObjectMapper objectMapper,
+            @Qualifier("mcpHttpCredentialSecretProvider")
+            io.agentteams.controlplane.security.CredentialSecretProvider credentialSecretProvider) {
+        return new McpHttpTransportConnector(mcpHttpConnectorHttpClient, properties, objectMapper,
+                credentialSecretProvider);
+    }
+
+    @Bean
+    io.agentteams.controlplane.security.CredentialSecretProvider mcpHttpCredentialSecretProvider(
+            McpHttpConnectorProperties properties) {
+        return new EnvironmentCredentialSecretProvider(properties.getCredentialEnvNames());
     }
 }

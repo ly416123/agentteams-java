@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.agentteams.controlplane.security.CredentialSecretProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -66,6 +67,32 @@ class McpHttpTransportConnectorTest {
         assertThat(tools).extracting(McpToolDescriptor::name).containsExactly("search");
         assertThat(request).hasValueSatisfying(body -> assertThat(body)
                 .contains("tools/list").doesNotContain("credentialRef", "secret"));
+    }
+
+    @Test
+    void credentialAwareDiscoverySendsResolvedBearerTokenWithoutLeakingItIntoPayloads() throws Exception {
+        AtomicReference<String> authorization = new AtomicReference<>();
+        server = server(exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            JsonNode root = new ObjectMapper().readTree(exchange.getRequestBody());
+            if ("initialize".equals(root.path("method").asText())) {
+                respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                        + root.path("id").asLong() + ",\"result\":{\"protocolVersion\":\"2025-06-18\","
+                        + "\"capabilities\":{},\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}}");
+            } else if ("notifications/initialized".equals(root.path("method").asText())) {
+                respond(exchange, 202, "application/json", "");
+            } else {
+                respond(exchange, 200, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":"
+                        + root.path("id").asLong() + ",\"result\":{\"tools\":[]}}");
+            }
+        });
+
+        CredentialSecretProvider secrets = reference -> java.util.Optional.of("test-mcp-token");
+        McpHttpTransportConnector connector = new McpHttpTransportConnector(client(), properties(), secrets);
+
+        assertThat(connector.discoverTools(target(McpTransport.STREAMABLE_HTTP), "MCP_TOOLS_TOKEN",
+                Duration.ofSeconds(1))).isEmpty();
+        assertThat(authorization).hasValue("Bearer test-mcp-token");
     }
 
     @Test
