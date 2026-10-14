@@ -189,6 +189,26 @@ class ApiAuthenticationFilterTest {
     }
 
     @Test
+    void canonicalizesTokenProjectNameForConfigApiWithoutProjectQueryParameter() throws Exception {
+        UUID id = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        ProjectRepository projects = mock(ProjectRepository.class);
+        ProjectRecord project = ProjectRecord.create(id, "tenant", "project-a", "alice", Instant.EPOCH);
+        when(projects.findProjectByName("tenant", "project-a")).thenReturn(Optional.of(project));
+        when(projects.findMembership("tenant", id, "alice")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant", id, "alice", ProjectRole.DEVELOPER, Instant.EPOCH)));
+        IdentityTokenValidator validator = token -> Optional.of(new IdentityTokenValidator.IdentityPrincipal(
+                "alice", new AuthorizationService.Scope("tenant", "project-a", "team-a"),
+                Set.of("config:read")));
+        ApiAuthenticationFilter filter = new ApiAuthenticationFilter(validator, new ProjectScopeResolver(projects));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/config/agents/worker-id/current");
+        request.addHeader("Authorization", "Bearer test-token");
+        FilterChain chain = (req, ignored) -> assertThat(PrincipalContext.current().orElseThrow().scope().project())
+                .isEqualTo(id.toString());
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+    }
+
+    @Test
     void leavesTenantLevelRequestsUnresolvedWhenProjectIsNotRequested() throws Exception {
         ProjectRepository projects = mock(ProjectRepository.class);
         IdentityTokenValidator validator = token -> Optional.of(new IdentityTokenValidator.IdentityPrincipal(

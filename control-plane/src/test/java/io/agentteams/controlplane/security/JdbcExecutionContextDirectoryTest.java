@@ -16,45 +16,51 @@ class JdbcExecutionContextDirectoryTest {
     @Test
     void resolvesLegacyTenantAndRequiresTheAuthenticatedMembership() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        String projectId = UUID.randomUUID().toString();
         ExecutionContext expected = new ExecutionContext(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
-                "project-1", "team-1", "user-1");
+                projectId, "team-1", "user-1");
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<ExecutionContext>>any(),
                 eq("legacy-tenant"), eq("legacy-tenant"), eq("legacy-tenant"), eq("user-1"), eq("user-1"),
-                eq("project-1"), eq("user-1")))
+                eq(projectId), eq("user-1")))
                 .thenReturn(List.of(expected));
 
         JdbcExecutionContextDirectory directory = new JdbcExecutionContextDirectory(jdbc);
 
-        assertThat(directory.resolve("legacy-tenant", "project-1", "team-1", "user-1"))
+        assertThat(directory.resolve("legacy-tenant", projectId, "team-1", "user-1"))
                 .contains(expected);
     }
 
     @Test
     void returnsEmptyWhenMappingOrMembershipDoesNotExist() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        String projectId = UUID.randomUUID().toString();
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<ExecutionContext>>any(),
-                eq("unknown"), eq("unknown"), eq("unknown"), eq("user-1"), eq("user-1"), eq("project-1"),
+                eq("unknown"), eq("unknown"), eq("unknown"), eq("user-1"), eq("user-1"), eq(projectId),
                 eq("user-1"))).thenReturn(List.of());
 
-        assertThat(new JdbcExecutionContextDirectory(jdbc).resolve("unknown", "project-1", "team-1", "user-1"))
+        assertThat(new JdbcExecutionContextDirectory(jdbc).resolve("unknown", projectId, "team-1", "user-1"))
                 .isEmpty();
     }
 
     @Test
-    void joinsLegacyProjectScopeByTenantExternalKeyInsteadOfTenantUuid() {
+    void joinsCanonicalProjectScopeByTenantExternalKeyAndProjectUuid() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        String projectId = UUID.randomUUID().toString();
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<ExecutionContext>>any(),
                 anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(List.of());
 
-        new JdbcExecutionContextDirectory(jdbc).resolve("tenant-a", "project-a", "team-a", "subject-a");
+        new JdbcExecutionContextDirectory(jdbc).resolve("tenant-a", projectId, "team-a", "subject-a");
 
         ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
         org.mockito.Mockito.verify(jdbc).query(query.capture(),
                 org.mockito.ArgumentMatchers.<RowMapper<ExecutionContext>>any(),
                 eq("tenant-a"), eq("tenant-a"), eq("tenant-a"), eq("subject-a"), eq("subject-a"),
-                eq("project-a"), eq("subject-a"));
+                eq(projectId), eq("subject-a"));
         assertThat(query.getValue()).contains("project.tenant_id = tenant.external_key")
+                .contains("project.id::text = ?")
+                .doesNotContain("project.name = ?")
+                .contains("JOIN projects project ON project.tenant_id = tenant.external_key")
                 .contains("project_member.tenant_id = tenant.external_key")
                 .doesNotContain("project.tenant_id = tenant.id")
                 .doesNotContain("project_member.tenant_id = tenant.id");

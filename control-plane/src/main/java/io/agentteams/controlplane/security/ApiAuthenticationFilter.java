@@ -74,7 +74,8 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
         Principal principal = new Principal(identity.subject(), identity.scope(), identity.permissions());
         try {
             String requestedProject = request.getParameter("projectId");
-            if (projectScopes != null && requestedProject != null && !requestedProject.isBlank()) {
+            if (projectScopes != null && ((requestedProject != null && !requestedProject.isBlank())
+                    || requiresCanonicalProjectScope(request.getRequestURI()))) {
                 principal = projectScopes.canonicalize(principal, requestedProject);
             }
         } catch (AuthorizationException denied) {
@@ -97,6 +98,16 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
         } finally {
             PrincipalContext.clear();
         }
+    }
+
+    private static boolean requiresCanonicalProjectScope(String path) {
+        if (path == null) return false;
+        if (path.startsWith("/api/v1/config/")) return true;
+        String[] segments = path.split("/", -1);
+        return segments.length == 7
+                && "api".equals(segments[1]) && "v1".equals(segments[2])
+                && "agent-specs".equals(segments[3]) && isUuid(segments[4])
+                && "deployments".equals(segments[5]) && isUuid(segments[6]);
     }
 
     private boolean isTaskMcpRequest(HttpServletRequest request, String header) {

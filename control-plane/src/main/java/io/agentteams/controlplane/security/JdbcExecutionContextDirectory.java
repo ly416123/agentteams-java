@@ -22,12 +22,14 @@ public class JdbcExecutionContextDirectory implements ExecutionContextResolver.S
         requireText(teamId, "teamId");
         requireText(subjectId, "subjectId");
         return jdbc.query("""
-                SELECT organization.id::text AS organization_id, tenant.id::text AS tenant_id
+                SELECT organization.id::text AS organization_id, tenant.id::text AS tenant_id,
+                       project.id::text AS project_id
                   FROM legacy_tenant_mappings mapping
-                  JOIN organizations organization ON organization.id = mapping.organization_id
-                  JOIN tenants tenant ON tenant.organization_id = mapping.organization_id
+                JOIN organizations organization ON organization.id = mapping.organization_id
+                JOIN tenants tenant ON tenant.organization_id = mapping.organization_id
                                           AND tenant.id = mapping.tenant_id
-                 WHERE (mapping.legacy_tenant_key = ? OR tenant.id::text = ? OR tenant.external_key = ?)
+                JOIN projects project ON project.tenant_id = tenant.external_key
+                WHERE (mapping.legacy_tenant_key = ? OR tenant.id::text = ? OR tenant.external_key = ?)
                    AND organization.status = 'ACTIVE' AND tenant.status = 'ACTIVE'
                    AND EXISTS (SELECT 1 FROM organization_memberships organization_member
                                 WHERE organization_member.organization_id = organization.id
@@ -35,17 +37,14 @@ public class JdbcExecutionContextDirectory implements ExecutionContextResolver.S
                    AND EXISTS (SELECT 1 FROM tenant_memberships tenant_member
                                 WHERE tenant_member.tenant_id = tenant.id
                                   AND tenant_member.subject = ?)
-                   AND EXISTS (SELECT 1 FROM projects project
-                                JOIN project_memberships project_member
-                                  ON project_member.project_id = project.id
-                                 WHERE project.tenant_id = tenant.external_key
-                                   AND project.name = ?
-                                   AND project.status = 'ACTIVE'
-                                   AND project_member.tenant_id = tenant.external_key
-                                   AND project_member.subject = ?
-                                   AND project_member.status = 'ACTIVE')
+                   AND project.id::text = ? AND project.status = 'ACTIVE'
+                   AND EXISTS (SELECT 1 FROM project_memberships project_member
+                                WHERE project_member.project_id = project.id
+                                  AND project_member.tenant_id = tenant.external_key
+                                  AND project_member.subject = ?
+                                  AND project_member.status = 'ACTIVE')
                 """, (rs, row) -> new ExecutionContext(rs.getString("organization_id"),
-                rs.getString("tenant_id"), projectId, teamId, subjectId), legacyTenantId, legacyTenantId,
+                rs.getString("tenant_id"), rs.getString("project_id"), teamId, subjectId), legacyTenantId, legacyTenantId,
                 legacyTenantId, subjectId, subjectId, projectId, subjectId).stream().findFirst();
     }
 
