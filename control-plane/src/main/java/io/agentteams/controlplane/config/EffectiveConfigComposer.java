@@ -118,7 +118,7 @@ public final class EffectiveConfigComposer {
         try {
             JsonNode value = MAPPER.readTree(json);
             if (value == null || !value.isObject()) throw new IllegalArgumentException(name + " must be a JSON object");
-            validateSecurityTypes(value);
+            validateSecurityTypes(value, true);
             return (ObjectNode) MAPPER.readTree(ConfigManifestCanonicalizer.normalize(value.toString()));
         } catch (EffectiveConfigConflictException error) {
             throw error;
@@ -127,15 +127,21 @@ public final class EffectiveConfigComposer {
         }
     }
 
-    private static void validateSecurityTypes(JsonNode node) {
+    private static void validateSecurityTypes(JsonNode node, boolean root) {
         if (!node.isObject() && !node.isArray()) return;
         if (node.isArray()) {
-            node.forEach(EffectiveConfigComposer::validateSecurityTypes);
+            node.forEach(value -> validateSecurityTypes(value, false));
             return;
         }
         node.fields().forEachRemaining(entry -> {
-            validateSecurityField(entry.getKey(), entry.getValue());
-            validateSecurityTypes(entry.getValue());
+            String key = entry.getKey();
+            // AgentSpec manifests embed their runtime payload under `spec`; that payload has
+            // its own `permissions` object. Restrictive arrays are composer-level fields, so
+            // enforce their type at the manifest root while leaving nested runtime data intact.
+            if (root || !RESTRICTIVE_ARRAYS.contains(key)) {
+                validateSecurityField(key, entry.getValue());
+            }
+            validateSecurityTypes(entry.getValue(), false);
         });
     }
 

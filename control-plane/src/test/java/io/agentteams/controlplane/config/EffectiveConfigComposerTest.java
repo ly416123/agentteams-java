@@ -77,6 +77,18 @@ class EffectiveConfigComposerTest {
     }
 
     @Test
+    void allowsAgentSpecPermissionsObjectInsideBaseManifest() {
+        EffectiveConfig result = new EffectiveConfigComposer().compose(request(
+                "{\"spec\":{\"permissions\":{\"networkPolicy\":\"MCP_ONLY\","
+                        + "\"allowSecretReferences\":false}}}",
+                "{\"mode\":\"team\"}", "{}"));
+
+        assertThat(result.canonicalManifest()).contains("\"permissions\":{\"allowSecretReferences\":false,"
+                + "\"networkPolicy\":\"MCP_ONLY\"}");
+        assertThat(result.canonicalManifest()).contains("\"mode\":\"team\"");
+    }
+
+    @Test
     void canonicalizesResourceBindingsAndRetainsRevisionAndDigestInProvenance() {
         UUID modelId = UUID.randomUUID();
         TeamResourceBinding model = new TeamResourceBinding(TeamResourceType.MODEL, modelId, "9", "sha256:model");
