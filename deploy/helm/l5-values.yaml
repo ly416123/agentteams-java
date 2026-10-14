@@ -9,9 +9,9 @@
 # IfNotPresent). Without these pins a Helm upgrade would roll workloads back
 # to the ghcr.io :latest tags, which do not exist on the L5 host.
 images:
-  controlPlane: agentteams-control-plane:l5-team-e2e-20260929-amd64-v4
-  gateway: agentteams-agent-gateway:l5-team-e2e-20260929-amd64-v3
-  operator: agentteams-operator:l5-oomfix-20260929-amd64
+  controlPlane: agentteams-control-plane:l5-quality-ledger-20261013-r6-amd64
+  gateway: agentteams-agent-gateway:l5-agentscope-team-20260930-amd64
+  operator: agentteams-operator:l5-chatgpt-plan-proxy2-20261011-amd64
 
 resources:
   requests:
@@ -22,7 +22,8 @@ resources:
     memory: 512Mi
 
 console:
-  image: agentteams-console:l5-settings-layout-20260929-amd64
+  enabled: true
+  image: agentteams-console:l5-quality-ledger-20261013-r3-amd64
   service:
     type: NodePort
     nodePort: 30080
@@ -34,6 +35,20 @@ controlPlane:
   # L5 is a single-node 7.2 GiB development cluster; HA replicas belong to
   # a larger environment.
   replicas: 1
+  env:
+    # Enable the real Streamable HTTP adapter for the in-cluster MCP service.
+    # The token itself is injected from the existing MCP Secret below, never into this ConfigMap.
+    AGENTTEAMS_MCP_HTTP_ENABLED: "true"
+    AGENTTEAMS_MCP_HTTP_ALLOWED_SCHEMES: "http"
+    AGENTTEAMS_MCP_HTTP_ALLOWED_HOSTS: "agentteams-mcp-tools"
+    AGENTTEAMS_MCP_HTTP_CREDENTIAL_ENV_NAMES: "MCP_TOOLS_TOKEN"
+    # The L5 database already contains the current schema, but its historical
+    # Flyway checksums came from an older deployed artifact. Keep validation
+    # disabled while still allowing future migrations to run.
+    SPRING_FLYWAY_VALIDATE_ON_MIGRATE: "false"
+    # Existing configuration injects a few persistence beans by concrete type;
+    # retain class-based proxies for those beans on L5.
+    SPRING_AOP_PROXY_TARGET_CLASS: "true"
   security:
     apiEnabled: true
     oidc:
@@ -45,18 +60,42 @@ controlPlane:
       projectClaim: project
       teamClaim: team
       permissionsClaim: permissions
+  mcpCredential:
+    envName: MCP_TOOLS_TOKEN
+    secretName: agentteams-mcp-tools
+    secretKey: mcp-tools-token
   workerProvisioner:
+    enabled: true
+    namespace: agentteams
+    replicas: 1
+    gatewayHost: agentteams-agentteams-java-gateway
+    gatewayPort: 9090
     # Dynamic workers are provisioned with this image; keep it in sync with
     # the pinned control-plane/gateway tag above.
-    image: agentteams-agent-worker:l5-team-e2e-20260929-amd64-v3
-    # The Worker receives MCP/gateway credentials and the DeepSeek model key.
+    image: agentteams-agent-worker:l5-ai-news-evidence-20261012-amd64
+    # The Worker receives the MCP/gateway credentials and the configured model key.
     # Model credentials remain Secret-backed and are never placed in this file.
     credentialSecretEnvs: >-
       {"DEEPSEEK_API_KEY":{"secret":"agentteams-manager","key":"deepseek-api-key"},"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"},"AGENTTEAMS_GATEWAY_AUTH_TOKEN":{"secret":"agentteams-gateway","key":"worker-token"}}
+  chatgptPlan:
+    enabled: true
+    # Read-only verified on L5 from tenant-a / project-a / team-a on 2026-10-11.
+    allowedTenantId: 429327d7-0250-600e-b51c-31d853528b8f
+    allowedProjectId: ef5916eb-14d9-4e75-9e9c-041c6b5fb447
+    allowedTeamId: b7aac93d-2e8c-4774-b04b-c80f839d4915
+    sessionSecretName: agentteams-chatgpt-oauth-session
+    # Set only after the host proxy allows LAN clients and L5 can reach it.
+    proxyUrl: "http://192.168.125.227:7892"
+    refreshImage: agentteams-chatgpt-token-refresh:l5-chatgpt-plan-proxy2-20261011-amd64
+    refreshSchedule: "*/10 * * * *"
 
 manager:
+  enabled: true
   replicas: 1
-  image: agentteams-manager:l5-team-e2e-20260929-amd64-v3
+  image: agentteams-manager:l5-agentscope-team-20260930-amd64
+  existingSecret: agentteams-manager
+  conversation:
+    runtime: fake
   security:
     enabled: true
     issuerUri: http://192.168.122.55:30082/realms/agentteams
@@ -65,19 +104,38 @@ manager:
 
 operator:
   replicas: 1
+  internalToken: kind-quota-internal
 
 # Artifact direct upload: MinIO presigned URLs must point at the L5 host
 # NodePort (kind-values pins the Kind-only 127.0.0.1:19000 port-forward),
 # the gateway bridge must be enabled, and workers must opt in via the
 # chart-managed agent-runtime configmap.
 storage:
+  enabled: true
+  endpoint: http://minio:9000
   presignEndpoint: http://192.168.122.55:30090
+  region: us-east-1
+  bucket: agentteams
+  existingSecret: agentteams-storage
 gateway:
   replicas: 1
+  quota:
+    remoteEnabled: true
+    internalToken: kind-quota-internal
+  workerOperations:
+    remoteEnabled: true
+    internalToken: kind-quota-internal
   artifact:
     enabled: true
     internalToken: kind-quota-internal
+
     workerTokenSecret: agentteams-gateway
     workerTokenKey: worker-token
 agentRuntime:
   artifactUploadEnabled: true
+
+# The configured issuer URI is the L5 Keycloak NodePort. Keep its external
+# egress rule limited to this host and port; the JWKS endpoint remains in-cluster.
+networkPolicy:
+  oidcEgressCIDR: 192.168.122.55/32
+  oidcEgressPort: 30082
