@@ -226,9 +226,18 @@ public class TaskResultVersionService {
         }
         try {
             List<java.util.Map<String, Object>> items = artifacts.stream().<java.util.Map<String, Object>>map(
-                    artifact -> java.util.Map.of("name", artifact.name(), "storageRef", artifact.storageRef(),
-                            "contentType", artifact.contentType(), "sizeBytes", artifact.sizeBytes(),
-                            "sha256", artifact.sha256(), "stage", artifact.stage())).toList();
+                    artifact -> {
+                        java.util.Map<String, Object> item = new java.util.LinkedHashMap<>();
+                        item.put("name", artifact.name());
+                        item.put("storageRef", artifact.storageRef());
+                        item.put("contentType", artifact.contentType());
+                        item.put("sizeBytes", artifact.sizeBytes());
+                        item.put("sha256", artifact.sha256());
+                        item.put("stage", artifact.stage());
+                        item.put("sourceTaskId", artifact.sourceTaskId());
+                        item.put("sourceFileId", artifact.sourceFileId());
+                        return item;
+                    }).toList();
             return JSON.writeValueAsString(java.util.Map.of("artifacts", items));
         } catch (JsonProcessingException error) {
             throw new IllegalArgumentException("result artifacts could not be encoded", error);
