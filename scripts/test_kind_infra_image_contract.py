@@ -7,12 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KindInfraImageContractTest(unittest.TestCase):
-    def test_preload_declares_the_canonical_agentscope_digest_reference(self):
+    def test_preload_does_not_pull_a_second_native_runtime_image(self):
         preload = (ROOT / "deploy/preload-kind-images.sh").read_text(encoding="utf-8")
-        self.assertIn(
-            '"docker.io/agentscope/agentscope@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd|',
-            preload,
-        )
+        self.assertNotIn("agentscope/agentscope", preload)
+        self.assertNotIn("agentscope/qwenpaw", preload)
 
 
 if __name__ == "__main__":

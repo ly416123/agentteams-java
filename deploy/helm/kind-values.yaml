@@ -24,6 +24,9 @@ imagePullPolicy: IfNotPresent
 controlPlane:
   env:
     AGENTTEAMS_QUOTA_INTERNAL_TOKEN: kind-quota-internal
+    AGENTTEAMS_MCP_HTTP_ENABLED: "true"
+    AGENTTEAMS_MCP_HTTP_ALLOWED_SCHEMES: http
+    AGENTTEAMS_MCP_HTTP_ALLOWED_HOSTS: "agentteams-mcp-tools,192.168.5.2"
     # Keep dashboard alert acceptance enabled across every Kind Helm upgrade,
     # including OIDC reinstall and local image refreshes.
     AGENTTEAMS_DASHBOARD_ALERTS_SCHEDULER_ENABLED: "true"
@@ -70,6 +73,10 @@ gateway:
 networkPolicy:
   dashboardAlertReceiver:
     enabled: true
+  external:
+    mcp:
+      - cidr: 192.168.5.2/32
+        port: 8000
   # Kind's kindnet evaluates the Kubernetes API path after node-level DNAT;
   # allow only API HTTPS ports while keeping all other egress restrictions.
   kubernetesApiAllowAllEgress: true

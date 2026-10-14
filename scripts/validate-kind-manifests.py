@@ -27,7 +27,7 @@ def main():
     text = ingress_path.read_text(encoding="utf-8")
     for service in ("agentteams-agentteams-java-control-plane", "agentteams-agentteams-java-gateway",
                     "agentteams-agentteams-java-console", "agentteams-agentteams-java-manager",
-                    "agentscope", "prometheus", "grafana"):
+                    "prometheus", "grafana"):
         if service not in text:
             fail(f"Ingress missing backend service {service}")
     for path in ("/api/v1/conversations", "/api/v1/manager"):
@@ -39,11 +39,10 @@ def main():
     installer_text = installer.read_text(encoding="utf-8")
     order = ["kind-dev-infra.yaml", "kind-observability.yaml", "build-images.sh",
              "crds/teams.yaml", "crds/workers.yaml", "helm upgrade --install agentteams",
-             "kind-ingress.yaml",
-             "bootstrap-kind-agentscope-worker.sh"]
+             "kind-ingress.yaml"]
     positions = [installer_text.find(value) for value in order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        fail("installer steps must be ordered infra, observability, images, CRD, Helm, ingress, Worker bootstrap")
+        fail("installer steps must be ordered infra, observability, images, CRD, Helm and ingress")
     if positions[6] < installer_text.find("deployment/agentteams-agentteams-java-operator --timeout=300s"):
         fail("installer must apply Kind Ingress only after the Console Service workload is ready")
     for required in (
@@ -65,14 +64,6 @@ def main():
     if ("deploy/docker/console.Dockerfile|ghcr.io/ly416123/agentteams-console:latest" not in build_text
             or "if [[ -d console ]]; then" not in build_text):
         fail("build image script must conditionally build and load the Console image")
-    worker_bootstrap = ROOT / "deploy/bootstrap-kind-agentscope-worker.sh"
-    if not worker_bootstrap.exists():
-        fail("agentscope worker bootstrap script does not exist")
-    worker_text = worker_bootstrap.read_text(encoding="utf-8")
-    for required in ("Idempotency-Key", "api/v1/agents", "deploy/examples/agentscope-worker.yaml",
-                     "kubectl apply -f -", "AGENTTEAMS_AGENT_ID"):
-        if required not in worker_text:
-            fail(f"agentscope worker bootstrap script missing {required}")
     mtls_script = ROOT / "deploy/bootstrap-kind-mtls.sh"
     if not mtls_script.exists():
         fail("Kind mTLS bootstrap script does not exist")
@@ -81,13 +72,6 @@ def main():
                      "gateway.tls.enabled=true", "AGENTTEAMS_GATEWAY_TLS_ENABLED"):
         if required not in mtls_text:
             fail(f"Kind mTLS bootstrap script missing {required}")
-    smoke_script = ROOT / "scripts/smoke-kind-agentscope-deepseek.sh"
-    if not smoke_script.exists():
-        fail("agentscope DeepSeek smoke script does not exist")
-    smoke_text = smoke_script.read_text(encoding="utf-8")
-    for required in ("AGENTSCOPE_DEEPSEEK_SMOKE_OK", "kubectl logs", "Task result"):
-        if required not in smoke_text:
-            fail(f"agentscope DeepSeek smoke script must verify {required}")
     prometheus_rule_validator = ROOT / "scripts/validate-prometheus-rule.py"
     if not prometheus_rule_validator.exists():
         fail("PrometheusRule validator does not exist")
@@ -101,19 +85,6 @@ def main():
                      "observedSecretGeneration"):
         if required not in worker_crd:
             fail(f"Worker CRD schema missing {required}")
-    agentscope_mock_manifest = ROOT / "deploy/kind-agentscope-openai-mock.yaml"
-    agentscope_mock_script = ROOT / "scripts/agentscope-openai-mock.py"
-    if not agentscope_mock_manifest.exists() or not agentscope_mock_script.exists():
-        fail("Kind AgentScope deterministic model mock assets are missing")
-    agentscope_mock_manifest_text = agentscope_mock_manifest.read_text(encoding="utf-8")
-    agentscope_mock_script_text = agentscope_mock_script.read_text(encoding="utf-8")
-    for required in ("agentscope-openai-mock", "python:3.12-alpine", "server.py"):
-        if required not in agentscope_mock_manifest_text:
-            fail(f"AgentScope mock manifest missing {required}")
-    for required in ("/chat/completions", "/debug/delay", "KIND_LEASE_RECOVERY_OK", "KIND_WORKER_RESTART_OK",
-                     "AGENTSCOPE_MOCK_RESPONSE_DELAY_SECONDS", "stream"):
-        if required not in agentscope_mock_script_text:
-            fail(f"AgentScope mock server missing {required}")
     otel_validator = ROOT / "scripts/validate-kind-otel.py"
     if not otel_validator.exists():
         fail("Kind OTel validator does not exist")
@@ -266,12 +237,6 @@ def main():
             fail(f"Kind object reference integrity validation missing {required}")
     if "run-kind-object-reference-integrity.py" not in oidc_workflow:
         fail("CI must execute the Kind object reference integrity validation")
-    if ("Configure deterministic AgentScope model" not in oidc_workflow
-            or "kind-agentscope-openai-mock.yaml" not in oidc_workflow
-            or "kind-agentscope-task-mcp.yaml" not in oidc_workflow
-            or "agentteams-kind-mock" not in oidc_workflow
-            or "/api/models/custom-providers" not in oidc_workflow):
-        fail("CI Kind jobs must configure the AgentScope model mock and task MCP ConfigMap")
     oidc_values = (ROOT / "deploy/helm/kind-oidc-values.yaml").read_text(encoding="utf-8")
     matrix_values = (ROOT / "deploy/helm/kind-matrix-values.yaml").read_text(encoding="utf-8")
     if "kind-oidc:" not in oidc_workflow:

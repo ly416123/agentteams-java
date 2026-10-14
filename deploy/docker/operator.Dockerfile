@@ -1,4 +1,6 @@
-FROM maven:3.9.16-eclipse-temurin-21 AS build
+# Java bytecode is platform independent; compile on BUILDPLATFORM and keep
+# only the runtime image on TARGETPLATFORM.
+FROM --platform=$BUILDPLATFORM maven:3.9.16-eclipse-temurin-21 AS build
 WORKDIR /workspace
 COPY deploy/docker/maven-settings.xml /root/.m2/settings.xml
 COPY . .

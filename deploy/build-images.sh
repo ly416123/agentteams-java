@@ -6,6 +6,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/deploy/console-deployment.sh"
+BUILD_PLATFORM="${BUILD_PLATFORM:-linux/amd64}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "缺少 docker，请先安装 Docker/Colima。" >&2
@@ -83,8 +84,13 @@ fi
 
 for image in "${images[@]}"; do
   IFS='|' read -r dockerfile tag <<<"$image"
-  echo "构建 $tag"
-  docker build -f "$dockerfile" -t "$tag" .
+  echo "构建 ${tag}（平台：${BUILD_PLATFORM}）"
+  docker build --platform "$BUILD_PLATFORM" -f "$dockerfile" -t "$tag" .
+  actual_platform=$(docker image inspect "$tag" --format '{{.Os}}/{{.Architecture}}')
+  if [[ "$actual_platform" != "$BUILD_PLATFORM" ]]; then
+    echo "镜像平台校验失败：$tag 实际为 $actual_platform，期望为 $BUILD_PLATFORM。" >&2
+    exit 1
+  fi
   echo "加载 $tag 到 Kind"
   kind load docker-image "$tag" --name agentteams
 done

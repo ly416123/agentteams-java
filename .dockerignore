@@ -1,6 +1,14 @@
 .git
-.idea
+.local/
+.superpowers/
+.claude/
+.qoder/
 .tools
+artifacts/
+eval/reports/
+/apikey
+/ali_model_api_key
+.idea
 **/target
 !operator/target/
 !operator/target/agentteams-operator-0.1.0-SNAPSHOT.jar

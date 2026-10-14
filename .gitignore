@@ -43,6 +43,7 @@ Thumbs.db
 /ali_model_api_key
 .env*
 !.env.example
+/eval/reports/*-deepeval-inputs/
 
 # Python acceptance-test bytecode
 **/__pycache__/

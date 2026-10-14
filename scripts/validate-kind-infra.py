@@ -63,24 +63,12 @@ def main():
             fail(f"nats-stream-bootstrap must create a stream bound to {subject}; "
                  f"without it the outbox relay cannot publish those aggregates and the "
                  f"dead-letter fallback loops forever")
-    agentscope = find("Deployment", "agentscope")
-    image = agentscope["spec"]["template"]["spec"]["containers"][0].get("image")
-    expected_image = "agentscope/agentscope@sha256:1132da56170f49c63aa583dd1ea3b09c19ce1ab76a1983813b8ad2f220771bcd"
-    if image != expected_image:
-        fail(f"AgentScope image must be pinned to {expected_image}, got {image}")
-    service = find("Service", "agentscope")
-    ports = {port.get("port") for port in service["spec"].get("ports", [])}
-    if 8088 not in ports:
-        fail("AgentScope Service must expose port 8088")
-    mounts = {
-        mount.get("mountPath")
-        for mount in agentscope["spec"]["template"]["spec"]["containers"][0].get("volumeMounts", [])
-    }
-    expected = {"/app/working", "/app/working.secret", "/app/working.backups"}
-    if not expected.issubset(mounts):
-        fail(f"AgentScope must mount {sorted(expected)}, got {sorted(mounts)}")
-    for pvc in ("agentscope-working", "agentscope-secret", "agentscope-backups"):
-        find("PersistentVolumeClaim", pvc)
+    # AgentScope is embedded in the Java Worker through the Harness API. The
+    # Kind infra manifest must not start a second native AgentScope service;
+    # WorkerResourceFactory owns the actual Worker Deployment and its limits.
+    for item in resources():
+        if item.get("metadata", {}).get("name") in {"agentscope", "qwenpaw"}:
+            fail("Kind infra must not deploy a second native runtime service")
     print("KIND_INFRA_OK")
 
 
