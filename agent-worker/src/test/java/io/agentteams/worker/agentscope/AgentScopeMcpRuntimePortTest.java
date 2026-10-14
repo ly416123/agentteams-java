@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.util.concurrent.atomic.AtomicReference;
@@ -201,6 +202,79 @@ class AgentScopeMcpRuntimePortTest {
     }
 
     @Test
+    void propagatesExecutionContextToPlatformMcpServiceDnsAlias() {
+        Toolkit toolkit = mock(Toolkit.class);
+        Toolkit.ToolRegistration registration = mock(Toolkit.ToolRegistration.class);
+        when(toolkit.registration()).thenReturn(registration);
+        when(registration.mcpClient(any())).thenReturn(registration);
+        when(registration.enableTools(any())).thenReturn(registration);
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        AtomicReference<McpExecutionContext> receivedContext = new AtomicReference<>();
+        AgentScopeMcpRuntimePort port = new AgentScopeMcpRuntimePort(
+                reference -> java.util.Optional.of("task-token"),
+                (server, provider, context) -> {
+                    receivedContext.set(context);
+                    return client;
+                });
+        RuntimeMcpServer alias = new RuntimeMcpServer("agentteams-web-search", 0,
+                "STREAMABLE_HTTP", "http://agentteams-web-search.agentteams.svc.cluster.local:8090/mcp",
+                "MCP_TOOLS_TOKEN", "sha256:platform-search");
+        McpExecutionContext execution = new McpExecutionContext(
+                UUID.fromString("4cd6fcf1-0676-428a-958e-0d53db5e9f69"), "attempt-1", "lease-1");
+
+        port.configure(toolkit, List.of(alias), List.of(), Set.of("web_search"), execution);
+
+        assertThat(receivedContext).hasValue(execution);
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(alias.endpoint()));
+        AgentScopeMcpRuntimePort.addTaskExecutionHeaders(request, receivedContext.get(), true);
+        assertThat(request.build().headers().firstValue("X-AgentTeams-Task-Id"))
+                .contains(execution.taskId().toString());
+    }
+
+    @Test
+    void propagatesExecutionContextOnlyToTheTrustedAiNewsEndpoint() {
+        Toolkit toolkit = mock(Toolkit.class);
+        Toolkit.ToolRegistration registration = mock(Toolkit.ToolRegistration.class);
+        when(toolkit.registration()).thenReturn(registration);
+        when(registration.mcpClient(any())).thenReturn(registration);
+        when(registration.enableTools(any())).thenReturn(registration);
+        RuntimeMcpServer aiNews = new RuntimeMcpServer("ai-news", 1,
+                "STREAMABLE_HTTP", "http://ai-news-mcp:8000/mcp", null, "sha256:news");
+        McpExecutionContext execution = new McpExecutionContext(
+                UUID.fromString("4cd6fcf1-0676-428a-958e-0d53db5e9f69"),
+                "e49a40d5-e1e4-4b71-99d0-c5534b0b27a9", "e49a40d5-e1e4-4b71-99d0-c5534b0b27aa");
+        AtomicReference<McpExecutionContext> receivedContext = new AtomicReference<>();
+        AgentScopeMcpRuntimePort port = new AgentScopeMcpRuntimePort(
+                reference -> java.util.Optional.empty(),
+                (server, provider, context) -> {
+                    receivedContext.set(context);
+                    return mock(McpClientWrapper.class);
+                });
+
+        port.configure(toolkit, List.of(aiNews), List.of(), Set.of(), execution);
+        assertThat(receivedContext).hasValue(execution);
+
+        HttpRequest.Builder trustedRequest = HttpRequest.newBuilder(URI.create(aiNews.endpoint()));
+
+        AgentScopeMcpRuntimePort.addTaskExecutionHeaders(trustedRequest, execution,
+                AgentScopeMcpRuntimePort.isTaskEvidenceCaptureServer(aiNews));
+
+        assertThat(trustedRequest.build().headers().firstValue("X-AgentTeams-Task-Id"))
+                .contains(execution.taskId().toString());
+        assertThat(trustedRequest.build().headers().firstValue("X-AgentTeams-Attempt-Id"))
+                .contains(execution.attemptId());
+        assertThat(trustedRequest.build().headers().firstValue("X-AgentTeams-Lease-Id"))
+                .contains(execution.leaseId());
+
+        RuntimeMcpServer untrusted = new RuntimeMcpServer("ai-news", 1,
+                "STREAMABLE_HTTP", "http://attacker.example:8000/mcp", null, "sha256:news");
+        HttpRequest.Builder untrustedRequest = HttpRequest.newBuilder(URI.create(untrusted.endpoint()));
+        AgentScopeMcpRuntimePort.addTaskExecutionHeaders(untrustedRequest, execution,
+                AgentScopeMcpRuntimePort.isTaskEvidenceCaptureServer(untrusted));
+        assertThat(untrustedRequest.build().headers().firstValue("X-AgentTeams-Task-Id")).isEmpty();
+    }
+
+    @Test
     void createsPlatformTaskServerWhenAttemptRequiresToolAndNoServerIsBound() {
         Toolkit toolkit = mock(Toolkit.class);
         Toolkit.ToolRegistration registration = mock(Toolkit.ToolRegistration.class);
@@ -226,6 +300,32 @@ class AgentScopeMcpRuntimePortTest {
     }
 
     @Test
+    void createsPlatformTaskServerWhenAttemptRequiresWebSearchAndNoServerIsBound() {
+        Toolkit toolkit = mock(Toolkit.class);
+        Toolkit.ToolRegistration registration = mock(Toolkit.ToolRegistration.class);
+        when(toolkit.registration()).thenReturn(registration);
+        when(registration.mcpClient(any())).thenReturn(registration);
+        when(registration.enableTools(any())).thenReturn(registration);
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        AtomicReference<RuntimeMcpServer> received = new AtomicReference<>();
+        AgentScopeMcpRuntimePort port = new AgentScopeMcpRuntimePort(
+                reference -> java.util.Optional.of("task-token"),
+                (server, provider) -> {
+                    received.set(server);
+                    return client;
+                });
+
+        port.configure(toolkit, List.of(), List.of(), Set.of("web_search"));
+
+        assertThat(received.get()).isNotNull();
+        assertThat(received.get().endpoint()).isEqualTo("http://agentteams-mcp-tools:8090/mcp");
+        assertThat(received.get().credentialRef()).isEqualTo("MCP_TOOLS_TOKEN");
+        verify(registration).mcpClient(client);
+        verify(registration).enableTools(List.of("web_search"));
+        verify(registration).apply();
+    }
+
+    @Test
     void exposesPdfArtifactToolOnlyWhenDeclaredForTheAttempt() {
         Toolkit toolkit = mock(Toolkit.class);
         Toolkit.ToolRegistration registration = mock(Toolkit.ToolRegistration.class);
@@ -247,6 +347,24 @@ class AgentScopeMcpRuntimePortTest {
         verify(registration).mcpClient(client);
         verify(registration).enableTools(List.of("create_task_pdf_artifact"));
         verify(registration).apply();
+    }
+
+    @Test
+    void exposesChildResultLookupOnlyWhenDeclaredForTheAttempt() {
+        Toolkit toolkit = mock(Toolkit.class);
+        Toolkit.ToolRegistration registration = mock(Toolkit.ToolRegistration.class);
+        when(toolkit.registration()).thenReturn(registration);
+        when(registration.mcpClient(any())).thenReturn(registration);
+        when(registration.enableTools(any())).thenReturn(registration);
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        McpRuntimePort port = new AgentScopeMcpRuntimePort(reference -> java.util.Optional.of("task-token"),
+                (server, provider) -> client);
+        RuntimeMcpServer taskServer = new RuntimeMcpServer("aaefa1d5-f4dc-4399-a20a-5a7b827b5df8", 3,
+                "STREAMABLE_HTTP", "http://agentteams-mcp-tools:8090/mcp", "MCP_TOOLS_TOKEN", "sha256:task");
+
+        port.configure(toolkit, List.of(taskServer), List.of(), Set.of("get_task_result"));
+
+        verify(registration).enableTools(List.of("get_task_result"));
     }
 
     private static RuntimeMcpServer server() {

@@ -225,6 +225,10 @@ def _safe_artifact_metadata(artifact: Mapping[str, Any]) -> dict[str, Any]:
     task_file_id = artifact.get("taskFileId")
     if isinstance(task_file_id, str) and re.fullmatch(UUID_PATH_SEGMENT, task_file_id):
         metadata["taskFileId"] = task_file_id
+    for key in ("sourceTaskId", "sourceFileId"):
+        identifier = artifact.get(key)
+        if isinstance(identifier, str) and re.fullmatch(UUID_PATH_SEGMENT, identifier):
+            metadata[key] = identifier
     version = artifact.get("version")
     if isinstance(version, int) and not isinstance(version, bool) and version >= 0:
         metadata["version"] = version
@@ -248,8 +252,9 @@ def _is_durable_artifact_ref(storage_ref: Any, name: Any) -> bool:
 
 
 def _is_task_file_ref(storage_ref: Any) -> bool:
-    return isinstance(storage_ref, str) and re.fullmatch(
-        rf"task-files/{UUID_PATH_SEGMENT}/{UUID_PATH_SEGMENT}", storage_ref) is not None
+    return isinstance(storage_ref, str) and (
+        re.fullmatch(rf"task-files/{UUID_PATH_SEGMENT}/{UUID_PATH_SEGMENT}", storage_ref) is not None
+        or re.fullmatch(rf"task-file://{UUID_PATH_SEGMENT}/{UUID_PATH_SEGMENT}", storage_ref) is not None)
 
 
 def _safe_id_list(value: Any) -> list[str]:
@@ -424,7 +429,8 @@ def build_evidence_bundle(task: Mapping[str, Any], run: Mapping[str, Any], event
 
 def _safe_source_evidence(value: Any, task_id: Any, run_id: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or value.get("taskId") != task_id or value.get("runId") != run_id:
-        return {"completeness": {"status": "INCONCLUSIVE", "observedSearchCalls": 0,
+        return {"taskId": task_id, "runId": run_id,
+                "completeness": {"status": "INCONCLUSIVE", "observedSearchCalls": 0,
                                  "recordedSearchCalls": 0, "observedSources": 0}, "calls": []}
     calls = value.get("calls") if isinstance(value.get("calls"), list) else []
     safe_calls = []
@@ -432,15 +438,31 @@ def _safe_source_evidence(value: Any, task_id: Any, run_id: Any) -> dict[str, An
         if not isinstance(call, Mapping):
             continue
         sources = call.get("sources") if isinstance(call.get("sources"), list) else []
+        safe_sources = []
+        for source in sources:
+            if not isinstance(source, Mapping):
+                continue
+            safe_source = {}
+            for key, limit in (("title", 500), ("url", 2_048), ("snippet", 2_000)):
+                raw_value = source.get(key)
+                if isinstance(raw_value, str) and raw_value.strip():
+                    safe_source[key] = _sanitize_value(raw_value.strip()[:limit])
+            evidence_ref = source.get("evidenceRef")
+            if isinstance(evidence_ref, str) and evidence_ref.startswith("task-source:"):
+                safe_source["evidenceRef"] = evidence_ref[:200]
+            if safe_source:
+                safe_sources.append(safe_source)
         safe_calls.append({"taskId": call.get("taskId"), "runId": call.get("runId"),
                            "callId": call.get("callId"), "complete": call.get("complete") is True,
                            "sourceRefs": sorted({str(source.get("evidenceRef")) for source in sources
-                                                 if isinstance(source, Mapping) and source.get("evidenceRef")})})
+                                                 if isinstance(source, Mapping) and source.get("evidenceRef")}),
+                           "sources": safe_sources})
     completeness = value.get("completeness") if isinstance(value.get("completeness"), Mapping) else {}
     allowed = value.get("allowedTaskRuns") if isinstance(value.get("allowedTaskRuns"), list) else []
     safe_allowed = [[pair[0], pair[1]] for pair in allowed if isinstance(pair, (list, tuple))
                     and len(pair) == 2 and all(isinstance(part, str) for part in pair)]
-    return {"allowedTaskRuns": safe_allowed, "completeness": {key: completeness.get(key) for key in
+    return {"taskId": task_id, "runId": run_id, "allowedTaskRuns": safe_allowed,
+            "completeness": {key: completeness.get(key) for key in
                              ("status", "observedSearchCalls", "recordedSearchCalls", "observedSources", "sourceLimit")},
             "calls": safe_calls}
 
@@ -834,10 +856,15 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             results.append(AssertionResult(assertion_type, passed, "tool call order evaluated", expected, names, (events_ref,)))
         elif assertion_type == "tool_count":
             expected_name, expected_count = str(assertion.get("name", "")), assertion.get("expected")
-            names = _called_tools(events)
+            count_events = events if assertion.get("parentRunOnly") is True else lifecycle_events
+            names = _called_tools(count_events)
             actual = names.count(expected_name) if names is not None else None
             passed = None if truncated or names is None else actual == expected_count
-            results.append(AssertionResult(assertion_type, passed, "tool call count evaluated", expected_count, actual, (events_ref,)))
+            results.append(AssertionResult(
+                assertion_type, passed, "tool call count evaluated", expected_count, actual,
+                (events_ref,) if assertion.get("parentRunOnly") is True else tuple([events_ref] + [
+                    f"subtask-events:{event.get('taskId', 'unknown')}:{event.get('runId', 'unknown')}"
+                    for event in subtask_events])))
         elif assertion_type == "dependency_success":
             passed, actual = _dependency_success(observation.get("taskTree"), assertion.get("requireDependencies") is True)
             results.append(AssertionResult(assertion_type, passed,
@@ -855,6 +882,9 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             calls = source_evidence.get("calls") if isinstance(source_evidence, Mapping) else None
             coverage = source_evidence.get("completeness") if isinstance(source_evidence, Mapping) else None
             summary_values = []
+            pdf_values = []
+            pdf_required = any(str(item.get("type", "")).lower() == "artifact_pdf"
+                               for item in case.assertions if isinstance(item, Mapping))
             if isinstance(result_manifest, Mapping):
                 summary_value = _source_citation_summary(result_manifest.get("summary"))
                 if summary_value:
@@ -863,7 +893,25 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
                     if isinstance(artifact, Mapping) and artifact.get("name") == "output.md" \
                             and isinstance(artifact.get("content"), str):
                         summary_values.append(artifact["content"])
-            summary = "\n".join(summary_values)
+                    elif isinstance(artifact, Mapping) and (
+                            str(artifact.get("name", "")).lower().endswith(".pdf")
+                            or str(artifact.get("contentType", "")).lower() == "application/pdf"):
+                        content = artifact.get("contentBytes")
+                        if isinstance(content, bytes):
+                            try:
+                                from pypdf import PdfReader
+                                extracted_pdf_text = [page.extract_text() or "" for page in
+                                                      PdfReader(io.BytesIO(content), strict=True).pages]
+                                pdf_values.extend(extracted_pdf_text)
+                                summary_values.extend(extracted_pdf_text)
+                            except Exception:
+                                # Invalid or unreadable final PDFs cannot establish citation coverage.
+                                summary_values = []
+                                pdf_values = []
+                                break
+            # A parent summary can cite a source even when the selected deliverable
+            # omits it. PDF evaluation cases require citations in the actual PDF.
+            summary = "\n".join(pdf_values if pdf_required else summary_values)
             cited = re.findall(r"https?://[^\s<>\"]+", summary, flags=re.I) if isinstance(summary, str) else []
             source_refs: dict[str, str] = {}
             allowed_pairs = {tuple(pair) for pair in source_evidence.get("allowedTaskRuns", [])
@@ -895,7 +943,15 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
                 and coverage.get("observedSearchCalls") == coverage.get("recordedSearchCalls") \
                 and isinstance(source_evidence, Mapping) and source_evidence.get("runId") == run_id \
                 and source_evidence.get("taskId") == (observation.get("task") or {}).get("id")
-            if not complete or not structurally_valid or not cited_urls:
+            if not complete or not structurally_valid:
+                results.append(AssertionResult(assertion_type, None, "search source evidence or citation is incomplete",
+                                               "complete run-bound citation evidence", None, (f"task-source:{run_id}",)))
+            elif not cited_urls and pdf_required:
+                results.append(AssertionResult(assertion_type, False,
+                                               "selected final PDF does not contain a source citation URL",
+                                               "at least one cited URL from this Run in the final PDF", None,
+                                               (f"task-source:{run_id}",)))
+            elif not cited_urls:
                 results.append(AssertionResult(assertion_type, None, "search source evidence or citation is incomplete",
                                                "complete run-bound citation evidence", None, (f"task-source:{run_id}",)))
             else:
@@ -925,6 +981,34 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             passed, message, details = _pdf_check(observation, assertion)
             results.append(AssertionResult(assertion_type, passed, message,
                                            "valid PDF MIME, extension, size, SHA-256 and signature", details, (manifest_ref,)))
+        elif assertion_type == "artifact_pdf_quality":
+            result = observation.get("result")
+            pdfs = [artifact for artifact in (result.get("artifacts", []) if isinstance(result, Mapping) else [])
+                    if isinstance(artifact, Mapping)
+                    and (str(artifact.get("name", "")).lower().endswith(".pdf")
+                         or str(artifact.get("contentType", "")).lower() == "application/pdf")]
+            if len(pdfs) != 1:
+                passed, message, details = False, "exactly one PDF is required for quality inspection", {"pdfCount": len(pdfs)}
+            elif not isinstance(pdfs[0].get("contentBytes"), bytes):
+                passed, message, details = None, "PDF bytes are unavailable for quality inspection", None
+            else:
+                try:
+                    from scripts.l5_pdf_quality import inspect_pdf
+                    details = inspect_pdf(
+                        pdfs[0]["contentBytes"],
+                        minimum_cjk_ratio=float(assertion.get("minimumCjkRatio", 0.25)),
+                        minimum_font_size=float(assertion.get("minimumFontSize", 7.5)),
+                        maximum_font_size=float(assertion.get("maximumFontSize", 36.0)),
+                        minimum_margin_points=float(assertion.get("minimumMarginPoints", 12.0)),
+                    )
+                    passed = details.get("technicalStatus") == "PASSED"
+                    message = ("PDF text, font, language and page geometry checks passed" if passed
+                               else "PDF failed one or more text, font, language or page geometry checks")
+                except (ImportError, RuntimeError, ValueError) as exc:
+                    passed, message, details = None, f"PDF quality inspection unavailable ({type(exc).__name__})", None
+            results.append(AssertionResult(assertion_type, passed, message,
+                                           "extractable Chinese text, readable fonts and valid page layout",
+                                           details, (manifest_ref,)))
         else:
             results.append(AssertionResult(assertion_type, None,
                                            f"unsupported deterministic assertion: {assertion_type}",
@@ -1039,6 +1123,59 @@ class AgentTeamsClient:
             artifacts.append(artifact)
         return {**result, "artifacts": artifacts}
 
+    def _hydrate_selected_task_file_artifacts(self, result: Any) -> Any:
+        """Fetch only parent-manifest task-file references, validating their declared identity and bytes."""
+        if not isinstance(result, Mapping) or not isinstance(result.get("artifacts"), list):
+            return result
+        artifacts = []
+        for artifact in result["artifacts"]:
+            if not isinstance(artifact, Mapping):
+                artifacts.append(artifact)
+                continue
+            source_task_id = artifact.get("sourceTaskId")
+            source_file_id = artifact.get("sourceFileId")
+            ref = artifact.get("storageRef")
+            expected_ref = f"task-file://{source_task_id}/{source_file_id}"
+            url = artifact.get("downloadUrl")
+            size = artifact.get("sizeBytes")
+            digest = str(artifact.get("sha256", "")).lower()
+            content_type = str(artifact.get("contentType", "")).lower()
+            try:
+                parsed = urlsplit(url) if isinstance(url, str) else None
+                origin = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}" if parsed else ""
+                valid = (isinstance(source_task_id, str)
+                         and re.fullmatch(UUID_PATH_SEGMENT, source_task_id)
+                         and isinstance(source_file_id, str)
+                         and re.fullmatch(UUID_PATH_SEGMENT, source_file_id)
+                         and ref == expected_ref and parsed is not None
+                         and origin in self.allowed_artifact_origins
+                         and parsed.scheme.lower() in {"http", "https"}
+                         and parsed.netloc and not parsed.username and not parsed.password
+                         and bool(parsed.query) and not parsed.fragment
+                         and type(size) is int and 0 < size <= 25 * 1024 * 1024
+                         and re.fullmatch(r"[0-9a-f]{64}", digest)
+                         and bool(re.fullmatch(r"[a-z0-9.+-]+/[a-z0-9.+-]+", content_type)))
+            except ValueError:
+                valid = False
+            if not valid:
+                artifacts.append(artifact)
+                continue
+            request = Request(url, headers={"Accept": "application/octet-stream"}, method="GET")
+            try:
+                status, headers, raw = self.transport(request, self.timeout)
+                response_type = next((value for key, value in headers.items() if key.lower() == "content-type"), "")
+                response_mime = response_type.split(";", 1)[0].strip().lower()
+                if (status < 200 or status >= 300 or len(raw) != size
+                        or hashlib.sha256(raw).hexdigest() != digest
+                        or response_mime not in {content_type, "application/octet-stream"}):
+                    artifacts.append(artifact)
+                    continue
+            except Exception:
+                artifacts.append(artifact)
+                continue
+            artifacts.append({**artifact, "contentBytes": raw, "taskFileId": source_file_id})
+        return {**result, "artifacts": artifacts}
+
     def _collect_events(self, task_id: str, run_id: str) -> tuple[list[Any], str]:
         events: list[Any] = []
         after = 0
@@ -1103,12 +1240,34 @@ class AgentTeamsClient:
     def get_task(self, task_id: str) -> dict[str, Any]:
         return _mapping(self._request("GET", f"/api/v1/tasks/{task_id}"), "task response")
 
+    def get_subtasks(self, task_id: str) -> list[dict[str, Any]]:
+        value = self._request("GET", f"/api/v1/tasks/{task_id}/subtasks")
+        if not isinstance(value, list):
+            raise EvalTransportError("subtask response is not a list")
+        return [_mapping(item, "subtask response") for item in value]
+
     def wait_for_terminal(self, task_id: str, timeout_seconds: float, poll_seconds: float) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_seconds
         while True:
             task = self.get_task(task_id)
-            if str(task.get("phase", "")) in TERMINAL_PHASES:
+            phase = str(task.get("phase", "")).upper()
+            if phase in TERMINAL_PHASES:
                 return task
+            if phase == "WAITING_SUBTASKS":
+                try:
+                    children = self.get_subtasks(task_id)
+                except EvalTransportError:
+                    # Older Control Plane versions may not expose the subtask
+                    # listing route. Keep the existing parent timeout behavior.
+                    children = []
+                for child in children:
+                    child_phase = str(child.get("phase", child.get("status", ""))).upper()
+                    if child_phase in {"FAILED", "REJECTED", "CANCELLED"}:
+                        child_id = child.get("subtaskId") or child.get("taskId") or "unknown"
+                        raise EvalError(
+                            f"task {task_id} is waiting for subtasks, but subtask {child_id} "
+                            f"reached {child_phase}"
+                        )
             if time.monotonic() >= deadline:
                 raise EvalError(f"task {task_id} did not reach terminal phase within {timeout_seconds:g}s")
             time.sleep(max(0.0, poll_seconds))
@@ -1142,6 +1301,19 @@ class AgentTeamsClient:
         # Older API versions may omit timestamps; retain their list-order fallback.
         return indexed_runs[-1][1]
 
+    def wait_for_run_terminal(self, task_id: str, timeout_seconds: float,
+                              poll_seconds: float) -> dict[str, Any]:
+        """Wait for the latest run to finish; parent task phase can lead aggregate execution."""
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            run = self.get_run(task_id)
+            if str(run.get("status", "")).upper() in TERMINAL_PHASES:
+                return run
+            if time.monotonic() >= deadline:
+                run_id = str(run.get("id") or run.get("runId") or "unknown")
+                raise EvalError(f"run {run_id} for task {task_id} did not reach terminal status within {timeout_seconds:g}s")
+            time.sleep(max(0.0, poll_seconds))
+
     def get_observation(self, task_id: str, run_id: str, include_source_evidence: bool = False) -> dict[str, Any]:
         events, event_status = self._collect_events(task_id, run_id)
         parent_started_at = None
@@ -1155,6 +1327,7 @@ class AgentTeamsClient:
                 event_status = "INCONCLUSIVE"
         result = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/result")
         result = self._hydrate_text_artifacts(result)
+        result = self._hydrate_selected_task_file_artifacts(result)
         task_tree = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/tree")
         decisions = self._request("GET", f"/api/v1/tasks/{task_id}/runs/{run_id}/decisions")
         source_evidence = None
@@ -1331,26 +1504,59 @@ def _write_deepeval_export(case: EvalCase, observation: Mapping[str, Any], direc
         raise EvalError(f"cannot write DeepEval export for {case.case_id}: {exc}") from exc
 
 
+def _persist_pdf_artifacts(case_id: str, observation: Mapping[str, Any], directory: Path) -> list[dict[str, Any]]:
+    """Save downloaded PDF bytes for the explicitly requested visual review."""
+    result = observation.get("result") or {}
+    artifacts = result.get("artifacts", []) if isinstance(result, Mapping) else []
+    saved: list[dict[str, Any]] = []
+    for artifact in artifacts if isinstance(artifacts, list) else []:
+        if not isinstance(artifact, Mapping):
+            continue
+        name = str(artifact.get("name", ""))
+        is_pdf = name.lower().endswith(".pdf") or str(artifact.get("contentType", "")).lower() == "application/pdf"
+        data = artifact.get("contentBytes")
+        if not is_pdf or not isinstance(data, bytes):
+            continue
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", case_id)
+                or Path(name).name != name or name in {"", ".", ".."}
+                or not name.lower().endswith(".pdf")):
+            raise EvalError("unsafe case or PDF filename in artifact review export")
+        relative = Path(case_id) / name
+        target = directory / relative
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        except OSError as exc:
+            raise EvalError(f"cannot persist PDF artifact for review ({type(exc).__name__})") from exc
+        saved.append({"name": name, "relativePath": relative.as_posix(),
+                      "sha256": hashlib.sha256(data).hexdigest(), "sizeBytes": len(data)})
+    return saved
+
+
 def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: float | None,
               poll_seconds: float, deepeval_export_dir: Path | None = None,
-              evaluation_run_id: str | None = None, evidence_output: Path | None = None) -> dict[str, Any]:
+              evaluation_run_id: str | None = None, evidence_output: Path | None = None,
+              existing_task_ids: Mapping[str, str] | None = None,
+              pdf_artifact_output_dir: Path | None = None) -> dict[str, Any]:
     started = _now()
     report_cases: list[dict[str, Any]] = []
     for case in cases:
         item: dict[str, Any] = {"caseId": case.case_id, "passed": False, "score": 0.0, "assertions": []}
         try:
-            created = client.create_task(case)
-            task_id = str(created.get("id", ""))
+            existing_task_id = (existing_task_ids or {}).get(case.case_id)
+            created = None if existing_task_id else client.create_task(case)
+            task_id = str(existing_task_id or (created or {}).get("id", ""))
             if not task_id:
                 raise EvalError("create task response has no task id")
             item["taskId"] = task_id
-            client.queue_task(task_id, int(created.get("version", 0)))
+            if created is not None:
+                client.queue_task(task_id, int(created.get("version", 0)))
             case_timeout = timeout_seconds
             if case_timeout is None:
                 configured_timeout = case.limits.get("timeoutSeconds", 180)
                 case_timeout = float(configured_timeout)
             client.wait_for_terminal(task_id, case_timeout, poll_seconds)
-            run = client.get_run(task_id)
+            run = client.wait_for_run_terminal(task_id, case_timeout, poll_seconds)
             run_id = str(run.get("id") or run.get("runId") or "")
             if not run_id:
                 raise EvalError(f"task {task_id} run response has no run id")
@@ -1383,6 +1589,8 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
             item["manifestStatus"] = result_manifest.get("status") if isinstance(result_manifest, Mapping) else None
             item["evidenceCompleteness"] = evidence["evidenceCompleteness"]
             item["eventCompleteness"] = evidence["eventCompleteness"]
+            if pdf_artifact_output_dir is not None:
+                item["pdfArtifacts"] = _persist_pdf_artifacts(case.case_id, observation, pdf_artifact_output_dir)
             if evaluation_run_id:
                 item["evaluationRunId"] = evaluation_run_id
             if evidence_output is not None:
@@ -1410,6 +1618,7 @@ def run_suite(client: AgentTeamsClient, cases: list[EvalCase], timeout_seconds: 
             raise
         except EvalError as exc:
             item["error"] = _redact(str(exc), client.token)
+            item["evaluationStatus"] = "FAILED"
         report_cases.append(item)
     passed = all(item["passed"] for item in report_cases)
     evaluation_status = "FAILED" if any(item.get("evaluationStatus") == "FAILED" for item in report_cases) else \

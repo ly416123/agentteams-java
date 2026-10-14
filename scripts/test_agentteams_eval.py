@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from io import BytesIO
+from io import BytesIO
 from pathlib import Path
 from datetime import datetime
 from pypdf import PdfWriter
@@ -12,6 +13,7 @@ from pypdf import PdfWriter
 from scripts.agentteams_eval import (
     AgentTeamsClient,
     EvalCase,
+    EvalError,
     EvalTransportError,
     MAX_TEXT_ARTIFACT_BYTES,
     _NoRedirect,
@@ -20,10 +22,56 @@ from scripts.agentteams_eval import (
     evaluate_observation,
     load_cases,
     run_suite,
+    _safe_source_evidence,
 )
 
 
 class EvaluationCoreTest(unittest.TestCase):
+    def test_source_evidence_bundle_preserves_bounded_content_for_fact_review(self):
+        evidence = {
+            "taskId": "task-1", "runId": "run-1", "allowedTaskRuns": [["task-1", "run-1"]],
+            "completeness": {"status": "COMPLETE", "observedSearchCalls": 1,
+                             "recordedSearchCalls": 1, "observedSources": 1},
+            "calls": [{"taskId": "task-1", "runId": "run-1", "callId": "call-1",
+                       "complete": True, "sources": [{
+                           "title": "Official documentation", "url": "https://example.com/doc",
+                           "snippet": "Feature X is available in version 2. Bearer abcdefghijklmnop",
+                           "evidenceRef": "task-source:call-1:" + "a" * 64,
+                       }]}],
+        }
+
+        bundle = build_evidence_bundle(
+            {"id": "task-1"}, {"id": "run-1"}, [], [], [], {"status": "SUCCEEDED", "artifacts": []},
+            source_evidence=evidence,
+        )
+
+        exported = bundle["sourceEvidence"]["calls"][0]["sources"][0]
+        self.assertEqual("Official documentation", exported["title"])
+        self.assertEqual("https://example.com/doc", exported["url"])
+        self.assertIn("Feature X is available in version 2", exported["snippet"])
+        self.assertNotIn("abcdefghijklmnop", exported["snippet"])
+        self.assertLessEqual(len(exported["snippet"]), 2000)
+
+    def test_wait_for_terminal_fails_fast_when_a_subtask_has_failed(self):
+        paths = []
+
+        def transport(request, timeout):
+            path = request.full_url.split("http://test", 1)[1]
+            paths.append(path)
+            if path == "/api/v1/tasks/parent-1":
+                return 200, {}, json.dumps({"id": "parent-1", "phase": "WAITING_SUBTASKS"}).encode()
+            if path == "/api/v1/tasks/parent-1/subtasks":
+                return 200, {}, json.dumps([{"subtaskId": "child-1", "title": "Research",
+                    "phase": "FAILED", "status": "FAILED"}]).encode()
+            raise AssertionError(path)
+
+        client = AgentTeamsClient("http://test", "token", transport=transport)
+
+        with self.assertRaisesRegex(EvalError, "subtask child-1.*FAILED"):
+            client.wait_for_terminal("parent-1", 480, 0)
+
+        self.assertEqual(["/api/v1/tasks/parent-1", "/api/v1/tasks/parent-1/subtasks"], paths)
+
     def test_get_run_rejects_latest_run_after_cutoff_instead_of_falling_back(self):
         runs = [
             {"id": "future-run", "startedAt": "2026-10-09T05:10:54Z", "completedAt": "2026-10-09T05:11:54Z"},
@@ -108,6 +156,20 @@ class EvaluationCoreTest(unittest.TestCase):
 
         self.assertEqual("aggregate-run", client.get_run("task-1")["id"])
 
+    def test_wait_for_run_terminal_polls_latest_run_after_parent_finishes(self):
+        statuses = iter(["RUNNING", "SUCCEEDED"])
+        calls = []
+
+        def transport(request, timeout):
+            calls.append(request.full_url)
+            return 200, {}, json.dumps([{"id": "aggregate-run", "status": next(statuses)}]).encode()
+
+        client = AgentTeamsClient("http://test", "token", transport=transport)
+        run = client.wait_for_run_terminal("task-1", 1, 0)
+
+        self.assertEqual("SUCCEEDED", run["status"])
+        self.assertEqual(2, len(calls))
+
     def test_run_suite_counts_search_calls_from_successful_child_runs(self):
         parent_id, child_id = "parent-1", "child-1"
         parent_run, child_run = "parent-run", "child-run"
@@ -127,13 +189,16 @@ class EvaluationCoreTest(unittest.TestCase):
             token = "test-token"
 
             def create_task(self, case):
-                return {"id": parent_id, "version": 0}
+                raise AssertionError("existing task must be resumed without creating a duplicate")
 
             def queue_task(self, task_id, version):
-                pass
+                raise AssertionError("existing task must not be queued again")
 
             def wait_for_terminal(self, task_id, timeout_seconds, poll_seconds):
                 pass
+
+            def wait_for_run_terminal(self, task_id, timeout_seconds, poll_seconds):
+                return {"id": parent_run, "status": "SUCCEEDED"}
 
             def get_run(self, task_id):
                 return {"id": parent_run, "status": "SUCCEEDED"}
@@ -159,10 +224,14 @@ class EvaluationCoreTest(unittest.TestCase):
 
         case = EvalCase("delegated-source", "Delegated source", {},
                         [{"type": "source_citation"}], {})
-        report = run_suite(FakeClient(), [case], None, 0.01)
+        report = run_suite(FakeClient(), [case], None, 0.01,
+                           existing_task_ids={case.case_id: parent_id})
+        self.assertEqual(parent_id, report["cases"][0]["taskId"])
         self.assertEqual("PASSED", report["cases"][0]["assertions"][0]["status"])
         self.assertEqual("COMPLETE", report["cases"][0]["evidenceBundle"]["sourceEvidence"]
                          ["completeness"]["status"])
+        self.assertEqual(parent_id, report["cases"][0]["evidenceBundle"]["sourceEvidence"]["taskId"])
+        self.assertEqual(parent_run, report["cases"][0]["evidenceBundle"]["sourceEvidence"]["runId"])
 
     def test_source_citation_uses_only_complete_task_run_bound_sources(self):
         url = "https://www.w3.org/TR/WCAG20-TECHS/pdf.html"
@@ -219,6 +288,77 @@ class EvaluationCoreTest(unittest.TestCase):
         case = EvalCase("citation", "Citation", {}, [{"type": "source_citation"}], {})
 
         self.assertEqual("PASSED", evaluate_observation(case, observation)[0].status)
+
+    def test_source_citation_reads_final_pdf_artifact(self):
+        from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+        url = "https://www.w3.org/TR/mcp/"
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=595, height=842)
+        font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+                                 NameObject("/Subtype"): NameObject("/Type1"),
+                                 NameObject("/BaseFont"): NameObject("/Helvetica")})
+        font_ref = writer._add_object(font)
+        page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"):
+            DictionaryObject({NameObject("/F1"): font_ref})})
+        stream = DecodedStreamObject()
+        stream.set_data(f"BT /F1 12 Tf 50 700 Td (Sources: {url}) Tj ET".encode())
+        page[NameObject("/Contents")] = writer._add_object(stream)
+        pdf = BytesIO()
+        writer.write(pdf)
+        observation = {
+            "task": {"id": "task-1"}, "run": {"id": "run-1"},
+            "result": {"summary": "Task completed", "artifacts": [
+                {"name": "final.pdf", "contentType": "application/pdf", "contentBytes": pdf.getvalue()},
+            ]},
+            "sourceEvidence": {
+                "taskId": "task-1", "runId": "run-1", "allowedTaskRuns": [["task-1", "run-1"]],
+                "calls": [{"taskId": "task-1", "runId": "run-1", "complete": True,
+                           "sources": [{"url": url, "evidenceRef": "task-source:call-1:" + "a" * 64}]}],
+                "completeness": {"status": "COMPLETE", "observedSearchCalls": 1,
+                                 "recordedSearchCalls": 1},
+            },
+        }
+        case = EvalCase("citation-pdf", "Citation PDF", {}, [{"type": "source_citation"}], {})
+
+        self.assertEqual("PASSED", evaluate_observation(case, observation)[0].status)
+
+    def test_source_citation_does_not_accept_parent_summary_url_when_final_pdf_omits_it(self):
+        from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+        url = "https://www.w3.org/TR/mcp/"
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=595, height=842)
+        font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+                                 NameObject("/Subtype"): NameObject("/Type1"),
+                                 NameObject("/BaseFont"): NameObject("/Helvetica")})
+        font_ref = writer._add_object(font)
+        page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"):
+            DictionaryObject({NameObject("/F1"): font_ref})})
+        stream = DecodedStreamObject()
+        stream.set_data(b"BT /F1 12 Tf 50 700 Td (Research report with no citations.) Tj ET")
+        page[NameObject("/Contents")] = writer._add_object(stream)
+        pdf = BytesIO()
+        writer.write(pdf)
+        observation = {
+            "task": {"id": "task-1"}, "run": {"id": "run-1"},
+            "result": {"summary": "Sources: " + url, "artifacts": [
+                {"name": "final.pdf", "contentType": "application/pdf", "contentBytes": pdf.getvalue()},
+            ]},
+            "sourceEvidence": {
+                "taskId": "task-1", "runId": "run-1", "allowedTaskRuns": [["task-1", "run-1"]],
+                "calls": [{"taskId": "task-1", "runId": "run-1", "complete": True,
+                           "sources": [{"url": url, "evidenceRef": "task-source:call-1:" + "a" * 64}]}],
+                "completeness": {"status": "COMPLETE", "observedSearchCalls": 1,
+                                 "recordedSearchCalls": 1},
+            },
+        }
+        case = EvalCase("citation-pdf", "Citation PDF", {}, [
+            {"type": "source_citation", "allowUnverifiedCitations": True},
+            {"type": "artifact_pdf"},
+        ], {})
+
+        self.assertEqual("FAILED", evaluate_observation(case, observation)[0].status)
 
     def test_source_citation_decodes_summary_from_json_wrapped_aggregate_result(self):
         url = "https://www.w3.org/WAI/WCAG21/Techniques"
@@ -304,6 +444,51 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertIsNone(bad_utf8._request_text_artifact({**base, "sizeBytes": 1,
                                                            "sha256": hashlib.sha256(b"\xff").hexdigest()}))
 
+    def test_selected_task_file_artifact_is_hydrated_from_its_download_url(self):
+        content = b"%PDF-1.4\n%%EOF"
+        digest = hashlib.sha256(content).hexdigest()
+        artifact = {
+            "name": "brief.pdf", "contentType": "application/pdf", "sizeBytes": len(content),
+            "sha256": digest, "storageRef": "task-file://22222222-2222-2222-2222-222222222222/"
+                          "33333333-3333-3333-3333-333333333333",
+            "sourceTaskId": "22222222-2222-2222-2222-222222222222",
+            "sourceFileId": "33333333-3333-3333-3333-333333333333",
+            "downloadUrl": "http://files.example:30090/signed?sig=redacted",
+        }
+        requested = []
+
+        def transport(request, timeout):
+            requested.append(request)
+            return 200, {"Content-Type": "application/pdf"}, content
+
+        client = AgentTeamsClient("http://control-plane", "token", transport=transport,
+                                  allowed_artifact_origins=("http://files.example:30090",))
+        hydrated = client._hydrate_selected_task_file_artifacts({"artifacts": [artifact]})
+
+        self.assertEqual(content, hydrated["artifacts"][0]["contentBytes"])
+        self.assertEqual(1, len(requested))
+        self.assertNotIn("Authorization", requested[0].headers)
+
+    def test_selected_task_file_accepts_generic_binary_download_content_type(self):
+        content = b"%PDF-1.4\n%%EOF"
+        artifact = {
+            "name": "brief.pdf", "contentType": "application/pdf", "sizeBytes": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "storageRef": "task-file://22222222-2222-2222-2222-222222222222/"
+                         "33333333-3333-3333-3333-333333333333",
+            "sourceTaskId": "22222222-2222-2222-2222-222222222222",
+            "sourceFileId": "33333333-3333-3333-3333-333333333333",
+            "downloadUrl": "http://files.example:30090/signed?sig=redacted",
+        }
+        client = AgentTeamsClient("http://control-plane", "token",
+                                  transport=lambda request, timeout:
+                                  (200, {"Content-Type": "application/octet-stream"}, content),
+                                  allowed_artifact_origins=("http://files.example:30090",))
+
+        hydrated = client._hydrate_selected_task_file_artifacts({"artifacts": [artifact]})
+
+        self.assertEqual(content, hydrated["artifacts"][0].get("contentBytes"))
+
     def test_output_artifact_download_failure_never_exposes_signed_url(self):
         signed_url = "http://files.example:30090/object?X-Amz-Signature=secret-value"
         def transport(request, timeout):
@@ -345,7 +530,7 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {},
                                                    "http://elsewhere.invalid/"))
 
-    def test_source_evidence_fetch_is_scoped_and_export_redacts_source_urls(self):
+    def test_source_evidence_export_keeps_bounded_public_excerpts_and_redacts_credentials(self):
         task_id, run_id = "task-1", "run-1"
         url = "https://example.test/source"
         paths = []
@@ -367,6 +552,7 @@ class EvaluationCoreTest(unittest.TestCase):
                 return 200, {}, json.dumps({"taskId": task_id, "runId": run_id, "truncated": False,
                     "observedCallCount": 1, "observedSourceCount": 1, "calls": [{"taskId": task_id, "runId": run_id, "callId": "call-1",
                     "complete": True, "sources": [{"title": "source", "url": url,
+                    "snippet": "A useful source excerpt.",
                     "evidenceRef": "task-source:call-1:" + "a" * 64}]}]}).encode()
             if path == f"/api/v1/tasks/{task_id}/runs":
                 return 200, {}, json.dumps([{"id": run_id, "startedAt": "2026-10-09T05:05:00Z"}]).encode()
@@ -381,7 +567,8 @@ class EvaluationCoreTest(unittest.TestCase):
         bundle = build_evidence_bundle(observation["task"], observation["run"], observation["events"],
                                        observation["taskTree"], observation["decisions"], observation["result"],
                                        source_evidence=observation["sourceEvidence"])
-        self.assertNotIn(url, json.dumps(bundle))
+        self.assertIn(url, json.dumps(bundle))
+        self.assertIn("A useful source excerpt.", json.dumps(bundle))
         self.assertIn(f"/api/v1/tasks/{task_id}/runs/{run_id}/source-evidence", paths)
 
     def test_missing_child_run_marks_observation_inconclusive_instead_of_aborting(self):
@@ -457,6 +644,7 @@ class EvaluationCoreTest(unittest.TestCase):
                         "observedCallCount": 1, "observedSourceCount": 1, "calls": [{"taskId": child_id,
                         "runId": "child-run", "callId": "child-call", "complete": True, "sources": [{
                         "title": "W3C", "url": "https://www.w3.org/TR/WCAG20-TECHS/pdf.html",
+                        "snippet": "The guide documents accessible PDF techniques.",
                         "evidenceRef": "task-source:child-call:" + "b" * 64}]}]}).encode()
                 return 200, {}, json.dumps({"taskId": parent_id, "runId": "parent-run", "truncated": False,
                     "observedCallCount": 0, "observedSourceCount": 0, "calls": []}).encode()
@@ -489,9 +677,14 @@ class EvaluationCoreTest(unittest.TestCase):
         self.assertEqual(child_id, observation["subtaskEvents"][0]["taskId"])
         self.assertEqual("COMPLETE", observation["sourceEvidence"]["completeness"]["status"])
         self.assertEqual(child_id, observation["sourceEvidence"]["calls"][0]["taskId"])
-        self.assertNotIn("contentBytes", json.dumps(build_evidence_bundle(
+        self.assertIn("accessible PDF techniques", json.dumps(observation["sourceEvidence"]))
+        bundle_json = json.dumps(build_evidence_bundle(
             observation["task"], {"id": "parent-run"}, observation["events"], observation["taskTree"],
-            observation["decisions"], observation["result"], subtask_events=observation["subtaskEvents"])))
+            observation["decisions"], observation["result"], subtask_events=observation["subtaskEvents"],
+            source_evidence=observation["sourceEvidence"]))
+        self.assertNotIn("contentBytes", bundle_json)
+        self.assertIn("https://www.w3.org/TR/WCAG20-TECHS/pdf.html", bundle_json)
+        self.assertIn("The guide documents accessible PDF techniques.", bundle_json)
 
     def test_builds_sanitized_evidence_bundle_with_independent_input_status(self):
         bundle = build_evidence_bundle(
@@ -764,6 +957,48 @@ cases:
 
         self.assertEqual(["FAILED", "PASSED", "PASSED"], [result.status for result in results])
         self.assertTrue(all(result.evidence_refs == ("task-events:run-7",) for result in results))
+
+    def test_tool_count_includes_subtask_events(self):
+        case = EvalCase("child-tool-count", "Child tool count", {}, [
+            {"type": "tool_count", "name": "create_task_pdf_artifact", "expected": 1}], {})
+        observation = {
+            "run": {"id": "parent-run"},
+            "events": [],
+            "subtaskEvents": [
+                {"eventType": "tool.called", "sequence": 1,
+                 "payload": {"tool": "create_task_pdf_artifact", "sequence": 1}},
+                {"eventType": "tool.finished", "sequence": 2,
+                 "payload": {"tool": "create_task_pdf_artifact", "sequence": 2, "ok": True}},
+            ],
+            "eventCompleteness": "COMPLETE",
+        }
+
+        result = evaluate_observation(case, observation)[0]
+
+        self.assertEqual("PASSED", result.status)
+        self.assertEqual(1, result.actual)
+
+    def test_parent_run_only_tool_count_does_not_accept_subtask_call(self):
+        case = EvalCase("parent-tool-count", "Parent tool count", {}, [
+            {"type": "tool_count", "name": "create_task_pdf_artifact", "expected": 1,
+             "parentRunOnly": True}], {})
+        observation = {
+            "run": {"id": "parent-run"},
+            "events": [],
+            "subtaskEvents": [
+                {"eventType": "tool.called", "sequence": 1,
+                 "payload": {"tool": "create_task_pdf_artifact", "sequence": 1}},
+                {"eventType": "tool.finished", "sequence": 2,
+                 "payload": {"tool": "create_task_pdf_artifact", "sequence": 2, "ok": True}},
+            ],
+            "eventCompleteness": "COMPLETE",
+        }
+
+        result = evaluate_observation(case, observation)[0]
+
+        self.assertEqual("FAILED", result.status)
+        self.assertEqual(0, result.actual)
+        self.assertEqual(("task-events:parent-run",), result.evidence_refs)
 
     def test_failed_tool_fails_as_soon_as_failure_is_observed(self):
         case = EvalCase("tool-failure", "Tool failure", {}, [{"type": "failed_tool", "name": "search"}], {})
@@ -1043,7 +1278,7 @@ cases:
             if request.method == "GET" and path == "/api/v1/tasks/task-1":
                 return 200, {}, json.dumps({"id": "task-1", "phase": "SUCCEEDED"}).encode()
             if request.method == "GET" and path == "/api/v1/tasks/task-1/runs":
-                return 200, {}, json.dumps([{"id": "run-1"}]).encode()
+                return 200, {}, json.dumps([{"id": "run-1", "status": "SUCCEEDED"}]).encode()
             if request.method == "GET" and path.endswith("/process-events"):
                 return 200, {}, b"[]"
             if request.method == "GET" and path.endswith("/result"):
@@ -1169,6 +1404,8 @@ cases:
                           "multi-agent-pdf-positive"},
                          {case.case_id for case in cases})
         pdf_case = next(case for case in cases if case.case_id == "multi-agent-pdf-positive")
+        self.assertIn("简体中文", pdf_case.task["inputJson"]["prompt"])
+        self.assertIn("简体中文", pdf_case.task["inputJson"]["aggregatePrompt"])
         self.assertIn({"type": "dependency_success", "requireDependencies": True}, pdf_case.assertions)
         self.assertIn({"type": "required_tool", "name": "web_search"}, pdf_case.assertions)
         self.assertNotIn({"type": "required_tool", "name": "load_skill_through_path"}, pdf_case.assertions)
@@ -1201,7 +1438,7 @@ cases:
             if request.method == "GET" and path == "/api/v1/tasks/task-1":
                 return 200, {}, json.dumps({"id": "task-1", "phase": "SUCCEEDED"}).encode()
             if request.method == "GET" and path == "/api/v1/tasks/task-1/runs":
-                return 200, {}, json.dumps([{"id": "run-1", "tokenCost": 3}]).encode()
+                return 200, {}, json.dumps([{"id": "run-1", "status": "SUCCEEDED", "tokenCost": 3}]).encode()
             if request.method == "GET" and path.endswith("/process-events"):
                 return 200, {}, json.dumps([
                     {"eventType": "tool.called", "sequence": 1,

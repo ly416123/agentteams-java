@@ -85,14 +85,195 @@ class AgentScopeRuntimeTest {
         UUID taskId = UUID.fromString("c2a4c900-1ba0-4b31-ae58-f13ea56d868b");
 
         String prompt = (String) method.invoke(null,
-                "{\"orchestrationPhase\":\"AGGREGATE\",\"childResults\":[]}",
+                "{\"orchestrationPhase\":\"AGGREGATE\",\"aggregatePrompt\":\"Create final report research-final.pdf\",\"childResults\":[]}",
                 Set.of("create_task_pdf_artifact"), taskId);
 
-        assertThat(prompt).contains("create_task_pdf_artifact", taskId.toString(), "quarterly-project-report.pdf");
+        assertThat(prompt).contains("create_task_pdf_artifact", taskId.toString(), "research-final.pdf")
+                .doesNotContain("quarterly-project-report.pdf");
     }
 
     @Test
-    void tellsDependentSubtaskToUseInjectedDependencyResults() throws Exception {
+    void suppliesCurrentSubtaskIdForRequiredPdfArtifactToolDuringExecution() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+        UUID taskId = UUID.fromString("3f2a1c9e-7b41-4d8a-9e02-5c6d1f0a8b31");
+
+        String prompt = (String) method.invoke(null,
+                "{\"orchestrationPhase\":\"EXECUTE\",\"parentTaskId\":\"02165e0b-b77f-4125-9c1a-21e05ef6760f\"}",
+                Set.of("create_task_pdf_artifact"), taskId);
+
+        assertThat(prompt).contains("task_id=\"" + taskId + "\"", "current task ID")
+                .doesNotContain("task_id=\"02165e0b-b77f-4125-9c1a-21e05ef6760f\"");
+        assertThat(prompt).contains("call create_task_pdf_artifact exactly once",
+                "complete reader-facing report in Markdown", "Wait for the successful tool result",
+                "Preserve each verified source URL verbatim", "do not answer with prose alone",
+                "Before calling the tool, scan the Markdown body",
+                "sourceTaskId, sourceFileId, taskId, task_id, fileId, file_id, runId, run_id",
+                "dependencyResults", "subtask/workflow notes", "operational identifiers",
+                "requested PDF filename");
+    }
+
+    @Test
+    void suppliesCurrentParentIdForRequiredSubtaskListingDuringAggregation() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+        UUID taskId = UUID.fromString("d563f39b-daef-46e3-aa9c-43352fb2a700");
+
+        String prompt = (String) method.invoke(null,
+                "{\"orchestrationPhase\":\"AGGREGATE\",\"childResults\":[]}",
+                Set.of("list_subtasks", "get_task_result"), taskId);
+
+        assertThat(prompt).contains("list_subtasks", "task_id=\"" + taskId + "\"",
+                "current parent task ID");
+    }
+
+    @Test
+    void instructsAggregateLeaderToExplicitlySelectChildTaskFiles() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+
+        String prompt = (String) method.invoke(null,
+                "{\"orchestrationPhase\":\"AGGREGATE\",\"childResults\":[]}",
+                Set.of("list_subtasks", "get_task_result"), UUID.randomUUID());
+
+        assertThat(prompt).contains("get_task_result", "taskFiles", "sourceTaskId", "sourceFileId",
+                "include only files you explicitly select", "artifacts array");
+        assertThat(prompt).doesNotContain("leave artifacts empty");
+    }
+
+    @Test
+    void instructsAggregateLeaderToCreateParentPdfInsteadOfSelectingChildPdfWhenToolIsEnabled() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+
+        String prompt = (String) method.invoke(null,
+                "{\"orchestrationPhase\":\"AGGREGATE\",\"childResults\":[]}",
+                Set.of("list_subtasks", "get_task_result", "create_task_pdf_artifact"), UUID.randomUUID());
+
+        assertThat(prompt).contains("get_task_result", "taskFiles", "create_task_pdf_artifact exactly once",
+                "uploaded directly to this parent task", "artifacts array must be empty");
+        assertThat(prompt).doesNotContain("include only files you explicitly select as final deliverables");
+    }
+
+    @Test
+    void elevatesAggregationPromptFieldIntoDirectInstructions() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+        String aggregationPrompt = "Put a verbatim source URL in output.md and the final answer.";
+
+        String prompt = (String) method.invoke(null,
+                "{\"orchestrationPhase\":\"AGGREGATE\",\"prompt\":\""
+                        + aggregationPrompt + "\",\"childResults\":[]}",
+                Set.of("create_task_pdf_artifact"), UUID.randomUUID());
+
+        assertThat(prompt).contains("Follow the aggregation prompt exactly:", aggregationPrompt);
+        assertThat(prompt).contains("top-level summary string", "citation URL in that summary",
+                "Repeat the complete answer in output.md", "leave artifacts empty",
+                "do not include PDF bytes or a PDF artifact in the JSON result");
+        assertThat(prompt.indexOf("Follow the aggregation prompt exactly:"))
+                .isGreaterThan(prompt.indexOf("\"prompt\""));
+    }
+
+    @Test
+    void prefersDedicatedAggregationPromptWhenBothTaskAndAggregatePromptsExist() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "agentInput", String.class, Set.class, UUID.class);
+        method.setAccessible(true);
+
+        String prompt = (String) method.invoke(null,
+                "{\"orchestrationPhase\":\"AGGREGATE\",\"prompt\":\"Plan two dependent subtasks\","
+                        + "\"aggregatePrompt\":\"Return only one JSON object and select the named final PDF\","
+                        + "\"childResults\":[]}",
+                Set.of("list_subtasks", "get_task_result"), UUID.randomUUID());
+
+        assertThat(prompt).contains("Return only one JSON object and select the named final PDF")
+                .doesNotContain("Follow the aggregation prompt exactly:\nPlan two dependent subtasks");
+    }
+
+    @Test
+    void pinsOneChildSourceUrlInAggregateResultSummary() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "ensureAggregateSourceCitations", String.class, String.class);
+        method.setAccessible(true);
+        String input = """
+                {"orchestrationPhase":"AGGREGATE","childResults":[
+                  {"result":"{\\"summary\\":\\"W3C guidance https://www.w3.org/WAI/\\"}"},
+                  {"result":"See https://www.w3.org/WAI/ and https://www.w3.org/TR/WCAG22/"}],
+                  "childSourceEvidence":[{"complete":true,"sources":[{"url":"https://www.w3.org/WAI/","evidenceRef":"task-source:call:hash","verified":true}]}]}
+                """;
+
+        String result = (String) method.invoke(null, input,
+                "{\"summary\":\"Accessible PDFs should be usable.\",\"artifacts\":[]}");
+
+        assertThat(result).contains("https://www.w3.org/WAI/")
+                .doesNotContain("https://www.w3.org/TR/WCAG22/");
+        assertThat(result.indexOf("https://www.w3.org/WAI/"))
+                .isEqualTo(result.lastIndexOf("https://www.w3.org/WAI/"));
+        assertThat(method.invoke(null, input, "Accessible PDFs should be usable."))
+                .asString().contains("Sources:", "https://www.w3.org/WAI/");
+    }
+
+    @Test
+    void pinsOnlyChildUrlsPresentInTheInjectedSearchEvidence() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "ensureAggregateSourceCitations", String.class, String.class);
+        method.setAccessible(true);
+        String input = """
+                {"orchestrationPhase":"AGGREGATE","childResults":[
+                  {"result":"First URL https://www.w3.org/WAI/standards-guidelines/wcag/ and standard https://www.w3.org/TR/WCAG21/"}],
+                  "childSourceEvidence":[{"taskId":"child-a","runId":"run-a","complete":true,
+                    "sources":[{"url":"https://www.w3.org/TR/WCAG21/","evidenceRef":"task-source:call:hash","verified":true}]}]}
+                """;
+
+        String result = (String) method.invoke(null, input,
+                "{\"summary\":\"Accessible PDFs should follow WCAG.\",\"artifacts\":[]}");
+
+        assertThat(result).contains("https://www.w3.org/TR/WCAG21/")
+                .doesNotContain("https://www.w3.org/WAI/standards-guidelines/wcag/");
+    }
+
+    @Test
+    void keepsVerifiedChildCitationsWithinThePersistedAggregateSummaryLimit() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "ensureAggregateSourceCitations", String.class, String.class);
+        method.setAccessible(true);
+        String url = "https://www.w3.org/WAI/WCAG21/Techniques";
+        String input = "{\"orchestrationPhase\":\"AGGREGATE\",\"childResults\":["
+                + "{\"result\":\"Research from " + url + "\"}],\"childSourceEvidence\":["
+                + "{\"complete\":false,\"sources\":[{\"url\":\"" + url
+                + "\",\"evidenceRef\":\"task-source:call:hash\",\"verified\":true}]}]}";
+        String longSummary = "{\"summary\":\"" + "detail ".repeat(900) + "\",\"artifacts\":[]}";
+        String candidate = "```json\n" + longSummary + "\n```";
+
+        String result = (String) method.invoke(null, input, candidate);
+
+        assertThat(result).contains(url, "Sources:");
+        assertThat(result.indexOf(url)).isLessThan(300);
+        assertThat(result.length()).isLessThan(4096);
+    }
+
+    @Test
+    void doesNotAddUnsafeChildUrlsOrRewriteNonAggregateResults() throws Exception {
+        java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
+                "ensureAggregateSourceCitations", String.class, String.class);
+        method.setAccessible(true);
+        String candidate = "{\"summary\":\"No source URL in this answer.\"}";
+        String unsafeAggregate = "{\"orchestrationPhase\":\"AGGREGATE\",\"childResults\":["
+                + "{\"result\":\"https://example.test/report?token=do-not-copy\"}]}";
+        String plan = "{\"orchestrationPhase\":\"PLAN\",\"childResults\":["
+                + "{\"result\":\"https://www.w3.org/WAI/\"}]}";
+
+        assertThat(method.invoke(null, unsafeAggregate, candidate)).isEqualTo(candidate);
+        assertThat(method.invoke(null, plan, candidate)).isEqualTo(candidate);
+    }
+
+    @Test
+    void tellsDependentSubtaskToUseResultsWithoutLeakingExecutionMetadata() throws Exception {
         java.lang.reflect.Method method = AgentScopeRuntime.class.getDeclaredMethod(
                 "agentInput", String.class, Set.class, UUID.class);
         method.setAccessible(true);
@@ -101,7 +282,10 @@ class AgentScopeRuntimeTest {
                 "{\"prompt\":\"Summarize\",\"dependencyResults\":[{\"taskId\":\"a\",\"result\":\"facts\"}]}",
                 Set.of(), UUID.randomUUID());
 
-        assertThat(prompt).contains("dependencyResults", "Use the dependencyResults in the input");
+        assertThat(prompt).contains("dependencyResults", "Use dependencyResults as source material",
+                "Synthesize them into the user's requested deliverable",
+                "Do not copy task IDs, file IDs, upstream artifact names, tool-call logs",
+                "describe only the substantive evidence gap");
     }
 
     @Test

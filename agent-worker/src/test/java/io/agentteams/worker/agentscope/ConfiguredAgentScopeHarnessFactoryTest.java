@@ -36,6 +36,23 @@ class ConfiguredAgentScopeHarnessFactoryTest {
     Path root;
 
     @Test
+    void allowsToolUsingResearchAgentsEnoughIterationsToFinishAndAggregate() {
+        assertThat(ConfiguredAgentScopeHarnessFactory.maxIterations()).isEqualTo(20);
+    }
+
+    @Test
+    void disablesBrokenCompactionFallbackForChatGptPlanModel() {
+        var factory = new ConfiguredAgentScopeHarnessFactory(
+                new io.agentteams.worker.chatgpt.ChatGptPlanModel("gpt-test", () -> "test-token"),
+                AgentScopeWorkspaceFactory.testOnly(new ReadySandboxRuntime(), Clock.systemUTC(), root), root);
+
+        var harness = factory.create(task("attempt-no-compaction", "lease-no-compaction"), context());
+
+        assertThat(harness.getCompactionHook()).isNull();
+        harness.close();
+    }
+
+    @Test
     void rejectsMissingModelConfigurationBeforeCreatingAWorkerSession() {
         assertThatThrownBy(() -> new ConfiguredAgentScopeHarnessFactory("", null, Path.of("/tmp/worker")))
                 .isInstanceOf(IllegalArgumentException.class)

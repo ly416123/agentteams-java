@@ -168,13 +168,19 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mcp
-          image: agentteams-ai-news:2026-10-09-1
+          image: agentteams-ai-news:2026-10-12-evidence-1
           imagePullPolicy: Never
           command: [python, -m, news, mcp]
           env:
             - {name: MCP_HOST, value: "0.0.0.0"}
             - {name: MCP_PORT, value: "8000"}
             - {name: REDIS_URL, value: redis://ai-news-redis:6379/0}
+            - {name: AGENTTEAMS_CONTROL_PLANE_URL, value: http://agentteams-agentteams-java-control-plane:8080}
+            - name: AGENTTEAMS_TASK_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agentteams-mcp-tools
+                  key: mcp-tools-token
             - {name: NEWS_CONFIG_DIR, value: /app/config}
             - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
           ports:
@@ -351,6 +357,62 @@ spec:
               app.kubernetes.io/name: ai-news-mcp
       ports:
         - {protocol: TCP, port: 8000}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-news-control-plane-ingress
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/part-of: agentteams
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agentteams-control-plane
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-news-mcp
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-news-mcp-evidence-egress
+  namespace: agentteams
+  labels:
+    app.kubernetes.io/part-of: agentteams
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-news-mcp
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentteams-control-plane
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-news-redis
+      ports:
+        - {protocol: TCP, port: 6379}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

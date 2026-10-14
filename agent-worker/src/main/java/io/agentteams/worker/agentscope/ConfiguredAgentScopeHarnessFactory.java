@@ -31,6 +31,7 @@ import io.agentscope.core.tool.Toolkit;
 
 /** Production AgentScope Harness factory with bounded workspace and sandbox observation. */
 public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarnessFactory {
+    private static final int MAX_ITERATIONS = 20;
     private static final System.Logger LOG = System.getLogger(ConfiguredAgentScopeHarnessFactory.class.getName());
     private static final Set<String> SANDBOX_METADATA = Set.of("sandboxId", "providerSandboxId", "profile",
             "status", "endpointRef", "expiresAt", "ownerTaskId", "ownerAttemptId");
@@ -126,6 +127,10 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
         return bindings.size();
     }
 
+    static int maxIterations() {
+        return MAX_ITERATIONS;
+    }
+
     Map<String, SkillCapabilityPolicy> activeSkillCapabilities() {
         return activeSkillCapabilities.get();
     }
@@ -161,7 +166,15 @@ public final class ConfiguredAgentScopeHarnessFactory implements AgentScopeHarne
                     .permissionContext(PermissionContextState.builder()
                             .mode(PermissionMode.BYPASS)
                             .build())
-                    .maxIters(10);
+                    .maxIters(maxIterations());
+            if (model instanceof io.agentteams.worker.chatgpt.ChatGptPlanModel) {
+                // AgentScope 2.0.1's CompactionMiddleware wraps the downstream reasoning
+                // stream in onErrorResume. A provider failure can therefore restart the
+                // same reasoning step and repeat completed MCP calls instead of ending the
+                // task. ChatGptPlanModel already retries empty completions and reports a
+                // terminal provider error; let that error reach AgentScopeRuntime.
+                builder.disableCompaction();
+            }
             List<RuntimeMcpServer> mcpServers = activeMcpServers.get();
                 Set<String> requiredTaskTools = requiredTaskTools(task.inputJson());
             if (!mcpServers.isEmpty() || !requiredTaskTools.isEmpty()) {

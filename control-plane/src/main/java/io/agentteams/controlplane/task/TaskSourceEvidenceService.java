@@ -44,7 +44,8 @@ public class TaskSourceEvidenceService {
         incoming.forEach(source -> {
             String title=required(source.title(), 500, "title"); String url=required(source.url(), 2048, "url");
             String hash=required(source.sha256(),64,"sha256").toLowerCase(java.util.Locale.ROOT);
-            sourcesByUrl.putIfAbsent(url, new TaskSourceEvidence.Source(title,url,hash,"task-source:"+normalizedCallId+":"+hash));
+            sourcesByUrl.putIfAbsent(url, new TaskSourceEvidence.Source(title,url,hash,
+                    "task-source:"+normalizedCallId+":"+hash, source.snippet()));
         });
         List<TaskSourceEvidence.Source> sources = List.copyOf(sourcesByUrl.values());
         evidence.save(context, taskId, runId, attemptId, normalizedCallId, provider, idempotencyKey, sources);
@@ -62,6 +63,8 @@ public class TaskSourceEvidenceService {
         if(value==null || value.isBlank() || value.trim().length()>max) throw new IllegalArgumentException(field+" is invalid");
         return value.trim();
     }
-    public record IncomingSource(String title,String url,String sha256) { }
+    public record IncomingSource(String title,String url,String sha256,String snippet) {
+        public IncomingSource(String title,String url,String sha256) { this(title,url,sha256,""); }
+    }
     public record Receipt(UUID taskId,UUID runId,String callId,int sourceCount) { }
 }

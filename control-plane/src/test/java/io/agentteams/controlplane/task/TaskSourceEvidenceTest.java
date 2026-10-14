@@ -37,13 +37,15 @@ class TaskSourceEvidenceTest {
                 List.of(new TaskSourceEvidenceService.IncomingSource("title", "https://example.test", "a".repeat(64)))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("lease");
         String url = "https://example.test";
+        String snippet = "Official documentation excerpt.";
         String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(url.getBytes(StandardCharsets.UTF_8)));
         when(repository.isActiveExecution(eq(taskId), eq(attemptId), eq(leaseId), any())).thenReturn(true);
         TaskSourceEvidenceService.Receipt receipt = service.capture(taskId, attemptId, leaseId, "call-1", "search", "idem",
-                List.of(new TaskSourceEvidenceService.IncomingSource("title", url, hash)));
+                List.of(new TaskSourceEvidenceService.IncomingSource("title", url, hash, snippet)));
         assertThat(receipt.sourceCount()).isEqualTo(1);
-        verify(repository).save(eq(context), eq(taskId), any(), eq(attemptId), eq("call-1"), eq("search"), eq("idem"), any());
+        verify(repository).save(eq(context), eq(taskId), any(), eq(attemptId), eq("call-1"), eq("search"), eq("idem"),
+                argThat(sources -> sources.size() == 1 && sources.get(0).snippet().equals(snippet)));
     }
 
     @Test

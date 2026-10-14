@@ -46,7 +46,8 @@ class SubtaskGateServiceTest {
         dataSource.setPassword(POSTGRES.getPassword());
         persistence = new FoundationPersistenceService(dataSource);
         delegation = new SubtaskDelegationService(persistence, Clock.systemUTC());
-        gate = new SubtaskGateService(persistence, Clock.systemUTC());
+        gate = new SubtaskGateService(persistence, Clock.systemUTC(),
+                new JdbcTaskRunObservationRepository(dataSource), new JdbcTaskSourceEvidenceRepository(dataSource));
     }
 
     private UUID createMainTask() {
@@ -136,6 +137,32 @@ class SubtaskGateServiceTest {
         assertThat(persistence.findTask(taskId).orElseThrow().phase()).isEqualTo(TaskPhase.QUEUED);
         // 幂等：主任务已离开 SUCCEEDED，重复触发返回 false
         assertThat(gate.releaseParentForAggregation(taskId)).isFalse();
+    }
+
+    @Test
+    void addsVerifiedChildSourcesToAggregateInput() throws Exception {
+        UUID parentId = createTeamTask();
+        UUID childId = UUID.randomUUID();
+        delegation.plan(parentId, List.of(new SubtaskService.SubtaskSpec(childId, "Research", 1, List.of())));
+        TaskRecord parent = persistence.findTask(parentId).orElseThrow();
+        TaskRecord child = persistence.findTask(childId).orElseThrow();
+        String url = "https://www.w3.org/TR/WCAG21/";
+        String sha = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(url.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        var source = new TaskSourceEvidence.Source("WCAG 2.1", url, sha, "task-source:call-1:" + sha);
+        var call = new TaskSourceEvidence.SearchCall(childId, UUID.randomUUID(), UUID.randomUUID(),
+                "call-1", "web_search", true, List.of(source), Instant.now());
+        var evidence = new TaskSourceEvidence(childId, call.runId(), List.of(call), false, 1, 1);
+
+        String aggregate = SubtaskGateService.aggregateSpec(parent, List.of(child), java.util.Map.of(childId, evidence));
+        var input = new com.fasterxml.jackson.databind.ObjectMapper().readTree(aggregate).path("inputJson");
+
+        assertThat(input.path("childSourceEvidence").get(0).path("taskId").asText()).isEqualTo(childId.toString());
+        assertThat(input.path("childSourceEvidence").get(0).path("complete").asBoolean()).isTrue();
+        assertThat(input.path("childSourceEvidence").get(0).path("sources").get(0).path("url").asText())
+                .isEqualTo(url);
+        assertThat(input.path("childSourceEvidence").get(0).path("sources").get(0).path("evidenceRef").asText())
+                .isEqualTo("task-source:call-1:" + sha);
     }
 
     @Test

@@ -6,14 +6,17 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.controlplane.persistence.FoundationPersistenceService;
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.domain.task.TaskPhase;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,13 +30,25 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class SubtaskGateService {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final int MAX_AGGREGATE_SOURCE_ITEMS = 8;
+    private static final System.Logger LOG = System.getLogger(SubtaskGateService.class.getName());
 
     private final FoundationPersistenceService persistence;
     private final Clock clock;
+    private final TaskRunObservationRepository runs;
+    private final TaskSourceEvidenceRepository sourceEvidence;
 
     public SubtaskGateService(FoundationPersistenceService persistence, Clock clock) {
+        this(persistence, clock, null, null);
+    }
+
+    @Autowired
+    public SubtaskGateService(FoundationPersistenceService persistence, Clock clock,
+            TaskRunObservationRepository runs, TaskSourceEvidenceRepository sourceEvidence) {
         this.persistence = Objects.requireNonNull(persistence, "persistence");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.runs = runs;
+        this.sourceEvidence = sourceEvidence;
     }
 
     /** 调度 tick 前置动作：放行就绪子任务并触发可汇总的 parent，返回动作数。 */
@@ -152,8 +167,9 @@ public class SubtaskGateService {
             List<TaskRecord> children = tx.tasks().findByParent(parentId);
             TaskRecord queued;
             if (TeamOrchestrationService.hasTeam(parent.specJson())) {
+                Map<UUID, TaskSourceEvidence> childEvidence = loadChildSourceEvidence(parentId, children);
                 queued = tx.tasks().updateState(
-                        TeamOrchestrationService.copy(parent, aggregateSpec(parent, children), at, parent.version(),
+                        TeamOrchestrationService.copy(parent, aggregateSpec(parent, children, childEvidence), at, parent.version(),
                                 TaskPhase.QUEUED),
                         parent.version());
             } else {
@@ -165,7 +181,46 @@ public class SubtaskGateService {
         });
     }
 
-    private static String aggregateSpec(TaskRecord parent, List<TaskRecord> children) {
+    private Map<UUID, TaskSourceEvidence> loadChildSourceEvidence(UUID parentId, List<TaskRecord> children) {
+        if (runs == null || sourceEvidence == null) return Map.of();
+        Map<UUID, TaskSourceEvidence> evidenceByTask = new LinkedHashMap<>();
+        ExecutionContext context;
+        try {
+            context = runs.contextForTask(parentId).orElse(null);
+            if (context == null) return Map.of();
+        } catch (IllegalArgumentException ignored) {
+            return Map.of();
+        } catch (org.springframework.dao.DataAccessException error) {
+            LOG.log(System.Logger.Level.WARNING,
+                    "Aggregate source evidence scope lookup unavailable parentTask={0}; continuing without evidence",
+                    parentId);
+            return Map.of();
+        }
+        for (TaskRecord child : children) {
+            try {
+                ExecutionContext childContext = runs.contextForTask(child.id()).orElse(null);
+                if (childContext == null || !context.sameResourceScope(childContext)) continue;
+                UUID runId = runs.latestRunId(child.id()).orElse(null);
+                if (runId == null) continue;
+                TaskRunObservationRepository.TaskRunSnapshot snapshot =
+                        runs.snapshotForRun(context, child.id(), runId).orElse(null);
+                if (snapshot == null || !"SUCCEEDED".equalsIgnoreCase(snapshot.taskPhase())
+                        || !"SUCCEEDED".equalsIgnoreCase(snapshot.runStatus())) continue;
+                TaskSourceEvidence evidence = sourceEvidence.find(context, child.id(), runId, 500, 10_000);
+                if (!evidence.calls().isEmpty()) evidenceByTask.put(child.id(), evidence);
+            } catch (IllegalArgumentException ignored) {
+                // Missing or malformed evidence for one child must not block its siblings.
+            } catch (org.springframework.dao.DataAccessException error) {
+                LOG.log(System.Logger.Level.WARNING,
+                        "Aggregate source evidence lookup unavailable childTask={0}; continuing with siblings",
+                        child.id());
+            }
+        }
+        return evidenceByTask;
+    }
+
+    static String aggregateSpec(TaskRecord parent, List<TaskRecord> children,
+            Map<UUID, TaskSourceEvidence> childEvidenceByTask) {
         try {
             JsonNode parsed = JSON.readTree(parent.specJson());
             ObjectNode root = parsed != null && parsed.isObject()
@@ -189,6 +244,28 @@ public class SubtaskGateService {
                         .put("title", child.title());
                 String result = childResult(child.specJson());
                 if (!result.isBlank()) item.put("result", result);
+            }
+            ArrayNode sourceEvidence = input.putArray("childSourceEvidence");
+            int remainingSources = MAX_AGGREGATE_SOURCE_ITEMS;
+            for (TaskRecord child : children) {
+                TaskSourceEvidence evidence = childEvidenceByTask.get(child.id());
+                if (evidence == null) continue;
+                long sourceCount = evidence.calls().stream().mapToLong(call -> call.sources().size()).sum();
+                ObjectNode childEvidence = sourceEvidence.addObject().put("taskId", child.id().toString())
+                        .put("runId", evidence.runId().toString());
+                ArrayNode sources = childEvidence.putArray("sources");
+                int sourceLimit = remainingSources;
+                evidence.calls().stream().filter(TaskSourceEvidence.SearchCall::complete)
+                        .flatMap(call -> call.sources().stream()).limit(sourceLimit).forEach(source ->
+                                sources.addObject().put("title", source.title()).put("url", source.url())
+                                        .put("snippet", source.snippet()).put("evidenceRef", source.evidenceRef())
+                                        .put("verified", true));
+                int includedForChild = sources.size();
+                remainingSources -= includedForChild;
+                childEvidence.put("complete", !evidence.truncated() && sourceCount == includedForChild
+                        && evidence.calls().stream().allMatch(TaskSourceEvidence.SearchCall::complete)
+                        && !sources.isEmpty());
+                if (sources.isEmpty()) sourceEvidence.remove(sourceEvidence.size() - 1);
             }
             root.set("inputJson", input);
             root.put("teamRole", "LEADER").put("orchestrationPhase", "AGGREGATE");

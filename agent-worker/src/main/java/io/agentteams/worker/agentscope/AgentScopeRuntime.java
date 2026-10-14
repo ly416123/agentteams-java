@@ -23,6 +23,8 @@ import io.agentteams.runtime.RuntimeSubmission;
 import io.agentteams.runtime.RuntimeTask;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import reactor.core.Disposable;
 
 /**
@@ -48,6 +52,7 @@ public final class AgentScopeRuntime implements AgentRuntime {
     private static final String FAILURE_MESSAGE = "AgentScope execution failed";
     private static final String REQUIRED_TOOL_FAILURE_PREFIX = "REQUIRED_TOOL_NOT_CALLED: ";
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Pattern HTTP_URL = Pattern.compile("https?://[^\\s<>\\\"'\\]]+", Pattern.CASE_INSENSITIVE);
     private static final System.Logger LOG = System.getLogger(AgentScopeRuntime.class.getName());
 
     private final Object lifecycleLock = new Object();
@@ -289,9 +294,132 @@ public final class AgentScopeRuntime implements AgentRuntime {
 
     private void completeSuccessLocked(Execution execution) {
         AgentRuntimeContext currentContext = requireContextLocked();
+        String summary = execution.resultCandidate == null ? "" : execution.resultCandidate;
+        summary = ensureAggregateSourceCitations(execution.task.inputJson(), summary);
         completeLocked(execution, RuntimeResult.success(execution.task.id(),
-                execution.resultCandidate == null ? "" : execution.resultCandidate,
-                Instant.now(currentContext.clock()), execution.callUsage));
+                summary, Instant.now(currentContext.clock()), execution.callUsage));
+    }
+
+    /** Keeps at least one child-result citation visible in the aggregate task result. */
+    private static String ensureAggregateSourceCitations(String inputJson, String resultCandidate) {
+        try {
+            JsonNode input = JSON.readTree(inputJson);
+            if (input == null || !"AGGREGATE".equalsIgnoreCase(input.path("orchestrationPhase").asText())) {
+                return resultCandidate;
+            }
+            JsonNode candidate = null;
+            if (resultCandidate == null || resultCandidate.isBlank()) {
+                candidate = JSON.createObjectNode();
+            } else {
+                String candidateJson = resultCandidate.trim();
+                if (candidateJson.startsWith("```") && candidateJson.endsWith("```")) {
+                    int firstLine = candidateJson.indexOf('\n');
+                    if (firstLine >= 0) {
+                        candidateJson = candidateJson.substring(firstLine + 1,
+                                candidateJson.length() - 3).trim();
+                    }
+                }
+                try {
+                    candidate = JSON.readTree(candidateJson);
+                } catch (java.io.IOException ignored) {
+                    // AgentResultEvent may be plain text instead of a JSON object.
+                }
+            }
+            String summary = candidate != null && candidate.isObject()
+                    ? candidate.path("summary").asText("") : resultCandidate == null ? "" : resultCandidate;
+
+            LinkedHashSet<String> childUrls = new LinkedHashSet<>();
+            JsonNode childResults = input.path("childResults");
+            int childResultCount = 0;
+            if (childResults.isArray()) {
+                for (JsonNode child : childResults) {
+                    childResultCount++;
+                    collectHttpUrls(child.path("result"), childUrls, 0);
+                    if (childUrls.size() >= 50) break;
+                }
+            }
+            LinkedHashSet<String> verifiedUrls = new LinkedHashSet<>();
+            JsonNode sourceEvidence = input.path("childSourceEvidence");
+            if (sourceEvidence.isArray()) {
+                for (JsonNode child : sourceEvidence) {
+                    JsonNode sources = child.path("sources");
+                    if (!sources.isArray()) continue;
+                    for (JsonNode source : sources) {
+                        String url = source.path("url").asText("");
+                        String evidenceRef = source.path("evidenceRef").asText("");
+                        if (source.path("verified").asBoolean(false) && HTTP_URL.matcher(url).matches()
+                                && evidenceRef.startsWith("task-source:")) {
+                            verifiedUrls.add(url);
+                        }
+                    }
+                }
+            }
+            if (verifiedUrls.isEmpty()) {
+                LOG.log(System.Logger.Level.INFO,
+                        "Aggregate citation preservation found no verified child URLs childResults={0} summaryHadUrl={1}",
+                        childResultCount, containsHttpUrl(summary));
+                return resultCandidate;
+            }
+            String citedUrl = childUrls.stream().filter(verifiedUrls::contains).findFirst()
+                    .orElse(verifiedUrls.iterator().next());
+            String safeBody = HTTP_URL.matcher(summary).replaceAll("").trim();
+            if (safeBody.length() > 1800) safeBody = safeBody.substring(0, 1799).stripTrailing() + "…";
+            String updatedSummary = "Sources:\n" + citedUrl
+                    + (safeBody.isBlank() ? "" : "\n\n" + safeBody);
+            if (candidate != null && candidate.isObject()) {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) candidate).put("summary", updatedSummary);
+                LOG.log(System.Logger.Level.INFO,
+                        "Aggregate citation preservation pinned verified child source childResults={0}", childResultCount);
+                return JSON.writeValueAsString(candidate);
+            }
+            LOG.log(System.Logger.Level.INFO,
+                    "Aggregate citation preservation pinned verified child source childResults={0}", childResultCount);
+            return updatedSummary;
+        } catch (java.io.IOException ignored) {
+            return resultCandidate;
+        }
+    }
+
+    private static boolean containsHttpUrl(String value) {
+        return value != null && HTTP_URL.matcher(value).find();
+    }
+
+    private static void collectHttpUrls(JsonNode node, Set<String> urls, int depth) {
+        if (node == null || urls.size() >= 10) return;
+        if (node.isTextual()) {
+            String text = node.asText();
+            Matcher matcher = HTTP_URL.matcher(text);
+            while (matcher.find() && urls.size() < 10) {
+                String value = matcher.group().replaceAll("[.,;:!?)}]+$", "");
+                if (safeHttpUrl(value)) urls.add(value);
+            }
+            if (depth < 3) {
+                try {
+                    JsonNode nested = JSON.readTree(text);
+                    if (nested != null && (nested.isObject() || nested.isArray())) {
+                        collectHttpUrls(nested, urls, depth + 1);
+                    }
+                } catch (java.io.IOException ignored) {
+                    // Child result text need not be JSON.
+                }
+            }
+        } else if (node.isObject()) {
+            node.fields().forEachRemaining(entry -> collectHttpUrls(entry.getValue(), urls, depth));
+        } else if (node.isArray()) {
+            node.forEach(value -> collectHttpUrls(value, urls, depth));
+        }
+    }
+
+    private static boolean safeHttpUrl(String value) {
+        if (value.matches("(?i).*([?&](token|password|secret|api[-_]?key)=).*")) return false;
+        try {
+            URI uri = new URI(value);
+            String scheme = uri.getScheme();
+            return scheme != null && (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
+                    && uri.getHost() != null && uri.getRawUserInfo() == null && uri.getRawFragment() == null;
+        } catch (URISyntaxException ignored) {
+            return false;
+        }
     }
 
     private void completeRequiredToolsOrSuccessLocked(Execution execution) {
@@ -581,8 +709,11 @@ public final class AgentScopeRuntime implements AgentRuntime {
             JsonNode root = JSON.readTree(inputJson);
             if (root != null && root.path("dependencyResults").isArray()
                     && !root.path("dependencyResults").isEmpty()) {
-                prefix.append("Use the dependencyResults in the input as the verified outputs of prerequisite subtasks. "
-                        + "Base your answer on those results and identify any missing information.\n\n");
+                prefix.append("Use dependencyResults as source material for factual claims and relevant findings only. "
+                        + "Synthesize them into the user's requested deliverable. "
+                        + "Do not copy task IDs, file IDs, upstream artifact names, tool-call logs, dependency/workflow details, "
+                        + "or other execution metadata into user-facing content unless explicitly requested. "
+                        + "If information is missing, describe only the substantive evidence gap and its impact on the answer.\n\n");
             }
         } catch (java.io.IOException ignored) {
             // Existing plain-text task inputs do not carry dependency results.
@@ -592,9 +723,28 @@ public final class AgentScopeRuntime implements AgentRuntime {
                     .append(String.join(", ", requiredMcpTools))
                     .append(". Do not claim that a tool was called unless the tool call actually succeeds.\n\n");
         }
+        if (requiredMcpTools.contains("create_task_pdf_artifact")) {
+            prefix.append("When calling create_task_pdf_artifact, set task_id=\"")
+                    .append(taskId)
+                    .append("\" exactly. This is the current task ID; do not use parentTaskId or guess another ID.\n\n");
+        }
         try {
             JsonNode root = JSON.readTree(inputJson);
             String phase = root == null ? "" : root.path("orchestrationPhase").asText("");
+            if ("EXECUTE".equalsIgnoreCase(phase)
+                    && requiredMcpTools.contains("create_task_pdf_artifact")) {
+                prefix.append("For this PDF deliverable, first prepare the complete reader-facing report in Markdown, "
+                        + "then call create_task_pdf_artifact exactly once with this task_id, the complete report in markdown, "
+                        + "and the requested filename. Preserve each verified source URL verbatim in the report's Sources section. "
+                        + "Before calling the tool, scan the Markdown body against the artifact validator's metadata guard: "
+                        + "it must not contain the identifiers sourceTaskId, sourceFileId, taskId, task_id, fileId, file_id, "
+                        + "runId, run_id, dependencyResults, create_task_pdf_artifact, search_news, web_search, "
+                        + "plan_subtasks, list_subtasks, get_task_result, update_subtask_status, EXECUTOR or EXECUTE; "
+                        + "it must also omit subtask/workflow notes, upstream-file references, execution details, and the requested PDF filename. "
+                        + "Keep all these operational identifiers only in tool arguments or task instructions, never in the report body. "
+                        + "Wait for the successful tool result before responding; do not answer with prose alone, "
+                        + "claim success after a failed tool call, or retry the artifact call unless the task explicitly asks for it.\n\n");
+            }
             if ("PLAN".equalsIgnoreCase(phase)) {
                 prefix.append("You are the Team Leader in the planning phase. Analyze the user request and do not execute the subtasks. "
                         + "Return ONLY a JSON object with a plan array containing exactly two subtasks. "
@@ -607,13 +757,53 @@ public final class AgentScopeRuntime implements AgentRuntime {
                         + "Do not use dependsOn in the plan_subtasks call.\n\n");
             } else if ("AGGREGATE".equalsIgnoreCase(phase)) {
                 prefix.append("You are the Team Leader in the aggregation phase. Use the childResults in the input, synthesize their outputs, "
-                        + "and return ONLY a JSON object with an artifacts array. Each artifact must have name and content. "
-                        + "Include a concise final answer in output.md.\n\n");
+                        + "and cite source URLs only when they appear as verified=true entries in childSourceEvidence. "
+                        + "A childSourceEvidence entry may be incomplete because the overall evidence was truncated; "
+                        + "its individually verified source URLs remain valid to cite. ");
+                if (requiredMcpTools.contains("get_task_result")) {
+                    prefix.append("Before answering, ");
+                    if (requiredMcpTools.contains("list_subtasks")) {
+                        prefix.append("call list_subtasks with task_id=\"")
+                                .append(taskId)
+                                .append("\" (the current parent task ID), then call get_task_result for each successful subtask. ");
+                    } else {
+                        prefix.append("call get_task_result for each successful subtask. ");
+                    }
+                    if (requiredMcpTools.contains("create_task_pdf_artifact")) {
+                        prefix.append(
+                                "Use the child results and available taskFiles as source material for the final report. "
+                                + "Create the one final PDF directly on this parent task with create_task_pdf_artifact; "
+                                + "do not forward or select a child PDF as the parent deliverable. "
+                                + "The PDF is uploaded directly to this parent task. Return ONLY a JSON object "
+                                + "with a top-level summary string; the artifacts array must be empty.\n\n");
+                    } else {
+                        prefix.append(
+                                "Inspect each returned taskFiles entry and include only files you explicitly select as final deliverables. "
+                                + "For every selected file, include one metadata-only artifact object with its exact name, contentType, "
+                                + "sizeBytes, sha256, sourceTaskId (the subtaskId), and sourceFileId (the fileId); never guess these values. "
+                                + "Do not include unselected files or file bytes. Return ONLY a JSON object with a top-level summary string "
+                                + "and an artifacts array containing the selected file references.\n\n");
+                    }
+                } else {
+                    prefix.append("Return ONLY a JSON object with a top-level summary string and an artifacts array; leave artifacts empty. ");
+                }
+                prefix.append("Put the concise final answer and at least one exact source citation URL in that summary. "
+                        + "Repeat the complete answer in output.md.\n\n");
+                String aggregationPrompt = root == null ? "" : root.path("aggregatePrompt").asText("").trim();
+                if (aggregationPrompt.isEmpty() && root != null) {
+                    aggregationPrompt = root.path("prompt").asText("").trim();
+                }
+                if (!aggregationPrompt.isEmpty()) {
+                    prefix.append("Follow the aggregation prompt exactly:\n")
+                            .append(aggregationPrompt)
+                            .append("\n\n");
+                }
                 if (requiredMcpTools.contains("create_task_pdf_artifact")) {
-                    prefix.append("You must also call create_task_pdf_artifact with task_id=\"")
-                            .append(taskId).append("\", filename=\"quarterly-project-report.pdf\", "
+                    prefix.append("You must also call create_task_pdf_artifact exactly once with task_id=\"")
+                            .append(taskId).append("\", the exact PDF filename requested in the aggregation prompt, "
                                     + "and the complete aggregated report in Markdown. "
-                                    + "The tool uploads the PDF as a downloadable task OUTPUT file; do not return PDF bytes.\n\n");
+                                    + "The tool uploads the PDF as a downloadable OUTPUT file directly to this parent task; "
+                                    + "do not include PDF bytes or a PDF artifact in the JSON result.\n\n");
                 }
             }
         } catch (java.io.IOException ignored) {

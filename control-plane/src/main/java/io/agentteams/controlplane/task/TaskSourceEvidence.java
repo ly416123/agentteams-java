@@ -11,7 +11,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Immutable, metadata-only search source evidence for one task execution Run. */
+/** Immutable, run-bound search source references with bounded excerpts for one execution Run. */
 public record TaskSourceEvidence(UUID taskId, UUID runId, List<SearchCall> calls, boolean truncated,
         int observedCallCount, int observedSourceCount) {
 
@@ -37,12 +37,18 @@ public record TaskSourceEvidence(UUID taskId, UUID runId, List<SearchCall> calls
         }
     }
 
-    public record Source(String title, String url, String sha256, String evidenceRef) {
+    public record Source(String title, String url, String sha256, String evidenceRef, String snippet) {
+        public Source(String title, String url, String sha256, String evidenceRef) {
+            this(title, url, sha256, evidenceRef, "");
+        }
+
         public Source {
             title = required(title, "title", 500);
             url = required(url, "url", 2_048);
             sha256 = required(sha256, "sha256", 64).toLowerCase(Locale.ROOT);
             evidenceRef = required(evidenceRef, "evidenceRef", 200);
+            snippet = snippet == null ? "" : snippet.trim();
+            if (snippet.length() > 2_000) snippet = snippet.substring(0, 2_000);
             validateUrl(url);
             if (!sha256.matches("[a-f0-9]{64}") || !sha256.equals(hash(url))) {
                 throw new IllegalArgumentException("source hash does not match URL");

@@ -18,7 +18,8 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
     static final String TASK_MCP_SERVICE_HOST = "agentteams-mcp-tools";
     static final String TASK_MCP_ENDPOINT = "http://agentteams-mcp-tools:8090/mcp";
     static final Set<String> PLATFORM_TASK_TOOLS = Set.of(
-            "plan_subtasks", "list_subtasks", "update_subtask_status", "create_task_pdf_artifact");
+            "plan_subtasks", "list_subtasks", "get_task_result", "update_subtask_status",
+            "create_task_pdf_artifact", "web_search");
     private final McpCredentialProvider credentials;
     private final McpClientFactory clients;
 
@@ -64,6 +65,7 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
             List<io.agentteams.application.api.SkillCapabilityPolicy> policies,
             Set<String> requiredTaskTools, McpExecutionContext executionContext, boolean requireExecutionContext) {
         Objects.requireNonNull(toolkit, "toolkit");
+        enableToolValidationDiagnostics();
         Set<String> requestedTaskTools = requiredTaskTools == null ? Set.of()
                 : requiredTaskTools.stream().filter(PLATFORM_TASK_TOOLS::contains)
                         .collect(java.util.stream.Collectors.toUnmodifiableSet());
@@ -78,20 +80,23 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
         LOG.log(System.Logger.Level.INFO, "Configuring MCP runtime servers={0} requestedTaskTools={1}",
                 new Object[] {effectiveServers.size(), requestedTaskTools});
         for (RuntimeMcpServer server : effectiveServers) {
-            boolean taskOrchestration = isTaskOrchestrationServer(server)
-                    && !requestedTaskTools.isEmpty();
-            LOG.log(System.Logger.Level.INFO, "MCP runtime binding reference={0} taskOrchestration={1} enabled={2}",
-                    new Object[] {server.reference(), taskOrchestration, taskOrchestration || runtimePolicy.allows(server)});
-            if (!taskOrchestration && !runtimePolicy.allows(server)) continue;
+            boolean platformTaskEndpoint = isTaskOrchestrationServer(server);
+            boolean taskToolsEnabled = platformTaskEndpoint && !requestedTaskTools.isEmpty();
+            LOG.log(System.Logger.Level.INFO,
+                    "MCP runtime binding reference={0} platformTaskEndpoint={1} executionContextPresent={2} enabled={3} endpoint={4}",
+                    new Object[] {server.reference(), platformTaskEndpoint, executionContext != null,
+                            taskToolsEnabled || runtimePolicy.allows(server), safeEndpointSummary(server.endpoint())});
+            if (!taskToolsEnabled && !runtimePolicy.allows(server)) continue;
             if (requireExecutionContext && isTaskOrchestrationServer(server) && executionContext == null) {
                 throw new IllegalArgumentException("task MCP execution context is required");
             }
             try {
                 McpClientWrapper client = Objects.requireNonNull(
-                        clients.create(server, credentials, isTaskOrchestrationServer(server) ? executionContext : null),
+                        clients.create(server, credentials,
+                                carriesTaskExecutionContext(server) ? executionContext : null),
                         "MCP client");
                 Toolkit.ToolRegistration registration = toolkit.registration().mcpClient(client);
-                if (taskOrchestration) {
+                if (taskToolsEnabled) {
                     registration.enableTools(new ArrayList<>(requestedTaskTools));
                 } else if (runtimePolicy.constrained()) {
                     registration.enableTools(new ArrayList<>(runtimePolicy.allowedTools()));
@@ -107,6 +112,19 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
         }
     }
 
+    private static void enableToolValidationDiagnostics() {
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger("io.agentscope.core.tool.ToolExecutor");
+        logger.setLevel(java.util.logging.Level.FINE);
+        logger.setUseParentHandlers(false);
+        boolean hasFineHandler = java.util.Arrays.stream(logger.getHandlers())
+                .anyMatch(handler -> handler.getLevel().intValue() <= java.util.logging.Level.FINE.intValue());
+        if (!hasFineHandler) {
+            java.util.logging.ConsoleHandler handler = new java.util.logging.ConsoleHandler();
+            handler.setLevel(java.util.logging.Level.FINE);
+            logger.addHandler(handler);
+        }
+    }
+
     private static RuntimeMcpServer platformTaskServer() {
         return new RuntimeMcpServer("platform-task-tools", 1, "STREAMABLE_HTTP", TASK_MCP_ENDPOINT,
                 "MCP_TOOLS_TOKEN", "sha256:platform-task-tools-v1");
@@ -115,10 +133,52 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
     private static boolean isTaskOrchestrationServer(RuntimeMcpServer server) {
         try {
             URI endpoint = URI.create(server.endpoint());
-            return TASK_MCP_SERVICE_HOST.equalsIgnoreCase(endpoint.getHost())
+            String host = endpoint.getHost();
+            boolean platformMcpHost = host != null && (isPlatformMcpHost(host, TASK_MCP_SERVICE_HOST)
+                    || isPlatformMcpHost(host, "agentteams-web-search"));
+            return platformMcpHost
                     && "/mcp".equals(endpoint.getPath());
         } catch (IllegalArgumentException ignored) {
             return false;
+        }
+    }
+
+    private static boolean carriesTaskExecutionContext(RuntimeMcpServer server) {
+        return isTaskOrchestrationServer(server) || isTaskEvidenceCaptureServer(server);
+    }
+
+    static boolean isTaskEvidenceCaptureServer(RuntimeMcpServer server) {
+        if (server == null || server.endpoint() == null) return false;
+        try {
+            URI endpoint = URI.create(server.endpoint());
+            return "http".equalsIgnoreCase(endpoint.getScheme())
+                    && endpoint.getUserInfo() == null
+                    && "ai-news-mcp".equalsIgnoreCase(endpoint.getHost())
+                    && endpoint.getPort() == 8000
+                    && "/mcp".equals(endpoint.getPath())
+                    && endpoint.getQuery() == null
+                    && endpoint.getFragment() == null;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isPlatformMcpHost(String host, String serviceName) {
+        String normalizedHost = host.toLowerCase(java.util.Locale.ROOT);
+        String normalizedService = serviceName.toLowerCase(java.util.Locale.ROOT);
+        return normalizedHost.equals(normalizedService)
+                || normalizedHost.equals(normalizedService + ".agentteams.svc")
+                || normalizedHost.equals(normalizedService + ".agentteams.svc.cluster.local");
+    }
+
+    private static String safeEndpointSummary(String value) {
+        try {
+            URI endpoint = URI.create(value);
+            return endpoint.getScheme() + "://" + endpoint.getHost()
+                    + (endpoint.getPort() < 0 ? "" : ":" + endpoint.getPort())
+                    + (endpoint.getPath() == null ? "" : endpoint.getPath());
+        } catch (IllegalArgumentException ignored) {
+            return "invalid";
         }
     }
 
@@ -136,12 +196,13 @@ public final class AgentScopeMcpRuntimePort implements McpRuntimePort {
         } else {
             builder.streamableHttpTransport(server.endpoint());
         }
-        if (server.credentialRef() != null) {
+        boolean captureTaskEvidence = isTaskEvidenceCaptureServer(server) && executionContext != null;
+        if (server.credentialRef() != null || captureTaskEvidence) {
             String credentialRef = server.credentialRef();
             builder.httpRequestCustomizer((request, method, uri, body, context) -> {
-                addAuthorization(request, credentials, credentialRef);
+                if (credentialRef != null) addAuthorization(request, credentials, credentialRef);
                 addTaskExecutionHeaders(request, executionContext,
-                        isTaskOrchestrationServer(server));
+                        isTaskOrchestrationServer(server) || captureTaskEvidence);
             });
         }
         return builder.buildAsync().block();
