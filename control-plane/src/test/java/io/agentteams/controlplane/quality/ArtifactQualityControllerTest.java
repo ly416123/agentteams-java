@@ -15,7 +15,6 @@ import io.agentteams.controlplane.project.ProjectRepository;
 import io.agentteams.controlplane.project.ProjectRole;
 import io.agentteams.controlplane.security.AuthorizationService;
 import io.agentteams.controlplane.security.ExecutionContext;
-import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ProjectScopeResolver;
@@ -38,6 +37,7 @@ final class ArtifactQualityControllerTest {
     private static final UUID PROJECT = UUID.fromString("ef5916eb-14d9-4e75-9e9c-041c6b5fb447");
     @Mock private ProjectRepository projects;
     @Mock private ArtifactQualityEventRepository events;
+    @Mock private ArtifactQualityQueryContextResolver queryContexts;
     private MockMvc mvc;
 
     @BeforeEach
@@ -48,10 +48,13 @@ final class ArtifactQualityControllerTest {
         org.mockito.Mockito.lenient().when(projects.findProject("tenant-a", PROJECT)).thenReturn(Optional.of(project));
         org.mockito.Mockito.lenient().when(projects.findMembership("tenant-a", PROJECT, "alice")).thenReturn(Optional.of(
                 ProjectMembershipRecord.create("tenant-a", PROJECT, "alice", ProjectRole.DEVELOPER, now)));
-        ExecutionContextResolver contexts = new ExecutionContextResolver((tenant, projectId, team, subject) ->
-                Optional.of(new ExecutionContext("org-a", "canonical-tenant-id", PROJECT.toString(), team, subject)),
-                new ProjectScopeResolver(projects));
-        mvc = MockMvcBuilders.standaloneSetup(new ArtifactQualityController(events, projects, contexts))
+        org.mockito.Mockito.lenient().when(queryContexts.resolve(any(Principal.class), any()))
+                .thenAnswer(invocation -> {
+                    Principal principal = invocation.getArgument(0);
+                    return new ExecutionContext("org-a", "canonical-tenant-id", PROJECT.toString(),
+                            principal.scope().team(), principal.subject());
+                });
+        mvc = MockMvcBuilders.standaloneSetup(new ArtifactQualityController(events, projects, queryContexts))
                 .setControllerAdvice(new ApiErrorHandler()).build();
         PrincipalContext.set(new Principal("alice", new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
     }

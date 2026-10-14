@@ -3,7 +3,6 @@ package io.agentteams.controlplane.quality;
 import io.agentteams.controlplane.project.ProjectRepository;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.ExecutionContext;
-import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ProjectScopeResolver;
@@ -23,14 +22,14 @@ import org.springframework.web.bind.annotation.RestController;
 public final class ArtifactQualityController {
     private final ArtifactQualityEventRepository events;
     private final ProjectScopeResolver projectScopes;
-    private final ExecutionContextResolver contexts;
+    private final ArtifactQualityQueryContextResolver queryContexts;
     private final ResourceAuthorizationService authorization;
 
     public ArtifactQualityController(ArtifactQualityEventRepository events, ProjectRepository projects,
-            ExecutionContextResolver contexts) {
+            ArtifactQualityQueryContextResolver queryContexts) {
         this.events = events;
         this.projectScopes = new ProjectScopeResolver(projects);
-        this.contexts = contexts;
+        this.queryContexts = queryContexts;
         this.authorization = new ResourceAuthorizationService(projects);
     }
 
@@ -48,9 +47,9 @@ public final class ArtifactQualityController {
                 .orElseThrow(() -> new AuthorizationException("authentication required"));
         var scope = projectScopes.resolve(principal, projectId == null ? null : projectId.toString());
         Principal canonical = new Principal(principal.subject(), scope.authorizationScope(), principal.permissions());
-        ExecutionContext context = contexts.resolve(canonical);
         authorization.require(ResourceAction.TASK_READ,
                 ResourceRef.team(scope.tenantId(), scope.projectId(), scope.teamId()));
+        ExecutionContext context = queryContexts.resolve(canonical, scope);
         ArtifactQualityEventFilter filter = new ArtifactQualityEventFilter(scope.projectId(), taskId, artifactName,
                 status, categoryCode, from, to, page, pageSize);
         ArtifactQualityEventFilter.Page result = events.find(context, filter);
