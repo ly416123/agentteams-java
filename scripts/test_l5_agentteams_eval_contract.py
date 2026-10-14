@@ -16,6 +16,8 @@ class L5AgentTeamsEvalContractTest(unittest.TestCase):
         self.assertIn("validate_report_safety", source)
         self.assertIn("assert_workers_ready", source)
         self.assertIn("deepeval_export_dir", source)
+        self.assertIn('"--evidence-output-dir"', source)
+        self.assertIn('"--pdf-artifact-output-dir"', source)
         self.assertNotIn("alice-dev", source)
         self.assertNotIn("ssssss", source)
         self.assertNotIn("password=", source)

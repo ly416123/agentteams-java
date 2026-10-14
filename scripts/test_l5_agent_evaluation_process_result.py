@@ -108,6 +108,43 @@ class L5AgentEvaluationProcessResultTest(unittest.TestCase):
         with self.assertRaises(ENTRYPOINT.EvalError):
             ENTRYPOINT.select_cases(cases, ["missing-case"])
 
+    def test_parses_existing_task_ids_only_for_selected_cases(self):
+        parsed = ENTRYPOINT.parse_existing_task_ids(
+            ["case-a=11111111-1111-4111-8111-111111111111"], {"case-a", "case-b"})
+        self.assertEqual({"case-a": "11111111-1111-4111-8111-111111111111"}, parsed)
+        with self.assertRaises(ENTRYPOINT.EvalError):
+            ENTRYPOINT.parse_existing_task_ids(["other=11111111-1111-4111-8111-111111111111"], {"case-a"})
+
+
+class L5RefreshableTokenSessionTest(unittest.TestCase):
+    def test_refreshes_token_after_api_401_and_retries_request(self):
+        seen = []
+
+        def direct_request(request, timeout):
+            seen.append(request)
+            return (401, {}, b"") if len(seen) == 1 else (200, {}, b"ok")
+
+        class Opener:
+            def open(self, request, timeout):
+                self.request = request
+                return io.BytesIO(json.dumps({"access_token": "new-access",
+                                              "refresh_token": "new-refresh"}).encode())
+
+        opener = Opener()
+        session = ENTRYPOINT.RefreshableTokenSession(
+            "old-access", "old-refresh", "http://keycloak/token", "http://control-plane")
+        from urllib.request import Request
+        request = Request("http://control-plane/api/v1/tasks/task-1", headers={"Authorization": "Bearer stale"})
+        globals_for_session = ENTRYPOINT.RefreshableTokenSession.__call__.__globals__
+        with patch.dict(globals_for_session, {"direct_request": direct_request}), \
+             patch("urllib.request.build_opener", return_value=opener):
+            status, _, body = session(request, 3)
+
+        self.assertEqual((200, b"ok"), (status, body))
+        self.assertEqual("Bearer old-access", seen[0].get_header("Authorization"))
+        self.assertEqual("Bearer new-access", seen[1].get_header("Authorization"))
+        self.assertEqual("new-refresh", session.refresh_token)
+
     def test_worker_preflight_ignores_historical_and_other_scope_workers(self):
         workers = {"items": [
             {"metadata": {"name": "old", "labels": {"agentteams.io/tenant": "tenant-a",
@@ -134,6 +171,19 @@ class L5AgentEvaluationProcessResultTest(unittest.TestCase):
         with self.assertRaises(ENTRYPOINT.EvalError):
             ENTRYPOINT.validate_report_safety(
                 {"actual": "https://storage.example/file?X-Goog-Signature=secret"}, "short-lived-token-value")
+
+    def test_report_allows_only_sanitized_public_source_urls_in_source_evidence(self):
+        report = {"cases": [{"evidenceBundle": {"sourceEvidence": {"calls": [{"sources": [{
+            "title": "Official documentation", "url": "https://example.org/docs",
+            "snippet": "Feature X is supported in version 2.",
+        }]}]}}}]}
+
+        ENTRYPOINT.validate_report_safety(report)
+
+        report["cases"][0]["evidenceBundle"]["sourceEvidence"]["calls"][0]["sources"][0]["url"] = (
+            "https://example.org/docs?X-Amz-Signature=secret")
+        with self.assertRaises(ENTRYPOINT.EvalError):
+            ENTRYPOINT.validate_report_safety(report)
 
     def test_refuses_to_create_report_file_when_token_would_be_serialized(self):
         with TemporaryDirectory() as temp_dir:
