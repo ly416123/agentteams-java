@@ -184,6 +184,8 @@ public class TeamDeploymentRepository {
         return jdbc.query("""
                 SELECT apply.phase, apply.failure_code
                   FROM config_apply_records apply
+                  JOIN config_bindings binding ON binding.id = apply.binding_id
+                                               AND binding.snapshot_id = apply.snapshot_id
                  WHERE apply.binding_id = ?
                  ORDER BY apply.updated_at DESC
                  LIMIT 1
