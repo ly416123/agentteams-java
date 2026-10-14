@@ -7,7 +7,7 @@
 先安装 Runner 的第三方依赖：
 
 ```bash
-python3 -m pip install pyyaml pypdf
+python3 -m pip install pyyaml pypdf pymupdf
 ```
 
 Token 只能通过环境变量提供，不能写入 YAML、命令行参数或报告：
@@ -87,6 +87,28 @@ python3 eval/deepeval_adapter.py \
 
 代码中可按需调用 `build_deepeval_test_case` 和 `evaluate_with_deepeval`，再配置 DeepEval 的 `AnswerRelevancyMetric`、`FaithfulnessMetric` 或 `ToolCorrectnessMetric`。模型密钥只能通过本机环境变量或密钥管理系统提供，不能写入用例、导出 JSON 或 CI 日志。确定性断言失败仍然直接阻断，LLM Judge 结果只作为语义评分和人工抽检依据。
 
+### DeepSeek 本地 PDF 质量评测
+
+PDF 质量评测使用 DeepEval 4.2.8 和 `deepseek-chat`。在本机隔离环境安装依赖：
+
+```bash
+python3 -m venv "$HOME/.cache/agentteams/pdf-quality-deepeval"
+source "$HOME/.cache/agentteams/pdf-quality-deepeval/bin/activate"
+python -m pip install -r eval/requirements-deepeval.txt
+```
+
+配置好 DeepSeek Key 后，可运行 10 个 L5 PDF 样本的语义评分：
+
+```bash
+export DEEPEVAL_TELEMETRY_OPT_OUT=1
+export DEEPEVAL_DISABLE_DOTENV=1
+python scripts/run_pdf_quality_deepeval.py
+```
+
+评测脚本会从本机被 `.gitignore` 忽略的 `apikey` 文件读取 Key；也可通过 `DEEPSEEK_API_KEY` 环境变量提供。脚本不会把 Key 写入报告或输出日志。DeepEval 会把 PDF 抽取文本和检索来源内容发送到 DeepSeek API；执行前应确认这些评测数据可以发送到该服务。原始输入导出包含任务文本和来源正文，不应提交到仓库。
+
+L5 套件运行时应设置 `--deepeval-export-dir`，以便保留事实准确性评分所需的检索来源正文。仅有来源 ID 的证据包不足以独立核验 PDF 事实，DeepEval 必须将这类分数标记为 `INCONCLUSIVE`。
+
 初始 Rubric 保存在 [`eval/rubrics/core.yaml`](rubrics/core.yaml)，目前只记录指标和候选阈值，不作为发布门禁。接入独立评测环境时，调用 `load_rubric` 读取配置，再用 `build_deepeval_metrics` 创建指标：
 
 ```python
@@ -162,11 +184,11 @@ python3 scripts/run-l5-agentteams-eval.py \
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
 - `multi-agent-pdf-positive`：要求工具成功加载 Skill、调用搜索、完成依赖拆分，并产出唯一且有持久化引用及 HTTP(S) 下载地址的 PDF。
 
-支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`source_citation`、`output_contains`、`artifact_integrity` 和 `artifact_pdf`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus`、原始 `evidenceCompleteness` 和独立的 `eventCompleteness`，不会从 `tool.called` 推断工具成功。全事件断言只有在事件完整度为 `COMPLETE` 时才可通过或否定；已观察到的失败调用可立即令 `failed_tool` 失败。工具调用和完成事件必须通过唯一 `callId` 配对；缺少、重复或不匹配的 ID 会令生命周期断言为 `INCONCLUSIVE`。成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
+支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`source_citation`、`output_contains`、`artifact_integrity`、`artifact_pdf` 和 `artifact_pdf_quality`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus`、原始 `evidenceCompleteness` 和独立的 `eventCompleteness`，不会从 `tool.called` 推断工具成功。全事件断言只有在事件完整度为 `COMPLETE` 时才可通过或否定；已观察到的失败调用可立即令 `failed_tool` 失败。工具调用和完成事件必须通过唯一 `callId` 配对；缺少、重复或不匹配的 ID 会令生命周期断言为 `INCONCLUSIVE`。成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
 
 没有重试次数证据时 `retry_limit` 为 `INCONCLUSIVE`；Run 状态缺失时 `run_status` 也为 `INCONCLUSIVE`。依赖状态只依据 taskTree 可用性，不受过程事件截断影响。Task 4 尚无依赖交接引用数据源，因此缺少引用时为 `INCONCLUSIVE`；若观察数据包含引用，Runner 只接受 `task-result:<dependencyId>` 稳定格式。`source_citation` 读取当前任务 Run 与成功委派子任务 Run 的搜索调用回执和 URL 元数据，并保留每条来源的 task/run 身份；只有搜索调用覆盖完整、答案包含可解析的 HTTP(S) URL 且至少一个 URL 存在、所有引用都精确命中该受限来源集合时才通过。来源缺失、来源摄取不完整、答案 URL 无效或 task/run 不匹配时为 `INCONCLUSIVE`；完整证据下存在未匹配 URL 时为 `FAILED`。报告只保留稳定来源引用与覆盖计数，不保留搜索正文或来源 URL。
 
-Runner 会按事件序号分页读取 `/process-events`（每页 100 条），最多检查 1001 条以确认是否超过 1000 条证据上限。PDF 断言先检查 MIME、扩展名、大小和 SHA-256，再用 `pypdf` 检查本地可用字节的 `%PDF-` 签名、文件结束标记和页树。Case 可要求唯一 PDF、持久化 `tasks/` 引用和 HTTP(S) 下载地址；报告只保留清单引用，不输出下载 URL。YAML 中的 `offlineFixtures` 仅用于本地单元测试，不会被 Runner 当作 Suite Case 或 L5 执行报告。远端 artifact API 不提供正文时，签名检查为 `INCONCLUSIVE`；Runner 不会跟随下载 URL。
+Runner 会按事件序号分页读取 `/process-events`（每页 100 条），最多检查 1001 条以确认是否超过 1000 条证据上限。PDF 断言先检查 MIME、扩展名、大小和 SHA-256，再用 `pypdf` 检查本地可用字节的 `%PDF-` 签名、文件结束标记和页树。`artifact_pdf_quality` 使用 PyMuPDF 检查文本提取、中文占比、替换字符、字号范围、字体嵌入和页面文字边界，并在十用例证据目录保存最终 PDF 供视觉复核。自动结构指标无法判断美观或事实正确性；人工/独立 Judge 依据 [`eval/rubrics/pdf-artifact-quality.yaml`](rubrics/pdf-artifact-quality.yaml) 对字体观感、视觉设计、语义完整性、相关性、准确性与引用完整性分别打分，准确性要对照两类 MCP 的来源。最终验收同时要求结构门禁和内容评审达到门槛。报告不会输出 PDF 正文或凭证。
 
 真实 L5 正向 Case 结束后，在持有同一短期 Token 的 L5 终端单独验证 PDF 下载。`verify_l5_eval_pdf.py` 只接受当前 L5 的 `192.168.122.55:30090` 交付地址，禁止重定向，限制下载大小，并核对 manifest 的大小、SHA-256、PDF 签名和页树；输出文件不会保存预签名 URL 或文件正文：
 

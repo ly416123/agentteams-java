@@ -11,25 +11,35 @@ cases:
       inputJson:
         prompt: >-
           Research recent AI agent and Model Context Protocol industry developments.
-          Plan the work and delegate research and drafting to dependent subtasks.
-          Do not invent requiredCapabilities; leave them empty because no executor
-          capability registry is supplied. Every executor must call both the
-          search_news MCP tool for recent industry reporting and the web_search MCP
-          tool for official Model Context Protocol documentation. Use the official
-          documentation to verify a relevant technical claim from the news results.
-          Preserve the returned news title, source, publication date and URL, as well
-          as the exact official-source URL. The second subtask drafts the final
-          concise report using the research result and must not create a PDF. After
-          all subtasks succeed, the aggregate leader creates exactly one downloadable
-          PDF containing a conclusion, news findings, official-documentation check,
-          impact analysis and a source list.
+          Create exactly two dependent subtasks. subtask 1 researches recent AI
+          agent and MCP news, calls search_news and web_search, verifies one
+          technical claim against official MCP documentation, preserves exact
+          source URLs, and returns research notes as text without creating files.
+          Subtask 2 depends on subtask 1 and returns a concise report with
+          conclusion, news findings, official-documentation check, impact analysis
+          and source list as text without creating files. After both subtasks
+          succeed, the Leader creates the final downloadable PDF during aggregation.
+          Do not invent
+          requiredCapabilities; omit them because no executor capability registry
+          is supplied. The Leader creates exactly one final PDF directly during
+          aggregation; do not select or copy a child PDF. All user-facing report prose and
+          PDF content must be in Simplified Chinese (简体中文); keep product names,
+          tool names, source titles and URLs unchanged.
         requiredMcpTools:
           - plan_subtasks
         executorMcpTools:
           - search_news
           - web_search
         aggregatePrompt: >-
-          Use childResults as the source material and preserve dependency provenance.
+          Return only one JSON object with top-level summary and artifacts keys; put
+          no plain Markdown outside the JSON object. Use childResults as source
+          material and preserve dependency provenance. Call list_subtasks and
+          get_task_result for each successful subtask. Create the complete final
+          report as Simplified Chinese Markdown and call create_task_pdf_artifact
+          exactly once with filename ai-agent-mcp-final-deliverable.pdf. The tool
+          uploads the PDF directly to the parent task. Return an empty artifacts
+          array because the PDF is a parent task file, not a child-file reference.
+          If PDF creation fails, report delivery failure; do not claim success.
           Include the returned news links in the PDF source list. For the official
           documentation citation, copy a URL from a childSourceEvidence source entry
           whose `verified` field is true. If that entry is incomplete, use only the
@@ -39,16 +49,17 @@ cases:
           Include at least one full HTTP(S) URL copied verbatim from a successful
           web_search result on its own line, without Markdown link or code formatting.
           The final task result summary itself must contain that exact URL; including
-          it only in the PDF or child results is insufficient. After creating the PDF,
-          return the complete concise final answer rather than a completion notice,
+          it only in the PDF or child results is insufficient. The aggregate leader
+          must return the complete concise final answer rather than a completion notice,
           and make the final response's last non-empty line that same verbatim URL.
-          Do not invent, shorten, or normalize URLs. The PDF tool already uploads
-          the sole PDF as an OUTPUT Task File. Do not return a JSON artifacts envelope
-          or include PDF bytes/content in the task result; return the answer as plain
-          Markdown so the PDF is not registered a second time as a text artifact.
-          The aggregate leader creates exactly one downloadable PDF containing the
-          complete final answer.
+          Do not invent, shorten, or normalize URLs. Return the complete concise
+          final answer inside summary and an empty artifacts array. Write the
+          complete report and PDF content in Simplified Chinese (简体中文); keep
+          product names, tool names, source titles and URLs unchanged. Do not use
+          Markdown fences.
         aggregateMcpTools:
+          - list_subtasks
+          - get_task_result
           - create_task_pdf_artifact
       requiredCapabilities:
         - runtime-agentscope-v1
@@ -64,6 +75,12 @@ cases:
         name: search_news
       - type: required_tool
         name: web_search
+      - type: required_tool
+        name: create_task_pdf_artifact
+      - type: tool_count
+        name: create_task_pdf_artifact
+        expected: 1
+        parentRunOnly: true
       - type: source_citation
         allowUnverifiedCitations: true
       - type: artifact_pdf

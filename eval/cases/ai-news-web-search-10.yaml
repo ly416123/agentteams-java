@@ -1,0 +1,572 @@
+# Ten distinct, positive end-to-end dual MCP cases for serialized L5 evaluation.
+cases:
+- id: dual-mcp-10-agent-frameworks
+  name: 双 MCP 多智能体研究：AI 智能体框架
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“AI 智能体框架”的双 MCP 多智能体研究：近期 AI agent 框架的发布、功能变化与采用动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个近期框架能力变化，并对照该项目官方文档核实其技术事实。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename agent-framework-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-mcp-ecosystem
+  name: 双 MCP 多智能体研究：MCP 生态与协议
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“MCP 生态与协议”的双 MCP 多智能体研究：近期 MCP 生态、服务器/客户端和协议兼容性动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个 MCP 生态新闻，并对照 MCP 官方规范核实协议层面的相关事实。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename mcp-ecosystem-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-coding-agents
+  name: 双 MCP 多智能体研究：AI 编程智能体
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“AI 编程智能体”的双 MCP 多智能体研究：近期 AI coding agent 产品和开发流程动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个编程智能体能力声明，并对照厂商官方文档核实功能边界。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename coding-agent-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-multimodal-agents
+  name: 双 MCP 多智能体研究：多模态与语音智能体
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“多模态与语音智能体”的双 MCP 多智能体研究：近期多模态、语音交互与实时智能体动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个多模态能力声明，并对照对应官方 API 文档核实输入输出能力。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename multimodal-agent-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-agent-interoperability
+  name: 双 MCP 多智能体研究：智能体互操作
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“智能体互操作”的双 MCP 多智能体研究：近期 MCP、A2A 与智能体互操作动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个互操作进展，并对照协议或项目官方文档核实其机制。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename agent-interoperability-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-agent-security
+  name: 双 MCP 多智能体研究：智能体安全
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“智能体安全”的双 MCP 多智能体研究：近期 AI agent 安全、提示注入和工具风险动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个安全风险或缓解措施，并对照 OWASP 或项目官方安全文档核实。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename agent-security-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-agent-evaluation
+  name: 双 MCP 多智能体研究：智能体评测与基准
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“智能体评测与基准”的双 MCP 多智能体研究：近期 agent 评测方法、基准和结果动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务2标题必须包含完整文件名 agent-evaluation-final.pdf，因为该标题会作为 PDF 子任务的直接执行指令；在标题中明确要求用该文件名调用 create_task_pdf_artifact。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个基准/评测方法，并对照论文或基准官方说明核实测量对象。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename agent-evaluation-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-agent-infrastructure
+  name: 双 MCP 多智能体研究：推理与智能体基础设施
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“推理与智能体基础设施”的双 MCP 多智能体研究：近期推理服务、算力和 agent 基础设施动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个基础设施能力声明，并对照供应商官方技术文档核实限制。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename agent-infrastructure-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-ai-governance
+  name: 双 MCP 多智能体研究：AI 治理与监管
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“AI 治理与监管”的双 MCP 多智能体研究：近期影响 AI agent 部署的治理、标准和监管动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个政策/标准进展，并对照监管机构或标准组织原始文件核实。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename ai-governance-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
+- id: dual-mcp-10-enterprise-agents
+  name: 双 MCP 多智能体研究：企业智能体落地
+  task:
+    scope:
+      tenant: tenant-a
+      project: project-a
+      team: team-a
+    taskType: agentscope
+    inputJson:
+      prompt: 完成主题为“企业智能体落地”的双 MCP 多智能体研究：近期企业 agent 部署、客户案例和工作流集成动态。必须创建两个有依赖关系的子任务，并在 plan_subtasks 中为每个子任务单独指定 requiredMcpTools：子任务1仅包含 search_news、web_search；子任务2仅包含 search_news、web_search。子任务1和子任务2均不得启用或调用 create_task_pdf_artifact；PDF 由 Leader 在聚合轮生成。子任务1调用 search_news 检索最近7天相关新闻，保留标题、发布日期、媒体和原文URL。注意 search_news 多词按全部关键词交集匹配；不要传完整问题或多个概念组成的长查询。分别用一个核心词（如“AI”“Agent”“智能体”“MCP”“A2A”）多次搜索，再合并去重并筛选日期；单个词无结果时替换近义词或中英文词，不能因一个长查询为空判断没有新闻；再调用
+        web_search 完成以下官方核验：选择一个企业案例，并对照企业或产品官方材料核实案例范围和效果口径。核验至少一个技术/政策事实，保留逐字来源URL，将新闻标题、发布日期、媒体、原文URL、官方核验事实及其原文URL整理成精简的结构化研究简报，仅返回文本，不创建文件。子任务2依赖子任务1，整理结论、新闻发现、官方核验、影响分析和来源，仅返回完整简报文本，不生成文件。Leader 在所有子任务成功后于聚合阶段调用 create_task_pdf_artifact 恰好一次，直接生成并上传唯一最终 PDF 至父任务。所有面向用户的报告正文和 PDF 必须使用简体中文；专有名词、产品名称、MCP 工具名、来源标题和 URL 可保留原文。报告应包含至少5条近7天新闻（不足时如实说明）、至少2项由官方原文核实的具体事实、影响分析、结论和完整来源；逐条保留新闻标题、发布日期、媒体和 URL。PDF 应是面向读者的独立、完整研究报告：以研究结论开篇，给出针对主题的实质性回答，正文必须直接回答研究问题，读者无需查看附件或其他文件即可理解答案。必须呈现结论、新闻发现、官方核验、影响分析、必要的局限说明和完整来源；新闻条目应支撑结论。不要把上游研究笔记当作最终报告。不得在 PDF 正文提及子任务，也不得在标题、页眉或脚注中写入执行元数据、上游/中间研究笔记或 PDF 文件名、工具名或调用过程、工作流、taskId、runId、fileId、sourceTaskId、sourceFileId、依赖关系或交接过程；不得使用“最终交付物”“子任务 2”“EXECUTOR”“基于上游笔记”“移交后续子任务”“本报告方法”等流程标签或措辞。最终 PDF 文件名仅用于 create_task_pdf_artifact 的 name 参数，不写入 PDF 正文。来源列表只列与事实对应的新闻/官方来源标题、发布方、发布日期和原文 URL，不列上游报告文件名或任何 ID。不得留下空表格、截断日期或模板占位符。不要插入手工分页；将短小结论和来源说明合并到前页，避免只含一小段文字的独立末页；不得用重复事实填充版面。不得虚构工具结果、事实或来源。
+      requiredMcpTools:
+      - plan_subtasks
+      executorMcpTools:
+      - search_news
+      - web_search
+      aggregatePrompt: >-
+        You are the parent-task finalizer. Read the results of every successful subtask with list_subtasks and get_task_result. Create the complete reader-facing report as a PDF by calling create_task_pdf_artifact exactly once with filename enterprise-agent-final.pdf and. The tool uploads the PDF directly to this parent task as an OUTPUT file. never call write_file or create a separate file. Return exactly one JSON object with a summary string and an empty artifacts array; the PDF is not a child-file reference. If PDF creation fails, state that delivery failed and do not claim success.
+        Write the complete reader-facing report in Simplified Chinese (简体中文). Use the child results as evidence; preserve news titles, outlets, publication dates, and URLs. Present findings as numbered news entries, each with publication date, publisher, original URL, and a concise finding. Do not use wide Markdown tables; use short headings and lists with consistent spacing, and avoid forced line breaks or ASCII diagrams. If fewer than five eligible news items are supported by the retrieved evidence, state the supported count and search limitation clearly; do not pad the list or invent dates, publishers, URLs, or facts. Keep every official verification tied to its exact claim and verbatim official URL. For official verification, use only a verbatim URL from childSourceEvidence with verified=true; state evidence gaps instead of inventing facts or links.
+        Keep summary under 2,000 characters, lead with the conclusion, include a Sources section and at least one complete URL copied verbatim from successful web_search results, and end with that same URL. Preserve dependency provenance. Do not include subtask workflow notes or intermediate-file lists in the reader-facing report. Do not copy operational metadata from subtask results into the PDF body. The PDF itself must contain the complete answer, start with the substantive research conclusion, and never require the reader to open another file. Do not mention taskId, sourceTaskId, sourceFileId, runId, intermediate PDF names, tool names, dependency handoffs, or execution methodology in the PDF body, headings, headers, or footers. No Markdown outside JSON and no code fences.
+      aggregateMcpTools:
+      - list_subtasks
+      - get_task_result
+      - create_task_pdf_artifact
+    requiredCapabilities:
+    - runtime-agentscope-v1
+  assertions:
+  - type: phase
+    expected: SUCCEEDED
+  - type: run_status
+    expected: SUCCEEDED
+  - type: dependency_success
+    requireDependencies: true
+  - type: dependency_handoff
+  - type: required_tool
+    name: search_news
+  - type: required_tool
+    name: web_search
+  - type: required_tool
+    name: create_task_pdf_artifact
+  - type: tool_count
+    name: create_task_pdf_artifact
+    expected: 1
+    parentRunOnly: true
+  - type: source_citation
+    allowUnverifiedCitations: true
+  - type: artifact_pdf
+    exactlyOne: true
+    durable: true
+    downloadable: true
+  - type: artifact_pdf_quality
+    minimumCjkRatio: 0.25
+    minimumFontSize: 7.5
+    maximumFontSize: 36
+    minimumMarginPoints: 12
+  limits:
+    timeoutSeconds: 480
