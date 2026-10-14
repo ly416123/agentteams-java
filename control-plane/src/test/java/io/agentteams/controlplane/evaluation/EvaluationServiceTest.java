@@ -81,6 +81,7 @@ class EvaluationServiceTest {
                 Clock.fixed(NOW, ZoneOffset.UTC)).evaluate(CONTEXT, command(), true);
 
         assertThat(outcome.run().status()).isEqualTo(EvaluationRunRecord.Status.INCONCLUSIVE);
+        assertThat(outcome.report().aggregateScore()).isNull();
         assertThat(outcome.results()).singleElement().extracting(EvaluationResultRecord::status)
                 .isEqualTo(EvaluationResultRecord.Status.INCONCLUSIVE);
     }
