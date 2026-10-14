@@ -2,6 +2,7 @@
 """Contract checks for the ten distinct dual-MCP L5 evaluation cases."""
 
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,11 @@ def main() -> None:
         assert "exactly one JSON object" in task_input["aggregatePrompt"]
         assert "never call write_file" in task_input["aggregatePrompt"]
         assert "create_task_pdf_artifact exactly once" in task_input["aggregatePrompt"]
+        assert "After one successful call, stop PDF creation" in task_input["aggregatePrompt"]
+        assert "do not call create_task_pdf_artifact again with the same or a different filename" in task_input["aggregatePrompt"]
+        assert "do not create another PDF" in task_input["aggregatePrompt"]
+        assert " and. The tool" not in task_input["aggregatePrompt"]
+        assert ". The tool uploads the PDF directly to this parent task" in task_input["aggregatePrompt"]
         assert "uploads the PDF directly to this parent task" in task_input["aggregatePrompt"]
         assert "Do not include subtask workflow notes" in task_input["aggregatePrompt"]
         assert "Do not copy operational metadata from subtask results into the PDF body" in task_input["aggregatePrompt"]
@@ -66,8 +72,8 @@ def main() -> None:
         assert "publication date, publisher, original URL, and a concise finding" in task_input["aggregatePrompt"]
         assert "Do not use wide Markdown tables" in task_input["aggregatePrompt"]
         assert "state the supported count and search limitation" in task_input["aggregatePrompt"]
-        final_files = [word for word in task_input["aggregatePrompt"].split()
-                       if word.endswith("-final.pdf")]
+        final_files = re.findall(r"\b[A-Za-z0-9][A-Za-z0-9._-]*-final\.pdf\b",
+                                 task_input["aggregatePrompt"])
         assert len(final_files) == 1
         assert final_files[0] not in seen_final_files
         seen_final_files.add(final_files[0])
