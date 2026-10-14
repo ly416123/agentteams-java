@@ -327,3 +327,25 @@ SDK 已有能力 ⊆ 管理端能力
 L6 真实外部依赖、生产凭据、长期运行、故障恢复和发布演练验收统一放到项目最终阶段处理。L6 只作为最终收口门禁保留，当前不纳入执行计划、当前验收队列或自动续作任务。
 
 除非用户明确发出“启动 L6 验收”指令，否则不得创建 L6 子计划、排入 L6 任务、申请或使用 L6 凭据，也不得以 L6 缺失作为当前 L1-L5 功能开发的阻塞条件。用户明确启动后，才根据当时的环境、凭据和验收范围创建独立 L6 计划，并单独记录结果。
+
+## 11. Linux 容器镜像平台约束
+
+**生效日期：** 2026-09-28
+
+所有需要交付到 L5、Ubuntu/K3s 或其他 Linux 部署环境的服务、Operator、Worker、Task Sandbox 和 Console 镜像，统一按 `linux/amd64` 构建。无论构建机是 Apple Silicon 还是其他架构，都不得把本机原生 `arm64` 镜像保存、传输或导入到 L5。
+
+### 11.1 构建要求
+
+- 镜像构建命令必须显式指定 `--platform linux/amd64`；仓库默认入口 `deploy/build-images.sh` 使用 `BUILD_PLATFORM=linux/amd64`。
+- 只有在明确面向其他运行环境时，才允许通过 `BUILD_PLATFORM` 覆盖默认值；覆盖值必须与目标 Kubernetes 节点架构一致，并在变更记录中说明原因。
+- 多阶段构建、基础镜像替换或从已有镜像重打包后，仍必须对最终镜像执行平台校验，不能只校验构建机或基础镜像。
+
+### 11.2 导入前校验和验收
+
+构建完成后必须确认以下命令输出为 `linux/amd64`，再执行 `docker save`、镜像传输或 K3s containerd 导入：
+
+```bash
+docker image inspect <image>:<tag> --format '{{.Os}}/{{.Architecture}}'
+```
+
+平台校验失败时，禁止更新 L5 Deployment。镜像导入后必须核对目标 Deployment 使用的镜像标签、Pod `READY` 状态和滚动发布结果；架构不匹配导致的 `exec format error` 必须视为部署失败，不得以旧 Pod 仍在运行替代验收。
