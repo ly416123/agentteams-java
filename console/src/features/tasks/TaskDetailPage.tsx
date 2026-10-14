@@ -54,6 +54,14 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const runId = searchParams.get('runId') || runs.data?.[0]?.id || '';
+  const hasExplicitRunId = searchParams.has('runId');
+  useEffect(() => {
+    if (!hasExplicitRunId) return;
+    document.getElementById('task-execution-overview')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  }, [hasExplicitRunId, runId]);
   const processEvents = useTaskProcessEvents(projectId, taskId, runId);
   // G03：子任务清单（phase 为平台执行真值）供 DAG 徽章与跳转。
   const subtasks = useTaskSubtasks(projectId, taskId);
@@ -307,12 +315,18 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
                   {run.resultSummary || run.resultStatus || '暂无终态结果摘要'}
                   <RunCheckpoints projectId={projectId} taskId={taskId} runId={run.id} />
                 </div>
-                <Link
-                  className="button button--ghost button--small"
-                  to={`/${projectId}/tasks/${taskId}?runId=${run.id}`}
-                >
-                  查看运行
-                </Link>
+                {run.id === runId ? (
+                  <span className="button button--ghost button--small" aria-current="page">
+                    当前运行
+                  </span>
+                ) : (
+                  <Link
+                    className="button button--ghost button--small"
+                    to={`/${projectId}/tasks/${taskId}?runId=${run.id}`}
+                  >
+                    查看运行
+                  </Link>
+                )}
               </article>
             ))}
           </div>

@@ -54,17 +54,24 @@ public class SubtaskService {
     }
 
     public record SubtaskSpec(UUID subtaskId, String title, int sequence, List<UUID> dependencyIds,
-            List<String> requiredCapabilities) {
+            List<String> requiredCapabilities, List<String> requiredMcpTools) {
         public SubtaskSpec {
             Objects.requireNonNull(subtaskId, "subtaskId");
             if (title == null || title.isBlank()) throw new IllegalArgumentException("title must not be blank");
             Objects.requireNonNull(dependencyIds, "dependencyIds");
             requiredCapabilities = requiredCapabilities == null ? List.of() : List.copyOf(requiredCapabilities);
+            requiredMcpTools = requiredMcpTools == null ? null : List.copyOf(requiredMcpTools);
         }
 
         /** 二期 4 参兼容：无能力要求。 */
         public SubtaskSpec(UUID subtaskId, String title, int sequence, List<UUID> dependencyIds) {
-            this(subtaskId, title, sequence, dependencyIds, List.of());
+            this(subtaskId, title, sequence, dependencyIds, List.of(), null);
+        }
+
+        /** 五参兼容：继承父任务的 MCP 工具要求。 */
+        public SubtaskSpec(UUID subtaskId, String title, int sequence, List<UUID> dependencyIds,
+                List<String> requiredCapabilities) {
+            this(subtaskId, title, sequence, dependencyIds, requiredCapabilities, null);
         }
     }
 

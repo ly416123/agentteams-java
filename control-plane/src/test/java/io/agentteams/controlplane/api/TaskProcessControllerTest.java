@@ -19,6 +19,7 @@ import io.agentteams.controlplane.task.TaskDecisionRecordService;
 import io.agentteams.controlplane.task.TaskTreeNode;
 import io.agentteams.controlplane.task.TaskTreeService;
 import io.agentteams.controlplane.taskfile.TaskFileService;
+import io.agentteams.controlplane.taskfile.TaskFileRecord;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -69,6 +70,47 @@ class TaskProcessControllerTest {
     }
 
     @Test
+    void returnsShortLivedDownloadUrlAndProvenanceForSelectedChildTaskFile() throws Exception {
+        TaskProcessEventService events = Mockito.mock(TaskProcessEventService.class);
+        TaskProgressService progress = Mockito.mock(TaskProgressService.class);
+        TaskResultManifestService results = Mockito.mock(TaskResultManifestService.class);
+        TaskTreeService tree = Mockito.mock(TaskTreeService.class);
+        TaskDecisionRecordService decisions = Mockito.mock(TaskDecisionRecordService.class);
+        TaskFileService files = Mockito.mock(TaskFileService.class);
+        ExecutionContextResolver resolver = Mockito.mock(ExecutionContextResolver.class);
+        UUID childId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Principal principal = new Principal("user-1", new AuthorizationService.Scope("tenant-1", "project-1", "team-1"), Set.of());
+        PrincipalContext.set(principal);
+        when(resolver.resolve(principal)).thenReturn(CONTEXT);
+        when(results.get(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER)))
+                .thenReturn(java.util.Optional.of(new TaskResultManifest(TASK_ID, RUN_ID, "SUCCEEDED", "done",
+                        List.of(new TaskResultManifest.ArtifactMetadata("result.json",
+                                "tasks/parent/attempts/run/result.json", "application/json", 456,
+                                "cd".repeat(32), 0, "FINAL", TaskEventVisibility.REQUESTER),
+                                new TaskResultManifest.ArtifactMetadata("brief.pdf",
+                                "task-file://" + childId + "/" + fileId, "application/pdf", 123,
+                                "ab".repeat(32), 0, "FINAL", TaskEventVisibility.REQUESTER, childId, fileId)))));
+        when(files.list(TASK_ID, null)).thenReturn(List.of());
+        when(files.get(childId, fileId)).thenReturn(new TaskFileRecord(fileId, childId, UUID.randomUUID(),
+                TaskFileRecord.OUTPUT, "brief.pdf", "application/pdf", 123, "ab".repeat(32),
+                "tasks/child/files/file/brief.pdf", null, null, TaskFileRecord.AVAILABLE,
+                Instant.EPOCH, Instant.EPOCH));
+        when(files.presignForBrowser(Mockito.any(), Mockito.any())).thenReturn(java.net.URI
+                .create("http://minio.test/presigned.pdf").toURL());
+
+        TaskProcessController controller = new TaskProcessController(events, progress, results, tree, decisions,
+                resolver, noArtifactService(), files);
+
+        var result = controller.result(TASK_ID, RUN_ID, "REQUESTER");
+        assertThat(result.artifacts()).singleElement().satisfies(artifact -> {
+            assertThat(artifact.sourceTaskId()).isEqualTo(childId);
+            assertThat(artifact.sourceFileId()).isEqualTo(fileId);
+            assertThat(artifact.downloadUrl()).isEqualTo("http://minio.test/presigned.pdf");
+        });
+    }
+
+    @Test
     void supportsSseReplayUsingLastEventId() throws Exception {
         TaskProcessEventService events = Mockito.mock(TaskProcessEventService.class);
         TaskProgressService progress = Mockito.mock(TaskProgressService.class);
@@ -109,6 +151,32 @@ class TaskProcessControllerTest {
 
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/tree", TASK_ID, RUN_ID)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/decisions", TASK_ID, RUN_ID)).andExpect(status().isOk());
+    }
+
+    @Test
+    void returnsLatestParentTreeForAnAggregateRunWithoutItsOwnSubtaskProjection() throws Exception {
+        TaskProcessEventService events = Mockito.mock(TaskProcessEventService.class);
+        TaskProgressService progress = Mockito.mock(TaskProgressService.class);
+        TaskResultManifestService results = Mockito.mock(TaskResultManifestService.class);
+        TaskTreeService tree = Mockito.mock(TaskTreeService.class);
+        TaskDecisionRecordService decisions = Mockito.mock(TaskDecisionRecordService.class);
+        ExecutionContextResolver resolver = Mockito.mock(ExecutionContextResolver.class);
+        UUID childId = UUID.randomUUID();
+        Principal principal = new Principal("user-1", new AuthorizationService.Scope("tenant-1", "project-1", "team-1"), Set.of());
+        PrincipalContext.set(principal);
+        when(resolver.resolve(principal)).thenReturn(CONTEXT);
+        when(tree.find(CONTEXT, RUN_ID)).thenReturn(List.of());
+        when(tree.findLatestForParent(CONTEXT, TASK_ID)).thenReturn(List.of(new TaskTreeNode(childId, TASK_ID, 1,
+                "SUCCEEDED", List.of(), Instant.parse("2026-08-31T00:00:00Z"))));
+        when(decisions.find(CONTEXT, TASK_ID, RUN_ID, Set.of(TaskEventVisibility.REQUESTER))).thenReturn(List.of());
+
+        MockMvc mvc = standaloneSetup(new TaskProcessController(events, progress, results, tree, decisions,
+                resolver, noArtifactService(), Mockito.mock(TaskFileService.class))).build();
+
+        mvc.perform(get("/api/v1/tasks/{taskId}/runs/{runId}/tree", TASK_ID, RUN_ID))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].taskId")
+                        .value(childId.toString()));
     }
 
     private static TaskProcessEvent event() {

@@ -306,10 +306,35 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
 
     private static TaskResultManifest manifest(UUID taskId, UUID runId, String status, String summary,
             List<ArtifactReference> artifacts) {
-        List<TaskResultManifest.ArtifactMetadata> metadata = artifacts.stream().map(artifact ->
-                new TaskResultManifest.ArtifactMetadata(artifact.name(), artifact.storageKey(), artifact.contentType(),
-                        artifact.sizeBytes(), artifact.sha256(), 0, "FINAL", TaskEventVisibility.REQUESTER)).toList();
+        List<TaskResultManifest.ArtifactMetadata> metadata = artifacts.stream().map(artifact -> {
+            TaskFileSource source = taskFileSource(artifact.storageKey());
+            return new TaskResultManifest.ArtifactMetadata(artifact.name(), artifact.storageKey(), artifact.contentType(),
+                    artifact.sizeBytes(), artifact.sha256(), 0, "FINAL", TaskEventVisibility.REQUESTER,
+                    source.sourceTaskId(), source.sourceFileId());
+        }).toList();
         return new TaskResultManifest(taskId, runId, status, safeText(summary, "task " + status.toLowerCase(Locale.ROOT)), metadata);
+    }
+
+    private static TaskFileSource taskFileSource(String storageRef) {
+        if (storageRef == null || !storageRef.startsWith("task-file:")) {
+            return new TaskFileSource(null, null);
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(storageRef);
+            if (!"task-file".equals(uri.getScheme()) || uri.getHost() == null
+                    || uri.getRawPath() == null || uri.getRawPath().length() < 2
+                    || uri.getRawPath().indexOf('/', 1) >= 0 || uri.getRawQuery() != null
+                    || uri.getRawFragment() != null || uri.getPort() != -1 || uri.getUserInfo() != null) {
+                throw new IllegalArgumentException("invalid task-file artifact reference");
+            }
+            return new TaskFileSource(UUID.fromString(uri.getHost()),
+                    UUID.fromString(uri.getRawPath().substring(1)));
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("invalid task-file artifact reference", error);
+        }
+    }
+
+    private record TaskFileSource(UUID sourceTaskId, UUID sourceFileId) {
     }
 
     private static JsonNode manifestPayload(TaskResultManifest manifest) {
@@ -318,7 +343,10 @@ public class ControlPlaneTaskExecutionObservationAdapter implements TaskExecutio
         payload.putArray("artifacts").addAll(manifest.artifacts().stream().map(artifact -> JSON.createObjectNode()
                 .put("name", artifact.name()).put("storageRef", artifact.storageRef())
                 .put("contentType", artifact.contentType()).put("sizeBytes", artifact.sizeBytes())
-                .put("sha256", artifact.sha256()).put("stage", artifact.stage())).toList());
+                .put("sha256", artifact.sha256()).put("stage", artifact.stage())
+                .put("sourceTaskId", artifact.sourceTaskId() == null ? "" : artifact.sourceTaskId().toString())
+                .put("sourceFileId", artifact.sourceFileId() == null ? "" : artifact.sourceFileId().toString()))
+                .toList());
         return payload;
     }
 

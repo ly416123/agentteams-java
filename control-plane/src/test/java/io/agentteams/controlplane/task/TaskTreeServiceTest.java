@@ -32,6 +32,20 @@ class TaskTreeServiceTest {
     }
 
     @Test
+    void readsTheLatestChildProjectionForAnAggregateParent() {
+        TaskTreeRepository repository = mock(TaskTreeRepository.class);
+        UUID parentId = UUID.randomUUID();
+        TaskTreeNode child = new TaskTreeNode(UUID.randomUUID(), parentId, 1, "SUCCEEDED", List.of(),
+                Instant.parse("2026-08-31T00:00:00Z"));
+        org.mockito.Mockito.when(repository.findLatestForParent(CONTEXT, parentId)).thenReturn(List.of(child));
+
+        List<TaskTreeNode> result = new TaskTreeService(repository).findLatestForParent(CONTEXT, parentId);
+
+        assertThat(result).containsExactly(child);
+        verify(repository).findLatestForParent(CONTEXT, parentId);
+    }
+
+    @Test
     void rejectsSelfParentAndSelfDependency() {
         TaskTreeRepository repository = mock(TaskTreeRepository.class);
         TaskTreeService service = new TaskTreeService(repository);

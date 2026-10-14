@@ -46,6 +46,36 @@ class GatewayRuntimeAdapterArtifactUploadTest {
     }
 
     @Test
+    void preservesExplicitTaskFileReferencesWithoutUploadingBytes() {
+        List<AgentMessage> messages = new ArrayList<>();
+        FakeRuntime runtime = new FakeRuntime();
+        runtime.start(new AgentRuntimeContext("fake", 1, Clock.systemUTC(), result -> { }, java.util.Map.of()));
+        UUID taskId = UUID.randomUUID();
+        UUID sourceTaskId = UUID.randomUUID();
+        UUID sourceFileId = UUID.randomUUID();
+        String sha256 = "ab".repeat(32);
+        RecordingUploadPort uploads = new RecordingUploadPort();
+        GatewayRuntimeAdapter adapter = new GatewayRuntimeAdapter("agent-1", messages::add, runtime,
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), uploads);
+        adapter.acceptAssignment(assignment(taskId));
+
+        adapter.complete(RuntimeResult.success(taskId,
+                "{\"summary\":\"selected\",\"artifacts\":[{\"name\":\"brief.pdf\","
+                        + "\"sourceTaskId\":\"" + sourceTaskId + "\",\"sourceFileId\":\"" + sourceFileId
+                        + "\",\"contentType\":\"application/pdf\",\"sizeBytes\":123,\"sha256\":\""
+                        + sha256 + "\"}]}", Instant.EPOCH));
+
+        var artifacts = completionMessage(messages).getTaskCompleted().getArtifactsList();
+        assertThat(artifacts).hasSize(2);
+        assertThat(artifacts.get(0).getName()).isEqualTo("brief.pdf");
+        assertThat(artifacts.get(0).getUri()).isEqualTo("task-file://" + sourceTaskId + "/" + sourceFileId);
+        assertThat(artifacts.get(0).getSizeBytes()).isEqualTo(123);
+        assertThat(artifacts.get(0).getSha256()).isEqualTo(sha256);
+        assertThat(uploads.calls).hasSize(1);
+        assertThat(uploads.calls.get(0).name()).isEqualTo("result.json");
+    }
+
+    @Test
     void fallsBackToTheMemoryReferenceWhenUploadFails() {
         List<AgentMessage> messages = new ArrayList<>();
         FakeRuntime runtime = new FakeRuntime();

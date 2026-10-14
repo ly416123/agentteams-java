@@ -30,6 +30,22 @@ class TeamPlanParserTest {
     }
 
     @Test
+    void parsesTaskScopedMcpRequirementsForEachSubtask() {
+        String output = """
+                {"plan":[
+                  {"sequence":1,"title":"检索简报","requiredMcpTools":["search_news","web_search"]},
+                  {"sequence":2,"title":"生成 PDF","requiredMcpTools":["create_task_pdf_artifact"],"dependsOn":[1]}
+                ]}
+                """;
+
+        List<SubtaskService.SubtaskSpec> parsed = TeamPlanParser.parse(PARENT_ID, output);
+
+        assertThat(parsed.get(0).requiredMcpTools()).containsExactly("search_news", "web_search");
+        assertThat(parsed.get(1).requiredMcpTools()).containsExactly("create_task_pdf_artifact");
+        assertThat(parsed.get(1).dependencyIds()).containsExactly(parsed.get(0).subtaskId());
+    }
+
+    @Test
     void rejectsPlanThatDoesNotAssignTwoWorkers() {
         assertThatThrownBy(() -> TeamPlanParser.parse(PARENT_ID,
                 "{\"plan\":[{\"sequence\":1,\"title\":\"只有一个\"}]}"))

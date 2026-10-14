@@ -90,6 +90,40 @@ class SubtaskDelegationServiceTest {
     }
 
     @Test
+    void appliesPerSubtaskToolRequirementsWithinTheParentAllowlist() throws Exception {
+        UUID taskId = createMainTask("{\"scope\":\"tenant-a\",\"inputJson\":{\"prompt\":\"parent\","
+                + "\"executorMcpTools\":[\"search_news\",\"web_search\",\"create_task_pdf_artifact\"]}}");
+        UUID researchId = UUID.randomUUID();
+        UUID reportId = UUID.randomUUID();
+
+        List<SubtaskDelegationService.PlannedSubtask> planned = delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(researchId, "研究", 1, List.of(), List.of(),
+                        List.of("search_news", "web_search")),
+                new SubtaskService.SubtaskSpec(reportId, "生成报告", 2, List.of(researchId), List.of(),
+                        List.of("search_news", "web_search", "create_task_pdf_artifact")))).planned();
+
+        String researchSpec = persistence.findTask(researchId).orElseThrow().specJson();
+        String reportSpec = persistence.findTask(reportId).orElseThrow().specJson();
+        assertThat(new ObjectMapper().readTree(researchSpec).path("inputJson").path("requiredMcpTools").toString())
+                .isEqualTo("[\"search_news\",\"web_search\"]");
+        assertThat(new ObjectMapper().readTree(reportSpec).path("inputJson").path("requiredMcpTools").toString())
+                .isEqualTo("[\"search_news\",\"web_search\",\"create_task_pdf_artifact\"]");
+        assertThat(planned).hasSize(2);
+    }
+
+    @Test
+    void rejectsPerSubtaskToolsOutsideTheParentAllowlist() {
+        UUID taskId = createMainTask("{\"scope\":\"tenant-a\",\"inputJson\":{\"prompt\":\"parent\","
+                + "\"executorMcpTools\":[\"web_search\"]}}");
+
+        assertThatThrownBy(() -> delegation.plan(taskId, List.of(
+                new SubtaskService.SubtaskSpec(UUID.randomUUID(), "越权", 1, List.of(), List.of(),
+                        List.of("create_task_pdf_artifact")))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("subset of the parent executorMcpTools allowlist");
+    }
+
+    @Test
     void planReturnsPersistedValuesForKeptSubtasks() {
         UUID taskId = createMainTask("{}");
         UUID a = UUID.randomUUID();

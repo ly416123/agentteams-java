@@ -262,8 +262,15 @@ public final class GatewayRuntimeAdapter {
         List<ArtifactRef> artifacts = new ArrayList<>();
         String output = result.output();
         boolean protocolArtifacts = false;
-        for (String[] entry : protocolArtifacts(output)) {
-            ArtifactRef ref = artifactRef(result.taskId(), entry[0], entry[1], context);
+        for (ProtocolArtifact entry : protocolArtifacts(output)) {
+            ArtifactRef ref;
+            if (entry.sourceTaskId() != null && entry.sourceFileId() != null) {
+                ref = ArtifactRef.newBuilder().setName(entry.name())
+                        .setUri("task-file://" + entry.sourceTaskId() + "/" + entry.sourceFileId())
+                        .setSha256(entry.sha256()).setSizeBytes(entry.sizeBytes()).build();
+            } else {
+                ref = artifactRef(result.taskId(), entry.name(), entry.content(), context);
+            }
             if (ref != null) {
                 artifacts.add(ref);
                 protocolArtifacts = true;
@@ -282,9 +289,9 @@ public final class GatewayRuntimeAdapter {
         return artifacts;
     }
 
-    /** Extracts {@code {"name", "content"}} pairs from an artifacts-protocol output, if any. */
-    private static List<String[]> protocolArtifacts(String output) {
-        List<String[]> entries = new ArrayList<>();
+    /** Extracts text artifacts and explicit task-file references from an artifacts-protocol output. */
+    private static List<ProtocolArtifact> protocolArtifacts(String output) {
+        List<ProtocolArtifact> entries = new ArrayList<>();
         if (output == null || output.isBlank()) {
             return entries;
         }
@@ -298,16 +305,41 @@ public final class GatewayRuntimeAdapter {
                 return entries;
             }
             for (JsonNode artifact : artifacts) {
-                String name = artifact.path("name").asText("");
+                String name = artifact.path("name").asText("").trim();
+                String sourceTaskId = artifact.path("sourceTaskId").asText("").trim();
+                String sourceFileId = artifact.path("sourceFileId").asText("").trim();
+                if (!sourceTaskId.isBlank() || !sourceFileId.isBlank()) {
+                    try {
+                        UUID sourceTask = UUID.fromString(sourceTaskId);
+                        UUID sourceFile = UUID.fromString(sourceFileId);
+                        long sizeBytes = artifact.path("sizeBytes").asLong(-1);
+                        String sha256 = artifact.path("sha256").asText("").trim();
+                        String contentType = artifact.path("contentType").asText("").trim();
+                        if (!name.isBlank() && sizeBytes >= 0 && !contentType.isBlank()
+                                && sha256.matches("(?i)[0-9a-f]{64}")) {
+                            entries.add(new ProtocolArtifact(name, null, sourceTask, sourceFile,
+                                    contentType, sizeBytes, sha256.toLowerCase(java.util.Locale.ROOT)));
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                        // Invalid references are never converted to downloadable artifacts.
+                    }
+                    continue;
+                }
                 String content = artifact.path("content").asText("");
                 if (!name.isBlank() && !content.isBlank()) {
-                    entries.add(new String[] {name.trim(), content});
+                    entries.add(new ProtocolArtifact(name, content, null, null,
+                            contentType(name), content.getBytes(StandardCharsets.UTF_8).length,
+                            sha256(content.getBytes(StandardCharsets.UTF_8))));
                 }
             }
         } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException ignored) {
             return List.of();
         }
         return entries;
+    }
+
+    private record ProtocolArtifact(String name, String content, UUID sourceTaskId, UUID sourceFileId,
+            String contentType, long sizeBytes, String sha256) {
     }
 
     private static String stripCodeFence(String output) {

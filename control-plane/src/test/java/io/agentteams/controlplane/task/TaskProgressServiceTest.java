@@ -19,6 +19,10 @@ class TaskProgressServiceTest {
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<ResultSetExtractor<TaskProgressService.ProgressCounts>>any(),
                 eq("org-1"), eq("tenant-1"), org.mockito.ArgumentMatchers.any(UUID.class),
                 org.mockito.ArgumentMatchers.any(UUID.class))).thenAnswer(invocation -> {
+                    String sql = invocation.getArgument(0);
+                    assertThat(sql).contains("subtask.parent_task_id = run.task_id",
+                            "LEFT JOIN tasks child ON child.id = subtask.task_id",
+                            "WHEN 'SUCCEEDED' THEN 'SUCCEEDED'");
                     ResultSetExtractor<?> extractor = invocation.getArgument(1);
                     ResultSet resultSet = org.mockito.Mockito.mock(ResultSet.class);
                     when(resultSet.next()).thenReturn(true);

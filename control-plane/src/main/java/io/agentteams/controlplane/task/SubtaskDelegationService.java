@@ -83,6 +83,14 @@ public class SubtaskDelegationService {
             if (parent.isSubtask()) {
                 throw new IllegalArgumentException("cannot plan under a subtask: " + taskId);
             }
+            Set<String> parentExecutorTools = executorMcpTools(parent.specJson());
+            for (SubtaskService.SubtaskSpec spec : specs) {
+                if (spec.requiredMcpTools() != null
+                        && !parentExecutorTools.containsAll(spec.requiredMcpTools())) {
+                    throw new IllegalArgumentException(
+                            "requiredMcpTools must be a subset of the parent executorMcpTools allowlist");
+                }
+            }
             Map<UUID, TaskRecord> existing = new LinkedHashMap<>();
             tx.tasks().findByParent(taskId).forEach(child -> existing.put(child.id(), child));
             List<PlannedSubtask> planned = new ArrayList<>(specs.size());
@@ -189,7 +197,10 @@ public class SubtaskDelegationService {
             root.remove("inputJson");
             ObjectNode childInput = root.putObject("inputJson");
             childInput.put("prompt", spec.title());
-            if (executorMcpTools.isArray() && !executorMcpTools.isEmpty()) {
+            if (spec.requiredMcpTools() != null) {
+                ArrayNode requiredTools = childInput.putArray("requiredMcpTools");
+                spec.requiredMcpTools().forEach(requiredTools::add);
+            } else if (executorMcpTools.isArray() && !executorMcpTools.isEmpty()) {
                 childInput.set("requiredMcpTools", executorMcpTools.deepCopy());
             }
             if (spec.requiredCapabilities().isEmpty()) {
@@ -208,6 +219,20 @@ public class SubtaskDelegationService {
                 spec.dependencyIds().forEach(id -> dependencies.add(id.toString()));
             }
             return JSON.writeValueAsString(root);
+        } catch (IOException error) {
+            throw new IllegalArgumentException("parent spec is not valid JSON", error);
+        }
+    }
+
+    private static Set<String> executorMcpTools(String parentSpecJson) {
+        try {
+            JsonNode tools = JSON.readTree(parentSpecJson).path("inputJson").path("executorMcpTools");
+            if (!tools.isArray()) return Set.of();
+            Set<String> result = new HashSet<>();
+            tools.forEach(tool -> {
+                if (tool.isTextual() && !tool.asText().isBlank()) result.add(tool.asText().trim());
+            });
+            return Set.copyOf(result);
         } catch (IOException error) {
             throw new IllegalArgumentException("parent spec is not valid JSON", error);
         }

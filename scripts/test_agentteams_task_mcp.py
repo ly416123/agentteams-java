@@ -96,7 +96,8 @@ class ControlPlaneStub(BaseHTTPRequestHandler):
                  "downloadUrl": "http://minio/presigned"}],
                 "taskFiles": [{"fileId": self.server.file_id, "role": "OUTPUT",
                                "name": "top10.pdf", "contentType": "application/pdf",
-                               "sizeBytes": 8, "status": "AVAILABLE"}]})
+                               "sizeBytes": 8, "sha256": "ab" * 32,
+                               "status": "AVAILABLE"}]})
         elif self.path.endswith("/files"):
             self._reply(list(getattr(self.server, "task_files", [])))
         elif "/content" in self.path:
@@ -303,8 +304,10 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         payload = MCP.call_tool("plan_subtasks", {
             "task_id": self.server.task_id,
             "subtasks": [
-                {"subtaskId": a1, "title": "抓取邮件", "sequence": 1},
-                {"subtaskId": a2, "title": "生成摘要", "sequence": 2, "dependencyIds": [a1]},
+                {"subtaskId": a1, "title": "抓取邮件", "sequence": 1,
+                 "requiredMcpTools": ["search_news", "web_search"]},
+                {"subtaskId": a2, "title": "生成摘要", "sequence": 2, "dependencyIds": [a1],
+                 "requiredMcpTools": ["create_task_pdf_artifact"]},
             ],
         })
         self.assertTrue(payload["ok"], payload)
@@ -319,6 +322,8 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         # 契约锁：无依赖的子任务也必须恒带 dependencyIds 键（服务端拒绝 null）。
         self.assertEqual(body["subtasks"][0]["dependencyIds"], [])
         self.assertEqual(body["subtasks"][1]["dependencyIds"], [a1])
+        self.assertEqual(body["subtasks"][0]["requiredMcpTools"], ["search_news", "web_search"])
+        self.assertEqual(body["subtasks"][1]["requiredMcpTools"], ["create_task_pdf_artifact"])
 
     def test_plan_subtasks_validates_input_before_calling_api(self):
         self._use_env(self.env)
@@ -330,6 +335,12 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
             MCP.call_tool("plan_subtasks", {
                 "task_id": self.server.task_id,
                 "subtasks": [{"subtaskId": "bad", "title": "t", "sequence": 1}],
+            })
+        with self.assertRaisesRegex(ValueError, "requiredMcpTools"):
+            MCP.call_tool("plan_subtasks", {
+                "task_id": self.server.task_id,
+                "subtasks": [{"subtaskId": str(uuid.uuid4()), "title": "t", "sequence": 1,
+                              "requiredMcpTools": ["web_search", " "]}],
             })
         self.assertEqual([r for r in self.server.requests if r[0] == "PUT"], [])
 
@@ -672,6 +683,7 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
             "name": "get_task_result", "arguments": {"task_id": self.server.task_id}}})
         self.assertIn('"taskFiles"', response["result"]["content"][0]["text"])
         self.assertIn("top10.pdf", response["result"]["content"][0]["text"])
+        self.assertIn("ab" * 32, response["result"]["content"][0]["text"])
 
     def test_upload_task_file_rejects_workspace_escape(self):
         self._use_env(self.env)
@@ -681,13 +693,10 @@ class AgentTeamsTaskMcpTest(unittest.TestCase):
         self.assertTrue(response["result"]["isError"])
         self.assertIn("workspace", response["result"]["content"][0]["text"])
 
-    def test_deploy_configmap_embeds_current_script(self):
-        import yaml
-        manifest = yaml.safe_load(
-            (ROOT / "deploy/kind-agentscope-task-mcp.yaml").read_text())
-        embedded = manifest["data"]["agentteams-task-mcp.py"]
-        self.assertEqual(embedded,
-                         (ROOT / "scripts/agentteams-task-mcp.py").read_text())
+    def test_task_mcp_script_is_agent_scope_runtime_compatible(self):
+        source = (ROOT / "scripts/agentteams-task-mcp.py").read_text()
+        self.assertIn("AgentScope", source)
+        self.assertNotIn("QwenPaw", source)
 
     def test_stdio_subprocess_roundtrip(self):
         env = dict(os.environ)

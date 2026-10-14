@@ -52,6 +52,25 @@ public final class TeamPlanParser {
                     capabilities.add(value.asText().trim());
                 });
             }
+            List<String> mcpTools = null;
+            JsonNode mcpToolsNode = item.get("requiredMcpTools");
+            if (mcpToolsNode != null) {
+                if (!mcpToolsNode.isArray()) {
+                    throw new IllegalArgumentException("requiredMcpTools must be an array");
+                }
+                List<String> parsedTools = new ArrayList<>();
+                mcpToolsNode.forEach(value -> {
+                    if (!value.isTextual() || value.asText().isBlank()) {
+                        throw new IllegalArgumentException("requiredMcpTools must contain non-empty strings");
+                    }
+                    String tool = value.asText().trim();
+                    if (parsedTools.contains(tool)) {
+                        throw new IllegalArgumentException("requiredMcpTools must not contain duplicates");
+                    }
+                    parsedTools.add(tool);
+                });
+                mcpTools = parsedTools;
+            }
             List<UUID> dependencies = new ArrayList<>();
             JsonNode dependencyNode = item.path("dependsOn");
             if (!dependencyNode.isMissingNode()) {
@@ -66,7 +85,8 @@ public final class TeamPlanParser {
                 });
             }
             specs.add(new SubtaskService.SubtaskSpec(ids.get(sequence), title, sequence,
-                    List.copyOf(new HashSet<>(dependencies)), List.copyOf(capabilities)));
+                    List.copyOf(new HashSet<>(dependencies)), List.copyOf(capabilities),
+                    mcpTools == null ? null : List.copyOf(mcpTools)));
         }
         return List.copyOf(specs);
     }

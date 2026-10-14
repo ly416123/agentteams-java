@@ -44,7 +44,7 @@ export function TaskExecutionObservability({
 
   return (
     <>
-      <section className="panel" aria-label="执行总览">
+      <section className="panel" id="task-execution-overview" aria-label="执行总览">
         <div className="section-heading">
           <div>
             <p className="eyebrow">执行观测 / 运行 {runId}</p>
@@ -200,6 +200,7 @@ export function TaskExecutionObservability({
                   <thead>
                     <tr>
                       <th>名称</th>
+                      <th>来源</th>
                       <th>类型</th>
                       <th>大小</th>
                       <th>阶段</th>
@@ -212,6 +213,13 @@ export function TaskExecutionObservability({
                       <tr key={`${artifact.name}-${artifact.version}`}>
                         <td>
                           <strong>{artifact.name}</strong>
+                        </td>
+                        <td>
+                          {artifact.sourceTaskId ? (
+                            <span>来源子任务 {artifact.sourceTaskId}</span>
+                          ) : (
+                            <span className="muted-text">父任务产物</span>
+                          )}
                         </td>
                         <td>{artifact.contentType}</td>
                         <td>{formatBytes(artifact.sizeBytes)}</td>

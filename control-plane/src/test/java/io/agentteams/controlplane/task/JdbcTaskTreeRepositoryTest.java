@@ -160,6 +160,34 @@ class JdbcTaskTreeRepositoryTest {
                 .containsEntry(dependencyId, "task-result:" + dependencyId);
     }
 
+    @Test
+    void findLatestForParentReadsEachSubtasksOwnSpecWithoutSiblingDuplicates() {
+        UUID taskId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID firstChildId = UUID.randomUUID();
+        UUID secondChildId = UUID.randomUUID();
+        runs.ensureRun(CONTEXT, taskId, runId, "SUCCEEDED", NOW);
+        String secondChildSpec = "{\"dependencyIds\":[\"" + firstChildId + "\"],"
+                + "\"inputJson\":{\"dependencyResults\":[{\"taskId\":\"" + firstChildId
+                + "\",\"result\":\"verified output\"}]}}";
+        insertTask(taskId, "SUCCEEDED", "{}", null);
+        insertTask(firstChildId, "SUCCEEDED", "{}", taskId);
+        insertTask(secondChildId, "SUCCEEDED", secondChildSpec, taskId);
+        repository.upsert(CONTEXT, runId,
+                new TaskTreeNode(firstChildId, taskId, 1, "SUCCEEDED", List.of(), NOW));
+        repository.upsert(CONTEXT, runId,
+                new TaskTreeNode(secondChildId, taskId, 2, "SUCCEEDED", List.of(firstChildId), NOW));
+
+        List<TaskTreeNode> projected = repository.findLatestForParent(CONTEXT, taskId);
+
+        assertThat(projected).hasSize(2);
+        assertThat(projected).filteredOn(node -> node.taskId().equals(firstChildId)).singleElement()
+                .extracting(TaskTreeNode::dependencyResultRefs).isEqualTo(java.util.Map.of());
+        assertThat(projected).filteredOn(node -> node.taskId().equals(secondChildId)).singleElement()
+                .extracting(TaskTreeNode::dependencyResultRefs)
+                .isEqualTo(java.util.Map.of(firstChildId, "task-result:" + firstChildId));
+    }
+
     private void insertTask(UUID id, String phase, String spec, UUID parentId) {
         jdbc.update("""
                 INSERT INTO tasks (id, title, phase, spec, actor, source, parent_task_id, created_at, updated_at)

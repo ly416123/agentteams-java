@@ -203,6 +203,14 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                                 "items": {"type": "string"},
                                 "description": "Subtask UUIDs that must finish first.",
                             },
+                            "requiredMcpTools": {
+                                "type": "array",
+                                "items": {"type": "string", "minLength": 1},
+                                "description": (
+                                    "Optional subset of the parent executorMcpTools allowlist "
+                                    "required by this subtask. Omit to inherit the parent's tools."
+                                ),
+                            },
                         },
                         "required": ["subtaskId", "title", "sequence"],
                     },
@@ -571,7 +579,8 @@ def tool_get_task_result(arguments: dict[str, Any]) -> dict[str, Any]:
     task_files = [
         {"fileId": item.get("fileId"), "role": item.get("role"),
          "name": item.get("name"), "contentType": item.get("contentType"),
-         "sizeBytes": item.get("sizeBytes"), "status": item.get("status")}
+         "sizeBytes": item.get("sizeBytes"), "sha256": item.get("sha256"),
+         "status": item.get("status")}
         for item in result.get("taskFiles") or []
     ]
     return {"ok": True, "taskId": task_id, "status": result.get("status"),
@@ -634,6 +643,14 @@ def tool_plan_subtasks(arguments: dict[str, Any]) -> dict[str, Any]:
             _safe_uuid(dep, f"subtasks[{index}].dependencyIds[{position}]")
             for position, dep in enumerate(dependencies, start=1)
         ]
+        if "requiredMcpTools" in spec:
+            tools = spec["requiredMcpTools"]
+            if not isinstance(tools, list) or any(not isinstance(tool, str) or not tool.strip()
+                                                  for tool in tools):
+                raise ValueError(f"subtasks[{index}].requiredMcpTools must contain non-empty strings")
+            if len({tool.strip() for tool in tools}) != len(tools):
+                raise ValueError(f"subtasks[{index}].requiredMcpTools must not contain duplicates")
+            item["requiredMcpTools"] = [tool.strip() for tool in tools]
         declared.append(item)
     planned = _http_json(
         "PUT", _api_url(config, f"/api/v1/tasks/{task_id}/subtasks"),

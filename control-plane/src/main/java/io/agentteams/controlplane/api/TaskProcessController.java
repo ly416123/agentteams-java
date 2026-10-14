@@ -119,20 +119,36 @@ public final class TaskProcessController {
         List<TaskFileSummary> taskFileSummaries = taskFiles == null ? List.of()
                 : taskFiles.list(taskId, null).stream()
                         .map(record -> new TaskFileSummary(record.id(), record.role(), record.name(),
-                                record.contentType(), record.sizeBytes(), record.status(),
+                                record.contentType(), record.sizeBytes(), record.sha256(), record.status(),
                                 record.sourceSessionId(), record.sourceFileId()))
                         .toList();
         return new TaskResultResponse(manifest.taskId().toString(), manifest.runId().toString(),
                 manifest.status(), manifest.summary(), manifest.artifacts().stream()
+                        // result.json is the runtime's internal completion envelope, not a user-selected deliverable.
+                        .filter(artifact -> !isRuntimeEnvelope(artifact.name(), artifact.storageRef()))
                         .map(artifact -> new ResultArtifact(artifact.name(),
                                 artifact.storageRef(), artifact.contentType(), artifact.sizeBytes(), artifact.sha256(),
                                 artifact.version(), artifact.stage(), artifact.visibility().name(),
-                                downloadUrlFor(artifact)))
+                                downloadUrlFor(artifact), artifact.sourceTaskId(), artifact.sourceFileId()))
                         .toList(), taskFileSummaries);
+    }
+
+    private static boolean isRuntimeEnvelope(String name, String storageRef) {
+        return "result.json".equals(name) && storageRef != null && storageRef.endsWith("/result.json");
     }
 
     /** Presigns a short-lived download for durable references; memory-only artifacts have none. */
     private String downloadUrlFor(TaskResultManifest.ArtifactMetadata artifact) {
+        if (artifact.sourceTaskId() != null) {
+            if (taskFiles == null) return null;
+            try {
+                var file = taskFiles.get(artifact.sourceTaskId(), artifact.sourceFileId());
+                if (!"OUTPUT".equals(file.role()) || !"AVAILABLE".equals(file.status())) return null;
+                return taskFiles.presignForBrowser(file, Duration.ofMinutes(15)).toString();
+            } catch (RuntimeException error) {
+                return null;
+            }
+        }
         ArtifactService artifacts = artifactService.getIfAvailable();
         if (artifacts == null || artifact.storageRef() == null || !artifact.storageRef().startsWith("tasks/")) {
             return null;
@@ -151,17 +167,24 @@ public final class TaskProcessController {
 
     /** G05 任务文件账本聚合项（result 响应内嵌，与清单端点同源）。 */
     public record TaskFileSummary(UUID fileId, String role, String name, String contentType,
-            long sizeBytes, String status, UUID sessionId, UUID sourceFileId) {
+            long sizeBytes, String sha256, String status, UUID sessionId, UUID sourceFileId) {
     }
 
     public record ResultArtifact(String name, String storageRef, String contentType, long sizeBytes,
-            String sha256, long version, String stage, String visibility, String downloadUrl) {
+            String sha256, long version, String stage, String visibility, String downloadUrl,
+            UUID sourceTaskId, UUID sourceFileId) {
     }
 
     @GetMapping("/{taskId}/runs/{runId}/tree")
     public List<TaskTreeNode> tree(@PathVariable UUID taskId, @PathVariable UUID runId) {
-        return requireTree().find(context(), runId).stream().filter(node -> node.taskId().equals(taskId)
+        ExecutionContext context = context();
+        TaskTreeService taskTree = requireTree();
+        List<TaskTreeNode> currentRun = taskTree.find(context, runId).stream().filter(node -> node.taskId().equals(taskId)
                 || taskId.equals(node.parentTaskId())).toList();
+        if (currentRun.stream().anyMatch(node -> taskId.equals(node.parentTaskId()))) {
+            return currentRun;
+        }
+        return taskTree.findLatestForParent(context, taskId);
     }
 
     @GetMapping("/{taskId}/runs/{runId}/decisions")

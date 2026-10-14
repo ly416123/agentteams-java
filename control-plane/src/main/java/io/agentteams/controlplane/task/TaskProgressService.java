@@ -29,13 +29,30 @@ public final class TaskProgressService {
         Objects.requireNonNull(runId, "runId");
         String normalizedPhase = phase == null || phase.isBlank() ? "EXECUTION" : phase.trim();
         ProgressCounts counts = jdbc.query("""
+                WITH scoped_subtasks AS (
+                    SELECT subtask.status AS projection_status,
+                           CASE child.phase
+                               WHEN 'SUCCEEDED' THEN 'SUCCEEDED'
+                               WHEN 'FAILED' THEN 'FAILED'
+                               WHEN 'REJECTED' THEN 'FAILED'
+                               WHEN 'CANCELLED' THEN 'CANCELLED'
+                               WHEN 'RUNNING' THEN 'RUNNING'
+                               WHEN 'ASSIGNED' THEN 'RUNNING'
+                               WHEN 'ACCEPTED' THEN 'RUNNING'
+                               WHEN 'WAITING_SUBTASKS' THEN 'RUNNING'
+                               ELSE NULL
+                           END AS task_status
+                      FROM task_subtasks subtask
+                      JOIN task_runs run ON run.id = subtask.run_id
+                      LEFT JOIN tasks child ON child.id = subtask.task_id
+                     WHERE run.organization_id = ? AND run.tenant_id = ?
+                       AND run.task_id = ? AND subtask.run_id = ?
+                       AND subtask.parent_task_id = run.task_id
+                )
                 SELECT COUNT(*) AS total,
-                       COUNT(*) FILTER (WHERE subtask.status = 'SUCCEEDED') AS completed,
-                       COUNT(*) FILTER (WHERE subtask.status = 'BLOCKED') AS blocked
-                  FROM task_subtasks subtask
-                  JOIN task_runs run ON run.id = subtask.run_id
-                 WHERE run.organization_id = ? AND run.tenant_id = ?
-                   AND subtask.task_id = ? AND subtask.run_id = ?
+                       COUNT(*) FILTER (WHERE COALESCE(task_status, projection_status) = 'SUCCEEDED') AS completed,
+                       COUNT(*) FILTER (WHERE COALESCE(task_status, projection_status) = 'BLOCKED') AS blocked
+                  FROM scoped_subtasks
                 """, rs -> rs.next() ? new ProgressCounts(rs.getLong("completed"), rs.getLong("total"),
                         rs.getLong("blocked")) : new ProgressCounts(0, 0, 0),
                 context.organizationId(), context.tenantId(), taskId, runId);

@@ -31,4 +31,10 @@ public final class TaskTreeService {
         Objects.requireNonNull(runId, "runId");
         return List.copyOf(repository.find(context, runId));
     }
+
+    public List<TaskTreeNode> findLatestForParent(ExecutionContext context, UUID parentTaskId) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(parentTaskId, "parentTaskId");
+        return List.copyOf(repository.findLatestForParent(context, parentTaskId));
+    }
 }

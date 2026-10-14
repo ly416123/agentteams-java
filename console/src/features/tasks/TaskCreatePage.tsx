@@ -4,6 +4,8 @@ import { ErrorState } from '../../components/ErrorState';
 import { useCreateTask } from '../../queries/useTaskQueries';
 import { useProjects } from '../../queries/useProjectQueries';
 import { useTeams } from '../../queries/useTeamQueries';
+import { useAuth } from '../../auth/AuthProvider';
+import { readAccessTokenClaim } from '../../auth/accessTokenClaims';
 
 export function TaskCreatePage({ projectId }: { projectId: string }) {
   const [title, setTitle] = useState('');
@@ -17,11 +19,17 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
   const teams = useTeams(projectId, {});
   const create = useCreateTask(projectId);
   const navigate = useNavigate();
+  const auth = useAuth();
+  const teamScope = readAccessTokenClaim(auth.accessToken, 'team');
   const project = projects.data?.items.find((item) => item.id === projectId);
   const selectedTeam = teams.data?.items.find((team) => team.id === teamId);
   const submit = () => {
     if (!project || !selectedTeam) {
       setFormError('必须先选择真实项目和团队，才能生成带作用域的任务。');
+      return;
+    }
+    if (!teamScope) {
+      setFormError('登录凭证中缺少有效的团队授权范围，请重新登录后再创建任务。');
       return;
     }
     let inputPayload: Record<string, unknown> | undefined;
@@ -45,7 +53,7 @@ export function TaskCreatePage({ projectId }: { projectId: string }) {
         description,
         taskType: taskType.trim() || 'NORMAL',
         spec: {
-          scope: { tenant: project.tenantId, project: project.name, team: selectedTeam.name },
+          scope: { tenant: project.tenantId, project: project.name, team: teamScope },
           teamId: selectedTeam.id,
           ...(workerId.trim() ? { workerId: workerId.trim() } : {}),
           ...(inputPayload ? { inputJson: inputPayload } : {}),

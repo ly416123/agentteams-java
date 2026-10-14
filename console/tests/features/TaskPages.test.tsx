@@ -8,6 +8,7 @@ import {
   getTask,
   getTaskExecution,
   getTaskRecovery,
+  getTaskRuns,
   listTasks,
   streamTaskProcessEvents,
   streamTaskEvents,
@@ -150,6 +151,19 @@ vi.mock('../../src/api/tasks', () => ({
         stage: 'FINAL',
         visibility: 'REQUESTER',
       },
+      {
+        name: 'brief.pdf',
+        storageRef: 'task-file://child-task/file-1',
+        sourceTaskId: 'child-task',
+        sourceFileId: 'file-1',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
+        sha256: 'b'.repeat(64),
+        version: 1,
+        stage: 'FINAL',
+        visibility: 'REQUESTER',
+        downloadUrl: 'http://files.example/brief.pdf?sig=short-lived',
+      },
     ],
   }),
   getTaskRecovery: vi.fn().mockResolvedValue(null),
@@ -287,7 +301,43 @@ describe('Task pages', () => {
     expect(await screen.findByTestId('task-process-events')).toHaveTextContent('Worker 已开始执行');
     expect(screen.getByText('确定执行步骤')).toBeInTheDocument();
     expect(screen.getByText('report.md')).toBeInTheDocument();
+    expect(screen.getByText('brief.pdf')).toBeInTheDocument();
+    expect(screen.getByText('来源子任务 child-task')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '下载' })).toHaveAttribute(
+      'href',
+      'http://files.example/brief.pdf?sig=short-lived',
+    );
     expect(screen.getByText('任务分解')).toBeInTheDocument();
+  });
+
+  it('clearly marks the selected run and focuses its execution overview when switching runs', async () => {
+    vi.mocked(getTaskRuns).mockResolvedValueOnce([
+      {
+        id: 'run-1', taskId: 'task-1', status: 'SUCCEEDED', startedAt: '2026-08-29T02:00:00Z',
+        completedAt: '2026-08-29T02:01:00Z', createdAt: '2026-08-29T02:00:00Z',
+        updatedAt: '2026-08-29T02:01:00Z', version: 1, resultStatus: null, resultSummary: null,
+      },
+      {
+        id: 'run-2', taskId: 'task-1', status: 'SUCCEEDED', startedAt: '2026-08-29T01:00:00Z',
+        completedAt: '2026-08-29T01:01:00Z', createdAt: '2026-08-29T01:00:00Z',
+        updatedAt: '2026-08-29T01:01:00Z', version: 1, resultStatus: null, resultSummary: null,
+      },
+    ]);
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
+      expect(await screen.findByText('当前运行')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('link', { name: '查看运行' }));
+
+      expect(await screen.findByText('执行观测 / 运行 run-2')).toBeInTheDocument();
+      expect(screen.getByText('当前运行')).toBeInTheDocument();
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   it('shows durable recovery count, reason and next retry time', async () => {

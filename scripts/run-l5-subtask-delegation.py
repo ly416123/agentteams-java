@@ -38,9 +38,10 @@ KUBECTL = ("sudo", "/usr/local/bin/k3s", "kubectl")
 # 拦截后经 psql 把主任务 prompt 换为「只汇总不拆解」（与 membership 注入同类
 # 的确定性层兜底）；retry/汇总/publish 硬约束/评审链路全部走真实平台路径。
 AGGREGATION_ONLY_PROMPT = (
-    "所有子任务已全部完成。请先用 list_subtasks 查看子任务清单，再用 "
-    "get_task_result 读取每个子任务的结果，然后直接输出《季度项目报告》的完整 "
-    "汇总内容（含摘要与结论）。不要登记新的子任务，不要调用拆解工具，只做汇总。")
+    "所有子任务已全部完成。请根据任务输入中的 childResults 汇总每个子任务的结果，"
+    "形成《季度项目报告》（含摘要与结论），并必须真实调用一次 create_task_pdf_artifact，"
+    "将完整报告 Markdown 上传为父任务的 quarterly-project-report.pdf 成果物。"
+    "不要登记新的子任务，不要调用拆解工具，只做汇总并交付 PDF。")
 
 
 def fail(message: str) -> None:
@@ -131,6 +132,56 @@ def request_json(url: str, method: str = "GET", body: dict | list | None = None,
         fail(f"HTTP {error.code} from {url}: {raw[:500]}")
 
 
+def request_bytes(url: str, token: str) -> bytes:
+    request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        fail(f"HTTP {error.code} from {url}: {error.read().decode(errors='replace')[:300]}")
+
+
+def require_pdf_output(base_url: str, tokens: TokenSource, task_id: str, run_id: str) -> dict:
+    _, events = request_json(
+        f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/runs/{run_id}/process-events",
+        "GET", None, tokens.get())
+    events = events.get("events", []) if isinstance(events, dict) else events
+    pdf_tool_succeeded = False
+    for event in events if isinstance(events, list) else []:
+        if event.get("eventType") != "tool.finished":
+            continue
+        payload = event.get("payload")
+        try:
+            payload = json.loads(payload) if isinstance(payload, str) else payload
+        except ValueError:
+            continue
+        if isinstance(payload, dict) and payload.get("tool") == "create_task_pdf_artifact" \
+                and payload.get("ok") is True:
+            pdf_tool_succeeded = True
+            break
+    if not pdf_tool_succeeded:
+        fail("aggregation run did not successfully call create_task_pdf_artifact")
+
+    _, files = request_json(
+        f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/files?role=OUTPUT",
+        "GET", None, tokens.get())
+    files = files if isinstance(files, list) else []
+    pdfs = [item for item in files if isinstance(item, dict)
+            and item.get("role") == "OUTPUT" and item.get("status") == "AVAILABLE"
+            and item.get("contentType") == "application/pdf"
+            and str(item.get("name", "")).lower().endswith(".pdf")]
+    if len(pdfs) != 1:
+        fail(f"expected exactly one available PDF OUTPUT, found {len(pdfs)}")
+    pdf = pdfs[0]
+    content = request_bytes(
+        f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/files/{pdf['fileId']}/content",
+        tokens.get())
+    if len(content) <= 5 or not content.startswith(b"%PDF-"):
+        fail(f"task OUTPUT {pdf.get('name')} is not a readable PDF ({len(content)} bytes)")
+    pdf["downloadedSizeBytes"] = len(content)
+    return pdf
+
+
 def token_subject(token: str) -> str:
     payload = token.split(".")[1]
     payload += "=" * (-len(payload) % 4)
@@ -214,19 +265,29 @@ def poll_until(action, description: str, timeout: float = POLL_TIMEOUT_SECONDS):
 
 
 def create_and_queue_task(base_url: str, tokens: TokenSource, tenant: str,
-                          project: str, team: str, title: str) -> str:
+                          project: str, team: str, team_id: str, title: str) -> str:
     """真模型主任务：prompt 显式引导拆解为依赖链并等待平台调度（G03 真模型路径）。"""
     prompt = (
-        "请将《季度项目报告》任务拆解为 2 个子任务：先「收集数据」、后「撰写报告」"
-        "（撰写报告依赖收集数据完成）。用 agentteams-task 工具登记这份拆解，"
-        "随后结束本轮回复，等待平台调度执行各子任务，不要自行执行子任务内容。")
+        "请按以下两个执行意图调用 plan_subtasks：子任务一标题包含‘加载 industry-research Skill，"
+        "调用 web_search 搜索 site:www.w3.org W3C Web standards，报告真实搜索到的页面标题和要点’；"
+        "子任务二标题包含‘引用第一个子任务结果撰写季度报告’。子任务二必须依赖子任务一完成。"
+        "调用 plan_subtasks 时为每个子任务生成新的 subtaskId UUID；"
+        "第一个子任务 dependencyIds 为空，第二个子任务 dependencyIds 必须填写第一个子任务的 UUID，不能用序号。"
+        "你必须真实调用一次名为 plan_subtasks 的 MCP 工具登记这份拆解，"
+        "不得用普通文本或模拟 JSON 代替工具调用；工具调用成功后才可以结束本轮。"
+        "每个子任务的 requiredCapabilities 必须只填写 [\"agentscope\"]，"
+        "不要填写业务领域能力名称。随后结束本轮回复，等待平台调度执行各子任务，"
+        "不要自行执行子任务内容。")
     body = {
         "title": title,
         "description": "Subtask delegation true scheduling acceptance on L5 (G03, real model)",
         "spec": {
             "scope": {"tenant": tenant, "project": project, "team": team},
+            "teamId": team_id,
             "taskType": "agentscope",
-            "inputJson": {"prompt": prompt},
+            "inputJson": {"prompt": prompt, "requiredMcpTools": ["plan_subtasks"],
+                          "aggregatePrompt": AGGREGATION_ONLY_PROMPT,
+                          "aggregateMcpTools": ["create_task_pdf_artifact"]},
             "requiredCapabilities": ["agentscope"],
         },
     }
@@ -250,11 +311,38 @@ def task_phase(base_url: str, tokens: TokenSource, task_id: str) -> str:
     return str(get_task(base_url, tokens, task_id).get("phase"))
 
 
+def verify_plan_mcp_call(base_url: str, tokens: TokenSource, task_id: str) -> None:
+    runs = list_runs(base_url, tokens, task_id)
+    if not runs:
+        fail("Leader task completed without a Run")
+    run_id = runs[0].get("runId") or runs[0].get("id")
+    _, events = request_json(
+        f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/runs/{run_id}/process-events",
+        "GET", None, tokens.get())
+    events = events if isinstance(events, list) else events.get("events", [])
+    for event in events:
+        if event.get("eventType") != "tool.finished":
+            continue
+        payload = event.get("payload")
+        try:
+            payload = json.loads(payload) if isinstance(payload, str) else payload
+        except ValueError:
+            continue
+        if isinstance(payload, dict) and payload.get("tool") == "plan_subtasks" \
+                and payload.get("ok") is True:
+            return
+    fail("Leader Run did not record a successful plan_subtasks MCP call")
+
+
 def list_subtasks(base_url: str, tokens: TokenSource, task_id: str) -> list[dict]:
     _, subtasks = request_json(
         f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/subtasks",
         "GET", None, tokens.get())
-    return subtasks if isinstance(subtasks, list) else []
+    if isinstance(subtasks, list):
+        return subtasks
+    if isinstance(subtasks, dict) and isinstance(subtasks.get("nodes"), list):
+        return subtasks["nodes"]
+    return []
 
 
 def list_runs(base_url: str, tokens: TokenSource, task_id: str) -> list[dict]:
@@ -273,7 +361,7 @@ def wait_for_terminal_phase(base_url: str, tokens: TokenSource, task_id: str) ->
 
 
 def ensure_succeeded(base_url: str, tokens: TokenSource, task_id: str,
-                     max_attempts: int = 2) -> str:
+                     max_attempts: int = 3) -> str:
     """等终态；FAILED 时重排队（FAILED→QUEUED 既有边）直至 SUCCEEDED
     （真模型偶发失败重试，上限 2 次避免成本失控）。"""
     for attempt in range(1, max_attempts + 1):
@@ -282,7 +370,37 @@ def ensure_succeeded(base_url: str, tokens: TokenSource, task_id: str,
             return "SUCCEEDED"
         if phase == "CANCELLED":
             return "CANCELLED"
+        if attempt == max_attempts:
+            return "FAILED"
         print(f"run #{attempt} of {task_id} ended in {phase}; re-queuing")
+        _, task = request_json(f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}",
+                               "GET", None, tokens.get())
+        request_json(f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/retry", "POST",
+                     {"expectedVersion": task.get("version")}, tokens.get(),
+                     f"l5-delegation-recover-{attempt}-{uuid.uuid4()}")
+    return "FAILED"
+
+
+def ensure_decomposition_ready(base_url: str, tokens: TokenSource, task_id: str,
+                               max_attempts: int = 3) -> str:
+    """拆解轮成功后 Team 主任务会进入 WAITING_SUBTASKS，而不是终态成功。"""
+    for attempt in range(1, max_attempts + 1):
+        def check():
+            phase = task_phase(base_url, tokens, task_id)
+            if phase == "WAITING_SUBTASKS" and list_subtasks(base_url, tokens, task_id):
+                return phase
+            if phase in ("SUCCEEDED", "FAILED", "CANCELLED"):
+                return phase
+            return None
+
+        phase = poll_until(check, "the decomposition plan to be accepted")
+        if phase in ("WAITING_SUBTASKS", "SUCCEEDED"):
+            return phase
+        if phase == "CANCELLED":
+            return phase
+        if attempt == max_attempts:
+            return "FAILED"
+        print(f"decomposition run #{attempt} ended in {phase}; re-queuing")
         _, task = request_json(f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}",
                                "GET", None, tokens.get())
         request_json(f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/retry", "POST",
@@ -363,7 +481,55 @@ def count_rows(namespace: str, statement: str) -> int:
     return int(output or 0)
 
 
-def main() -> int:
+def verify_dependency_context(namespace: str, subtasks: list[dict]) -> dict:
+    dependent = next((item for item in subtasks if item.get("dependencyIds")), None)
+    if dependent is None:
+        fail("L5 dependency acceptance requires a dependent subtask")
+    dependency_id = dependent["dependencyIds"][0]
+    statement = (
+        "SELECT COALESCE(spec::jsonb #> '{inputJson,dependencyResults}', '[]'::jsonb)::text "
+        f"FROM tasks WHERE id={sql_literal(dependent['subtaskId'])};")
+    raw = psql(namespace, database_password(namespace), statement).strip()
+    try:
+        results = json.loads(raw)
+    except ValueError as error:
+        fail(f"dependent subtask input context is not valid JSON: {error}")
+    if not isinstance(results, list) or not any(
+            isinstance(item, dict) and item.get("taskId") == dependency_id
+            and isinstance(item.get("result"), str) and item["result"].strip()
+            for item in results):
+        fail(f"dependent subtask {dependent['subtaskId']} has no persisted result from {dependency_id}")
+    return {"subtaskId": dependent["subtaskId"], "dependencyId": dependency_id}
+
+
+def verify_skill_mcp_calls(base_url: str, tokens: TokenSource, task_id: str) -> None:
+    _, runs = request_json(f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/runs",
+                           "GET", None, tokens.get())
+    runs = runs if isinstance(runs, list) else runs.get("runs", [])
+    if not runs:
+        fail(f"Skill/MCP child {task_id} completed without a Run")
+    run_id = runs[0].get("runId") or runs[0].get("id")
+    _, events = request_json(
+        f"{base_url.rstrip('/')}/api/v1/tasks/{task_id}/runs/{run_id}/process-events",
+        "GET", None, tokens.get())
+    events = events if isinstance(events, list) else events.get("events", [])
+    completed_tools = set()
+    for event in events:
+        if event.get("eventType") != "tool.finished":
+            continue
+        payload = event.get("payload")
+        try:
+            payload = json.loads(payload) if isinstance(payload, str) else payload
+        except ValueError:
+            continue
+        if isinstance(payload, dict) and payload.get("ok") is True:
+            completed_tools.add(payload.get("tool"))
+    required = {"load_skill_through_path", "web_search"}
+    if not required.issubset(completed_tools):
+        fail(f"Skill/MCP child {task_id} missing successful calls: {sorted(required - completed_tools)}")
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="agentteams")
     parser.add_argument("--base-url", default="")
@@ -371,7 +537,15 @@ def main() -> int:
     parser.add_argument("--tenant", default="tenant-a")
     parser.add_argument("--project", default="project-a")
     parser.add_argument("--team", default="team-a")
-    args = parser.parse_args()
+    parser.add_argument("--team-id", default=os.environ.get("AGENTTEAMS_TEST_TEAM_ID", ""))
+    parser.add_argument(
+        "--verify-child-skill-mcp", action="store_true",
+        help="also require load_skill_through_path and web_search calls in a child Run")
+    return parser
+
+
+def main() -> int:
+    args = build_argument_parser().parse_args()
 
     previous_role: str | None = None
     subject: str | None = None
@@ -384,6 +558,8 @@ def main() -> int:
         print(f"control-plane={base_url} keycloak={keycloak_url}")
 
         token_source = TokenSource(keycloak_url)
+        if not args.team_id:
+            fail("--team-id or AGENTTEAMS_TEST_TEAM_ID is required for Team scheduling")
         subject = token_subject(token_source.get())
         print(f"authenticated as subject={subject}")
         previous_role = ensure_project_membership(
@@ -393,11 +569,14 @@ def main() -> int:
         # ① 拆解轮：真模型主任务，prompt 引导经 MCP 工具登记依赖链拆解。
         title = f"l5-subtask-delegation-{uuid.uuid4()}"
         main_task = create_and_queue_task(base_url, token_source, args.tenant,
-                                          args.project, args.team, title)
+                                          args.project, args.team, args.team_id, title)
         print(f"real-model main task created and queued: {main_task}")
-        if ensure_succeeded(base_url, token_source, main_task) != "SUCCEEDED":
-            fail("decomposition run did not reach SUCCEEDED even after re-queuing")
-        print("decomposition run reached SUCCEEDED")
+        decomposition_phase = ensure_decomposition_ready(base_url, token_source, main_task)
+        if decomposition_phase not in ("WAITING_SUBTASKS", "SUCCEEDED"):
+            fail("decomposition plan was not accepted even after re-queuing")
+        print(f"decomposition plan accepted; parent phase={decomposition_phase}")
+        verify_plan_mcp_call(base_url, token_source, main_task)
+        print("successful plan_subtasks MCP call verified")
 
         # ② 确定性兜底：120s 未出现子任务则 REST 注入依赖链（真模型未自主拆解
         # 的先例做法）；真模型已拆解（≥1 个）则沿用其拆解结果。
@@ -415,21 +594,37 @@ def main() -> int:
         if existing:
             print(f"NOTE: real model planned {len(existing)} subtask(s) on its own; "
                   "reusing them as-is")
+            if not any(item.get("dependencyIds") for item in existing):
+                fail("real plan_subtasks call did not register a dependencyIds edge")
         else:
             print("NOTE: no subtasks after the wait window; injecting the "
                   "deterministic dependency chain (collect data -> write report)")
             first_id, second_id = str(uuid.uuid4()), str(uuid.uuid4())
             plan_body = {"subtasks": [
-                {"subtaskId": first_id, "title": "收集数据", "sequence": 1,
-                 "dependencyIds": []},
-                {"subtaskId": second_id, "title": "撰写报告", "sequence": 2,
-                 "dependencyIds": [first_id]},
+                {"subtaskId": first_id,
+                 "title": "加载 industry-research Skill 并用 web_search 搜索 W3C",
+                 "sequence": 1, "dependencyIds": [],
+                 "inputJson": {"prompt": (
+                     "必须先调用 load_skill_through_path 加载 Skill ID"
+                     "industry-research，再调用 web_search 搜索"
+                     " site:www.w3.org W3C Web standards。报告真实搜索到的页面标题、"
+                     "URL 和要点；不能只调用文件或记忆工具，也不能编造搜索结果。")}},
+                {"subtaskId": second_id,
+                 "title": "根据 W3C 搜索结果撰写季度报告",
+                 "sequence": 2, "dependencyIds": [first_id],
+                 "inputJson": {"prompt": (
+                     "使用输入中的 dependencyResults，引用第一个子任务实际返回的"
+                     " W3C 页面标题、URL 和要点，撰写简明季度报告摘要与结论。"
+                     "如果 dependencyResults 为空，不得虚构，需明确说明缺失。")}},
             ]}
             status, planned = request_json(
                 f"{base_url.rstrip('/')}/api/v1/tasks/{main_task}/subtasks",
                 "PUT", plan_body, token_source.get(),
                 f"l5-delegation-plan-{uuid.uuid4()}")
-            if status != 200 or not isinstance(planned, list) or len(planned) != 2:
+            planned_nodes = planned if isinstance(planned, list) else (
+                planned.get("nodes", []) if isinstance(planned, dict) else [])
+            if status != 200 or not isinstance(planned_nodes, list) \
+                    or len(planned_nodes) != 2:
                 fail(f"fallback plan expected 200 with 2 nodes, got {status}: {planned!r}")
             existing = list_subtasks(base_url, token_source, main_task)
         if len(existing) < 1:
@@ -439,6 +634,15 @@ def main() -> int:
 
         # ③ 拓扑执行：子任务真模型执行至全 SUCCEEDED（偶发失败走 retry 边）。
         snapshot = wait_all_subtasks_succeeded(base_url, token_source, main_task)
+        dependency_context = verify_dependency_context(args.namespace, snapshot)
+        print(f"dependency context verified for {dependency_context['subtaskId']} "
+              f"from {dependency_context['dependencyId']}")
+        if args.verify_child_skill_mcp:
+            verify_skill_mcp_calls(base_url, token_source, dependency_context["dependencyId"])
+            print(f"Skill load and web_search tool calls verified for {dependency_context['dependencyId']}")
+        else:
+            print("NOTE: skipped the separate child Skill/Web MCP check; "
+                  "use --verify-child-skill-mcp to enable it")
         subtask_ids = [item["subtaskId"] for item in snapshot]
         print(f"all subtasks succeeded: {subtask_ids}")
 
@@ -493,6 +697,9 @@ def main() -> int:
             fail(f"unexpected result version: {versions!r}")
         result_v1 = versions[0]["id"]
         print(f"result v1 submitted: id={result_v1} run={versions[0]['runId']}")
+        pdf = require_pdf_output(base_url, token_source, main_task, versions[0]["runId"])
+        print(f"PDF OUTPUT verified: file={pdf['fileId']} name={pdf['name']} "
+              f"bytes={pdf['downloadedSizeBytes']}")
 
         # ⑥ 评审 ACCEPTED + 幂等重放（G02/D4/D5 闭环在 G03 汇总产物上复验）。
         accept_key = f"l5-delegation-accept-{uuid.uuid4()}"
