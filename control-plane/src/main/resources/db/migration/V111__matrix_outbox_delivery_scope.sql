@@ -9,5 +9,5 @@ UPDATE matrix_outbox_messages
        updated_at = CURRENT_TIMESTAMP
  WHERE status IN ('PENDING', 'IN_FLIGHT');
 
-CREATE INDEX matrix_outbox_binding_idx
+CREATE INDEX matrix_outbox_delivery_scope_idx
     ON matrix_outbox_messages(tenant_id, room_binding_id, status);
