@@ -52,11 +52,12 @@ public class JdbcTaskResultManifestRepository implements TaskResultManifestRepos
             jdbc.update("""
                     INSERT INTO task_result_artifacts
                         (id, manifest_id, artifact_name, storage_ref, content_type, size_bytes,
-                         sha256, version, stage, visibility, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         sha256, version, stage, visibility, source_task_id, source_file_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, artifactId(manifestId, artifact.name()), manifestId, artifact.name(), artifact.storageRef(),
                     artifact.contentType(), artifact.sizeBytes(), artifact.sha256(), artifact.version(), artifact.stage(),
-                    artifact.visibility().name(), JdbcSupport.timestamp(now));
+                    artifact.visibility().name(), artifact.sourceTaskId(), artifact.sourceFileId(),
+                    JdbcSupport.timestamp(now));
         }
     }
 
@@ -88,7 +89,8 @@ public class JdbcTaskResultManifestRepository implements TaskResultManifestRepos
         List<TaskEventVisibility> levels = visible.stream().sorted().toList();
         String placeholders = String.join(",", java.util.Collections.nCopies(levels.size(), "?"));
         String sql = """
-                SELECT artifact_name, storage_ref, content_type, size_bytes, sha256, version, stage, visibility
+                SELECT artifact_name, storage_ref, content_type, size_bytes, sha256, version, stage, visibility,
+                       source_task_id, source_file_id
                   FROM task_result_artifacts
                  WHERE manifest_id = ? AND visibility IN (""" + placeholders + ") ORDER BY artifact_name";
         List<Object> arguments = new ArrayList<>();
@@ -97,7 +99,9 @@ public class JdbcTaskResultManifestRepository implements TaskResultManifestRepos
         return jdbc.query(sql, (rs, row) -> new TaskResultManifest.ArtifactMetadata(
                 rs.getString("artifact_name"), rs.getString("storage_ref"), rs.getString("content_type"),
                 rs.getLong("size_bytes"), rs.getString("sha256"), rs.getLong("version"), rs.getString("stage"),
-                TaskEventVisibility.from(rs.getString("visibility"))), arguments.toArray());
+                TaskEventVisibility.from(rs.getString("visibility")),
+                rs.getObject("source_task_id", UUID.class), rs.getObject("source_file_id", UUID.class)),
+                arguments.toArray());
     }
 
     private TaskResultManifest mapManifest(ResultSet rs) throws SQLException {

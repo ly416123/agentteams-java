@@ -7,21 +7,40 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import io.agentteams.controlplane.quality.ArtifactQualityLedgerService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** Publishes and replays process facts without introducing a second task state machine. */
 @Service
 public final class TaskProcessEventService {
     private final TaskProcessEventRepository repository;
+    private final ArtifactQualityLedgerService qualityLedger;
 
+    @Autowired
+    public TaskProcessEventService(TaskProcessEventRepository repository, ArtifactQualityLedgerService qualityLedger) {
+        this.repository = Objects.requireNonNull(repository, "repository");
+        this.qualityLedger = Objects.requireNonNull(qualityLedger, "qualityLedger");
+    }
+
+    /** Compatibility constructor for isolated process-event tests. */
     public TaskProcessEventService(TaskProcessEventRepository repository) {
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.qualityLedger = null;
     }
 
     public TaskProcessEvent append(ExecutionContext context, TaskProcessEvent event) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(event, "event");
         repository.insert(context, event);
+        if (qualityLedger != null && "task.started".equalsIgnoreCase(event.eventType())) {
+            try {
+                qualityLedger.recordGenerationStarted(context, event.taskId(), event.runId(), event.eventId(),
+                        event.sequence(), event.occurredAt());
+            } catch (RuntimeException ignored) {
+                // Ledger collection is an observational side path and must not block process-event delivery.
+            }
+        }
         return event;
     }
 

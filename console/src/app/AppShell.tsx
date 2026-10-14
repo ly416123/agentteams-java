@@ -51,6 +51,7 @@ const navItems = [
   { to: 'sandboxes', label: 'Sandboxes', icon: '□' },
   { to: 'artifacts', label: 'Artifacts', icon: '◇' },
   { to: 'evaluations', label: 'Evaluations', icon: '◎' },
+  { to: 'quality', label: '成果质量优化', icon: '▤' },
 ];
 
 export function ConsoleLayout() {

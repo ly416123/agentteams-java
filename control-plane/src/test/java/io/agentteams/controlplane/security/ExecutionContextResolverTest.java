@@ -9,45 +9,53 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.agentteams.controlplane.project.ProjectMembershipRecord;
+import io.agentteams.controlplane.project.ProjectRecord;
+import io.agentteams.controlplane.project.ProjectRepository;
+import io.agentteams.controlplane.project.ProjectRole;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.junit.jupiter.api.Test;
 
 class ExecutionContextResolverTest {
+    private static final UUID PROJECT_ID = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
     @Test
-    void resolvesLegacyScopeToUnifiedExecutionContext() {
-        ExecutionContext expected = new ExecutionContext("org-acme", "tenant-prod", "project-1", "team-1", "user-1");
-        ExecutionContextResolver resolver = new ExecutionContextResolver((tenant, project, team, subject) ->
-                Optional.of(expected));
+    void resolvesProjectNameToCanonicalUuidBeforeLookingUpExecutionContext() {
+        ExecutionContext expected = context(PROJECT_ID.toString(), "user-1");
+        AtomicReference<String> resolvedProject = new AtomicReference<>();
+        ExecutionContextResolver resolver = resolver((tenant, project, team, subject) -> {
+            resolvedProject.set(project);
+            return Optional.of(expected);
+        });
 
-        ExecutionContext actual = resolver.resolve(new Principal("user-1",
-                new AuthorizationService.Scope("legacy-tenant", "project-1", "team-1"), Set.of()));
+        ExecutionContext actual = resolver.resolve(principal("user-1"));
 
         assertThat(actual).isEqualTo(expected);
+        assertThat(resolvedProject).hasValue(PROJECT_ID.toString());
     }
 
     @Test
     void rejectsMissingTenantMapping() {
-        ExecutionContextResolver resolver = new ExecutionContextResolver((tenant, project, team, subject) ->
-                Optional.empty());
+        ExecutionContextResolver resolver = resolver((tenant, project, team, subject) -> Optional.empty());
 
-        assertThatThrownBy(() -> resolver.resolve(new Principal("user-1",
-                new AuthorizationService.Scope("legacy-tenant", "project-1", "team-1"), Set.of())))
+        assertThatThrownBy(() -> resolver.resolve(principal("user-1")))
                 .isInstanceOf(AuthorizationException.class)
                 .hasMessage("authenticated scope has no organization/tenant mapping");
     }
 
     @Test
     void rejectsDirectoryResultWithDifferentSubject() {
-        ExecutionContextResolver resolver = new ExecutionContextResolver((tenant, project, team, subject) ->
-                Optional.of(new ExecutionContext("org-acme", "tenant-prod", "project-1", "team-1", "other-user")));
+        ExecutionContextResolver resolver = resolver((tenant, project, team, subject) ->
+                Optional.of(context(PROJECT_ID.toString(), "other-user")));
 
-        assertThatThrownBy(() -> resolver.resolve(new Principal("user-1",
-                new AuthorizationService.Scope("legacy-tenant", "project-1", "team-1"), Set.of())))
+        assertThatThrownBy(() -> resolver.resolve(principal("user-1")))
                 .isInstanceOf(AuthorizationException.class)
                 .hasMessage("execution context subject does not match authenticated principal");
     }
@@ -61,13 +69,10 @@ class ExecutionContextResolverTest {
 
     @Test
     void exposesResolvedContextFromPrincipalContext() {
-        ExecutionContext expected = new ExecutionContext("org-acme", "tenant-prod", "project-1", "team-1", "user-1");
-        ExecutionContextResolver resolver = new ExecutionContextResolver((tenant, project, team, subject) ->
-                Optional.of(expected));
-        Principal principal = new Principal("user-1",
-                new AuthorizationService.Scope("legacy-tenant", "project-1", "team-1"), Set.of());
+        ExecutionContext expected = context(PROJECT_ID.toString(), "user-1");
+        ExecutionContextResolver resolver = resolver((tenant, project, team, subject) -> Optional.of(expected));
         try {
-            PrincipalContext.set(principal);
+            PrincipalContext.set(principal("user-1"));
             assertThat(PrincipalContext.executionContext(resolver)).contains(expected);
         } finally {
             PrincipalContext.clear();
@@ -78,14 +83,14 @@ class ExecutionContextResolverTest {
     void returnsEmptyContextForUnauthenticatedCalls() {
         PrincipalContext.clear();
 
-        assertThat(PrincipalContext.executionContext(new ExecutionContextResolver((tenant, project, team, subject) ->
-                Optional.empty()))).isEmpty();
+        assertThat(PrincipalContext.executionContext(resolver((tenant, project, team, subject) -> Optional.empty())))
+                .isEmpty();
     }
 
     @Test
     void distinguishesResourceScopeFromSubjectIdentity() {
-        ExecutionContext first = new ExecutionContext("org-acme", "tenant-prod", "project-1", "team-1", "user-1");
-        ExecutionContext otherSubject = new ExecutionContext("org-acme", "tenant-prod", "project-1", "team-1", "user-2");
+        ExecutionContext first = context(PROJECT_ID.toString(), "user-1");
+        ExecutionContext otherSubject = context(PROJECT_ID.toString(), "user-2");
 
         assertThat(first.sameResourceScope(otherSubject)).isTrue();
         assertThat(first.belongsTo(otherSubject)).isFalse();
@@ -97,8 +102,27 @@ class ExecutionContextResolverTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
 
-        new JdbcExecutionContextDirectory(jdbc).resolve("tenant-a", "project-a", "team-a", "user-a");
+        new JdbcExecutionContextDirectory(jdbc).resolve("tenant-a", PROJECT_ID.toString(), "team-a", "user-a");
 
         verify(jdbc).query(contains("project_memberships"), any(RowMapper.class), any(Object[].class));
+    }
+
+    private static ExecutionContextResolver resolver(ExecutionContextResolver.ScopeDirectory directory) {
+        ProjectRepository projects = mock(ProjectRepository.class);
+        ProjectRecord project = ProjectRecord.create(PROJECT_ID, "legacy-tenant", "project-1", "user-1", Instant.EPOCH);
+        when(projects.findProjectByName("legacy-tenant", "project-1")).thenReturn(Optional.of(project));
+        when(projects.findProject("legacy-tenant", PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projects.findMembership("legacy-tenant", PROJECT_ID, "user-1")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("legacy-tenant", PROJECT_ID, "user-1", ProjectRole.DEVELOPER,
+                        Instant.EPOCH)));
+        return new ExecutionContextResolver(directory, new ProjectScopeResolver(projects));
+    }
+
+    private static Principal principal(String subject) {
+        return new Principal(subject, new AuthorizationService.Scope("legacy-tenant", "project-1", "team-1"), Set.of());
+    }
+
+    private static ExecutionContext context(String projectId, String subject) {
+        return new ExecutionContext("org-acme", "tenant-prod", projectId, "team-1", subject);
     }
 }

@@ -621,6 +621,73 @@ select:focus {
   color: var(--muted);
   font-size: var(--font-xs);
 }
+.quality-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.quality-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  font-weight: 700;
+}
+.quality-filters input,
+.quality-filters select {
+  min-width: 0;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1b29;
+  color: var(--ink);
+  font: inherit;
+}
+.quality-filters button { justify-self: start; align-self: end; }
+.table-scroll { overflow-x: auto; }
+.quality-ledger table { width: 100%; border-collapse: collapse; min-width: 840px; }
+.quality-ledger th {
+  padding: 12px;
+  color: var(--muted);
+  font-size: var(--font-xs);
+  text-align: left;
+  white-space: nowrap;
+}
+.quality-ledger td {
+  padding: 13px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  font-size: var(--font-sm);
+  vertical-align: top;
+}
+.quality-ledger td a { overflow-wrap: anywhere; }
+.muted-text { color: var(--muted); font-size: var(--font-xs); }
+.quality-status { font-weight: 800; white-space: nowrap; }
+.quality-status--passed { color: var(--success); }
+.quality-status--failed { color: var(--danger); }
+.quality-status--inconclusive { color: var(--warning); }
+.quality-ledger-heading { align-items: center; margin-bottom: 14px; }
+.quality-ledger-heading > div { display: grid; gap: 4px; }
+.quality-page-size { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--font-xs); }
+.quality-page-size select {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1b29;
+  color: var(--ink);
+  font: inherit;
+}
+.quality-empty-results { padding: 32px 12px; color: var(--muted); text-align: center; }
+.quality-date-error { align-self: end; margin: 0; color: var(--danger); font-size: var(--font-xs); }
+.quality-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 18px; }
+@media (max-width: 760px) {
+  .quality-filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+}
+@media (max-width: 460px) {
+  .quality-filters { grid-template-columns: 1fr; }
+}
 .status-badge {
   display: inline-flex;
   align-items: center;

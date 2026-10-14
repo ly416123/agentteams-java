@@ -38,6 +38,7 @@ import { ManagementAuditPage } from '../features/management/ManagementAuditPage'
 import { ManagementMemoryPage } from '../features/management/ManagementMemoryPage';
 import { ManagementSandboxPage } from '../features/management/ManagementSandboxPage';
 import { ManagementEvaluationPage } from '../features/management/ManagementEvaluationPage';
+import { ArtifactQualityLedgerPage } from '../features/quality/ArtifactQualityLedgerPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 15_000 } },
@@ -117,6 +118,7 @@ function ProtectedProjectRoutes() {
             <Route path="artifacts" element={<ManagementArtifactPage projectId={projectId} />} />
             <Route path="evaluations" element={<ManagementEvaluationPage projectId={projectId} />} />
             <Route path="evaluations/:runId" element={<EvaluationDetailRoute projectId={projectId} />} />
+            <Route path="quality" element={<ArtifactQualityLedgerPage projectId={projectId} />} />
             <Route path="conversations" element={<ConversationListPage projectId={projectId} />} />
             <Route path="conversations/new" element={<ConversationPage projectId={projectId} />} />
             <Route

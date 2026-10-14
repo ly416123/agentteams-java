@@ -43,4 +43,21 @@ class TaskResultManifestTest {
                 "report.json", "urn:agentteams:artifact:report", "application/json", 1,
                 "abc123", 1, "FINAL", null));
     }
+
+    @Test
+    void recordsTaskFileProvenanceOnlyWhenBothIdentifiersArePresent() {
+        UUID sourceTaskId = UUID.randomUUID();
+        UUID sourceFileId = UUID.randomUUID();
+        TaskResultManifest.ArtifactMetadata artifact = new TaskResultManifest.ArtifactMetadata(
+                "brief.pdf", "task-file://" + sourceTaskId + "/" + sourceFileId,
+                "application/pdf", 123, "ab".repeat(32), 0, "FINAL",
+                TaskEventVisibility.REQUESTER, sourceTaskId, sourceFileId);
+
+        assertEquals(sourceTaskId, artifact.sourceTaskId());
+        assertEquals(sourceFileId, artifact.sourceFileId());
+        assertThrows(IllegalArgumentException.class, () -> new TaskResultManifest.ArtifactMetadata(
+                "brief.pdf", "task-file://" + sourceTaskId + "/" + sourceFileId,
+                "application/pdf", 123, "ab".repeat(32), 0, "FINAL",
+                TaskEventVisibility.REQUESTER, sourceTaskId, null));
+    }
 }

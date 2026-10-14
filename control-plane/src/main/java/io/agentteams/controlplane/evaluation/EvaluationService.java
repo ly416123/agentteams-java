@@ -7,6 +7,7 @@ import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.application.api.TaskEventVisibility;
 import io.agentteams.application.api.TaskProcessEvent;
 import io.agentteams.controlplane.task.TaskTreeNode;
+import io.agentteams.controlplane.quality.ArtifactQualityLedgerService;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
@@ -34,11 +35,18 @@ public final class EvaluationService {
     private final EvaluationRepository repository;
     private final EvidenceBundleAssembler assembler;
     private final Clock clock;
+    private final ArtifactQualityLedgerService qualityLedger;
 
     public EvaluationService(EvaluationRepository repository, EvidenceBundleAssembler assembler, Clock clock) {
+        this(repository, assembler, null, clock);
+    }
+
+    public EvaluationService(EvaluationRepository repository, EvidenceBundleAssembler assembler,
+            ArtifactQualityLedgerService qualityLedger, Clock clock) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.assembler = Objects.requireNonNull(assembler, "assembler");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.qualityLedger = qualityLedger;
     }
 
     public EvaluationOutcome evaluate(ExecutionContext context, EvaluationRepository.CreateEvaluationRun command,
@@ -66,6 +74,16 @@ public final class EvaluationService {
         EvaluationRunRecord completed = repository.updateRunStatus(context, running.id(), status, startedAt, completedAt);
         repository.saveResults(context, completed.id(), results);
         EvaluationReportRecord report = repository.saveReport(context, report(completed, bundle, results, createdAt));
+        if (qualityLedger != null) {
+            try {
+                qualityLedger.recordEvaluation(context, completed.taskId(), completed.executionRunId(), completed.id(),
+                        results, bundle.resultManifest(), completed.completedAt() == null ? createdAt : completed.completedAt());
+            } catch (RuntimeException failure) {
+                // A ledger projection failure cannot change the immutable evaluation result.
+                java.util.logging.Logger.getLogger(getClass().getName()).warning(
+                        "Artifact quality capture failed type=" + failure.getClass().getSimpleName());
+            }
+        }
         return new EvaluationOutcome(completed, results, report, bundle);
     }
 

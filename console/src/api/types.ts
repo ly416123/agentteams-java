@@ -320,6 +320,8 @@ export type TaskResultManifest = {
     version: number;
     stage: string;
     visibility: string;
+    sourceTaskId?: string | null;
+    sourceFileId?: string | null;
     downloadUrl?: string | null;
   }>;
 };

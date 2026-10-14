@@ -6,6 +6,7 @@ import io.agentteams.controlplane.task.TaskResultManifestRepository;
 import io.agentteams.controlplane.task.TaskRunObservationRepository;
 import io.agentteams.controlplane.task.TaskTreeRepository;
 import io.agentteams.controlplane.task.TaskSourceEvidenceRepository;
+import io.agentteams.controlplane.quality.ArtifactQualityLedgerService;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,7 +21,8 @@ public class EvaluationConfiguration {
     }
 
     @Bean
-    EvaluationService evaluationService(EvaluationRepository repository, EvidenceBundleAssembler assembler, Clock clock) {
-        return new EvaluationService(repository, assembler, clock);
+    EvaluationService evaluationService(EvaluationRepository repository, EvidenceBundleAssembler assembler,
+            ArtifactQualityLedgerService ledger, Clock clock) {
+        return new EvaluationService(repository, assembler, ledger, clock);
     }
 }

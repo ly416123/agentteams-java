@@ -53,6 +53,20 @@ class TaskProcessEventServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void mirrorsStartedExecutionIntoTheQualityLedgerWithoutChangingProcessEvents() {
+        io.agentteams.controlplane.quality.ArtifactQualityLedgerService ledger =
+                org.mockito.Mockito.mock(io.agentteams.controlplane.quality.ArtifactQualityLedgerService.class);
+        ExecutionContext canonical = new ExecutionContext("org-1", "tenant-1", UUID.randomUUID().toString(), "team-1", "user-1");
+        TaskProcessEvent started = new TaskProcessEvent(UUID.randomUUID(), TASK_ID, RUN_ID, 0, "task.started",
+                TaskEventVisibility.REQUESTER, Instant.parse("2026-08-31T00:00:00Z"), "corr-1", "{\"status\":\"RUNNING\"}", null);
+        TaskProcessEventService service = new TaskProcessEventService(new InMemoryEventRepository(), ledger);
+
+        assertThat(service.append(canonical, started)).isEqualTo(started);
+        org.mockito.Mockito.verify(ledger).recordGenerationStarted(canonical, TASK_ID, RUN_ID, started.eventId(),
+                0, started.occurredAt());
+    }
+
     private static TaskProcessEvent event(long sequence, TaskEventVisibility visibility, String type) {
         return new TaskProcessEvent(UUID.randomUUID(), TASK_ID, RUN_ID, sequence, type, visibility,
                 Instant.parse("2026-08-31T00:00:00Z").plusSeconds(sequence), "corr-1", "{\"phase\":\"run\"}", null);

@@ -19,7 +19,13 @@ public record TaskResultManifest(UUID taskId, UUID runId, String status, String 
     /** Metadata-only artifact reference; its content remains in object storage. */
     public record ArtifactMetadata(String name, String storageRef, String contentType,
             long sizeBytes, String sha256, long version, String stage,
-            TaskEventVisibility visibility) {
+            TaskEventVisibility visibility, UUID sourceTaskId, UUID sourceFileId) {
+
+        public ArtifactMetadata(String name, String storageRef, String contentType,
+                long sizeBytes, String sha256, long version, String stage,
+                TaskEventVisibility visibility) {
+            this(name, storageRef, contentType, sizeBytes, sha256, version, stage, visibility, null, null);
+        }
 
         public ArtifactMetadata {
             name = requireText(name, "name");
@@ -28,6 +34,9 @@ public record TaskResultManifest(UUID taskId, UUID runId, String status, String 
             sha256 = requireText(sha256, "sha256");
             stage = requireText(stage, "stage");
             Objects.requireNonNull(visibility, "visibility");
+            if ((sourceTaskId == null) != (sourceFileId == null)) {
+                throw new IllegalArgumentException("sourceTaskId and sourceFileId must be provided together");
+            }
             if (sizeBytes < 0) {
                 throw new IllegalArgumentException("sizeBytes must not be negative");
             }

@@ -201,8 +201,9 @@ public class ControlPlaneConfiguration {
     }
 
     @Bean
-    ExecutionContextResolver executionContextResolver(ExecutionContextResolver.ScopeDirectory directory) {
-        return new ExecutionContextResolver(directory);
+    ExecutionContextResolver executionContextResolver(ExecutionContextResolver.ScopeDirectory directory,
+            io.agentteams.controlplane.security.ProjectScopeResolver projectScopes) {
+        return new ExecutionContextResolver(directory, projectScopes);
     }
 
     @Bean
