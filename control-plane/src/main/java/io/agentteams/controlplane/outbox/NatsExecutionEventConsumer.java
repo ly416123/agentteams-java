@@ -11,6 +11,7 @@ import io.agentteams.observability.AsyncConsumerTracing;
 import io.agentteams.application.api.PlatformEventSubjects;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
+import io.agentteams.domain.task.LeaseNotActiveException;
 import io.agentteams.controlplane.security.AuthorizationException;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
@@ -295,7 +296,18 @@ public final class NatsExecutionEventConsumer implements AutoCloseable {
             if ("TASK".equals(envelope.type())) {
                 executionEvents.apply(envelope.taskId(), withContext(envelope.taskExecution(), envelope), envelope.artifacts());
             } else if ("LEASE_RENEWAL".equals(envelope.type())) {
-                executionEvents.renewLease(envelope.taskId(), withContext(envelope.leaseRenewal(), envelope));
+                try {
+                    executionEvents.renewLease(envelope.taskId(), withContext(envelope.leaseRenewal(), envelope));
+                } catch (LeaseNotActiveException stale) {
+                    // A Worker can publish its final heartbeat concurrently with
+                    // completion/cancellation. The lease is terminal, so retrying
+                    // this renewal cannot help and would poison the shared stream.
+                    LOGGER.log(Level.FINE, "Acknowledging renewal for an inactive lease: {0}",
+                            stale.reason());
+                    message.ack();
+                    span.tag("agentteams.consumer.result", "stale_lease");
+                    return;
+                }
             } else if ("REJECTION".equals(envelope.type())) {
                 executionEvents.rejectUnaccepted(envelope.taskId(), withContext(envelope.rejection(), envelope));
             } else if ("TASK_EVENT".equals(envelope.type())) {

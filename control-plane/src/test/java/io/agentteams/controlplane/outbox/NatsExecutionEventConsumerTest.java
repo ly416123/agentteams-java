@@ -12,6 +12,8 @@ import io.agentteams.application.api.ConfigEventPort;
 import io.agentteams.application.api.ExecutionEventPort;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.agentteams.domain.task.IllegalTaskTransitionException;
+import io.agentteams.domain.task.LeaseNotActiveException;
+import io.agentteams.domain.task.LeaseNotActiveReason;
 import io.agentteams.domain.task.TaskPhase;
 import io.agentteams.observability.AsyncConsumerTracing;
 import io.nats.client.Connection;
@@ -44,6 +46,41 @@ class NatsExecutionEventConsumerTest {
         consumer.process(message);
 
         verify(message).ack();
+    }
+
+    @Test
+    void acknowledgesLeaseRenewalsForAttemptsThatAreAlreadyTerminal() {
+        Message message = message("""
+                {
+                  "schemaVersion": 1,
+                  "type": "LEASE_RENEWAL",
+                  "taskId": "11111111-1111-1111-1111-111111111111",
+                  "leaseRenewal": {
+                    "eventId": "22222222-2222-2222-2222-222222222222",
+                    "expectedVersion": 2,
+                    "attemptId": "33333333-3333-3333-3333-333333333333",
+                    "leaseId": "44444444-4444-4444-4444-444444444444",
+                    "occurredAt": "2026-08-21T00:00:00Z",
+                    "requestedExpiry": "2026-08-21T00:02:00Z",
+                    "agentId": "55555555-5555-5555-5555-555555555555",
+                    "source": "gateway",
+                    "correlationId": "test"
+                  },
+                  "artifacts": []
+                }
+                """);
+        ExecutionEventPort executionEvents = mock(ExecutionEventPort.class);
+        doThrow(new LeaseNotActiveException(LeaseNotActiveReason.COMPLETED,
+                "Lease belongs to a completed attempt"))
+                .when(executionEvents).renewLease(any(), any());
+        NatsExecutionEventConsumer consumer = new NatsExecutionEventConsumer(
+                mock(JetStream.class), executionEvents, new com.fasterxml.jackson.databind.ObjectMapper()
+                        .findAndRegisterModules(), "test-consumer");
+
+        consumer.process(message);
+
+        verify(message).ack();
+        verify(message, never()).nakWithDelay(any(Duration.class));
     }
 
     @Test
@@ -329,7 +366,7 @@ class NatsExecutionEventConsumerTest {
         verify(jetStream, org.mockito.Mockito.timeout(3_000).times(3)).subscribe(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(PushSubscribeOptions.class));
-        verify(recovered, org.mockito.Mockito.timeout(3_000))
+        verify(recovered, org.mockito.Mockito.timeout(3_000).atLeastOnce())
                 .nextMessage(org.mockito.ArgumentMatchers.any(Duration.class));
         consumer.close();
         consumerStopped.countDown();

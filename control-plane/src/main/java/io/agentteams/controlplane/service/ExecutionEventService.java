@@ -10,6 +10,9 @@ import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.application.api.SandboxStatus;
 import io.agentteams.domain.task.AppliedTransition;
 import io.agentteams.domain.task.DuplicateTransition;
+import io.agentteams.domain.task.IllegalTaskTransitionException;
+import io.agentteams.domain.task.LeaseNotActiveException;
+import io.agentteams.domain.task.LeaseNotActiveReason;
 import io.agentteams.domain.task.StaleTaskVersionException;
 import io.agentteams.domain.task.Task;
 import io.agentteams.domain.task.TaskAttempt;
@@ -111,9 +114,20 @@ public final class ExecutionEventService {
         return persistence.inTransaction(tx -> {
             TaskRecord current = tx.tasks().findById(taskId)
                     .orElseThrow(() -> new IllegalArgumentException("task does not exist: " + taskId));
-            TaskAttemptRecord currentAttempt = tx.taskAttempts().findById(command.attemptId()).orElseThrow();
-            var currentLease = tx.agentLeases().findById(command.leaseId()).orElseThrow();
+            TaskAttemptRecord currentAttempt = tx.taskAttempts().findById(command.attemptId()).orElse(null);
+            if (currentAttempt == null) {
+                throw new LeaseNotActiveException(LeaseNotActiveReason.MISSING, "Heartbeat attempt does not exist");
+            }
+            var currentLease = tx.agentLeases().findById(command.leaseId()).orElse(null);
+            if (currentLease == null) {
+                throw new LeaseNotActiveException(LeaseNotActiveReason.MISSING, "Heartbeat lease does not exist");
+            }
             requireExecutionIdentity(taskId, command.actor(), currentAttempt, currentLease);
+            if (current.phase().terminal() || currentAttempt.completedAt() != null
+                    || !"ACTIVE".equals(currentLease.status())) {
+                throw new LeaseNotActiveException(LeaseNotActiveReason.COMPLETED,
+                        "Heartbeat belongs to a completed or inactive lease");
+            }
             Task domain = toDomain(current, currentAttempt, Set.of());
             if (tx.domainEvents().findByEventId(command.eventId()).isPresent()) {
                 return new DuplicateTransition(command.eventId(), domain);
@@ -161,6 +175,12 @@ public final class ExecutionEventService {
         try {
             result = transitions.transition(domain, command);
         } catch (StaleTaskVersionException stale) {
+            if (current.phase().terminal()) {
+                // No predecessor can make an execution event valid after the
+                // aggregate is terminal. Let the NATS consumer ACK it instead
+                // of retrying the impossible version forever.
+                throw new IllegalTaskTransitionException(current.phase(), command.targetPhase());
+            }
             if (!whenTerminalEventCanBeRebased(current, currentAttempt, command)) {
                 throw stale;
             }
@@ -222,12 +242,16 @@ public final class ExecutionEventService {
 
     private static boolean whenTerminalEventCanBeRebased(TaskRecord current,
             TaskAttemptRecord currentAttempt, TaskTransitionCommand command) {
+        boolean executionPhaseStillActive = current.phase() == TaskPhase.RUNNING
+                && currentAttempt != null && currentAttempt.phase() == TaskPhase.RUNNING;
+        boolean acceptedAttemptFailedBeforeRunning = command.targetPhase() == TaskPhase.FAILED
+                && current.phase() == TaskPhase.ACCEPTED
+                && currentAttempt != null && currentAttempt.phase() == TaskPhase.ACCEPTED;
         return command.targetPhase().terminal()
-                && current.phase() == TaskPhase.RUNNING
+                && (executionPhaseStillActive || acceptedAttemptFailedBeforeRunning)
                 && currentAttempt != null
                 && currentAttempt.id().equals(command.attemptId())
                 && currentAttempt.leaseId().equals(command.leaseId())
-                && currentAttempt.phase() == TaskPhase.RUNNING
                 && currentAttempt.completedAt() == null;
     }
 

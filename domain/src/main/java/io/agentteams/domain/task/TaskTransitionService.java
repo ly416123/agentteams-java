@@ -155,7 +155,9 @@ public final class TaskTransitionService {
             case PAUSED -> to == TaskPhase.QUEUED || to == TaskPhase.REJECTED;
             case ASSIGNED -> to == TaskPhase.ACCEPTED
                     || (to == TaskPhase.CANCELLED && cancellationPolicy.allows(from));
-            case ACCEPTED -> to == TaskPhase.RUNNING;
+            // A worker may fail before its first RUNNING progress event is
+            // observed (for example while its startup model call is rejected).
+            case ACCEPTED -> to == TaskPhase.RUNNING || to == TaskPhase.FAILED;
             case RUNNING -> to == TaskPhase.SUCCEEDED || to == TaskPhase.FAILED;
             case WAITING_SUBTASKS -> to == TaskPhase.QUEUED || to == TaskPhase.CANCELLED;
             // G02 D4：结果评审打回后的重新交付走显式 retry，允许 SUCCEEDED → QUEUED；

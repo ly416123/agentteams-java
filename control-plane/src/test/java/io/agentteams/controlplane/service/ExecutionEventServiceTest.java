@@ -181,6 +181,90 @@ class ExecutionEventServiceTest {
     }
 
     @Test
+    void terminalFailureRebasesWhenLeaseRenewalRacesInitialRunningProgress() {
+        UUID taskId = UUID.randomUUID();
+        AgentRecord agent = AgentRecord.create(UUID.randomUUID(), "accept-failure-agent", AgentPhase.READY,
+                "fake", "{\"python\":true}", START);
+        TaskRecord queued = new TaskRecord(taskId, "accept-failure", "initial progress race", TaskPhase.QUEUED, 0,
+                "{\"requiredCapabilities\":[\"python\"]}", "test", "test", null, null,
+                START, START, 0);
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            tx.tasks().insert(queued);
+            tx.insertResourceScope("WORKER", agent.id(), "test", "test", "test", START);
+            tx.insertResourceScope("TASK", taskId, "test", "test", "test", START);
+            return null;
+        });
+
+        TaskAssignmentService.AssignmentResult assignment =
+                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, START);
+        ExecutionEventService service = new ExecutionEventService(persistence);
+        TaskTransitionResult accepted = service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), assignment.task().version(), TaskPhase.ACCEPTED,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(1),
+                agent.id().toString(), "fake"), List.of());
+        service.renewLease(taskId, new io.agentteams.domain.task.LeaseRenewalCommand(
+                UUID.randomUUID(), accepted.task().version(), assignment.attempt().id(), assignment.lease().id(),
+                START.plusSeconds(2), START.plusSeconds(120), agent.id().toString(), "fake"));
+
+        TaskTransitionResult failure = service.apply(taskId, TaskTransitionCommand.failed(
+                UUID.randomUUID(), accepted.task().version(), assignment.attempt().id(), assignment.lease().id(),
+                START.plusSeconds(3), agent.id().toString(), "fake",
+                io.agentteams.domain.task.FailureInfo.redacted("RUNTIME_FAILURE", "Agent execution failed")),
+                List.of());
+
+        assertThat(failure).isInstanceOf(AppliedTransition.class);
+        assertThat(failure.task().phase()).isEqualTo(TaskPhase.FAILED);
+        assertThat(persistence.findTask(taskId)).get().extracting(TaskRecord::phase)
+                .isEqualTo(TaskPhase.FAILED);
+    }
+
+    @Test
+    void acknowledgesLeaseRenewalAheadOfVersionWhenAttemptIsAlreadyTerminal() {
+        UUID taskId = UUID.randomUUID();
+        AgentRecord agent = AgentRecord.create(UUID.randomUUID(), "terminal-renewal-agent", AgentPhase.READY,
+                "fake", "{\"python\":true}", START);
+        TaskRecord queued = new TaskRecord(taskId, "terminal-renewal", "late heartbeat", TaskPhase.QUEUED, 0,
+                "{\"requiredCapabilities\":[\"python\"]}", "test", "test", null, null,
+                START, START, 0);
+        persistence.inTransaction(tx -> {
+            tx.agents().insert(agent);
+            tx.tasks().insert(queued);
+            tx.insertResourceScope("WORKER", agent.id(), "test", "test", "test", START);
+            tx.insertResourceScope("TASK", taskId, "test", "test", "test", START);
+            return null;
+        });
+
+        TaskAssignmentService.AssignmentResult assignment =
+                new TaskAssignmentService(persistence, LEASE_DURATION).queueReadyTask(taskId, START);
+        ExecutionEventService service = new ExecutionEventService(persistence);
+        TaskTransitionResult accepted = service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), assignment.task().version(), TaskPhase.ACCEPTED,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(1),
+                agent.id().toString(), "fake"), List.of());
+        TaskTransitionResult running = service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), accepted.task().version(), TaskPhase.RUNNING,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(2),
+                agent.id().toString(), "fake"), List.of());
+        TaskTransitionResult completed = service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), running.task().version(), TaskPhase.SUCCEEDED,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(3),
+                agent.id().toString(), "fake"), List.of());
+
+        assertThatThrownBy(() -> service.renewLease(taskId, new io.agentteams.domain.task.LeaseRenewalCommand(
+                UUID.randomUUID(), completed.task().version() + 1, assignment.attempt().id(),
+                assignment.lease().id(), START.plusSeconds(4), START.plusSeconds(120),
+                agent.id().toString(), "fake")))
+                .isInstanceOf(io.agentteams.domain.task.LeaseNotActiveException.class);
+
+        assertThatThrownBy(() -> service.apply(taskId, TaskTransitionCommand.forAttempt(
+                UUID.randomUUID(), completed.task().version() + 1, TaskPhase.SUCCEEDED,
+                assignment.attempt().id(), assignment.lease().id(), START.plusSeconds(5),
+                agent.id().toString(), "fake"), List.of()))
+                .isInstanceOf(io.agentteams.domain.task.IllegalTaskTransitionException.class);
+    }
+
+    @Test
     void rejectsUnacceptedAssignmentByReclaimingLeaseAndQueuingTask() throws Exception {
         UUID taskId = UUID.randomUUID();
         AgentRecord agent = AgentRecord.create(UUID.randomUUID(), "reject-agent", AgentPhase.READY,
