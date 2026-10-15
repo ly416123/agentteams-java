@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.agentteams.controlplane.security.ExecutionContext;
 import java.time.Instant;
+import java.time.Duration;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -28,6 +30,7 @@ final class JdbcArtifactQualityEventRepositoryTest {
     private final UUID taskId = UUID.randomUUID();
     private final UUID runId = UUID.randomUUID();
     private JdbcArtifactQualityEventRepository repository;
+    private JdbcArtifactQualityEventOutboxRepository outbox;
 
     @BeforeAll
     static void migrate() {
@@ -38,11 +41,13 @@ final class JdbcArtifactQualityEventRepositoryTest {
 
     @BeforeEach
     void setup() {
+        jdbc.update("DELETE FROM artifact_quality_event_outbox");
         jdbc.update("DELETE FROM artifact_quality_events");
         jdbc.update("DELETE FROM projects");
         jdbc.update("INSERT INTO projects(id, tenant_id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, now(), now())",
                 projectId, "tenant", "ledger", "test");
         repository = new JdbcArtifactQualityEventRepository(jdbc);
+        outbox = new JdbcArtifactQualityEventOutboxRepository(jdbc, new ObjectMapper().findAndRegisterModules());
     }
 
     @Test
@@ -79,6 +84,32 @@ final class JdbcArtifactQualityEventRepositoryTest {
             proxyFactory.setProxyTargetClass(true);
             proxyFactory.getProxy();
         });
+    }
+
+    @Test
+    void durablyClaimsRetriesAndDeletesDeliveredOutboxEvents() {
+        // Keep the synthetic clock after the database's DEFAULT now() timestamps.
+        Instant now = Instant.now().plusSeconds(3600);
+        ArtifactQualityEvent event = event("retry-me", 9, now);
+
+        assertTrue(outbox.enqueue(event));
+        assertFalse(outbox.enqueue(event));
+        var firstClaim = outbox.claimDue(now, Duration.ofSeconds(30), 10);
+        assertEquals(1, firstClaim.size());
+        assertEquals(event, firstClaim.get(0).event());
+        assertEquals(1, firstClaim.get(0).attempts());
+        assertTrue(outbox.claimDue(now.plusSeconds(5), Duration.ofSeconds(30), 10).isEmpty());
+
+        outbox.retry(event.id(), now.plusSeconds(20), "DatabaseException");
+        assertTrue(outbox.claimDue(now.plusSeconds(19), Duration.ofSeconds(30), 10).isEmpty());
+        var secondClaim = outbox.claimDue(now.plusSeconds(20), Duration.ofSeconds(30), 10);
+        assertEquals(1, secondClaim.size());
+        assertEquals(2, secondClaim.get(0).attempts());
+        assertEquals("DatabaseException", jdbc.queryForObject(
+                "SELECT last_error_type FROM artifact_quality_event_outbox WHERE event_id=?", String.class, event.id()));
+
+        outbox.markDelivered(event.id());
+        assertEquals(0, outbox.pendingCount());
     }
 
     private ArtifactQualityEvent event(String key, long sequence, Instant at) {

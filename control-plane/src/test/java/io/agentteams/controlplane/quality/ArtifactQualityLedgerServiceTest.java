@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.when;
 
 import io.agentteams.controlplane.evaluation.EvaluationResultRecord;
 import io.agentteams.controlplane.taskfile.TaskFileRecord;
@@ -23,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 final class ArtifactQualityLedgerServiceTest {
     @Mock private ArtifactQualityEventRepository repository;
+    @Mock private ArtifactQualityEventOutboxRepository outbox;
 
     @Test
     void persistsCheckAndFinalStatusFromTheSameEvaluationEvidence() {
@@ -59,6 +62,25 @@ final class ArtifactQualityLedgerServiceTest {
         verify(repository).append(any(), any());
         assertEquals(1.0, meters.get("agentteams.artifact_quality.capture.events")
                 .tag("event_type", "FINAL_STATUS").tag("result", "failed").counter().count());
+    }
+
+    @Test
+    void eventStoreFailureLeavesARecoverableDurableOutboxRecord() {
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        ArtifactQualityLedgerService service = new ArtifactQualityLedgerService(repository, outbox, meters);
+        when(outbox.enqueue(any())).thenReturn(true);
+        doThrow(new IllegalStateException("database unavailable")).when(repository).append(any(), any());
+
+        service.recordGenerationStarted(new ExecutionContext("org", "tenant", UUID.randomUUID().toString(), "team", "user"),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 0, Instant.now());
+
+        ArgumentCaptor<ArtifactQualityEvent> queued = ArgumentCaptor.forClass(ArtifactQualityEvent.class);
+        var order = inOrder(outbox, repository, outbox);
+        order.verify(outbox).enqueue(queued.capture());
+        order.verify(repository).append(any(), eq(queued.getValue()));
+        order.verify(outbox, org.mockito.Mockito.never()).markDelivered(any());
+        assertEquals(1.0, meters.get("agentteams.artifact_quality.capture.events")
+                .tag("event_type", "GENERATE_STARTED").tag("result", "queued").counter().count());
     }
 
     @Test

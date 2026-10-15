@@ -26,19 +26,27 @@ public final class ArtifactQualityLedgerService {
     private static final Pattern SENSITIVE = Pattern.compile(
             "(?i)(bearer\\s+[a-z0-9._~+/=-]+|(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\\s*[:=])");
     private final ArtifactQualityEventRepository repository;
+    private final ArtifactQualityEventOutboxRepository outbox;
     private final MeterRegistry meters;
 
     @Autowired
-    public ArtifactQualityLedgerService(ArtifactQualityEventRepository repository, ObjectProvider<MeterRegistry> registries) {
-        this(repository, registries.getIfAvailable(SimpleMeterRegistry::new));
+    public ArtifactQualityLedgerService(ArtifactQualityEventRepository repository,
+            ArtifactQualityEventOutboxRepository outbox, ObjectProvider<MeterRegistry> registries) {
+        this(repository, outbox, registries.getIfAvailable(SimpleMeterRegistry::new));
     }
 
     public ArtifactQualityLedgerService(ArtifactQualityEventRepository repository) {
-        this(repository, new SimpleMeterRegistry());
+        this(repository, null, new SimpleMeterRegistry());
     }
 
     public ArtifactQualityLedgerService(ArtifactQualityEventRepository repository, MeterRegistry meters) {
+        this(repository, null, meters);
+    }
+
+    public ArtifactQualityLedgerService(ArtifactQualityEventRepository repository,
+            ArtifactQualityEventOutboxRepository outbox, MeterRegistry meters) {
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.outbox = outbox;
         this.meters = Objects.requireNonNull(meters, "meters");
     }
 
@@ -125,14 +133,39 @@ public final class ArtifactQualityLedgerService {
     }
 
     private void append(ExecutionContext context, ArtifactQualityEvent event) {
+        boolean queued = false;
+        if (outbox != null) {
+            try {
+                outbox.enqueue(event);
+                queued = true;
+            } catch (RuntimeException failure) {
+                LOG.log(Level.WARNING, "Artifact quality retry enqueue failed type={0}",
+                        failure.getClass().getSimpleName());
+            }
+        }
         try {
             boolean inserted = repository.append(context, event);
+            if (queued) outbox.markDelivered(event.id());
             capture(event, inserted ? "inserted" : "duplicate");
         } catch (RuntimeException failure) {
-            capture(event, "failed");
+            capture(event, queued ? "queued" : "failed");
             // Recording is observational: failure must not alter the evaluated result or task transition.
             LOG.log(Level.WARNING, "Artifact quality event capture failed type={0}", failure.getClass().getSimpleName());
         }
+    }
+
+    public void deliverQueued(ArtifactQualityEventOutboxRepository.PendingEvent pending) {
+        Objects.requireNonNull(pending, "pending");
+        ArtifactQualityEvent event = pending.event();
+        ExecutionContext context = new ExecutionContext(event.organizationId(), event.tenantId(),
+                event.projectId().toString(), "artifact-quality-outbox", "artifact-quality-outbox");
+        boolean inserted = repository.append(context, event);
+        outbox.markDelivered(event.id());
+        capture(event, inserted ? "retry_delivered" : "retry_duplicate");
+    }
+
+    void captureOutboxRetry(ArtifactQualityEvent event) {
+        capture(event, "retry_pending");
     }
 
     private void capture(ArtifactQualityEvent event, String result) {
