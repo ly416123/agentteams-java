@@ -65,10 +65,44 @@ jobs:
                   assert marker not in serialized, f"{artifact}: {marker}"
           PY
 
+  minio-test-images:
+    # MinIO Community no longer publishes official container images. Build the
+    # fixed upstream source revisions once and pass the local images to jobs
+    # that run Testcontainers or Kind; never pull an unverified replacement.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24.6'
+          cache: false
+      - name: Build MinIO test images from pinned upstream source
+        run: ./scripts/build-kind-minio-images.sh
+      - name: Save local MinIO test images
+        run: >-
+          docker save
+          docker.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+          docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z
+          --output "$RUNNER_TEMP/agentteams-kind-minio-images.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kind-minio-images
+          path: ${{ runner.temp }}/agentteams-kind-minio-images.tar
+          if-no-files-found: error
+          retention-days: 1
+
   verify:
+    needs: minio-test-images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: kind-minio-images
+          path: ${{ runner.temp }}/kind-minio-images
+      - name: Load MinIO images for Testcontainers
+        run: docker load --input "$RUNNER_TEMP/kind-minio-images/agentteams-kind-minio-images.tar"
       - name: Set up Helm for Console contracts
         uses: azure/setup-helm@v5
         with:
@@ -164,10 +198,17 @@ jobs:
       (github.event_name == 'push' &&
         (github.ref_name == github.event.repository.default_branch ||
          github.ref_name == 'codex/agentteams-java-foundation'))
+    needs: minio-test-images
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: kind-minio-images
+          path: ${{ runner.temp }}/kind-minio-images
+      - name: Load MinIO images into Docker
+        run: docker load --input "$RUNNER_TEMP/kind-minio-images/agentteams-kind-minio-images.tar"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -214,6 +255,12 @@ jobs:
           config: deploy/kind-config.yaml
           version: v0.25.0
           node_image: kindest/node:v1.31.0
+      - name: Load MinIO images into Kind
+        run: >-
+          kind load docker-image
+          docker.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+          docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z
+          --name agentteams
       - name: Validate manifests
         run: |
           python scripts/validate-kind-infra.py
@@ -545,10 +592,17 @@ jobs:
       (github.event_name == 'push' &&
         (github.ref_name == github.event.repository.default_branch ||
          github.ref_name == 'codex/agentteams-java-foundation'))
+    needs: minio-test-images
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: kind-minio-images
+          path: ${{ runner.temp }}/kind-minio-images
+      - name: Load MinIO images into Docker
+        run: docker load --input "$RUNNER_TEMP/kind-minio-images/agentteams-kind-minio-images.tar"
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
         with:
@@ -564,6 +618,12 @@ jobs:
           config: deploy/kind-config.yaml
           version: v0.25.0
           node_image: kindest/node:v1.31.0
+      - name: Load MinIO images into Kind
+        run: >-
+          kind load docker-image
+          docker.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+          docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z
+          --name agentteams
       - name: Install Kind dependencies
         run: |
           kubectl apply -f deploy/kind-dev-infra.yaml
