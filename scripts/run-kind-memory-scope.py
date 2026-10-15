@@ -36,6 +36,19 @@ def sql(namespace: str, postgres_pod: str, statement: str) -> str:
                "-v", "ON_ERROR_STOP=1", "-At", "-c", statement, namespace=namespace)
 
 
+def resolve_project_id(namespace: str, postgres_pod: str, tenant_id: str, project_name: str) -> str:
+    rows = sql(namespace, postgres_pod,
+               "SELECT id::text FROM projects WHERE tenant_id = " + sql_literal(tenant_id)
+               + " AND name = " + sql_literal(project_name) + " AND status = 'ACTIVE'")
+    project_ids = [value.strip() for value in rows.splitlines() if value.strip()]
+    if len(project_ids) != 1:
+        raise KindTestError(f"expected one active project for {tenant_id}/{project_name}, found {len(project_ids)}")
+    try:
+        return str(uuid.UUID(project_ids[0]))
+    except ValueError as error:
+        raise KindTestError(f"active project ID is not a UUID for {tenant_id}/{project_name}") from error
+
+
 def required_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -128,16 +141,17 @@ def provision_scope(namespace: str, postgres_pod: str, alice_subject: str, admin
     sql(namespace, postgres_pod, statement)
 
 
-def insert_fixtures(namespace: str, postgres_pod: str, alice_subject: str, admin_subject: str) -> list[str]:
+def insert_fixtures(namespace: str, postgres_pod: str, alice_subject: str, admin_subject: str,
+                    project_a_id: str, project_b_id: str, tenant_b_project_id: str) -> list[str]:
     identifiers = [str(uuid.uuid4()) for _ in range(7)]
     rows = [
-        (identifiers[0], ORG_ID, TENANT_A_ID, "project-a", "team-a", alice_subject, "USER_PRIVATE", "alice-private"),
-        (identifiers[1], ORG_ID, TENANT_A_ID, "project-a", "team-a", admin_subject, "USER_PRIVATE", "admin-private"),
-        (identifiers[2], ORG_ID, TENANT_A_ID, "project-a", None, None, "PROJECT_SHARED", "project-shared"),
+        (identifiers[0], ORG_ID, TENANT_A_ID, project_a_id, "team-a", alice_subject, "USER_PRIVATE", "alice-private"),
+        (identifiers[1], ORG_ID, TENANT_A_ID, project_a_id, "team-a", admin_subject, "USER_PRIVATE", "admin-private"),
+        (identifiers[2], ORG_ID, TENANT_A_ID, project_a_id, None, None, "PROJECT_SHARED", "project-shared"),
         (identifiers[3], ORG_ID, TENANT_A_ID, None, "team-a", None, "TEAM_SHARED", "team-shared"),
         (identifiers[4], ORG_ID, TENANT_A_ID, None, None, None, "ORGANIZATION_SHARED", "organization-shared"),
-        (identifiers[5], ORG_ID, TENANT_A_ID, "project-b", "team-a", None, "PROJECT_SHARED", "cross-project"),
-        (identifiers[6], ORG_ID, TENANT_B_ID, "project-a", "team-a", None, "PROJECT_SHARED", "cross-tenant"),
+        (identifiers[5], ORG_ID, TENANT_A_ID, project_b_id, "team-a", None, "PROJECT_SHARED", "cross-project"),
+        (identifiers[6], ORG_ID, TENANT_B_ID, tenant_b_project_id, "team-a", None, "PROJECT_SHARED", "cross-tenant"),
     ]
     values = []
     for memory_id, organization, tenant, project, team, subject, scope, label in rows:
@@ -214,7 +228,11 @@ def main() -> int:
             alice_subject = token_subject(alice_token)
             admin_subject = token_subject(admin_token)
             provision_scope(args.namespace, args.postgres_pod, alice_subject, admin_subject)
-            memory_ids = insert_fixtures(args.namespace, args.postgres_pod, alice_subject, admin_subject)
+            project_a_id = resolve_project_id(args.namespace, args.postgres_pod, "tenant-a", "project-a")
+            project_b_id = str(uuid.uuid4())
+            tenant_b_project_id = str(uuid.uuid4())
+            memory_ids = insert_fixtures(args.namespace, args.postgres_pod, alice_subject, admin_subject,
+                                         project_a_id, project_b_id, tenant_b_project_id)
 
             alice_result = authorized_get(base_url, alice_token, "/api/v1/memory")
             admin_result = authorized_get(base_url, admin_token, "/api/v1/memory")

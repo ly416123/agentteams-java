@@ -548,6 +548,9 @@ jobs:
           kubectl -n agentteams get pods -l app.kubernetes.io/name=agentteams-worker \
             -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount,REVISION:.metadata.labels.agentteams\.io/config-revision' \
             > /tmp/agentteams-kind-recovery-diagnostics/worker-pod-status.txt || true
+          kubectl -n agentteams get pods -l app.kubernetes.io/name=agentteams-worker -o json \
+            | jq 'def termination: if . == null then null else {exitCode,reason,signal,startedAt,finishedAt} end; {items:[.items[] | {name:.metadata.name,containers:[(.status.containerStatuses // [])[] | {name,ready,restartCount,state:{waiting:(.state.waiting.reason // null),running:(.state.running.startedAt // null),terminated:(.state.terminated | termination)},lastState:(.lastState.terminated | termination)}]}]}' \
+            > /tmp/agentteams-kind-recovery-diagnostics/worker-container-status.json || true
           kubectl -n agentteams exec postgresql-0 -- psql -U agentteams -d agentteams -c \
             "select event_type,aggregate_id,created_at from domain_events order by created_at desc limit 200" \
             > /tmp/agentteams-kind-recovery-diagnostics/domain-events.txt 2>&1 || true
