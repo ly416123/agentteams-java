@@ -357,6 +357,9 @@ jobs:
           AGENT_ID=$(jq -er '.id // empty' "$AGENT_RESPONSE")
           sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: agentscope-worker/name: agentscope-real/; s/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"false\"/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"true\"/; s/AGENTTEAMS_SCOPE_TENANT: \"\"/AGENTTEAMS_SCOPE_TENANT: \"tenant-a\"/; s/AGENTTEAMS_SCOPE_PROJECT: \"\"/AGENTTEAMS_SCOPE_PROJECT: \"project-a\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"false\"/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"true\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"0.1\"/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"1.0\"/; s#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: \"\"#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces#" \
             deploy/examples/agentscope-worker.yaml >/tmp/agentscope-real.yaml
+          awk '/^  env:$/ { print "  secretEnv:"; print "    DEEPSEEK_API_KEY:"; print "      secret: agentteams-manager"; print "      key: deepseek-api-key" } { print }' \
+            /tmp/agentscope-real.yaml >/tmp/agentscope-real-with-secret.yaml
+          mv /tmp/agentscope-real-with-secret.yaml /tmp/agentscope-real.yaml
           kubectl apply -f /tmp/agentscope-real.yaml
           deployment_deadline=$((SECONDS + 120))
           until kubectl -n agentteams get deployment/agentscope-real >/dev/null 2>&1; do
