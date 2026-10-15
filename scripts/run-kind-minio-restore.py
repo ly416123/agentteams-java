@@ -11,7 +11,7 @@ import sys
 import uuid
 
 
-MINIO_IMAGE = "quay.io/minio/mc:RELEASE.2025-07-21T05-28-08Z"
+MINIO_IMAGE = "docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z"
 MINIO_BUCKET = "agentteams"
 OBJECT_CONTENT = b"agentteams-kind-minio-restore-v1\n"
 

@@ -244,7 +244,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+          image: docker.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
           imagePullPolicy: IfNotPresent
           resources:
             requests:
@@ -328,7 +328,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: minio-admin
-          image: quay.io/minio/mc:RELEASE.2025-07-21T05-28-08Z
+          image: docker.io/minio/mc:RELEASE.2025-07-21T05-28-08Z
           imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_ROOT_USER
