@@ -20,8 +20,14 @@ class SourceEvidenceDeploymentContractTest(unittest.TestCase):
         self.assertNotIn("value: {{ .Values.controlPlane.mcpCredential", block)
 
     def test_mcp_service_token_is_secret_backed_and_not_in_l5_patch(self):
-        deployment = (MCP_ROOT / "deploy/k8s.yaml").read_text()
-        l5_patch = (MCP_ROOT / "deploy/l5/deployment-patch.yaml").read_text()
+        deployment_path = MCP_ROOT / "deploy/k8s.yaml"
+        l5_patch_path = MCP_ROOT / "deploy/l5/deployment-patch.yaml"
+        if not deployment_path.is_file() or not l5_patch_path.is_file():
+            self.skipTest(
+                "私有 agentteams-mcp-tools 仓库未检出；本地联检环境会执行此契约"
+            )
+        deployment = deployment_path.read_text()
+        l5_patch = l5_patch_path.read_text()
         block = deployment.split("- name: MCP_TOOLS_TOKEN", 1)[1].split("- name:", 1)[0]
 
         self.assertIn("secretKeyRef:", block)

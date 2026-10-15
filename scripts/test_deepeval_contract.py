@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from eval.deepeval_adapter import (
@@ -93,8 +94,9 @@ class DeepEvalContractTest(unittest.TestCase):
 
     def test_metric_construction_is_optional_when_deepeval_is_absent(self):
         rubric = load_rubric(Path(__file__).parents[1] / "eval/rubrics/core.yaml")
-        with self.assertRaises(DeepEvalUnavailable):
-            build_deepeval_metrics(rubric, "mcp-web-search-title")
+        with patch("eval.deepeval_adapter.importlib.import_module", side_effect=ImportError):
+            with self.assertRaises(DeepEvalUnavailable):
+                build_deepeval_metrics(rubric, "mcp-web-search-title")
 
     def test_tool_call_type_is_compatible_with_deepeval_type_field(self):
         class FakeToolCall:
