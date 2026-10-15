@@ -211,14 +211,14 @@ class McpHttpTransportConnectorTest {
                 respond(exchange, 202, "application/json", "");
                 return;
             }
-            if ("tools/list".equals(request.path("method").asText())) {
-                toolsListed.countDown();
-            }
             OutputStream output = stream.get();
             output.write(("event:message\ndata:{\"jsonrpc\":\"2.0\",\"id\":"
                     + request.path("id").asLong() + ",\"result\":" + result + "}\n\n")
                     .getBytes(StandardCharsets.UTF_8));
             output.flush();
+            if ("tools/list".equals(request.path("method").asText())) {
+                toolsListed.countDown();
+            }
             respond(exchange, 202, "application/json", "");
         });
         server.setExecutor(Executors.newCachedThreadPool());
