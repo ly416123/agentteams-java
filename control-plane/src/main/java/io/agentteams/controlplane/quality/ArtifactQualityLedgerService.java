@@ -3,6 +3,7 @@ package io.agentteams.controlplane.quality;
 import io.agentteams.application.api.TaskResultManifest;
 import io.agentteams.controlplane.evaluation.EvaluationResultRecord;
 import io.agentteams.controlplane.security.ExecutionContext;
+import io.agentteams.controlplane.taskfile.TaskFileRecord;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +49,21 @@ public final class ArtifactQualityLedgerService {
         append(context, event(context, projectId, taskId, runId, sequence, "GENERATE_STARTED", null, null,
                 "generation", null, null, "RUNNING", null, null, "Artifact generation started",
                 "runtime:task-process:" + eventId, key, occurredAt));
+    }
+
+    /** Records an independently uploaded OUTPUT file, including artifacts outside the result manifest. */
+    public void recordUploadedOutput(ExecutionContext context, UUID taskId, UUID runId,
+            TaskFileRecord file, long sequence, Instant occurredAt) {
+        Objects.requireNonNull(file, "file");
+        if (!TaskFileRecord.OUTPUT.equals(file.role()) || !TaskFileRecord.AVAILABLE.equals(file.status())) {
+            throw new IllegalArgumentException("only available OUTPUT files can be recorded as generated artifacts");
+        }
+        UUID projectId = UUID.fromString(context.projectId());
+        String key = "live:task-file:" + file.id();
+        append(context, event(context, projectId, taskId, runId, sequence, "GENERATE_SUCCEEDED", file.name(),
+                file.id(), file.sha256(), null,
+                "generation", null, null, "SUCCEEDED", null, null, "Artifact file upload completed",
+                "runtime:task-file:" + file.id(), key, occurredAt));
     }
 
     public void recordManifest(ExecutionContext context, TaskResultManifest manifest, Instant occurredAt) {
@@ -130,6 +146,14 @@ public final class ArtifactQualityLedgerService {
         UUID fileId = artifact == null ? null : artifact.sourceFileId();
         String digest = artifact == null ? null : artifact.sha256();
         String name = artifact == null ? null : artifact.name();
+        return event(context, projectId, taskId, runId, sequence, type, name, fileId, digest, manifestRef,
+                category, checkItem, actionSource, status, score, scoreDelta, summary, sourceRef, key, occurredAt);
+    }
+
+    private static ArtifactQualityEvent event(ExecutionContext context, UUID projectId, UUID taskId, UUID runId,
+            long sequence, String type, String name, UUID fileId, String digest, String manifestRef,
+            String category, String checkItem, String actionSource, String status, Double score, Double scoreDelta,
+            String summary, String sourceRef, String key, Instant occurredAt) {
         UUID id = UUID.nameUUIDFromBytes((context.organizationId() + ":" + context.tenantId() + ":"
                 + context.projectId() + ":" + key).getBytes(StandardCharsets.UTF_8));
         return new ArtifactQualityEvent(id, context.organizationId(), context.tenantId(), projectId, taskId, runId,

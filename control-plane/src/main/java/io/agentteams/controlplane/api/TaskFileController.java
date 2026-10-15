@@ -1,6 +1,8 @@
 package io.agentteams.controlplane.api;
 
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.quality.ArtifactQualityUploadRecorder;
+import io.agentteams.controlplane.security.ApiAuthenticationFilter;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.taskfile.TaskFileRecord;
@@ -9,6 +11,7 @@ import java.io.InputStream;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
@@ -38,19 +42,34 @@ public final class TaskFileController {
 
     private final TaskFileService files;
     private final TaskService tasks;
+    private final ArtifactQualityUploadRecorder qualityUploads;
 
+    @Autowired
+    public TaskFileController(TaskFileService files, TaskService tasks,
+            ArtifactQualityUploadRecorder qualityUploads) {
+        this.files = files;
+        this.tasks = tasks;
+        this.qualityUploads = qualityUploads;
+    }
+
+    /** Compatibility constructor for controller tests without the API authentication filter. */
     public TaskFileController(TaskFileService files, TaskService tasks) {
         this.files = files;
         this.tasks = tasks;
+        this.qualityUploads = null;
     }
 
     /** OUTPUT multipart 上传（服务端直传 MinIO，先对象后落库）。 */
     @PostMapping("/api/v1/tasks/{taskId}/files")
     public ResponseEntity<TaskFileResponse> upload(@PathVariable UUID taskId,
-            @RequestPart("file") MultipartFile part) throws Exception {
+            @RequestPart("file") MultipartFile part, HttpServletRequest request) throws Exception {
         requireExistingTaskScope(taskId);
         TaskFileRecord record = files.upload(taskId, part.getOriginalFilename(),
                 part.getContentType(), part.getBytes());
+        if (qualityUploads != null && Boolean.TRUE.equals(
+                request.getAttribute(ApiAuthenticationFilter.TASK_MCP_REQUEST_ATTRIBUTE))) {
+            qualityUploads.recordForActiveRun(taskId, record);
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header("Location", "/api/v1/tasks/" + taskId + "/files/" + record.id())
                 .body(TaskFileResponse.from(record));

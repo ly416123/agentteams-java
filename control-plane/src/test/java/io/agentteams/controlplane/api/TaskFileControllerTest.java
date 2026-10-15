@@ -4,6 +4,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -14,6 +16,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.agentteams.controlplane.security.PrincipalContext;
+import io.agentteams.controlplane.security.ApiAuthenticationFilter;
+import io.agentteams.controlplane.quality.ArtifactQualityUploadRecorder;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import io.agentteams.controlplane.service.TaskService;
 import io.agentteams.controlplane.taskfile.TaskFileRecord;
@@ -64,6 +68,31 @@ class TaskFileControllerTest {
                 .andExpect(jsonPath("$.fileId").value(fileId.toString()))
                 .andExpect(jsonPath("$.sha256").value("ab".repeat(32)))
                 .andExpect(header().string("Location", "/api/v1/tasks/" + TASK + "/files/" + fileId));
+    }
+
+    @Test
+    void uploadRecordsQualityOnlyForVerifiedTaskMcpRequest() throws Exception {
+        ArtifactQualityUploadRecorder recorder = mock(ArtifactQualityUploadRecorder.class);
+        TaskFileController controller = new TaskFileController(files, tasks, recorder);
+        MockMvc trustedMvc = standaloneSetup(controller).setControllerAdvice(new ApiErrorHandler()).build();
+        UUID fileId = UUID.randomUUID();
+        TaskFileRecord file = new TaskFileRecord(fileId, TASK, null, TaskFileRecord.OUTPUT, "report.pdf",
+                "application/pdf", 5, "ab".repeat(32), "key", null, null,
+                TaskFileRecord.AVAILABLE, NOW, NOW);
+        when(files.upload(eq(TASK), eq("report.pdf"), eq("application/pdf"), any(byte[].class)))
+                .thenReturn(file);
+        MockMultipartFile part = new MockMultipartFile("file", "report.pdf", "application/pdf", "hello".getBytes());
+
+        trustedMvc.perform(multipart("/api/v1/tasks/{taskId}/files", TASK).file(part)
+                .with(request -> {
+                    request.setAttribute(ApiAuthenticationFilter.TASK_MCP_REQUEST_ATTRIBUTE, Boolean.TRUE);
+                    return request;
+                })).andExpect(status().isCreated());
+        verify(recorder).recordForActiveRun(TASK, file);
+
+        trustedMvc.perform(multipart("/api/v1/tasks/{taskId}/files", TASK).file(part))
+                .andExpect(status().isCreated());
+        verify(recorder, times(1)).recordForActiveRun(eq(TASK), any(TaskFileRecord.class));
     }
 
     @Test

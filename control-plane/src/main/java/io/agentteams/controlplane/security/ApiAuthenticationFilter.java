@@ -13,6 +13,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /** Optional HTTP authentication boundary; JWT/OIDC verification is supplied by IdentityTokenValidator. */
 public final class ApiAuthenticationFilter extends OncePerRequestFilter {
     public static final String PRINCIPAL_ATTRIBUTE = ApiAuthenticationFilter.class.getName() + ".principal";
+    public static final String TASK_MCP_REQUEST_ATTRIBUTE = ApiAuthenticationFilter.class.getName() + ".taskMcpRequest";
 
     private final IdentityTokenValidator validator;
     private final ProjectScopeResolver projectScopes;
@@ -48,6 +49,7 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
             FilterChain filterChain) throws ServletException, IOException {
         String header = request.getHeader("Authorization");
         if (isTaskMcpRequest(request, header)) {
+            request.setAttribute(TASK_MCP_REQUEST_ATTRIBUTE, Boolean.TRUE);
             filterChain.doFilter(request, response);
             return;
         }

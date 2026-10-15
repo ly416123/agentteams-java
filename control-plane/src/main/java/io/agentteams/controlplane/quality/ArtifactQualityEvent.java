@@ -17,7 +17,7 @@ public record ArtifactQualityEvent(UUID id, String organizationId, String tenant
     private static final Pattern EVENT_TYPE = Pattern.compile(
             "GENERATE_STARTED|GENERATE_SUCCEEDED|GENERATE_FAILED|QUALITY_CHECK|OPTIMIZATION_ACTION|RECHECK|FINAL_STATUS");
     private static final Pattern SOURCE_REF = Pattern.compile(
-            "(?:runtime:(?:task-process|task-result|evaluation):[A-Za-z0-9-]{1,64}|history:sha256:[a-f0-9]{64}#(?:case:[A-Za-z0-9_.:-]{1,100}(?::assertion:[0-9]{1,8}|:final-status)?|plan-line:[0-9]{1,8}))");
+            "(?:runtime:(?:task-process|task-result|evaluation):[A-Za-z0-9-]{1,64}|runtime:task-file:[A-Za-z0-9-]{1,64}|history:sha256:[a-f0-9]{64}#(?:case:[A-Za-z0-9_.:-]{1,100}(?::assertion:[0-9]{1,8}|:final-status)?|plan-line:[0-9]{1,8}))");
     private static final Pattern SAFE_ARTIFACT_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._ -]{0,127}");
     private static final Pattern CREDENTIAL = Pattern.compile(
             "(?i)(bearer\\s+[a-z0-9._~+/=-]+|(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\\s*[:=]|https?://\\S+|-----BEGIN [A-Z ]+PRIVATE KEY-----)");

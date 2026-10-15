@@ -2,11 +2,13 @@ package io.agentteams.controlplane.quality;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import io.agentteams.controlplane.evaluation.EvaluationResultRecord;
+import io.agentteams.controlplane.taskfile.TaskFileRecord;
 import io.agentteams.controlplane.security.ExecutionContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
@@ -75,5 +77,33 @@ final class ArtifactQualityLedgerServiceTest {
         assertEquals("GENERATE_FAILED", captor.getAllValues().get(1).eventType());
         assertEquals(null, captor.getAllValues().get(1).fileId());
         assertEquals("Artifact generation failed; detailed cause is unavailable", captor.getAllValues().get(1).summary());
+    }
+
+    @Test
+    void recordsUploadedOutputWithTaskRunAndFileIdentity() {
+        ArtifactQualityLedgerService service = new ArtifactQualityLedgerService(repository);
+        ExecutionContext context = new ExecutionContext("org", "tenant", UUID.randomUUID().toString(), "team", "agent-worker");
+        UUID taskId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        TaskFileRecord file = new TaskFileRecord(fileId, taskId, UUID.randomUUID(), TaskFileRecord.OUTPUT,
+                "research-final.pdf", "application/pdf", 128, "ab".repeat(32), "tasks/private/object",
+                null, null, TaskFileRecord.AVAILABLE, Instant.parse("2026-10-15T02:00:00Z"),
+                Instant.parse("2026-10-15T02:00:00Z"));
+
+        service.recordUploadedOutput(context, taskId, runId, file, 7, file.createdAt());
+
+        ArgumentCaptor<ArtifactQualityEvent> captor = ArgumentCaptor.forClass(ArtifactQualityEvent.class);
+        verify(repository).append(eq(context), captor.capture());
+        ArtifactQualityEvent event = captor.getValue();
+        assertEquals(taskId, event.taskId());
+        assertEquals(runId, event.runId());
+        assertEquals("GENERATE_SUCCEEDED", event.eventType());
+        assertEquals(fileId, event.fileId());
+        assertEquals(file.name(), event.artifactName());
+        assertEquals(file.sha256(), event.sha256());
+        assertEquals("runtime:task-file:" + fileId, event.sourceRef());
+        assertEquals("LIVE", event.sourceType());
+        assertEquals("HIGH", event.confidence());
     }
 }

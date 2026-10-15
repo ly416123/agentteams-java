@@ -63,7 +63,8 @@ class ApiAuthenticationFilterTest {
         outputUpload.addHeader("Authorization", "Bearer " + TASK_MCP_TOKEN);
         MockHttpServletResponse uploadResponse = new MockHttpServletResponse();
 
-        filter.doFilter(outputUpload, uploadResponse, new MockFilterChain());
+        filter.doFilter(outputUpload, uploadResponse, (request, response) -> assertThat(
+                request.getAttribute(ApiAuthenticationFilter.TASK_MCP_REQUEST_ATTRIBUTE)).isEqualTo(Boolean.TRUE));
 
         assertThat(uploadResponse.getStatus()).isEqualTo(200);
         assertThat(PrincipalContext.current()).isEmpty();
