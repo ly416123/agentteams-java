@@ -28,6 +28,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate stable release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "RELEASE_TAG_INVALID: expected a stable vX.Y.Z tag" >&2
+            exit 1
+          fi
+
       - name: Verify tag points at main
         run: |
           set -euo pipefail

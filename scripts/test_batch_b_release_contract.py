@@ -102,6 +102,20 @@ class BatchBReleaseContractTest(unittest.TestCase):
             for reference in re.findall(r"uses:\s*[^@\s]+@([^\s#]+)", workflow):
                 self.assertRegex(reference, r"^[0-9a-f]{40}$", reference)
 
+    def test_release_rejects_non_stable_tags_before_building_images(self):
+        release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        tag_validation = release.find("RELEASE_TAG_INVALID")
+        verification_gates = release.find("Run release verification gates")
+        image_build = release.find("Build, sign, and attest service images")
+
+        self.assertGreaterEqual(tag_validation, 0)
+        self.assertLess(tag_validation, verification_gates)
+        self.assertLess(tag_validation, image_build)
+        self.assertIn(
+            'if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$ ]]; then',
+            release,
+        )
+
     def test_promotion_gate_accepts_healthy_metrics_and_rejects_missing_or_breached_metrics(self):
         policy = json.loads(PROMOTION_POLICY.read_text(encoding="utf-8"))
         healthy = {
