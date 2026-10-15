@@ -9,6 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MatrixRoomBindingContractTest(unittest.TestCase):
+    def test_kind_smoke_binds_room_and_removes_its_fixture(self):
+        smoke = (ROOT / "scripts/smoke-kind-matrix.sh").read_text(encoding="utf-8")
+        self.assertIn("INSERT INTO matrix_room_bindings", smoke)
+        self.assertIn("'PROJECT', project.id", smoke)
+        self.assertIn("'${room_id}'", smoke)
+        self.assertIn("DELETE FROM matrix_room_bindings", smoke)
+        self.assertIn("AND created_by='matrix-smoke'", smoke)
+
     def test_room_binding_schema_keeps_active_scope_unique(self):
         migration = (ROOT / "control-plane/src/main/resources/db/migration/V98__matrix_room_context_binding.sql").read_text(
             encoding="utf-8"

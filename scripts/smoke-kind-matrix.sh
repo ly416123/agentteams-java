@@ -11,8 +11,15 @@ MATRIX_LOG="${LOG_DIR}/agentteams-tuwunel-port-forward.log"
 API_LOG="${LOG_DIR}/agentteams-matrix-api-port-forward.log"
 MATRIX_PID=""
 API_PID=""
+room_id=""
 
 cleanup() {
+  if [[ -n "${room_id}" && -n "${DB_PASSWORD:-}" ]]; then
+    kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+      psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams \
+      -c "DELETE FROM matrix_room_bindings WHERE tenant_id='tenant-a' AND room_id='${room_id}' AND created_by='matrix-smoke'" \
+      >/dev/null 2>&1 || true
+  fi
   [[ -z "${MATRIX_PID}" ]] || kill "${MATRIX_PID}" >/dev/null 2>&1 || true
   [[ -z "${API_PID}" ]] || kill "${API_PID}" >/dev/null 2>&1 || true
   [[ -z "${MATRIX_PID}" ]] || wait "${MATRIX_PID}" >/dev/null 2>&1 || true
@@ -132,6 +139,21 @@ room="$(curl --fail --silent --show-error --request POST \
   --data "{\"name\":\"AgentTeams E2E ${run_id}\",\"preset\":\"private_chat\"}")"
 room_id="$(printf '%s' "${room}" | json_string room_id)"
 [[ -n "${room_id}" ]] || { echo "Matrix room creation failed: ${room}" >&2; exit 1; }
+
+# Command transactions are accepted only from a room bound to an active platform context.
+# The room is unique to this smoke run; remove its binding in the exit trap.
+room_binding_sql="
+  INSERT INTO matrix_room_bindings
+    (id, organization_id, tenant_id, room_id, primary_context_type, primary_context_id,
+     project_id, team_id, status, created_by, created_at, updated_at, version)
+  SELECT gen_random_uuid(), mapping.organization_id::text, 'tenant-a', '${room_id}', 'PROJECT', project.id,
+         project.id, NULL, 'ACTIVE', 'matrix-smoke', now(), now(), 0
+    FROM legacy_tenant_mappings mapping
+    JOIN projects project ON project.tenant_id = 'tenant-a' AND project.name = 'project-a'
+   WHERE mapping.legacy_tenant_key = 'tenant-a'
+  ON CONFLICT DO NOTHING"
+kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "${room_binding_sql}" >/dev/null
 
 send_matrix_command() {
   local transaction="$1"
