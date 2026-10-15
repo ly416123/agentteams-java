@@ -14,7 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class JdbcArtifactQualityEventOutboxRepository implements ArtifactQualityEventOutboxRepository {
+public class JdbcArtifactQualityEventOutboxRepository implements ArtifactQualityEventOutboxRepository {
     private static final Pattern SAFE_ERROR_TYPE = Pattern.compile("[A-Za-z0-9_$]{1,128}");
 
     private final JdbcTemplate jdbc;
