@@ -14,7 +14,7 @@ this build.
 - `agent-gateway`: Spring Boot application dependencies for gRPC agent
   connections and NATS integration.
 - `runtime`: runtime-neutral Agent SPI; the current production path uses AgentScope Harness.
-- `manager`: DeepSeek/OpenAI-compatible structured Manager and permissioned tools.
+- `manager`: GPT-5.6 Luna structured Manager and permissioned tools.
 - `operator`: Java Operator SDK and Fabric8 Kubernetes dependencies.
 - `integration-tests`: cross-module tests and Testcontainers dependencies.
 
@@ -76,7 +76,7 @@ Java SDK 同步。完整实施顺序、
 当前 `task.start` 适配任务另有明确范围约束：只维护 Java SDK；TypeScript SDK 暂不维护，
 不要求与 Java SDK 同步新增接口或测试。任何 TypeScript SDK 更新都必须另行确认并制定独立计划。
 
-当前开发阶段的运行时、Conversation/Team 任务流、Leader/Worker 分工、DeepSeek 接入、
+当前开发阶段的运行时、Conversation/Team 任务流、Leader/Worker 分工、ChatGPT OAuth 接入、
 `linux/amd64` 构建和 L5 真实验收约束，统一以
 [当前开发阶段项目约束](docs/development/project-constraints.md)为准。生产 Conversation
 必须进入 Control Plane Task/Team 调度链路，不得直接调用模型 Provider。
@@ -371,15 +371,14 @@ second `Worker` resource with a distinct Agent UUID and set:
 
 ```bash
 runtime: AGENTSCOPE
-model: deepseek:deepseek-chat
+model: chatgpt-plan:gpt-5.6-luna
 ```
 
 The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`. Worker
 readiness proves the Agent channel is connected; a real task additionally
 requires a resolvable model registry key and its Provider credentials. L5 uses
-`deepseek:deepseek-chat` by default, while another Provider/model can be
-selected by changing Worker configuration without changing Team scheduling or
-task state transitions.
+`chatgpt-plan:gpt-5.6-luna` by default and shares its authorized ChatGPT OAuth
+session across Manager and Workers.
 
 ### Channel 出站扩展
 
@@ -398,7 +397,7 @@ agentRuntime:
   artifactUploadEnabled: true
 worker:
   runtime: AGENTSCOPE
-  model: deepseek:deepseek-chat
+  model: chatgpt-plan:gpt-5.6-luna
 ```
 
 任务必须包含稳定的 Team/Agent 标识；缺少标识时直接拒绝，不回退到另一套运行时。
@@ -429,18 +428,18 @@ This smoke check expects the task to remain `QUEUED`: registering an Agent via
 the API does not establish a gRPC connection. The complete push path is
 covered by the infrastructure integration test.
 
-For a local real-model check, keep the model credential in a Kubernetes Secret
-or an ignored local file with mode `0600`. Configure the Worker model registry
-key and verify Manager plus the full task path. The scripts never print the
-key or send it as a command-line argument:
+For a local real-model check, use the authorized ChatGPT OAuth access-token
+file with mode `0600`. Configure the Worker model registry key and verify
+Manager plus the full task path. The scripts never print the token or send it
+as a command-line argument:
 
 ```bash
-chmod 600 apikey
-./scripts/smoke-deepseek-manager.sh
+chmod 600 chatgpt-access-token
+./scripts/smoke-chatgpt-plan-manager.sh
 ./scripts/smoke-kind-task-api.sh
 ```
 
-The L5 default model is `deepseek:deepseek-chat`; use the Worker model
+The L5 default model is `chatgpt-plan:gpt-5.6-luna`; use the Worker model
 configuration for a deliberate Provider/model override. A successful real
 smoke must verify `phase=SUCCEEDED`, the Attempt lifecycle, and a UTF-8
 Artifact, rather than relying on Worker readiness alone.
