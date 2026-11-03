@@ -796,6 +796,12 @@ def evaluate_observation(case: EvalCase, observation: Mapping[str, Any]) -> list
             results.append(AssertionResult(assertion_type, actual == expected if actual is not None else None,
                                            f"phase is {actual!s}", expected, actual,
                                            (f"task-snapshot:{(task or {}).get('id', 'unknown')}",)))
+        elif assertion_type == "event_completeness":
+            expected = str(assertion.get("expected", "COMPLETE")).upper()
+            actual = _event_completeness(observation)
+            results.append(AssertionResult(assertion_type, actual == expected,
+                                           "event stream completeness evaluated", expected, actual,
+                                           (events_ref,)))
         elif assertion_type == "required_tool":
             expected = str(assertion.get("name", ""))
             lifecycle = _tool_lifecycle(lifecycle_events, expected)

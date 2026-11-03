@@ -279,17 +279,19 @@
 
 **重跑差异定位（2026-10-08）：** SHA-256 核验发现 L5 的 `eval/cases/core.yaml`、`scripts/run-l5-agentteams-eval.py`、`scripts/agentteams_eval.py` 均与当前工作区不同。L5 实际用例仍是旧版单段 prompt，落库任务 `inputJson` 只有 `prompt`，没有 `requiredMcpTools`、`executorMcpTools` 或 `aggregateMcpTools`；这直接解释了 Leader 未规划子任务，Worker 也未获知必须调用搜索、Skill 和 PDF 工具。Team-a 已 Ready Worker 包括本次调度用的 `l5-eval-process-result-20261008-89aad28a-amd64`，其 Worker 配置修订仍为 `l5-agentscope-deepseek-20260929-r2`。本地未提交改动还包含 Control Plane 子任务工具要求传递，以及 Worker MCP 工具注册和聚合 PDF 提示；需先在 `main` 当前工作树构建 Control Plane/Worker amd64 镜像并部署到 L5，再同步 Runner、Evaluator 和 Case，复核实际创建的任务输入后重跑。部署前沿用 L5 当前 amd64 镜像分发链，并确认资源状态。
 
-- [ ] **步骤 4：运行真实 L5 正向 Case**
+- [x] **步骤 4：运行真实 L5 正向 Case**
 
 按 `eval/README.md` 使用现有受控 L5 入口和获授权的短期 Token，只跑新增多 Agent PDF Case，确认 PDF 可通过交付入口下载、解码为 PDF 且可解析页面。报告存入 `eval/reports/` 前检查不含凭证、预签名 URL 和原始工具正文。
 
-- [ ] **步骤 5：运行 L5 负向变体**
+- [ ] **步骤 5：补齐其余 L5 负向变体**
 
-在隔离测试数据中分别注入工具失败、缺依赖结果、无效 PDF 和事件截断，确认结果为 `FAILED` 或 `INCONCLUSIVE`，而非通过；结束后删除本测试创建的任务和临时身份数据。
+来源引用负向探针已在 2026-10-09 通过：伪造 URL 的 `source_citation` 判为 `FAILED`，报告整体失败符合预期。工具失败、缺依赖结果、无效 PDF 和事件截断的独立 L5 负向变体尚无对应真实报告；离线契约测试不能替代这几项 L5 证据。补齐后确认结果为 `FAILED` 或 `INCONCLUSIVE`，并清理本测试创建的任务和临时身份数据。
 
-- [ ] **步骤 6：完成验收记录**
+- [x] **步骤 6：完成已执行 Case 的验收记录**
 
-更新 `eval/README.md`，记录日期、Suite/Case 版本、代码版本、各门禁结果和脱敏报告路径。只记录真实执行结果，不用离线 Fixture 替代 L5 结果。
+已在 `eval/README.md` 及本计划记录已执行 Case 的日期、结果和脱敏报告路径。尚未执行的 L5 负向变体继续保留为独立待办，不以离线 Fixture 替代真实结果。
+
+**验收状态对账（2026-11-02）：** 旧记录中的“正向/负向尚未完成”已过期。正向报告 `2026-10-09-l5-source-provenance-positive-final4.json` 的 7 项断言全部通过；来源引用负向报告 `2026-10-09-l5-source-provenance-negative-final3.json` 按预期将伪造引用判为 `FAILED`。2026-10-15 的 `2026-10-15-l5-dual-mcp-10-ai-governance-active-team.json` 也通过来源引用、依赖交接和 PDF 断言。未完成项是步骤 5 中列出的其他 L5 负向变体、语义 Judge 校准，以及当前环境凭据恢复后的 L5 实时状态复核。
 
 ## 任务 8：阶段二语义评测（独立发布门）
 
@@ -298,9 +300,9 @@
 **文件：** `eval/deepeval_adapter.py`、`eval/rubrics/core.yaml`、`eval/deepeval_calibration.py`、`eval/README.md`、Control Plane 对应 semantic evaluator 与测试（只有决定在 API 内运行 Judge 后再新增服务文件）。
 
 - [ ] **步骤 1：冻结人工标注样本和 Rubric 版本**，每例记录匿名 ID、期望标签、可用证据种类和标注者一致性，不复制敏感原文。
-- [ ] **步骤 2：编写校准契约测试**，无检索上下文时 Faithfulness 必须为 `INCONCLUSIVE`；未达到人工校准条件的指标不能进入硬门禁。
-- [ ] **步骤 3：扩展 Judge adapter**，记录 provider、model、prompt/rubric 版本、分数理由和校准状态，并验证传给 Judge 的输入经过 Evidence Bundle 权限和脱敏过滤。
-- [ ] **步骤 4：运行离线语义契约测试**，运行 `python3 -m unittest scripts.test_deepeval_contract scripts.test_deepeval_calibration -v`，预期 PASS；默认 CI 不安装 Judge 可选依赖。
+- [x] **步骤 2：编写校准契约测试**，无检索上下文时 Faithfulness 必须为 `INCONCLUSIVE`；未达到人工校准条件的指标不能进入硬门禁。
+- [x] **步骤 3：扩展 Judge adapter**，导出 provider/model 标识、prompt/rubric 版本、Rubric SHA-256 和校准状态；未校准状态明确输出为 `UNCALIBRATED`。语义结果同时保留经过脱敏的 Judge 理由；既有 Evidence Bundle 权限及脱敏过滤契约保持生效，未将语义结果接入硬门禁。
+- [x] **步骤 4：运行离线语义契约测试**，运行 `python3 -m unittest scripts.test_deepeval_contract scripts.test_deepeval_calibration -v`，预期 PASS；默认 CI 不安装 Judge 可选依赖。2026-11-02 更新元数据与理由脱敏后重跑 11 项通过。
 - [ ] **步骤 5：在受控评测环境执行人工校准集**，报告语义建议分数和意见分歧；只有满足预先约定的校准标准后，再单独提出是否加入门禁的变更。
 
 ## 规格覆盖自检

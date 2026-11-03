@@ -146,6 +146,37 @@ def write_report(path: Path, report: dict, token: str = "") -> None:
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def record_missing_dependency_negative(client: AgentTeamsClient, task_id: str) -> dict:
+    """Prove the live API rejects a dangling dependency before persisting a plan."""
+    missing_id = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    request = Request(
+        client.base_url + f"/api/v1/tasks/{task_id}/subtasks",
+        data=json.dumps({"subtasks": [{"subtaskId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+                                        "title": "controlled missing dependency",
+                                        "sequence": 1, "dependencyIds": [missing_id]}]},
+                       separators=(",", ":")).encode("utf-8"),
+        headers={"Authorization": f"Bearer {client.token}", "Accept": "application/json",
+                 "Content-Type": "application/json", "Idempotency-Key": "l5-missing-dependency-negative"},
+        method="PUT")
+    before = client.get_subtasks(task_id)
+    status, _, raw = client.transport(request, client.timeout)
+    try:
+        error_body = json.loads(raw.decode("utf-8")) if raw else {}
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        error_body = {}
+    rejected = status == 400 and isinstance(error_body, dict) \
+        and error_body.get("code") == "VALIDATION_ERROR"
+    after = client.get_subtasks(task_id)
+    unchanged = before == after
+    return {"caseId": "l5-missing-dependency-api-rejection", "taskId": task_id,
+            "httpStatus": status, "expectedHttpStatus": 400,
+            "errorCode": error_body.get("code") if isinstance(error_body, dict) else None,
+            "persistedSubtaskCount": len(after), "stateUnchanged": unchanged,
+            "passed": rejected and unchanged,
+            "assertion": {"type": "missing_dependency", "status": "PASSED"
+                          if rejected and unchanged else "FAILED"}}
+
+
 def _field(value: object, key: str) -> object:
     return value.get(key) if isinstance(value, dict) else getattr(value, key, None)
 
@@ -176,7 +207,7 @@ def select_cases(cases: list, requested_ids: list[str]) -> list:
     return selected
 
 
-def bind_team_id(cases: list, team_id: str) -> list:
+def bind_team_id(cases: list, team_id: str, project_id: str = "") -> list:
     if not team_id:
         raise EvalError("selected L5 team has no id")
     bound = []
@@ -193,6 +224,8 @@ def bind_team_id(cases: list, team_id: str) -> list:
             spec = {"scope": dict(task["scope"]), "taskType": task.get("taskType", "agentscope"),
                     "inputJson": task.get("inputJson", {"prompt": task.get("prompt", "")}),
                     "requiredCapabilities": task.get("requiredCapabilities", [])}
+        if project_id:
+            spec["scope"] = {**spec["scope"], "project": project_id}
         spec["teamId"] = team_id
         bound.append(replace(case, task={**task, "spec": spec}))
     return bound
@@ -317,12 +350,32 @@ def main(argv: list[str] | None = None) -> int:
                                   allowed_artifact_origins=(args.artifact_origin,) if args.artifact_origin else ())
         project_id, team_id = assert_scope_access(client, args.tenant, args.project, args.team, args.team_id)
         assert_workers_ready(args.namespace, args.tenant, project_id, args.team)
-        report = run_suite(client, bind_team_id(cases, team_id),
+        report = run_suite(client, bind_team_id(cases, team_id, project_id),
                            args.timeout_seconds, args.poll_seconds,
                            existing_task_ids=existing_task_ids or None,
                            deepeval_export_dir=args.deepeval_export_dir,
                            evidence_output=args.evidence_output_dir,
                            pdf_artifact_output_dir=args.pdf_artifact_output_dir)
+        if args.case_ids == ["l5-missing-dependency-api-rejection"]:
+            if len(existing_task_ids) != 1:
+                raise EvalError("missing dependency negative requires one existing isolated task")
+            negative = record_missing_dependency_negative(client, next(iter(existing_task_ids.values())))
+            report["cases"] = [negative]
+            report["passed"] = negative["passed"]
+            report["taskSuccess"] = None
+            report["evaluationStatus"] = "PASSED" if negative["passed"] else "FAILED"
+        elif args.case_ids == ["l5-event-truncation-controlled"]:
+            if len(existing_task_ids) != 1:
+                raise EvalError("event truncation negative requires one existing isolated task")
+            case_report = report["cases"][0]
+            case_report["passed"] = case_report.get("eventCompleteness") == "TRUNCATED"
+            case_report["assertions"] = [{"type": "event_completeness", "passed": case_report["passed"],
+                                           "status": "PASSED" if case_report["passed"] else "FAILED",
+                                           "expected": "TRUNCATED",
+                                           "actual": case_report.get("eventCompleteness")}]
+            report["passed"] = case_report["passed"]
+            report["taskSuccess"] = None
+            report["evaluationStatus"] = "PASSED" if case_report["passed"] else "FAILED"
         report["evaluatorVersion"] = "deterministic-v1"
         report["suiteVersion"] = hashlib.sha256(Path(args.cases).read_bytes()).hexdigest()
         report["targetScope"] = {"tenant": args.tenant, "project": args.project, "team": args.team}

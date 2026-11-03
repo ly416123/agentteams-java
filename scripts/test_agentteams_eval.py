@@ -1236,6 +1236,30 @@ cases:
             "artifacts": [invalid_boolean_metadata]}})[0]
         self.assertEqual("FAILED", boolean_size.status)
 
+    def test_pdf_artifact_rejects_invalid_signature_and_corrupt_page_tree_bytes(self):
+        case = EvalCase("invalid-pdf", "Invalid PDF", {}, [
+            {"type": "artifact_pdf", "exactlyOne": True, "durable": True, "downloadable": True}], {})
+        # These byte sequences and pinned hashes are shared with WorkerInvalidPdfResultManifestIT.
+        storage = "tasks/11111111-1111-1111-1111-111111111111/attempts/22222222-2222-2222-2222-222222222222/artifacts/invalid.pdf"
+        invalid_payloads = [
+            (b"plain text pretending to be a PDF\n",
+             "6c4e5bc8f645cc2d110583431037db447bfd107d0f8101385d0b1b44c018f4c9"),
+            (b"%PDF-1.7\nthis file has a PDF header but no valid page tree\n%%EOF\n",
+             "2eea3ddd60ec0f0cf76b4d7bd58b8cd872ba03ee5d5f4513878edc1f46de00bb"),
+        ]
+
+        for payload, expected_sha256 in invalid_payloads:
+            with self.subTest(payload=payload[:12]):
+                self.assertEqual(expected_sha256, hashlib.sha256(payload).hexdigest())
+                artifact = {"name": "invalid.pdf", "contentType": "application/pdf",
+                            "sizeBytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
+                            "storageRef": storage,
+                            "downloadUrl": "https://storage.example/download?signature=fixture",
+                            "contentBytes": payload}
+                result = evaluate_observation(case, {"run": {"id": "r"}, "events": [],
+                                                     "result": {"artifacts": [artifact]}})[0]
+                self.assertEqual("FAILED", result.status)
+
     def test_artifact_integrity_requires_durable_metadata(self):
         case = EvalCase(
             case_id="artifact",

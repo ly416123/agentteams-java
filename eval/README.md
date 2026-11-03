@@ -87,9 +87,9 @@ python3 eval/deepeval_adapter.py \
 
 代码中可按需调用 `build_deepeval_test_case` 和 `evaluate_with_deepeval`，再配置 DeepEval 的 `AnswerRelevancyMetric`、`FaithfulnessMetric` 或 `ToolCorrectnessMetric`。模型密钥只能通过本机环境变量或密钥管理系统提供，不能写入用例、导出 JSON 或 CI 日志。确定性断言失败仍然直接阻断，LLM Judge 结果只作为语义评分和人工抽检依据。
 
-### DeepSeek 本地 PDF 质量评测
+### ChatGPT OAuth 本地 PDF 质量评测
 
-PDF 质量评测使用 DeepEval 4.2.8 和 `deepseek-chat`。在本机隔离环境安装依赖：
+PDF 质量评测使用 DeepEval 4.2.8 和 `gpt-5.6-luna`。在本机隔离环境安装依赖：
 
 ```bash
 python3 -m venv "$HOME/.cache/agentteams/pdf-quality-deepeval"
@@ -97,7 +97,7 @@ source "$HOME/.cache/agentteams/pdf-quality-deepeval/bin/activate"
 python -m pip install -r eval/requirements-deepeval.txt
 ```
 
-配置好 DeepSeek Key 后，可运行 10 个 L5 PDF 样本的语义评分：
+配置好经授权的 ChatGPT OAuth access token 后，可运行 10 个 L5 PDF 样本的语义评分：
 
 ```bash
 export DEEPEVAL_TELEMETRY_OPT_OUT=1
@@ -105,9 +105,11 @@ export DEEPEVAL_DISABLE_DOTENV=1
 python scripts/run_pdf_quality_deepeval.py
 ```
 
-评测脚本会从本机被 `.gitignore` 忽略的 `apikey` 文件读取 Key；也可通过 `DEEPSEEK_API_KEY` 环境变量提供。脚本不会把 Key 写入报告或输出日志。DeepEval 会把 PDF 抽取文本和检索来源内容发送到 DeepSeek API；执行前应确认这些评测数据可以发送到该服务。原始输入导出包含任务文本和来源正文，不应提交到仓库。
+评测脚本从 `CHATGPT_OAUTH_ACCESS_TOKEN` 环境变量读取 access token，并通过 `gpt-5.6-luna` Responses API 评分。脚本不会把 token 写入报告或输出日志。DeepEval 会把 PDF 抽取文本和检索来源内容发送到 OpenAI；原始输入导出包含任务文本和来源正文，不应提交到仓库。
 
 L5 套件运行时应设置 `--deepeval-export-dir`，以便保留事实准确性评分所需的检索来源正文。仅有来源 ID 的证据包不足以独立核验 PDF 事实，DeepEval 必须将这类分数标记为 `INCONCLUSIVE`。
+
+DeepEval 导出会记录 `judgeMetadata`：运行者通过 adapter CLI 显式提供的 provider/model（未提供时为 `null`）、Rubric 中的 prompt 版本和 schema 版本、Rubric 文件 SHA-256，以及校准状态。当前核心 Rubric 状态为 `UNCALIBRATED`；该状态不会把语义评分变成硬门禁。不要将凭据放入 provider/model 参数。
 
 初始 Rubric 保存在 [`eval/rubrics/core.yaml`](rubrics/core.yaml)，目前只记录指标和候选阈值，不作为发布门禁。接入独立评测环境时，调用 `load_rubric` 读取配置，再用 `build_deepeval_metrics` 创建指标：
 
@@ -175,6 +177,8 @@ python3 scripts/run-l5-agentteams-eval.py \
 
 入口不会创建身份映射、修改 Kubernetes 资源或保存 Token。报告在写入前会拒绝凭证字段、Token 和 URL；报告记录 Suite 摘要版本、Evaluator 版本、Case/Task/Run 标识、双门禁及安全证据引用。当前环境没有 GitHub self-hosted L5 Runner，因此没有把私网 L5 地址直接写入 GitHub 定时 Job；未来配置 self-hosted Runner 或主机 cron 时，复用此入口即可。
 
+当 YAML 使用项目名（例如 `project-a`）时，入口会先用 API 验证该项目及其权限，再把实际提交的 Task scope 项目字段绑定为 API 返回的规范项目 UUID；YAML 的租户和团队 scope claim 保持原样。这样与 Control Plane 在任务接口中的项目 scope 规范化保持一致。
+
 ## 用例和断言
 
 核心套件当前包含四个用例：
@@ -182,7 +186,7 @@ python3 scripts/run-l5-agentteams-eval.py \
 - `mcp-web-search-title`：将任务路由到 L5 的 AgentScope Worker，确认成功调用 `web_search`，并从结果制品读取 MCP 相关内容。
 - `no-tool-simple-answer`：确认简单问题不触发搜索工具。
 - `artifact-integrity`：确认结果制品使用 `tasks/` 持久化引用，并有正的大小和 64 位小写 SHA-256。
-- `multi-agent-pdf-positive`：要求工具成功加载 Skill、调用搜索、完成依赖拆分，并产出唯一且有持久化引用及 HTTP(S) 下载地址的 PDF。
+- `multi-agent-pdf-positive`：要求规划依赖子任务、执行器成功调用搜索、完成依赖交接，并由聚合阶段产出唯一且有持久化引用及 HTTP(S) 下载地址的 PDF；该 Case 不要求加载 Skill。
 
 支持的确定性断言类型包括 `phase`、`run_status`、`required_tool`、`failed_tool`、`forbidden_tool`、`tool_order`、`tool_count`、`dependency_success`、`dependency_handoff`、`retry_limit`、`source_citation`、`output_contains`、`artifact_integrity`、`artifact_pdf` 和 `artifact_pdf_quality`。每条断言返回 `PASSED`、`FAILED` 或 `INCONCLUSIVE`，并附安全证据引用；报告分别保留 `taskPhase`、`runStatus`、`manifestStatus`、原始 `evidenceCompleteness` 和独立的 `eventCompleteness`，不会从 `tool.called` 推断工具成功。全事件断言只有在事件完整度为 `COMPLETE` 时才可通过或否定；已观察到的失败调用可立即令 `failed_tool` 失败。工具调用和完成事件必须通过唯一 `callId` 配对；缺少、重复或不匹配的 ID 会令生命周期断言为 `INCONCLUSIVE`。成功与失败调用都完整记录时，`required_tool` 检查是否至少有一次成功，`failed_tool` 单独检查失败调用。
 
@@ -207,6 +211,18 @@ python3 -m unittest scripts.test_agentteams_eval scripts.test_evaluation_quality
 Promptfoo 和 DeepEval 都以这层报告和任务运行证据作为基础；Phoenix 仍留待后续接入。
 
 ## 当前验证状态
+
+### 最近验收与收尾状态（2026-11-02）
+
+- 2026-11-02 Operator 修复部署后，L5 隔离 Team 的真实多 Agent PDF 正向任务已完成：父 Task/Run `SUCCEEDED`，依赖成功与交接、`web_search`、来源 URL 与唯一 PDF 的确定性断言全部通过。报告和证据见 [`2026-11-02-l5-worker-reconcile-positive-verified.json`](reports/2026-11-02-l5-worker-reconcile-positive-verified.json) 与配套证据目录。首次启动遇到的 403 是 Runner 未把 `project-a` 名称规范化为 API 返回的项目 UUID；入口已补齐该绑定并新增回归测试。L5 主机未安装 `pypdf`，本次仅将本机版本放在远端 `/tmp` 供报告重评，未安装到 L5 系统。
+- 本轮负向评测进度：工具失败通过，见 [`工具失败报告`](reports/2026-11-02-l5-tool-failure.json)；同一个已成功隔离任务仅用于执行一次预期失败工具调用，没有新建任务。缺失依赖通过，见 [`缺失依赖报告`](reports/2026-11-02-l5-missing-dependency.json)：真实 Subtask API 返回 400 `VALIDATION_ERROR`，前后子任务快照相同。事件截断通过受控限额验证，见 [`事件截断报告`](reports/2026-11-02-l5-event-truncation-controlled.json)：评测器事件上限临时设为 2，观察到 3 条并标记 `TRUNCATED`；这证明截断检测路径，不表示自然达到默认 1000 条上限。
+- 无效 PDF L5 文件校验负例已通过，见 [`无效 PDF 报告`](reports/2026-11-02-l5-invalid-pdf.json)。新建了隔离 DRAFT Task，通过真实 L5 Task File API 上传内容为纯文本、文件名为 `.pdf`、MIME 为 `application/pdf` 的 OUTPUT 文件，再从 L5 下载回读字节验证签名、EOF 和页树均无效；用临时 `pypdf` 副本完成页树解析，随后清理远端脚本和依赖目录。此用例覆盖 L5 文件存储与字节校验边界，不声称经过 Worker 的最终 Result Manifest 发布路径。工具失败评测第一次执行超时后复用既有成功任务完成断言，未产生重复任务。
+- 已归档的真实 L5 正向报告 `2026-10-09-l5-source-provenance-positive-final4.json` 有 7 项断言通过；同日负向报告 `2026-10-09-l5-source-provenance-negative-final3.json` 将伪造来源引用判为 `FAILED`，符合预期。2026-10-15 的双 MCP 治理 Case 也通过其确定性断言。旧计划中“来源正负向均未完成”的描述已由上述证据取代。
+- 四类负向评测均有 L5 报告。无效 PDF 通过 Task File API 文件字节校验，不覆盖 Worker 最终 Result Manifest 发布；补充的 evaluator 单测对 manifest-shaped observation 注入无效签名和损坏页树字节。
+- 本轮 L5 短期 Token 已在每次评测后请求 logout；今后重跑需要重新获取短期 Token，不在仓库或报告中保存凭证。
+- 一次历史 Skill smoke 报告的 Runner 只检查父任务事件而标记未通过；后续报告已验证子任务工具事件成功，应将该历史报告视为 scope 判定问题，不能作为当前 Skill 运行失败证据。
+- 语义 Judge 的人工标注样本、Rubric 校准和 Adapter 的 provider/model/prompt/rubric 版本元数据仍未齐备；语义分数继续作为建议，不进入硬门禁。
+- 按阶段范围，L5 配对快照恢复演练与扩缩容验证延期，不作为本阶段验收阻塞项。
 
 2026-09-21 已完成本地 Runner 验证：6 个 `unittest` 用例通过、Python 编译检查通过、`scripts/validate-kind-manifests.py` 返回 `KIND_MANIFESTS_OK`。随后在 `ly-MacBookAir7-2` L5 主机执行核心套件，3 个用例全部 `SUCCEEDED`，分数均为 `1.0`；脱敏报告保存在 [`eval/reports/2026-09-21-l5-core.json`](reports/2026-09-21-l5-core.json)。验收使用的临时身份映射已清理。
 

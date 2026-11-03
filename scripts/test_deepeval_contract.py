@@ -12,6 +12,7 @@ from eval.deepeval_adapter import (
     load_observation,
     load_rubric,
     render_export,
+    summarize_metric_results,
 )
 from scripts.agentteams_eval import EvalCase
 
@@ -65,10 +66,31 @@ class DeepEvalContractTest(unittest.TestCase):
         exported = render_export(self.case, self.observation)
         self.assertEqual("mcp-title", exported["caseId"])
         self.assertIn("actual_output", exported["testCase"])
+        metadata = exported["judgeMetadata"]
+        self.assertEqual("deepeval-rubric-v1", metadata["rubricVersion"])
+        self.assertEqual("core-prompt-v1", metadata["promptVersion"])
+        self.assertEqual("UNCALIBRATED", metadata["calibrationStatus"])
+        self.assertRegex(metadata["rubricSha256"], r"^[0-9a-f]{64}$")
+        self.assertIsNone(metadata["provider"])
+        self.assertIsNone(metadata["model"])
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "observation.json"
             path.write_text(json.dumps(self.observation), encoding="utf-8")
             self.assertEqual(self.observation, load_observation(path))
+
+    def test_export_records_explicit_provider_model_and_rejects_secret_metadata(self):
+        exported = render_export(
+            self.case,
+            self.observation,
+            provider="openai",
+            model="gpt-5.6-luna",
+        )
+        self.assertEqual("openai", exported["judgeMetadata"]["provider"])
+        self.assertEqual("gpt-5.6-luna", exported["judgeMetadata"]["model"])
+        with self.assertRaisesRegex(ValueError, "must not contain credentials"):
+            render_export(self.case, self.observation, provider="api_key=secret")
+        with self.assertRaisesRegex(ValueError, "must not contain credentials"):
+            render_export(self.case, self.observation, model="sk-proj-secret-token")
 
     def test_module_has_no_deepeval_import_requirement(self):
         # The contract suite intentionally runs without the optional package.
@@ -107,6 +129,19 @@ class DeepEvalContractTest(unittest.TestCase):
         call = _make_tool_call(FakeToolCall, "web_search", "MCP")
         self.assertEqual("web_search", call.name)
         self.assertEqual("MCP", call.type)
+
+    def test_semantic_result_preserves_sanitized_judge_reason(self):
+        result = summarize_metric_results(
+            [{
+                "metric": "faithfulness",
+                "score": 0.92,
+                "threshold": 0.8,
+                "reason": "Supported by sources; token=super-secret",
+            }],
+            ["source:call-1"],
+        )
+        self.assertEqual("PASSED", result["evaluationStatus"])
+        self.assertEqual("Supported by sources; token=[REDACTED]", result["results"][0]["reason"])
 
 
 if __name__ == "__main__":

@@ -1,9 +1,11 @@
 # Initial semantic rubric. Thresholds require calibration against redacted,
 # human-reviewed AgentTeams samples before they become a release gate.
 schemaVersion: deepeval-rubric-v1
+promptVersion: core-prompt-v1
 suite: core
 # Deterministic Runner assertions remain the release gate.
 hardGate: deterministic
+calibrationStatus: UNCALIBRATED
 cases:
   - id: mcp-web-search-title
     metrics:

@@ -11,6 +11,7 @@ credentials or an LLM provider.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import inspect
 import json
@@ -47,6 +48,10 @@ _SECRET_QUERY_RE = re.compile(
 )
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(api[_-]?key|password|secret|token)\s*[:=]\s*[^\s,;]+"
+)
+_SECRET_IDENTIFIER_RE = re.compile(
+    r"(?i)^(?:sk-(?:proj-|live-)?[a-z0-9_-]{12,}|gh[pousr]_[a-z0-9]{20,}|"
+    r"xox[baprs]-[a-z0-9-]{16,}|eyj[a-z0-9_-]{24,})$"
 )
 
 
@@ -208,6 +213,11 @@ def load_rubric(path: str | Path) -> dict[str, Any]:
         raise EvalError("rubric schemaVersion must be deepeval-rubric-v1")
     if rubric.get("hardGate") != "deterministic":
         raise EvalError("rubric hardGate must be deterministic")
+    prompt_version = str(rubric.get("promptVersion", "")).strip()
+    if not prompt_version:
+        raise EvalError("rubric requires promptVersion")
+    if rubric.get("calibrationStatus") not in {"UNCALIBRATED", "CALIBRATED", "REJECTED"}:
+        raise EvalError("rubric calibrationStatus must be a known calibration state")
     cases = rubric.get("cases")
     if not isinstance(cases, list) or not cases:
         raise EvalError("rubric cases must be a non-empty list")
@@ -381,14 +391,18 @@ def summarize_metric_results(metric_results: Sequence[Mapping[str, Any]],
     results: list[dict[str, Any]] = []
     for metric in metric_results:
         name = str(metric.get("metric", metric.get("name", "semantic")))
+        reason = metric.get("reason")
         score = _number(metric, ("score", "value"))
         threshold = _number(metric, ("threshold", "minimum"))
         if score is None or threshold is None:
             status = "INCONCLUSIVE"
         else:
             status = "PASSED" if score >= threshold else "FAILED"
-        results.append({"metric": name, "score": score, "threshold": threshold,
-                        "status": status, "evidenceRefs": list(evidence_refs)})
+        result = {"metric": name, "score": score, "threshold": threshold,
+                  "status": status, "evidenceRefs": list(evidence_refs)}
+        if reason is not None:
+            result["reason"] = _sanitize_text(reason)
+        results.append(result)
     if not results or any(item["status"] == "INCONCLUSIVE" for item in results):
         status = "INCONCLUSIVE"
     elif any(item["status"] == "FAILED" for item in results):
@@ -408,9 +422,34 @@ def load_observation(path: str | Path) -> dict[str, Any]:
     return dict(value)
 
 
-def render_export(case: EvalCase, observation: Mapping[str, Any]) -> dict[str, Any]:
-    return {"schemaVersion": "deepeval-v1", "caseId": case.case_id,
-            "testCase": build_test_case_payload(case, observation)}
+def _metadata_identifier(value: str | None, label: str) -> str | None:
+    if value is None:
+        return None
+    if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,119}", value)
+            or _SECRET_IDENTIFIER_RE.fullmatch(value)):
+        raise ValueError(f"{label} metadata must not contain credentials or free-form text")
+    return value
+
+
+def render_export(case: EvalCase, observation: Mapping[str, Any], *,
+                  provider: str | None = None, model: str | None = None,
+                  rubric_path: str | Path | None = None) -> dict[str, Any]:
+    rubric_file = Path(rubric_path) if rubric_path else ROOT / "eval/rubrics/core.yaml"
+    rubric = load_rubric(rubric_file)
+    rubric_hash = hashlib.sha256(rubric_file.read_bytes()).hexdigest()
+    return {
+        "schemaVersion": "deepeval-v1",
+        "caseId": case.case_id,
+        "judgeMetadata": {
+            "provider": _metadata_identifier(provider, "provider"),
+            "model": _metadata_identifier(model, "model"),
+            "promptVersion": rubric["promptVersion"],
+            "rubricVersion": rubric["schemaVersion"],
+            "rubricSha256": rubric_hash,
+            "calibrationStatus": rubric["calibrationStatus"],
+        },
+        "testCase": build_test_case_payload(case, observation),
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -419,6 +458,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--observation", required=True, help="raw AgentTeams observation JSON")
     parser.add_argument("--output", required=True, help="credential-free DeepEval JSON export")
+    parser.add_argument("--rubric", default=str(ROOT / "eval/rubrics/core.yaml"),
+                        help="versioned rubric YAML (defaults to the core rubric)")
+    parser.add_argument("--provider", help="non-secret judge provider identifier")
+    parser.add_argument("--model", help="non-secret judge model identifier")
     return parser
 
 
@@ -429,7 +472,9 @@ def main(argv: list[str] | None = None) -> int:
         case = next((item for item in cases if item.case_id == args.case_id), None)
         if case is None:
             raise EvalError(f"unknown case id: {args.case_id}")
-        exported = render_export(case, load_observation(args.observation))
+        exported = render_export(case, load_observation(args.observation),
+                                 provider=args.provider, model=args.model,
+                                 rubric_path=args.rubric)
         Path(args.output).write_text(json.dumps(exported, ensure_ascii=False, indent=2) + "\n",
                                      encoding="utf-8")
         return 0

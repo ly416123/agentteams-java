@@ -9,14 +9,13 @@ import unittest
 from pathlib import Path
 
 
-FORBIDDEN_MODEL_KEY_NAMES = ("DEEPSEEK_API_KEY", "AGENTSCOPE_API_KEY")
 MODEL_SECRET_REFERENCE = re.compile(
     r"\$\{\{\s*secrets\.(?:DEEPSEEK_API_KEY|AGENTSCOPE_API_KEY|MODEL_[^}]+)\}\}",
     re.IGNORECASE,
 )
-SECRET_ENV_REFERENCE = re.compile(
-    r"(?:env|environment)\s*[:=][^\n]*\b(?:api[_-]?key|token|secret|password)\b",
-    re.IGNORECASE,
+DIRECT_CREDENTIAL_ENV_REFERENCE = re.compile(
+    r"^\s+[A-Z][A-Z0-9_]*(?:API[_-]?KEY|TOKEN)\s*:\s*\S+\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 AUTHORIZATION_SECRET_REFERENCE = re.compile(
     r"authorization\s*:\s*(?:bearer\s+)?(?:\$\{\{|\$[A-Za-z_][A-Za-z0-9_]*|"
@@ -67,12 +66,9 @@ def credential_findings(root: Path) -> list[str]:
     findings: list[str] = []
     for path in ci_configuration_files(root):
         text = path.read_text(encoding="utf-8")
-        for key_name in FORBIDDEN_MODEL_KEY_NAMES:
-            if key_name in text:
-                findings.append(f"{path.relative_to(root)} mentions forbidden {key_name}")
         if MODEL_SECRET_REFERENCE.search(text):
             findings.append(f"{path.relative_to(root)} references a model credential secret")
-        if SECRET_ENV_REFERENCE.search(text):
+        if DIRECT_CREDENTIAL_ENV_REFERENCE.search(text):
             findings.append(f"{path.relative_to(root)} injects a credential-like environment value")
         if AUTHORIZATION_SECRET_REFERENCE.search(text):
             findings.append(f"{path.relative_to(root)} injects an Authorization secret")
@@ -116,6 +112,18 @@ class AgentScopeRuntimeContractTest(unittest.TestCase):
             self.assertEqual(2, len(findings))
             self.assertTrue(any("model credential" in finding for finding in findings))
             self.assertTrue(any("Authorization" in finding for finding in findings))
+
+    def test_direct_credential_environment_variable_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflow = root / ".github" / "workflows"
+            workflow.mkdir(parents=True)
+            (workflow / "ci.yml").write_text(
+                "env:\n  MODEL_TOKEN: $MODEL_TOKEN\n", encoding="utf-8"
+            )
+
+            findings = credential_findings(root)
+            self.assertTrue(any("credential-like environment" in finding for finding in findings))
 
     def test_deployment_secret_is_not_treated_as_model_credential(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

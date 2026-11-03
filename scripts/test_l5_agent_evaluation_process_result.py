@@ -18,6 +18,39 @@ SPEC.loader.exec_module(ENTRYPOINT)
 
 
 class L5AgentEvaluationProcessResultTest(unittest.TestCase):
+    def test_event_completeness_assertion_accepts_expected_truncation(self):
+        from scripts.agentteams_eval import EvalCase, evaluate_observation
+
+        case = EvalCase("truncated", "truncated", {},
+                        [{"type": "event_completeness", "expected": "TRUNCATED"}], {})
+        results = evaluate_observation(case, {"task": {"id": "task-a", "phase": "SUCCEEDED"},
+                                              "run": {"id": "run-a"}, "events": [],
+                                              "eventCompleteness": "TRUNCATED"})
+
+        self.assertEqual("PASSED", results[0].status)
+
+    def test_missing_dependency_negative_records_400_and_no_persisted_children(self):
+        from scripts.agentteams_eval import AgentTeamsClient
+
+        class Client(AgentTeamsClient):
+            def __init__(self):
+                self.base_url = "http://control-plane"
+                self.token = "token"
+                self.timeout = 5
+                self.transport = lambda request, timeout: (400, {},
+                    b'{"code":"VALIDATION_ERROR","message":"request validation failed"}')
+
+            def get_subtasks(self, task_id):
+                return [{"subtaskId": "existing-child", "phase": "SUCCEEDED"}]
+
+        result = ENTRYPOINT.record_missing_dependency_negative(Client(),
+            "11111111-1111-4111-8111-111111111111")
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(400, result["httpStatus"])
+        self.assertTrue(result["stateUnchanged"])
+        self.assertEqual(1, result["persistedSubtaskCount"])
+
     def test_entrypoint_rejects_missing_short_lived_token_before_network_access(self):
         stderr = io.StringIO()
         with patch.dict(os.environ, {}, clear=True), redirect_stderr(stderr):
@@ -88,6 +121,20 @@ class L5AgentEvaluationProcessResultTest(unittest.TestCase):
         self.assertEqual(case.task["scope"], bound[0].task["spec"]["scope"])
         self.assertEqual(case.task["inputJson"], bound[0].task["spec"]["inputJson"])
         self.assertNotIn("spec", case.task)
+
+    def test_binds_canonical_project_id_into_task_scope(self):
+        from scripts.agentteams_eval import EvalCase
+
+        case = EvalCase("case-a", "case-a", {"scope": {"tenant": "tenant-a", "project": "project-a",
+            "team": "team-a"}, "taskType": "agentscope", "inputJson": {"prompt": "work"},
+            "requiredCapabilities": []}, [], {})
+
+        bound = ENTRYPOINT.bind_team_id([case], "team-id", "project-id")
+
+        self.assertEqual({"tenant": "tenant-a", "project": "project-id", "team": "team-a"},
+                         bound[0].task["spec"]["scope"])
+        self.assertEqual({"tenant": "tenant-a", "project": "project-a", "team": "team-a"},
+                         case.task["scope"])
 
     def test_rejects_case_spec_bound_to_another_team(self):
         from scripts.agentteams_eval import EvalCase
