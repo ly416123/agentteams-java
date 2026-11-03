@@ -28,6 +28,10 @@ describe('state components', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('未知状态');
     expect(screen.getByRole('status')).not.toHaveTextContent('NEW_BACKEND_STATE');
+    expect(screen.getByRole('status')).not.toHaveAttribute(
+      'title',
+      expect.stringContaining('NEW_BACKEND_STATE'),
+    );
   });
 
   it('maps published lifecycle statuses to localized labels', () => {

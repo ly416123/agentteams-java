@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -302,7 +302,7 @@ describe('Task pages', () => {
     expect(screen.getByText('确定执行步骤')).toBeInTheDocument();
     expect(screen.getByText('report.md')).toBeInTheDocument();
     expect(screen.getByText('brief.pdf')).toBeInTheDocument();
-    expect(screen.getByText('来源子任务 child-task')).toBeInTheDocument();
+    expect(screen.getByText('child-task', { selector: 'code' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '下载' })).toHaveAttribute(
       'href',
       'http://files.example/brief.pdf?sig=short-lived',
@@ -313,14 +313,28 @@ describe('Task pages', () => {
   it('clearly marks the selected run and focuses its execution overview when switching runs', async () => {
     vi.mocked(getTaskRuns).mockResolvedValueOnce([
       {
-        id: 'run-1', taskId: 'task-1', status: 'SUCCEEDED', startedAt: '2026-08-29T02:00:00Z',
-        completedAt: '2026-08-29T02:01:00Z', createdAt: '2026-08-29T02:00:00Z',
-        updatedAt: '2026-08-29T02:01:00Z', version: 1, resultStatus: null, resultSummary: null,
+        id: 'run-1',
+        taskId: 'task-1',
+        status: 'SUCCEEDED',
+        startedAt: '2026-08-29T02:00:00Z',
+        completedAt: '2026-08-29T02:01:00Z',
+        createdAt: '2026-08-29T02:00:00Z',
+        updatedAt: '2026-08-29T02:01:00Z',
+        version: 1,
+        resultStatus: null,
+        resultSummary: null,
       },
       {
-        id: 'run-2', taskId: 'task-1', status: 'SUCCEEDED', startedAt: '2026-08-29T01:00:00Z',
-        completedAt: '2026-08-29T01:01:00Z', createdAt: '2026-08-29T01:00:00Z',
-        updatedAt: '2026-08-29T01:01:00Z', version: 1, resultStatus: null, resultSummary: null,
+        id: 'run-2',
+        taskId: 'task-1',
+        status: 'SUCCEEDED',
+        startedAt: '2026-08-29T01:00:00Z',
+        completedAt: '2026-08-29T01:01:00Z',
+        createdAt: '2026-08-29T01:00:00Z',
+        updatedAt: '2026-08-29T01:01:00Z',
+        version: 1,
+        resultStatus: null,
+        resultSummary: null,
       },
     ]);
     const scrollIntoView = vi.fn();
@@ -332,7 +346,10 @@ describe('Task pages', () => {
       expect(await screen.findByText('当前运行')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('link', { name: '查看运行' }));
 
-      expect(await screen.findByText('执行观测 / 运行 run-2')).toBeInTheDocument();
+      const executionRegion = screen.getByRole('region', { name: '执行总览' });
+      expect(
+        await within(executionRegion).findByText('run-2', { selector: 'code' }),
+      ).toBeInTheDocument();
       expect(screen.getByText('当前运行')).toBeInTheDocument();
       expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
     } finally {
@@ -464,7 +481,10 @@ describe('Task pages', () => {
 
     renderWithQuery(<TaskDetailPage projectId="p-1" taskId="task-1" />);
     expect(await screen.findByText('已排队')).toBeInTheDocument();
-    expect(await screen.findByText('Worker 已开始执行')).toBeInTheDocument();
+    const processRegion = screen.getByRole('region', { name: '实时执行过程' });
+    expect(
+      await within(processRegion).findByText('Worker 已开始执行', { exact: true }),
+    ).toBeInTheDocument();
     await waitFor(
       () => {
         expect(screen.queryByText('事件流已断开，正在重连')).not.toBeInTheDocument();

@@ -28,6 +28,7 @@ const STATUS: Record<string, LabelMeta> = {
   EXECUTION: { label: '执行阶段', tone: 'info', priority: 30 },
   QUEUED: { label: '排队中', tone: 'info', priority: 40 },
   INCONCLUSIVE: { label: '证据不完整', tone: 'warning', priority: 70 },
+  PASSED: { label: '通过', tone: 'success', priority: 10 },
   PAUSED: { label: '已暂停', tone: 'warning', priority: 50 },
   ASSIGNED: { label: '已分配', tone: 'info', priority: 30 },
   ACCEPTED: { label: '已接收', tone: 'info', priority: 30 },
@@ -56,6 +57,12 @@ const STATUS: Record<string, LabelMeta> = {
   WARNING: { label: '警告', tone: 'warning', priority: 60 },
   CRITICAL: { label: '严重', tone: 'danger', priority: 90 },
   STALE: { label: '已过期', tone: 'warning', priority: 70 },
+  EXPIRED: { label: '已过期', tone: 'warning', priority: 80 },
+  UNKNOWN: { label: '状态未知', tone: 'neutral', priority: 80 },
+  NOT_COLLECTED: { label: '未采集', tone: 'neutral', priority: 80 },
+  NOT_CONFIGURED: { label: '未配置', tone: 'neutral', priority: 70 },
+  NOT_SUPPORTED: { label: '暂不支持', tone: 'neutral', priority: 80 },
+  UNSUPPORTED: { label: '暂不支持', tone: 'neutral', priority: 80 },
   SENT: { label: '已发送', tone: 'success', priority: 10 },
   DISABLED: { label: '已禁用', tone: 'neutral', priority: 70 },
   DELETED: { label: '已删除', tone: 'neutral', priority: 90 },
@@ -145,6 +152,11 @@ const TYPE: Record<string, string> = {
   'TASK.FAILED': '任务失败',
   'TASK.PROCESS': '任务处理中',
   'TASK.RESULT': '任务结果',
+  'MESSAGE.COMPLETED': '回复完成',
+  'MESSAGE.DELTA': '回复生成中',
+  'CONVERSATION.STARTED': '对话已开始',
+  'CONVERSATION.CANCELLED': '对话已取消',
+  'CONVERSATION.MESSAGE': '对话消息',
   // 过程事件流（task_process_events.event_type）的小写点号类型。
   'TASK.STARTED': '任务启动',
   'TASK.PROGRESS': '任务执行中',
@@ -203,12 +215,18 @@ function normalized(value: unknown): string {
 
 export function labelStatus(value: unknown): string {
   const key = normalized(value);
-  return STATUS[key]?.label ?? (key ? '未知状态' : '未知状态');
+  return STATUS[key]?.label ?? (key ? '未知状态' : '未提供状态');
 }
 
 export function statusMeta(value: unknown): LabelMeta {
   const key = normalized(value);
-  return STATUS[key] ?? { label: '未知状态', tone: 'neutral', priority: 999 };
+  return (
+    STATUS[key] ?? {
+      label: key ? '未知状态' : '未提供状态',
+      tone: 'neutral',
+      priority: 999,
+    }
+  );
 }
 
 export function labelPhase(value: unknown): string {
@@ -221,7 +239,7 @@ export function labelSource(value: unknown): string {
   return SOURCE[normalized(value)] ?? (value ? '未知来源' : '未知来源');
 }
 export function labelType(value: unknown): string {
-  return TYPE[normalized(value)] ?? (value ? '未知类型' : '未知类型');
+  return TYPE[normalized(value)] ?? '未知类型';
 }
 export function labelRole(value: unknown): string {
   return ROLE[normalized(value)] ?? (value ? '未知角色' : '未知角色');

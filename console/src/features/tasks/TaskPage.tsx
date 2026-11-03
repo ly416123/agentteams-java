@@ -7,6 +7,7 @@ import { TaskBoard } from './TaskBoard';
 import { TaskTable } from './TaskTable';
 import { CursorPagination } from '../../components/CursorPagination';
 import { TASK_PHASES, type TaskPhase } from '../../api/types';
+import { labelStatus } from '../../i18n/labels';
 
 export function TaskPage({ projectId }: { projectId: string }) {
   const [view, setView] = useState<'board' | 'table'>('board');
@@ -21,7 +22,7 @@ export function TaskPage({ projectId }: { projectId: string }) {
     setCursorHistory([]);
   }, [search, phase, view]);
   return (
-    <div className="page">
+    <div className="page task-page">
       <div className="page-heading">
         <div>
           <p className="eyebrow">资源 / 任务</p>
@@ -46,7 +47,7 @@ export function TaskPage({ projectId }: { projectId: string }) {
           <option value="">全部状态</option>
           {TASK_PHASES.map((taskPhase) => (
             <option value={taskPhase} key={taskPhase}>
-              {taskPhase}
+              {labelStatus(taskPhase)}
             </option>
           ))}
         </select>
@@ -83,7 +84,10 @@ export function TaskPage({ projectId }: { projectId: string }) {
           }
         />
       ) : view === 'board' ? (
-        <TaskBoard projectId={projectId} tasks={items} />
+        <>
+          <p className="muted-text task-board-hint">看板可横向滚动，查看全部任务状态。</p>
+          <TaskBoard projectId={projectId} tasks={items} />
+        </>
       ) : (
         <TaskTable projectId={projectId} tasks={items} />
       )}

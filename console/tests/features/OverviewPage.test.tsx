@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { OverviewPage } from '../../src/features/overview/OverviewPage';
@@ -31,7 +31,9 @@ describe('OverviewPage', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText('24')).toBeInTheDocument();
-    expect(screen.getByText('15')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: '核心指标' })).getByText('15'),
+    ).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.getAllByText('2')).toHaveLength(2);
     expect(screen.getByText('3 个执行中')).toBeInTheDocument();

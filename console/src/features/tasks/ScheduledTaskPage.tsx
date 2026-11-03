@@ -14,6 +14,8 @@ import { useProjects } from '../../queries/useProjectQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelStatus } from '../../i18n/labels';
+import { IdDisplay } from '../../components/IdDisplay';
+import { formatDateTime } from '../../utils/formatters';
 
 export function ScheduledTaskPage({ projectId }: { projectId: string }) {
   const projects = useProjects();
@@ -116,7 +118,9 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
           <h1>定时任务</h1>
           <p>查看调度定义、每次执行结果，并区分暂停调度与取消当前运行。</p>
         </div>
-        <span className="version-pill">组织 {organizationId}</span>
+        <span className="version-pill">
+          组织 <IdDisplay value={organizationId} />
+        </span>
       </div>
       {Boolean(error) && <ErrorState error={error} />}
       {!schedules.length ? (
@@ -171,12 +175,23 @@ export function ScheduledTaskPage({ projectId }: { projectId: string }) {
                       <article className="stack-list__item" key={run.id}>
                         <div>
                           <strong>{labelStatus(run.status)}</strong>
-                          <div className="muted-text">
-                            {new Date(run.occurrenceAt).toLocaleString('zh-CN')}
-                          </div>
+                          <div className="muted-text">{formatDateTime(run.occurrenceAt)}</div>
                         </div>
                         <div>
-                          {run.resultSummary || run.resultStatus || run.taskPhase || '等待结果'}
+                          <div>执行记录：{labelStatus(run.status)}</div>
+                          <div>
+                            关联任务：{run.taskPhase ? labelStatus(run.taskPhase) : '尚无任务状态'}
+                          </div>
+                          {run.resultStatus && <div>结果：{labelStatus(run.resultStatus)}</div>}
+                          {run.resultSummary && <p className="muted-text">{run.resultSummary}</p>}
+                          {run.status === 'TRIGGERED' && run.taskPhase === 'DRAFT' && (
+                            <p className="warning-text">
+                              调度已触发，但关联任务仍是草稿，尚未进入执行队列。
+                            </p>
+                          )}
+                          <small>
+                            任务 <IdDisplay value={run.taskId} />
+                          </small>
                         </div>
                         <div className="form-actions">
                           <Link

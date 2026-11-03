@@ -41,8 +41,7 @@ export type EvaluationReport = {
 };
 
 export type EvaluationReportResponse =
-  | EvaluationReport
-  | { report: EvaluationReport; results: EvaluationResult[] };
+  EvaluationReport | { report: EvaluationReport; results: EvaluationResult[] };
 
 export type EvaluationRunRequest = {
   id?: string;
@@ -96,6 +95,7 @@ export type Project = {
   name: string;
   status: string;
   createdBy: string;
+  version: number;
 };
 
 export type Team = {

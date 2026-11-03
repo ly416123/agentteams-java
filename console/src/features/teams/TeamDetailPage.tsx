@@ -4,7 +4,9 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelRuntime, labelType } from '../../i18n/labels';
+import { IdDisplay } from '../../components/IdDisplay';
 import { Timeline } from '../../components/Timeline';
+import { formatDateTime } from '../../utils/formatters';
 import {
   useTeam,
   useTeamDeployments,
@@ -181,7 +183,14 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
             <h2>资源摘要</h2>
             <div className="detail-list">
               <span>
-                负责人<strong>{team.data.leaderAgentId || '未设置'}</strong>
+                负责人
+                <strong>
+                  {team.data.leaderAgentId ? (
+                    <IdDisplay value={team.data.leaderAgentId} />
+                  ) : (
+                    '未设置'
+                  )}
+                </strong>
               </span>
               <span>
                 Agent 数量<strong>{team.data.agentCount ?? '—'}</strong>
@@ -277,7 +286,9 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
             members.data.map((member) => (
               <div className="member-row" key={member.id}>
                 <div>
-                  <strong>{member.agentId}</strong>
+                  <strong>
+                    <IdDisplay value={member.agentId} />
+                  </strong>
                   <small>
                     {labelRuntime(member.runtime)} · {(member.capabilities || []).join('、')}
                     {workerById.get(member.agentId)?.workerType
@@ -643,8 +654,7 @@ export function TeamDetailPage({ projectId, teamId }: { projectId: string; teamI
                     <div>
                       <strong>Deployment #{deployment.id}</strong>
                       <small>
-                        Revision {deployment.teamRevision} ·{' '}
-                        {new Date(deployment.createdAt).toLocaleString('zh-CN')}
+                        Revision {deployment.teamRevision} · {formatDateTime(deployment.createdAt)}
                       </small>
                     </div>
                     <StatusBadge phase={deployment.status} />

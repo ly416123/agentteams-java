@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 import { useTaskDecisions, useTaskResult, useTaskTree } from '../../queries/useTaskQueries';
 import type { Task, TaskProcessEvent, TaskTreeNode } from '../../api/types';
 import { TaskDag } from './TaskDag';
+import { RawDataDisclosure } from '../../components/RawDataDisclosure';
+import { formatDateTime } from '../../utils/formatters';
+import { IdDisplay } from '../../components/IdDisplay';
+import { labelType } from '../../i18n/labels';
 
 type TabName = 'events' | 'artifacts' | 'decisions' | 'details';
 const TABS: Array<{ name: TabName; label: string }> = [
@@ -61,8 +65,8 @@ export function processEventSummary(event: { eventType: string; payload?: string
     const data = JSON.parse(event.payload) as Record<string, unknown>;
     if (typeof data.tool === 'string' && event.eventType === 'tool.called') return data.tool;
     if (typeof data.tool === 'string' && event.eventType === 'tool.finished') {
-      const ms = typeof data.elapsedMs === 'number' ? `${data.elapsedMs}ms` : '—';
-      return `${data.tool} · ${ms} · ${data.ok === false ? '失败' : '成功'}`;
+      const duration = typeof data.elapsedMs === 'number' ? `${data.elapsedMs} 毫秒` : '—';
+      return `${data.tool} · ${duration} · ${data.ok === false ? '失败' : '成功'}`;
     }
     if (event.eventType.startsWith('subtask.')) {
       const meta = subtaskPayload(data);
@@ -71,9 +75,12 @@ export function processEventSummary(event: { eventType: string; payload?: string
         : (meta.subtaskId?.slice(0, 8) ?? '');
       return meta.note ? `${head} · ${meta.note}` : head;
     }
-    return event.payload;
+    const readable = ['message', 'summary', 'reason', 'status', 'note', 'tool']
+      .map((key) => data[key])
+      .find((value) => typeof value === 'string');
+    return typeof readable === 'string' ? readable : '事件详情已记录';
   } catch {
-    return event.payload;
+    return '事件详情已记录';
   }
 }
 
@@ -260,7 +267,10 @@ export function TaskInfoPanel({
               <li key={event.eventId}>
                 <strong>{PROCESS_EVENT_LABELS[event.eventType] || event.eventType}</strong>
                 <span className="muted-text">{processEventSummary(event)}</span>
-                <time>{new Date(event.occurredAt).toLocaleTimeString('zh-CN')}</time>
+                {event.payload && (
+                  <RawDataDisclosure label="查看原始事件数据" value={event.payload} />
+                )}
+                <time>{formatDateTime(event.occurredAt)}</time>
               </li>
             ))}
           </ul>
@@ -272,7 +282,7 @@ export function TaskInfoPanel({
               <li key={`${artifact.name}-${artifact.version}`}>
                 <strong>{artifact.name}</strong>
                 <span className="muted-text">
-                  {artifact.contentType} · {artifact.sizeBytes} B
+                  {artifact.contentType} · {formatArtifactBytes(artifact.sizeBytes)}
                 </span>
               </li>
             ))}
@@ -292,16 +302,16 @@ export function TaskInfoPanel({
         {tab === 'details' && (
           <div className="detail-list">
             <span>
-              任务类型<strong>{task.taskType || 'NORMAL'}</strong>
+              任务类型<strong>{task.taskType ? labelType(task.taskType) : '普通任务'}</strong>
             </span>
             <span>
               优先级<strong>P{task.priority}</strong>
             </span>
             <span>
-              团队<strong>{task.teamId || '未绑定'}</strong>
+              团队<strong>{task.teamId ? <IdDisplay value={task.teamId} /> : '未绑定'}</strong>
             </span>
             <span>
-              创建时间<strong>{new Date(task.createdAt).toLocaleString('zh-CN')}</strong>
+              创建时间<strong>{formatDateTime(task.createdAt)}</strong>
             </span>
             {source?.conversationId && (
               <span data-testid="source-backlink">
@@ -318,4 +328,10 @@ export function TaskInfoPanel({
       </section>
     </aside>
   );
+}
+
+function formatArtifactBytes(value: number) {
+  if (value < 1024) return `${value} 字节`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }

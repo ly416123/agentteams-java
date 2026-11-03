@@ -9,10 +9,17 @@ export class ApiError extends Error {
   readonly details?: Record<string, unknown>;
 
   constructor(status: number, payload: ApiErrorShape) {
-    super(payload.message || '请求失败');
+    const code = payload.code || codeForStatus(status);
+    const message =
+      status === 401 || code === 'UNAUTHENTICATED'
+        ? '登录凭证已失效，请重新登录后再试。'
+        : status === 403 || code === 'FORBIDDEN'
+          ? '当前账号没有权限执行此操作。'
+          : payload.message || '请求失败';
+    super(message);
     this.name = 'ApiError';
     this.status = status;
-    this.code = payload.code || codeForStatus(status);
+    this.code = code;
     this.correlationId = payload.correlationId;
     this.details = payload.details;
   }

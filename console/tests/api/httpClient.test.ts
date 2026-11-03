@@ -50,4 +50,25 @@ describe('HTTP client', () => {
     } satisfies Partial<ApiError>);
     vi.restoreAllMocks();
   });
+
+  it('replaces forbidden response details with a safe user-facing message', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'FORBIDDEN',
+          message: 'database row for subject alice is outside org b',
+          details: { subject: 'alice', organizationId: 'org-b' },
+        }),
+        { status: 403 },
+      ),
+    );
+    const client = createHttpClient();
+
+    await expect(client.request('/api/v1/management/roles')).rejects.toMatchObject({
+      status: 403,
+      code: 'FORBIDDEN',
+      message: '当前账号没有权限执行此操作。',
+    });
+    vi.restoreAllMocks();
+  });
 });

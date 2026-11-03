@@ -14,6 +14,8 @@ import {
 } from '../../queries/useTaskQueries';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { formatDateTime } from '../../utils/formatters';
+import { IdDisplay } from '../../components/IdDisplay';
 import { Timeline } from '../../components/Timeline';
 import { VersionConflictModal } from '../../components/VersionConflictModal';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
@@ -142,6 +144,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
           <p className="eyebrow">任务详情</p>
           <h1>{task.data.title}</h1>
           <p>{task.data.description}</p>
+          <p className="muted-text">
+            任务 ID <IdDisplay value={task.data.id} />
+          </p>
         </div>
         <div className="detail-actions">
           <StatusBadge phase={task.data.phase} />
@@ -257,7 +262,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
             {execution.data.map((item) => (
               <article className="stack-list__item" key={item.attempt.id}>
                 <div>
-                  <strong>{item.attempt.id}</strong>
+                  <strong>
+                    <IdDisplay value={item.attempt.id} />
+                  </strong>
                   <div className="muted-text">
                     {item.attempt.actor} · {labelSource(item.attempt.source)} · 版本{' '}
                     {item.attempt.version}
@@ -309,7 +316,9 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
               <article className="stack-list__item" key={run.id}>
                 <div>
                   <strong>{labelStatus(run.status)}</strong>
-                  <div className="muted-text">Run {run.id}</div>
+                  <div className="muted-text">
+                    运行 <IdDisplay value={run.id} />
+                  </div>
                 </div>
                 <div>
                   {run.resultSummary || run.resultStatus || '暂无终态结果摘要'}
@@ -396,7 +405,7 @@ export function TaskDetailPage({ projectId, taskId }: { projectId: string; taskI
 }
 
 function formatRecoveryTime(value?: string | null) {
-  return value ? new Date(value).toLocaleString('zh-CN') : '不再自动重试';
+  return value ? formatDateTime(value) : '不再自动重试';
 }
 
 function RunCheckpoints({

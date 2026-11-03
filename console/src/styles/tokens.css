@@ -1,4 +1,5 @@
 :root {
+  --canvas: #08121d;
   --ink: #e8f0f7;
   --muted: #8fa5b7;
   --line: rgb(154 185 204 / 14%);
@@ -6,6 +7,7 @@
   --panel-soft: rgb(20 39 57 / 70%);
   --surface: #0d1c2b;
   --accent: #8de0cf;
+  --accent-soft: rgb(141 224 207 / 10%);
   --info: #79b9ee;
   --warning: #f4c978;
   --danger: #f18f8f;

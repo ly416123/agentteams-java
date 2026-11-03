@@ -578,7 +578,9 @@ test('real OIDC project page creates a project in the current tenant', async ({ 
   });
 
   await page.goto('/console');
-  await expect.poll(() => page.evaluate(() => typeof globalThis.crypto?.randomUUID)).toBe('undefined');
+  await expect
+    .poll(() => page.evaluate(() => typeof globalThis.crypto?.randomUUID))
+    .toBe('undefined');
   await expect(page).toHaveURL(/\/login$/);
   await page.getByRole('button', { name: '使用组织账号登录' }).click();
   await expect(page).toHaveURL(
@@ -791,9 +793,7 @@ test('real OIDC team leader worker conversation task execution and artifact quer
   let leaderDetailVerified = false;
   await page.goto(`/${projectPath}/workers`);
   await page.getByPlaceholder('搜索工作节点').fill('template-worker-');
-  await expect
-    .poll(() => page.locator('tbody tr').count(), { timeout: 15_000 })
-    .toBeGreaterThan(0);
+  await expect.poll(() => page.locator('tbody tr').count(), { timeout: 15_000 }).toBeGreaterThan(0);
   const readyLeaderRows = page
     .locator('tbody tr')
     .filter({ hasText: '负责人工作节点' })
@@ -821,7 +821,10 @@ test('real OIDC team leader worker conversation task execution and artifact quer
     // If old Worker detail records are no longer visible, reuse a Leader that is
     // already configured in team-a before provisioning another slow Worker.
     await page.goto(`/${projectPath}/teams`);
-    const teamLinkForLeader = page.getByRole('link').filter({ hasText: /team-a/ }).first();
+    const teamLinkForLeader = page
+      .getByRole('link')
+      .filter({ hasText: /team-a/ })
+      .first();
     await expect(teamLinkForLeader).toBeVisible({ timeout: 10_000 });
     await teamLinkForLeader.click();
     await page.getByRole('tab', { name: '成员 Agent' }).click();
@@ -855,9 +858,15 @@ test('real OIDC team leader worker conversation task execution and artifact quer
       .locator('#revision-template option')
       .filter({ hasText: templateDisplayName });
     await expect(templateOption).toHaveCount(1);
-    await page.locator('#revision-template').selectOption((await templateOption.getAttribute('value'))!);
+    await page
+      .locator('#revision-template')
+      .selectOption((await templateOption.getAttribute('value'))!);
     await page.getByLabel('工作节点规格 JSON').fill(
-      JSON.stringify({ runtime: 'agentscope', modelProvider: 'deepseek', modelName: 'deepseek-chat' }),
+      JSON.stringify({
+        runtime: 'agentscope',
+        modelProvider: 'deepseek',
+        modelName: 'deepseek-chat',
+      }),
     );
     await page.getByRole('button', { name: '创建版本' }).click();
     await expect(page.getByText(/版本 \d+ 已创建/)).toBeVisible();
@@ -895,22 +904,33 @@ test('real OIDC team leader worker conversation task execution and artifact quer
     leaderDetailVerified = true;
   }
   if (leaderDetailVerified) {
-    await expect(page.getByRole('heading', { name: /template-worker-/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: /template-worker-/ })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText('负责人工作节点')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole('status').filter({ hasText: '就绪' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('status').filter({ hasText: '就绪' })).toBeVisible({
+      timeout: 30_000,
+    });
   }
   expect(leaderId).toMatch(/^[0-9a-f-]{36}$/i);
 
   // Reuse a ready EXECUTOR already registered in this project for task execution.
   await page.goto(`/${projectPath}/workers`);
-  const executorRow = page.locator('tbody tr').filter({ hasText: '执行工作节点' }).filter({ hasText: '就绪' }).first();
+  const executorRow = page
+    .locator('tbody tr')
+    .filter({ hasText: '执行工作节点' })
+    .filter({ hasText: '就绪' })
+    .first();
   await expect(executorRow).toBeVisible({ timeout: 20_000 });
   const executorHref = await executorRow.getByRole('link').getAttribute('href');
   const executorId = executorHref!.split('/').pop()!;
 
   // 2. Add the leader to team-a and publish/deploy a team revision.
   await page.goto(`/${projectPath}/teams`);
-  const teamLink = page.getByRole('link').filter({ hasText: /team-a/ }).first();
+  const teamLink = page
+    .getByRole('link')
+    .filter({ hasText: /team-a/ })
+    .first();
   await expect(teamLink).toBeVisible({ timeout: 10_000 });
   await teamLink.click();
   await expect(page.getByRole('heading', { name: /team-a/ })).toBeVisible();
@@ -940,7 +960,10 @@ test('real OIDC team leader worker conversation task execution and artifact quer
   await page.getByRole('button', { name: '创建版本草稿' }).click();
   await expect(page.getByText('Team Revision 草稿已创建')).toBeVisible({ timeout: 15_000 });
 
-  const revisionRow = page.locator('.member-row').filter({ hasText: /版本 \d+/ }).last();
+  const revisionRow = page
+    .locator('.member-row')
+    .filter({ hasText: /版本 \d+/ })
+    .last();
   await expect(revisionRow).toContainText('草稿');
   // L5 的团队详情页存在覆盖表单面板，普通坐标点击会被面板拦截；
   // 直接对已定位的业务按钮派发 click，仍然走 React handler 和真实 API。
@@ -965,7 +988,9 @@ test('real OIDC team leader worker conversation task execution and artifact quer
   await page.goto(`/${projectPath}/conversations/new`);
   await expect(page.getByRole('heading', { name: '选择对话团队' })).toBeVisible();
   await page.getByRole('button', { name: 'team-a', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '工作节点对话' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: '工作节点对话' })).toBeVisible({
+    timeout: 15_000,
+  });
   const conversationText = `Playwright team conversation ${suffix}`;
   const transcript = page.getByRole('region', { name: '对话记录' });
   await page.getByRole('textbox', { name: '输入消息' }).fill(conversationText);
@@ -977,7 +1002,10 @@ test('real OIDC team leader worker conversation task execution and artifact quer
   await page.goto(`/${projectPath}/tasks/new`);
   await page.reload();
   await expect(page.getByRole('heading', { name: '创建任务' })).toBeVisible();
-  const taskTeamOption = page.getByLabel('任务团队').locator('option').filter({ hasText: 'team-a' });
+  const taskTeamOption = page
+    .getByLabel('任务团队')
+    .locator('option')
+    .filter({ hasText: 'team-a' });
   await expect(taskTeamOption).toHaveCount(1, { timeout: 15_000 });
   await page.getByLabel('任务团队').selectOption((await taskTeamOption.getAttribute('value'))!);
   const taskTitle = `Playwright task execution ${suffix}`;
@@ -1000,12 +1028,15 @@ test('real OIDC team leader worker conversation task execution and artifact quer
   const origin = new URL(page.url()).origin;
   await expect.poll(() => authorization).toMatch(/^Bearer /);
   const browserGet = async (url: string) =>
-    page.evaluate(async ({ target, token }) => {
-      const response = await fetch(target, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return { ok: response.ok, status: response.status, body: await response.text() };
-    }, { target: url, token: authorization.slice('Bearer '.length) });
+    page.evaluate(
+      async ({ target, token }) => {
+        const response = await fetch(target, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        return { ok: response.ok, status: response.status, body: await response.text() };
+      },
+      { target: url, token: authorization.slice('Bearer '.length) },
+    );
   await expect
     .poll(
       async () => {
@@ -1036,14 +1067,15 @@ test('real OIDC team leader worker conversation task execution and artifact quer
   await expect(page.getByRole('heading', { name: '运行结果与成果物' })).toBeVisible();
 
   // 5. Validate the result manifest and artifact listing through Playwright's authenticated request context.
-  const attemptCard = page.locator('article.stack-list__item').filter({ hasText: '分配记录' }).first();
+  const attemptCard = page
+    .locator('article.stack-list__item')
+    .filter({ hasText: '分配记录' })
+    .first();
   const attemptId = (await attemptCard.locator('strong').first().innerText()).trim();
   const runLink = page.getByRole('link', { name: '查看运行' }).first();
   const runHref = await runLink.getAttribute('href');
   const runId = new URL(runHref!, new URL(page.url()).origin).searchParams.get('runId')!;
-  const resultResponse = await browserGet(
-    `${origin}/api/v1/tasks/${taskId}/runs/${runId}/result`,
-  );
+  const resultResponse = await browserGet(`${origin}/api/v1/tasks/${taskId}/runs/${runId}/result`);
   expect(resultResponse.ok).toBeTruthy();
   const resultManifest = JSON.parse(resultResponse.body);
   expect(resultManifest.status).toBe('SUCCEEDED');
@@ -1053,7 +1085,9 @@ test('real OIDC team leader worker conversation task execution and artifact quer
     `${origin}/api/v1/tasks/${taskId}/attempts/${attemptId}/artifacts`,
   );
   if (!artifactResponse.ok) {
-    throw new Error(`artifact query failed: HTTP_${artifactResponse.status} ${artifactResponse.body}`);
+    throw new Error(
+      `artifact query failed: HTTP_${artifactResponse.status} ${artifactResponse.body}`,
+    );
   }
   expect(Array.isArray(JSON.parse(artifactResponse.body))).toBeTruthy();
   await page.goto(`/${projectPath}/artifacts`);

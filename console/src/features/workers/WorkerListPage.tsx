@@ -7,6 +7,8 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { useWorkers } from '../../queries/useWorkerQueries';
 import { CursorPagination } from '../../components/CursorPagination';
 import { labelRuntime, labelType } from '../../i18n/labels';
+import { IdDisplay } from '../../components/IdDisplay';
+import { formatDateTime } from '../../utils/formatters';
 
 export function WorkerListPage({ projectId }: { projectId: string }) {
   const [search, setSearch] = useState('');
@@ -62,7 +64,9 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
               render: (worker) => (
                 <Link className="resource-link" to={`/${projectId}/workers/${worker.id}`}>
                   <strong>{worker.name}</strong>
-                  <small>{worker.id}</small>
+                  <small>
+                    <IdDisplay value={worker.id} />
+                  </small>
                 </Link>
               ),
             },
@@ -94,12 +98,16 @@ export function WorkerListPage({ projectId }: { projectId: string }) {
                   </span>
                 )),
             },
-            { key: 'task', header: '当前任务', render: (worker) => worker.currentTaskId || '空闲' },
+            {
+              key: 'task',
+              header: '当前任务',
+              render: (worker) =>
+                worker.currentTaskId ? <IdDisplay value={worker.currentTaskId} /> : '空闲',
+            },
             {
               key: 'heartbeat',
               header: '最近心跳',
-              render: (worker) =>
-                worker.lastHeartbeat ? new Date(worker.lastHeartbeat).toLocaleString('zh-CN') : '—',
+              render: (worker) => formatDateTime(worker.lastHeartbeat),
             },
           ]}
         />

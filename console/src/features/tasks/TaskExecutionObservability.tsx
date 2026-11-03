@@ -2,6 +2,9 @@ import type { TaskProcessEvent } from '../../api/types';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelDecision, labelType } from '../../i18n/labels';
+import { RawDataDisclosure } from '../../components/RawDataDisclosure';
+import { formatDateTime } from '../../utils/formatters';
+import { IdDisplay } from '../../components/IdDisplay';
 import {
   useTaskDecisions,
   useTaskProgress,
@@ -47,7 +50,9 @@ export function TaskExecutionObservability({
       <section className="panel" id="task-execution-overview" aria-label="执行总览">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">执行观测 / 运行 {runId}</p>
+            <p className="eyebrow">
+              执行观测 / 运行 <IdDisplay value={runId} />
+            </p>
             <h2>执行总览</h2>
           </div>
           {progress.data && <StatusBadge phase={progress.data.phase} />}
@@ -103,8 +108,11 @@ export function TaskExecutionObservability({
                 <div>
                   <strong>{labelType(event.eventType)}</strong>
                   <p>{summarizePayload(event.payload, event.payloadRef)}</p>
+                  {event.payload && (
+                    <RawDataDisclosure label="查看原始事件数据" value={event.payload} />
+                  )}
                   <time>
-                    {new Date(event.occurredAt).toLocaleString('zh-CN')} · 序号 {event.sequence}
+                    {formatDateTime(event.occurredAt)} · 序号 {event.sequence}
                   </time>
                 </div>
               </li>
@@ -130,11 +138,17 @@ export function TaskExecutionObservability({
               <article className="stack-list__item" key={`${node.taskId}-${node.sequence}`}>
                 <div>
                   <strong>
-                    {node.parentTaskId ? '子任务' : '主任务'} · {node.taskId}
+                    {node.parentTaskId ? '子任务' : '主任务'} · <IdDisplay value={node.taskId} />
                   </strong>
                   <div className="muted-text">
-                    {node.parentTaskId ? `父任务 ${node.parentTaskId}` : '根任务'} · 更新于{' '}
-                    {new Date(node.updatedAt).toLocaleString('zh-CN')}
+                    {node.parentTaskId ? (
+                      <>
+                        父任务 <IdDisplay value={node.parentTaskId} /> ·{' '}
+                      </>
+                    ) : (
+                      '根任务 · '
+                    )}
+                    更新于 {formatDateTime(node.updatedAt)}
                   </div>
                 </div>
                 <StatusBadge phase={node.status} />
@@ -170,8 +184,7 @@ export function TaskExecutionObservability({
                   {decision.confidence == null
                     ? '未提供置信度'
                     : `置信度 ${(decision.confidence * 100).toFixed(0)}%`}{' '}
-                  · {labelDecision(decision.visibility)} ·{' '}
-                  {new Date(decision.createdAt).toLocaleString('zh-CN')}
+                  · {labelDecision(decision.visibility)} · {formatDateTime(decision.createdAt)}
                 </div>
               </article>
             ))}
@@ -216,7 +229,9 @@ export function TaskExecutionObservability({
                         </td>
                         <td>
                           {artifact.sourceTaskId ? (
-                            <span>来源子任务 {artifact.sourceTaskId}</span>
+                            <span>
+                              来源子任务 <IdDisplay value={artifact.sourceTaskId} />
+                            </span>
                           ) : (
                             <span className="muted-text">父任务产物</span>
                           )}
@@ -262,9 +277,9 @@ function summarizePayload(payload?: string | null, payloadRef?: string | null) {
     const value = JSON.parse(payload) as Record<string, unknown>;
     const summary = value.message || value.summary || value.reason || value.status;
     if (typeof summary === 'string') return summary;
-    return JSON.stringify(value);
+    return '事件详情已记录';
   } catch {
-    return payload;
+    return '事件详情已记录';
   }
 }
 

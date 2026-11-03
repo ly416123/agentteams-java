@@ -48,7 +48,10 @@ test('real OIDC complex team task generates multiple artifacts and records token
 
   // 1. team-a 必须已配置多角色成员（1 个负责人 + 至少 2 个执行者），这是团队任务分配的前提。
   await page.goto(`/${projectPath}/teams`);
-  const teamLink = page.getByRole('link').filter({ hasText: /team-a/ }).first();
+  const teamLink = page
+    .getByRole('link')
+    .filter({ hasText: /team-a/ })
+    .first();
   await expect(teamLink).toBeVisible({ timeout: 10_000 });
   await teamLink.click();
   await expect(page.getByRole('heading', { name: /team-a/ })).toBeVisible();
@@ -60,12 +63,15 @@ test('real OIDC complex team task generates multiple artifacts and records token
   const origin = new URL(page.url()).origin;
   await expect.poll(() => authorization).toMatch(/^Bearer /);
   const browserGet = async (url: string) =>
-    page.evaluate(async ({ target, token }) => {
-      const response = await fetch(target, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return { ok: response.ok, status: response.status, body: await response.text() };
-    }, { target: url, token: authorization.slice('Bearer '.length) });
+    page.evaluate(
+      async ({ target, token }) => {
+        const response = await fetch(target, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        return { ok: response.ok, status: response.status, body: await response.text() };
+      },
+      { target: url, token: authorization.slice('Bearer '.length) },
+    );
   const membersResponse = await browserGet(
     `${origin}/api/v1/teams/${teamId}/members?projectId=${projectPath.split('/').pop()}`,
   );
@@ -83,29 +89,33 @@ test('real OIDC complex team task generates multiple artifacts and records token
     members.filter((member) => member.role === 'EXECUTOR').length,
     'team-a 应至少 2 个执行者成员',
   ).toBeGreaterThanOrEqual(2);
-  expect(members.every((member) => member.status === 'ACTIVE'), '全部成员应为 ACTIVE').toBeTruthy();
+  expect(
+    members.every((member) => member.status === 'ACTIVE'),
+    '全部成员应为 ACTIVE',
+  ).toBeTruthy();
   const memberIds = members.map((member) => member.agentId);
 
   // 3. 创建复杂任务：输入 JSON 采用 artifacts 交付协议，要求模型产出两个命名交付物。
   await page.goto(`/${projectPath}/tasks/new`);
   await page.reload();
   await expect(page.getByRole('heading', { name: '创建任务' })).toBeVisible();
-  const taskTeamOption = page.getByLabel('任务团队').locator('option').filter({ hasText: 'team-a' });
+  const taskTeamOption = page
+    .getByLabel('任务团队')
+    .locator('option')
+    .filter({ hasText: 'team-a' });
   await expect(taskTeamOption).toHaveCount(1, { timeout: 15_000 });
   await page.getByLabel('任务团队').selectOption((await taskTeamOption.getAttribute('value'))!);
   const taskTitle = `复杂任务 ${Date.now()}`;
   await page.getByLabel('任务标题').fill(taskTitle);
-  await page
-    .getByLabel('任务说明')
-    .fill('验证团队任务分配、多成果物登记与模型 token 消耗记录。');
+  await page.getByLabel('任务说明').fill('验证团队任务分配、多成果物登记与模型 token 消耗记录。');
   await page.getByLabel('任务输入 JSON').fill(
     JSON.stringify({
       prompt:
-        '请完成以下复杂任务：为一个"用户登录"功能设计测试方案。'
-        + '完成后严格输出一个 JSON 对象（不要包含任何其它文字或代码围栏）：'
-        + '{"artifacts":[{"name":"test-plan.md","content":"<测试要点，至少 5 条>"},'
-        + '{"name":"test-data.json","content":"<合法的测试数据 JSON 文本>"}]}。'
-        + 'artifacts 数组必须恰好包含 2 个对象，每个对象都有 name 与 content 字段。',
+        '请完成以下复杂任务：为一个"用户登录"功能设计测试方案。' +
+        '完成后严格输出一个 JSON 对象（不要包含任何其它文字或代码围栏）：' +
+        '{"artifacts":[{"name":"test-plan.md","content":"<测试要点，至少 5 条>"},' +
+        '{"name":"test-data.json","content":"<合法的测试数据 JSON 文本>"}]}。' +
+        'artifacts 数组必须恰好包含 2 个对象，每个对象都有 name 与 content 字段。',
     }),
   );
   await page.getByLabel('任务类型').fill('agentscope');
@@ -208,10 +218,7 @@ test('real OIDC complex team task generates multiple artifacts and records token
     expect(artifact.downloadUrl, `${artifact.name} 应返回预签名下载 URL`).toBeTruthy();
     const download = await request.get(artifact.downloadUrl!);
     expect(download.status(), `${artifact.name} 预签名下载应成功`).toBe(200);
-    expect(
-      (await download.text()).length,
-      `${artifact.name} 下载内容不应为空`,
-    ).toBeGreaterThan(0);
+    expect((await download.text()).length, `${artifact.name} 下载内容不应为空`).toBeGreaterThan(0);
   }
 
   // 7. token 消耗：用量页读取 model_call_audits，本次真实模型调用必须可见。

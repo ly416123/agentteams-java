@@ -9,19 +9,58 @@ import type { TaskProcessEvent } from '../../src/api/types';
 vi.mock('../../src/queries/useTaskQueries', () => ({
   useTaskTree: () => ({
     data: [
-      { taskId: 'root', parentTaskId: null, sequence: 0, status: 'RUNNING', dependencyIds: [], updatedAt: '2026-09-08T00:00:00Z' },
-      { taskId: 'child-a', parentTaskId: 'root', sequence: 1, status: 'PENDING', dependencyIds: [], updatedAt: '2026-09-08T00:01:00Z' },
+      {
+        taskId: 'root',
+        parentTaskId: null,
+        sequence: 0,
+        status: 'RUNNING',
+        dependencyIds: [],
+        updatedAt: '2026-09-08T00:00:00Z',
+      },
+      {
+        taskId: 'child-a',
+        parentTaskId: 'root',
+        sequence: 1,
+        status: 'PENDING',
+        dependencyIds: [],
+        updatedAt: '2026-09-08T00:01:00Z',
+      },
     ],
   }),
   useTaskDecisions: () => ({
-    data: [{ id: 'd1', selectedAction: 'create_task', goalSummary: '创建任务', createdAt: '2026-09-08T00:00:00Z' }],
+    data: [
+      {
+        id: 'd1',
+        selectedAction: 'create_task',
+        goalSummary: '创建任务',
+        createdAt: '2026-09-08T00:00:00Z',
+      },
+    ],
   }),
   useTaskResult: () => ({
-    data: { status: 'SUCCEEDED', summary: '完成', artifacts: [{ name: 'output.md', storageRef: 'tasks/x', contentType: 'text/markdown', sizeBytes: 12, sha256: 'ab', version: 1, stage: 'FINAL', visibility: 'REQUESTER' }] },
+    data: {
+      status: 'SUCCEEDED',
+      summary: '完成',
+      artifacts: [
+        {
+          name: 'output.md',
+          storageRef: 'tasks/x',
+          contentType: 'text/markdown',
+          sizeBytes: 12,
+          sha256: 'ab',
+          version: 1,
+          stage: 'FINAL',
+          visibility: 'REQUESTER',
+        },
+      ],
+    },
   }),
 }));
 
-function renderPanel(processEvents: TaskProcessEvent[], taskOverride: Record<string, unknown> = {}) {
+function renderPanel(
+  processEvents: TaskProcessEvent[],
+  taskOverride: Record<string, unknown> = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <MemoryRouter>
@@ -30,7 +69,16 @@ function renderPanel(processEvents: TaskProcessEvent[], taskOverride: Record<str
           projectId="p1"
           taskId="root"
           runId="r1"
-          task={{ id: 'root', title: 'T', phase: 'RUNNING', priority: 5, source: { conversationId: 'conv-1' }, ...taskOverride } as never}
+          task={
+            {
+              id: 'root',
+              title: 'T',
+              phase: 'RUNNING',
+              priority: 5,
+              source: { conversationId: 'conv-1' },
+              ...taskOverride,
+            } as never
+          }
           processEvents={processEvents}
         />
       </QueryClientProvider>
@@ -46,13 +94,21 @@ describe('TaskInfoPanel', () => {
   });
 
   it('renders process events with semantic labels on the events tab', () => {
-    renderPanel([{
-      eventId: 'e1', taskId: 'root', runId: 'r1', sequence: 1, eventType: 'tool.called',
-      visibility: 'REQUESTER', occurredAt: '2026-09-08T00:02:00Z', correlationId: 'c1',
-      payload: '{"tool":"web_search"}',
-    }]);
+    renderPanel([
+      {
+        eventId: 'e1',
+        taskId: 'root',
+        runId: 'r1',
+        sequence: 1,
+        eventType: 'tool.called',
+        visibility: 'REQUESTER',
+        occurredAt: '2026-09-08T00:02:00Z',
+        correlationId: 'c1',
+        payload: '{"tool":"web_search"}',
+      },
+    ]);
     expect(screen.getByText('调用工具')).toBeInTheDocument();
-    expect(screen.getByText(/web_search/)).toBeInTheDocument();
+    expect(screen.getByText('web_search', { exact: true })).toBeInTheDocument();
   });
 
   it('links back to the source conversation on the details tab', async () => {

@@ -18,7 +18,10 @@ vi.mock('../../src/queries/useTeamQueries', () => ({ useTeams }));
 vi.mock('../../src/auth/AuthProvider', () => ({ useAuth }));
 
 function tokenWithClaims(claims: Record<string, unknown>) {
-  const payload = btoa(JSON.stringify(claims)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const payload = btoa(JSON.stringify(claims))
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
   return `header.${payload}.signature`;
 }
 

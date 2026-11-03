@@ -174,7 +174,7 @@ describe('ConversationPage', () => {
     mocks.cancelConversation.mockResolvedValue({ status: 'CANCELLED', version: 4 });
 
     renderPage('c-1');
-    await screen.findByText('团队 team-1');
+    await screen.findByText('team-1', { selector: 'code' });
     await userEvent.click(screen.getByRole('button', { name: '取消会话' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('取消后将不能继续发送消息');
     await userEvent.click(screen.getByRole('button', { name: '确认取消会话' }));
@@ -266,7 +266,7 @@ describe('ConversationPage', () => {
     mocks.sendConversationMessage.mockRejectedValue(new Error('发送失败'));
 
     renderPage('c-1');
-    await screen.findByText('团队 team-1');
+    await screen.findByText('team-1', { selector: 'code' });
     await userEvent.type(screen.getByPlaceholderText('输入消息'), '请重试');
     await userEvent.click(screen.getByRole('button', { name: '发送' }));
 
@@ -305,7 +305,7 @@ describe('ConversationPage', () => {
       .mockResolvedValueOnce({ session: { version: 3 } });
 
     renderPage('c-1');
-    await screen.findByText('团队 team-1');
+    await screen.findByText('team-1', { selector: 'code' });
     await userEvent.type(screen.getByPlaceholderText('输入消息'), '第一条');
     await userEvent.click(screen.getByRole('button', { name: '发送' }));
     await userEvent.type(screen.getByPlaceholderText('输入消息'), '补充信息');

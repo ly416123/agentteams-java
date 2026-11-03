@@ -117,16 +117,10 @@ describe('TaskDag', () => {
   });
 
   it('提供 subtaskPhases 时节点下方渲染平台 phase 徽章，未提供的节点不渲染', () => {
-    render(
-      <TaskDag
-        nodes={nodes}
-        rootTaskId={ROOT}
-        subtaskPhases={new Map([[A1, 'RUNNING']])}
-      />,
-    );
+    render(<TaskDag nodes={nodes} rootTaskId={ROOT} subtaskPhases={new Map([[A1, 'RUNNING']])} />);
     const phases = screen.getAllByTestId('task-dag-phase');
     expect(phases).toHaveLength(1);
-    expect(phases[0].textContent).toBe('RUNNING');
+    expect(phases[0].textContent).toBe('执行中');
   });
 
   it('点击「打开 →」调用 onOpenTask 且不冒泡触发 onSelectSubtask', () => {

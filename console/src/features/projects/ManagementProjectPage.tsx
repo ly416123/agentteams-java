@@ -5,6 +5,8 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { queryKeys } from '../../queries/queryKeys';
+import { IdDisplay } from '../../components/IdDisplay';
+import { PermissionGate } from '../../auth/PermissionGate';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -47,19 +49,24 @@ export function ManagementProjectPage() {
           {notice.text}
         </div>
       )}
-      <form className="panel form-panel" onSubmit={submit}>
-        <h2>创建项目</h2>
-        <label htmlFor="management-project-name">项目名称</label>
-        <input
-          id="management-project-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-        />
-        <button className="button button--primary" type="submit" disabled={create.isPending}>
-          {create.isPending ? '创建中…' : '创建项目'}
-        </button>
-      </form>
+      <PermissionGate permission="project:create">
+        <details className="form-disclosure">
+          <summary>创建项目</summary>
+          <form className="panel form-panel" onSubmit={submit}>
+            <h2>创建项目</h2>
+            <label htmlFor="management-project-name">项目名称</label>
+            <input
+              id="management-project-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+            <button className="button button--primary" type="submit" disabled={create.isPending}>
+              {create.isPending ? '创建中…' : '创建项目'}
+            </button>
+          </form>
+        </details>
+      </PermissionGate>
       {projects.isLoading ? (
         <div className="panel loading-block">加载项目…</div>
       ) : projects.isError ? (
@@ -73,11 +80,15 @@ export function ManagementProjectPage() {
               <div className="panel-heading">
                 <div>
                   <h2>{project.name}</h2>
-                  <p className="muted-text">租户 {project.tenantId}</p>
+                  <p className="muted-text">
+                    租户 <IdDisplay value={project.tenantId} />
+                  </p>
                 </div>
                 <StatusBadge phase={project.status} />
               </div>
-              <p className="muted-text">项目 ID {project.id}</p>
+              <p className="muted-text">
+                项目 ID <IdDisplay value={project.id} />
+              </p>
               <p className="muted-text">创建者 {project.createdBy}</p>
             </article>
           ))}

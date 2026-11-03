@@ -8,6 +8,8 @@ import { CursorPagination } from '../../components/CursorPagination';
 import { listConversations } from '../../api/conversations';
 import { queryKeys } from '../../queries/queryKeys';
 import { useQuery } from '@tanstack/react-query';
+import { IdDisplay } from '../../components/IdDisplay';
+import { formatDateTime } from '../../utils/formatters';
 
 export function ConversationListPage({ projectId }: { projectId: string }) {
   const [cursor, setCursor] = useState<string | undefined>();
@@ -53,7 +55,9 @@ export function ConversationListPage({ projectId }: { projectId: string }) {
                   to={`/${projectId}/conversations/${conversation.sessionId}`}
                 >
                   <strong>{conversation.lastMessage || '未命名对话'}</strong>
-                  <small>{conversation.sessionId}</small>
+                  <small>
+                    <IdDisplay value={conversation.sessionId} />
+                  </small>
                 </Link>
               ),
             },
@@ -66,7 +70,7 @@ export function ConversationListPage({ projectId }: { projectId: string }) {
             {
               key: 'updated',
               header: '更新时间',
-              render: (conversation) => new Date(conversation.updatedAt).toLocaleString('zh-CN'),
+              render: (conversation) => formatDateTime(conversation.updatedAt),
             },
           ]}
         />

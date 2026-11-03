@@ -26,25 +26,16 @@ describe('task execution observability api', () => {
       '/api/v1/tasks/task-1/runs/run-1/process-events',
       { query: { after: 7, visibility: 'REQUESTER' } },
     );
-    expect(client.request).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/tasks/task-1/runs/run-1/progress',
-      { query: { phase: 'EXECUTION' } },
-    );
-    expect(client.request).toHaveBeenNthCalledWith(
-      3,
-      '/api/v1/tasks/task-1/runs/run-1/tree',
-    );
-    expect(client.request).toHaveBeenNthCalledWith(
-      4,
-      '/api/v1/tasks/task-1/runs/run-1/decisions',
-      { query: { visibility: 'REQUESTER' } },
-    );
-    expect(client.request).toHaveBeenNthCalledWith(
-      5,
-      '/api/v1/tasks/task-1/runs/run-1/result',
-      { query: { visibility: 'REQUESTER' } },
-    );
+    expect(client.request).toHaveBeenNthCalledWith(2, '/api/v1/tasks/task-1/runs/run-1/progress', {
+      query: { phase: 'EXECUTION' },
+    });
+    expect(client.request).toHaveBeenNthCalledWith(3, '/api/v1/tasks/task-1/runs/run-1/tree');
+    expect(client.request).toHaveBeenNthCalledWith(4, '/api/v1/tasks/task-1/runs/run-1/decisions', {
+      query: { visibility: 'REQUESTER' },
+    });
+    expect(client.request).toHaveBeenNthCalledWith(5, '/api/v1/tasks/task-1/runs/run-1/result', {
+      query: { visibility: 'REQUESTER' },
+    });
   });
 
   it('parses process-event SSE envelopes and resumes from the last sequence', async () => {

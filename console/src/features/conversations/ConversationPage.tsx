@@ -23,12 +23,15 @@ import { labelRole, labelType } from '../../i18n/labels';
 import { labelStatus } from '../../i18n/labels';
 import { createUuid } from '../../utils/uuid';
 import { Timeline } from '../../components/Timeline';
+import { IdDisplay } from '../../components/IdDisplay';
+import { RawDataDisclosure } from '../../components/RawDataDisclosure';
 
 type TranscriptItem = {
   key: string;
   role: 'user' | 'assistant' | 'event';
   type?: string;
   text: string;
+  raw?: unknown;
 };
 
 function eventOrder(event: ConversationEvent) {
@@ -88,11 +91,26 @@ function buildTranscript(events: ConversationEvent[]): TranscriptItem[] {
       key: event.id || `event-${index}`,
       role: 'event',
       type: event.type,
-      text: conversationEventText(event) || event.data,
+      text: summarizeConversationEvent(event),
+      raw: event.payload,
     });
   });
   flushAssistant();
   return items;
+}
+
+function summarizeConversationEvent(event: ConversationEvent) {
+  const text = conversationEventText(event);
+  if (text) return text;
+  const detail = [event.payload.message, event.payload.summary, event.payload.reason].find(
+    (item) => typeof item === 'string',
+  );
+  if (typeof detail === 'string') return detail;
+  const phase = event.payload.phase || event.payload.status;
+  if (typeof phase === 'string') return `状态：${labelStatus(phase)}`;
+  if (typeof event.payload.taskId === 'string')
+    return `关联任务 ${event.payload.taskId.slice(0, 8)}…`;
+  return '事件已记录，可展开查看详情。';
 }
 
 export function ConversationPage({
@@ -330,7 +348,14 @@ export function ConversationPage({
         <div>
           <p className="eyebrow">对话</p>
           <h1>工作节点对话</h1>
-          <p>团队 {teamId || conversation?.teamId || '未绑定'}</p>
+          <p>
+            团队{' '}
+            {teamId || conversation?.teamId ? (
+              <IdDisplay value={teamId || conversation?.teamId} />
+            ) : (
+              '未绑定'
+            )}
+          </p>
         </div>
         <span className="version-pill">{labelStatus(status)}</span>
       </div>
@@ -361,6 +386,9 @@ export function ConversationPage({
                   : labelType(item.type)}
             </span>
             <p>{item.text}</p>
+            {item.role === 'event' && Boolean(item.raw) && (
+              <RawDataDisclosure label="查看事件详情" value={item.raw} />
+            )}
           </div>
         ))}
       </section>
@@ -370,7 +398,12 @@ export function ConversationPage({
           items={timeline.map((item) => ({
             id: item.itemId,
             title: item.summary,
-            description: `${item.itemType} · ${item.actorId}${item.payloadRef ? ` · ${item.payloadRef}` : ''}`,
+            description: (
+              <span>
+                {labelType(item.eventType)} · <IdDisplay value={item.actorId} />
+                {item.payloadRef ? ` · ${item.payloadRef}` : ''}
+              </span>
+            ),
             time: item.occurredAt,
             tone: item.itemType === 'CONVERSATION_MESSAGE' ? 'info' : 'neutral',
           }))}

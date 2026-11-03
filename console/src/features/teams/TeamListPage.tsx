@@ -6,6 +6,8 @@ import { ResourceTable } from '../../components/ResourceTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useTeams } from '../../queries/useTeamQueries';
 import { CursorPagination } from '../../components/CursorPagination';
+import { IdDisplay } from '../../components/IdDisplay';
+import { formatDateTime } from '../../utils/formatters';
 
 export function TeamListPage({ projectId }: { projectId: string }) {
   const [search, setSearch] = useState('');
@@ -67,7 +69,12 @@ export function TeamListPage({ projectId }: { projectId: string }) {
                 </Link>
               ),
             },
-            { key: 'leader', header: '负责人', render: (team) => team.leaderAgentId || '未设置' },
+            {
+              key: 'leader',
+              header: '负责人',
+              render: (team) =>
+                team.leaderAgentId ? <IdDisplay value={team.leaderAgentId} /> : '未设置',
+            },
             {
               key: 'agents',
               header: 'Agent / 成员',
@@ -86,7 +93,7 @@ export function TeamListPage({ projectId }: { projectId: string }) {
             {
               key: 'updated',
               header: '更新时间',
-              render: (team) => new Date(team.updatedAt).toLocaleDateString('zh-CN'),
+              render: (team) => formatDateTime(team.updatedAt),
             },
           ]}
         />

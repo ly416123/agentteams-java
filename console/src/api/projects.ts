@@ -36,6 +36,23 @@ export function listProjectMembers(projectId: string, client: HttpClient = apiCl
   return client.request<ProjectMember[]>(`/api/v1/projects/${projectId}/members`);
 }
 
+export function getProjectRole(projectId: string, client: HttpClient = apiClient) {
+  return client.request<{ projectId: string; subject: string; role: string; allowed: boolean }>(
+    `/api/v1/projects/${projectId}/role`,
+  );
+}
+
+export function transferProjectOwner(
+  projectId: string,
+  body: { newOwner: string; expectedProjectVersion: number },
+  client: HttpClient = apiClient,
+) {
+  return client.request<void>(`/api/v1/projects/${projectId}/owner/transfer`, {
+    method: 'POST',
+    body,
+  });
+}
+
 export function changeProjectMemberRole(
   projectId: string,
   subject: string,

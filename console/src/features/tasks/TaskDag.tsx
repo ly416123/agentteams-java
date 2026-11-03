@@ -1,4 +1,5 @@
 import type { TaskTreeNode } from '../../api/types';
+import { labelStatus } from '../../i18n/labels';
 
 const NODE_WIDTH = 128;
 const NODE_HEIGHT = 36;
@@ -169,7 +170,7 @@ export function TaskDag({
                   className="task-dag__phase"
                   data-testid="task-dag-phase"
                 >
-                  {phase}
+                  {labelStatus(phase)}
                 </text>
               )}
               {openable && (

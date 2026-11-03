@@ -8,6 +8,8 @@ import { WorkerOperationPanel } from './WorkerOperationPanel';
 import { CursorPagination } from '../../components/CursorPagination';
 import type { WorkerOperation } from '../../api/types';
 import { labelRuntime, labelStatus, labelType } from '../../i18n/labels';
+import { IdDisplay } from '../../components/IdDisplay';
+import { formatDateTime } from '../../utils/formatters';
 
 function operationDescription(operation: WorkerOperation) {
   const details = [`状态：${labelStatus(operation.status)}`];
@@ -57,7 +59,8 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
           <p className="eyebrow">工作节点详情</p>
           <h1>{data.name}</h1>
           <p>
-            {data.id} · {labelRuntime(data.runtime)} · {labelType(data.workerType || 'EXECUTOR')}
+            <IdDisplay value={data.id} /> · {labelRuntime(data.runtime)} ·{' '}
+            {labelType(data.workerType || 'EXECUTOR')}
           </p>
         </div>
         <StatusBadge phase={data.phase} />
@@ -68,7 +71,10 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
           <h2>运行状态</h2>
           <div className="detail-list">
             <span>
-              当前任务<strong>{data.currentTaskId || '空闲'}</strong>
+              当前任务
+              <strong>
+                {data.currentTaskId ? <IdDisplay value={data.currentTaskId} /> : '空闲'}
+              </strong>
             </span>
             <span>
               镜像<strong>{data.imageVersion || '—'}</strong>
@@ -78,9 +84,7 @@ export function WorkerDetailPage({ projectId, workerId }: { projectId: string; w
             </span>
             <span>
               最近心跳
-              <strong>
-                {data.lastHeartbeat ? new Date(data.lastHeartbeat).toLocaleString('zh-CN') : '—'}
-              </strong>
+              <strong>{formatDateTime(data.lastHeartbeat)}</strong>
             </span>
           </div>
           <div className="tag-list">

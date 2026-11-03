@@ -1,7 +1,10 @@
+import type { ReactNode } from 'react';
+import { formatDateTime } from '../utils/formatters';
+
 export type TimelineItem = {
   id: string;
   title: string;
-  description?: string;
+  description?: ReactNode;
   time?: string;
   tone?: string;
 };
@@ -16,7 +19,7 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
           <div>
             <strong>{item.title}</strong>
             {item.description && <p>{item.description}</p>}
-            {item.time && <time>{new Date(item.time).toLocaleString('zh-CN')}</time>}
+            {item.time && <time>{formatDateTime(item.time)}</time>}
           </div>
         </li>
       ))}
