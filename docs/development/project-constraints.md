@@ -42,25 +42,23 @@
 ## 运行时与模型
 
 1. Worker 的唯一执行路径为 **AgentScope Harness**。模型 Provider 和模型标识必须通过
-   Worker 的模型配置/注册表注入；L5 当前默认使用 `deepseek:deepseek-chat`，但不得把
+   Worker 的模型配置/注册表注入；L5 当前默认使用 `chatgpt-plan:gpt-5.6-luna`，但不得把
    DeepSeek、DashScope 或任何单一模型 Provider 固化为架构边界。模型标识采用
    `provider:model` 注册表键，后续替换模型只需新增/选择 Provider 适配器并修改配置。
-2. 模型凭据只允许通过 Kubernetes Secret 注入 Worker，代码、Helm values、日志和测试输出
-   不得出现密钥明文。模型调用必须从 Worker 发起，Manager 不代理模型请求；替换模型只应
-   改变模型配置和 Provider 适配，不得复制 Team、调度或任务状态机。
-3. ChatGPT 计划额度 OAuth Provider (`chatgpt-plan:<model>`) 只用于显式授权的 L5 双 MCP 评测 Team。
-   Control Plane 必须按 Tenant、Project UUID、Team UUID 拒绝其他 Team 的 Worker provisioning；
-   不得将 OAuth 凭据配置为全局 Worker 环境变量。Worker Secret volume 只投影 access token 键，
-   refresh token 仅由单实例串行刷新作业读取与轮换。Responses 请求必须使用 OAuth Bearer Token、
-   `store=false` 与 `stream=true`，模型/MCP 失败不得回退到 DeepSeek。详细设计见
+2. 模型凭据只允许通过 Kubernetes Secret 注入 Worker 或 Manager，代码、Helm values、日志和测试输出
+   不得出现密钥明文。Worker 负责 AgentScope 任务推理；Manager 可直接调用模型完成结构化编排请求，
+   Conversation 不得绕过 Control Plane 或 Worker 任务调度。
+3. L5 使用 ChatGPT 计划额度 OAuth Provider (`chatgpt-plan:<model>`)。L5 `allowAllWorkers` 明确启用后，
+   所有通过正常身份和资源权限校验的 Tenant、Project、Team Worker 可共享同一 OAuth 账号额度；
+   Manager 使用同一个 OAuth session。refresh token 仅由单实例串行刷新作业读取与轮换，Worker/Manager
+   Secret volume 只投影 access token 键。Responses 请求必须使用 OAuth Bearer Token、`store=false`
+   与 `stream=true`，模型/MCP 失败不得回退到 DeepSeek。详细设计见
    [ChatGPT 单账户接入设计](../superpowers/specs/2026-10-11-chatgpt-plan-single-account-design.md)。
-   可选 HTTP CONNECT 代理也必须只注入通过相同 Scope allowlist 的 ChatGPT Worker 与刷新作业；
-   代理地址不得携带用户名、密码或 Token，默认保持直连。
+   代理地址不得携带用户名、密码或 Token。
 4. AgentScope 任务必须由 Control Plane 调度，Worker 只消费已分配的 Attempt，不在
    Manager 或 Console 内实现第二套执行状态机。
-5. L5 真实验收当前以 `api.deepseek.com:443` 作为默认模型出口；更换模型时，验收环境只需
-   为对应 Provider 配置受控 HTTPS 出口。不得通过 Manager 代理请求来掩盖 Worker 的模型
-   出口不可用。
+5. L5 真实验收通过配置的 HTTP CONNECT 代理访问 OpenAI Responses API。不得通过 Manager 代理
+   Worker 请求来掩盖 Worker 的模型出口不可用。
 
 ## Conversation、Team 与任务分配
 
@@ -114,7 +112,7 @@
 
 ## 验收边界
 
-1. L5 验收使用真实 DeepSeek API 调用；Fake runtime 只能用于单元测试，不能作为真实流程通过
+1. L5 验收使用真实 `gpt-5.6-luna` Responses API 调用；Fake runtime 只能用于单元测试，不能作为真实流程通过
    的依据。
 2. 失败必须按实际阶段定位：Task 创建/入队、Team Deployment、配置应用、Worker 启动、模型
    调用、Artifact 上传分别记录证据，不能用“事件流已连接”替代任务成功。
