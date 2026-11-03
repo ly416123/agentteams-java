@@ -26,6 +26,32 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class ManagerSessionServiceFacadeTest {
+    @Test
+    void ordinaryConversationMessageReturnsAssistantReplyWithoutCreatingAToolCall() {
+        ModelProvider provider = request -> new ModelProvider.ModelResponse(
+                "{\"intent\":\"CHAT\",\"response\":\"你好！\"}", "test-model", 1, 1);
+        ManagerSessionService model = new ManagerSessionService(provider, new ObjectMapper(),
+                new ManagerToolRegistry(Map.of("create_task", new ManagerToolRegistry.Tool(
+                        "task:create", false, input -> { throw new AssertionError("chat must not create a task"); }))));
+        InMemoryManagerSessionRepository repository = new InMemoryManagerSessionRepository();
+        ManagerSessionServiceFacade facade = new ManagerSessionServiceFacade(repository, model,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        ManagerRequestContext.set(new ManagerPrincipal("actor-a", "tenant-a", "project-a", "team-a",
+                Set.of("conversation:send")));
+        ManagerSessionRecord session = facade.createSession(
+                new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "team-a", "actor-a"),
+                "session-key");
+
+        ManagerSessionServiceFacade.MessageResult result = facade.appendMessage(session.id(), 0, "message-key",
+                "actor-a", "你好", Set.of("conversation:send"), false, null, null);
+
+        assertThat(result.message().resultSummary()).isEqualTo("你好！");
+        assertThat(result.toolCall()).isNull();
+        assertThat(repository.toolCalls()).isEmpty();
+        assertThat(repository.eventsAfter(session.id(), 0)).extracting(ManagerEventRecord::type)
+                .contains("MESSAGE_COMPLETED");
+    }
+
     private static final Instant NOW = Instant.parse("2026-08-26T00:00:00Z");
 
     @org.junit.jupiter.api.AfterEach
@@ -87,7 +113,8 @@ class ManagerSessionServiceFacadeTest {
     @Test
     void usesVerifiedPrincipalPermissionsWhenAppendingManagerMessage() {
         ModelProvider provider = request -> new ModelProvider.ModelResponse(
-                "{\"intent\":\"CREATE_TASK\",\"title\":\"Task\",\"description\":\"body\"}",
+                "{\"intent\":\"CREATE_TASK\",\"title\":\"Task\",\"description\":\"body\","
+                        + "\"required_capabilities\":[\"task:create\"]}",
                 "test-model", 0, 0);
         ManagerSessionService model = new ManagerSessionService(provider, new ObjectMapper(),
                 new ManagerToolRegistry(Map.of("create_task", new ManagerToolRegistry.Tool(
@@ -101,7 +128,7 @@ class ManagerSessionServiceFacadeTest {
         ManagerRequestContext.set(new ManagerPrincipal("actor-a", "tenant-a", "project-a", "team-a",
                 Set.of("task:create", "task:read")));
 
-        facade.appendMessage(session.id(), 0, "message-key", "actor-a", "create",
+        facade.appendMessage(session.id(), 0, "message-key", "actor-a", "请创建任务，整理项目状态",
                 Set.of(), false, null, null);
 
         assertThat(repository.toolCalls()).hasSize(1);
@@ -268,7 +295,8 @@ class ManagerSessionServiceFacadeTest {
 
         ManagerSessionService permittedModel = new ManagerSessionService(
                 request -> new ModelProvider.ModelResponse(
-                        "{\"intent\":\"CREATE_TASK\",\"title\":\"Task\",\"description\":\"body\"}",
+                        "{\"intent\":\"CREATE_TASK\",\"title\":\"Task\",\"description\":\"body\","
+                                + "\"required_capabilities\":[\"task:create\"]}",
                         "test-model", 0, 0), new ObjectMapper(),
                 new ManagerToolRegistry(Map.of("create_task", new ManagerToolRegistry.Tool(
                         "task:create", false, input -> "must-not-run"))));
@@ -278,8 +306,9 @@ class ManagerSessionServiceFacadeTest {
                 new ManagerSessionServiceFacade.CreateSessionCommand("tenant-a", "project-a", "actor-a"),
                 "session-key-2");
 
-        assertThatThrownBy(() -> permissionFacade.appendMessage(second.id(), 0, "message-key-2", "actor-a", "bad",
-                Set.of(), false, null, null)).isInstanceOf(SecurityException.class);
+        assertThatThrownBy(() -> permissionFacade.appendMessage(second.id(), 0, "message-key-2", "actor-a",
+                "请创建任务，整理项目状态", Set.of(), false, null, null))
+                .isInstanceOf(SecurityException.class);
         assertThat(repository.toolCalls()).isEmpty();
     }
 

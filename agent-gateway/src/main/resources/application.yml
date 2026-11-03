@@ -18,6 +18,10 @@ agentteams:
       max-ack-pending: 32
 
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   tracing:
     enabled: ${AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED:false}
     sampling:

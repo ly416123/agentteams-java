@@ -3,6 +3,7 @@ package io.agentteams.manager.session;
 import io.agentteams.manager.ManagerToolConflictException;
 import io.agentteams.manager.ManagerSessionService;
 import io.agentteams.manager.ManagerToolRegistry;
+import io.agentteams.manager.ConversationIntent;
 import io.agentteams.manager.security.ManagerPrincipal;
 import io.agentteams.manager.security.ManagerRequestContext;
 import java.nio.charset.StandardCharsets;
@@ -132,23 +133,40 @@ public class ManagerSessionServiceFacade {
         Set<String> verifiedPermissions = ManagerRequestContext.current()
                 .map(ManagerPrincipal::permissions).orElse(permissions);
         ManagerToolRegistry.ToolContext context = new ManagerToolRegistry.ToolContext(verifiedPermissions, approved,
-                session.tenantId(), session.projectId(), null, taskId, teamId, "create_task", null, null,
+                session.tenantId(), session.projectId(), null, taskId, teamId, "conversation.intent", null, null,
                 session.id().toString());
-        Object result;
+        ConversationIntent intent;
         try {
-            result = modelService.handleCreateTask(content, context);
+            intent = modelService.routeConversationMessage(content, context);
         } catch (RuntimeException error) {
             repository.failMessage(sessionId, idempotencyKey, safeFailureSummary(error));
             throw error;
         }
+        Object result = intent.response();
+        ManagerToolCallRecord toolCall = null;
+        if (intent.type() == ConversationIntent.Type.CREATE_TASK) {
+            ManagerToolRegistry.ToolContext taskContext = new ManagerToolRegistry.ToolContext(verifiedPermissions,
+                    approved, session.tenantId(), session.projectId(), null, taskId, teamId, "create_task", null,
+                    null, session.id().toString());
+            try {
+                result = modelService.invokeCreateTask(intent.task(), taskContext);
+            } catch (RuntimeException error) {
+                repository.failMessage(sessionId, idempotencyKey, safeFailureSummary(error));
+                throw error;
+            }
+        }
         String resultSummary = bounded(String.valueOf(result), 512);
         Instant now = clock.instant();
         message = repository.completeMessage(sessionId, idempotencyKey, resultSummary);
-        ManagerToolCallRecord toolCall = ManagerToolCallRecord.completed(UUID.randomUUID(), sessionId,
-                idempotencyKey, "create_task", sha256(content), resultSummary, now);
-        repository.insertToolCall(toolCall);
+        if (intent.type() == ConversationIntent.Type.CREATE_TASK) {
+            toolCall = ManagerToolCallRecord.completed(UUID.randomUUID(), sessionId,
+                    idempotencyKey, "create_task", sha256(content), resultSummary, now);
+            repository.insertToolCall(toolCall);
+        }
         repository.appendEvent(sessionId, "MESSAGE_COMPLETED",
-                "{\"messageId\":\"" + message.id() + "\",\"tool\":\"create_task\"}", idempotencyKey, now);
+                "{\"messageId\":\"" + message.id() + "\",\"intent\":\"" + intent.type().name()
+                        + "\",\"tool\":" + (toolCall == null ? "null" : "\"create_task\"") + "}",
+                idempotencyKey, now);
         return new MessageResult(reservation.session(), message, toolCall);
     }
 

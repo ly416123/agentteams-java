@@ -10,12 +10,12 @@ import org.junit.jupiter.api.Test;
 class ModelProviderRegistryTest {
     @Test
     void resolvesDefaultAndFallbackProviders() {
-        ModelProvider deepseek = mock(ModelProvider.class);
+        ModelProvider chatgpt = mock(ModelProvider.class);
         ModelProvider local = mock(ModelProvider.class);
-        ModelProviderRegistry registry = new ModelProviderRegistry("deepseek", "local",
-                Map.of("deepseek", deepseek, "local", local));
+        ModelProviderRegistry registry = new ModelProviderRegistry("chatgpt-plan", "local",
+                Map.of("chatgpt-plan", chatgpt, "local", local));
 
-        assertThat(registry.defaultProvider()).isSameAs(deepseek);
+        assertThat(registry.defaultProvider()).isSameAs(chatgpt);
         assertThat(registry.fallbackProvider()).containsSame(local);
     }
 

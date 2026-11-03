@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
+import io.agentteams.manager.CreateTaskIntent;
 import io.agentteams.manager.security.ManagerPrincipal;
 import io.agentteams.manager.security.ManagerRequestContext;
 import java.nio.charset.StandardCharsets;
@@ -25,10 +26,10 @@ public final class ControlPlaneConversationTaskBridge implements ConversationTas
 
     @Override
     public TaskCreationResult createAndQueue(ConversationRuntimePort.Context context,
-            ConversationOwner owner, String content, String idempotencyKey) {
+            ConversationOwner owner, CreateTaskIntent intent, String idempotencyKey) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(owner, "owner");
-        Objects.requireNonNull(content, "content");
+        Objects.requireNonNull(intent, "intent");
         Objects.requireNonNull(idempotencyKey, "idempotencyKey");
         UUID teamId = parseTeamId(context.team());
         if (teamId == null) {
@@ -49,12 +50,15 @@ public final class ControlPlaneConversationTaskBridge implements ConversationTas
         scope.put("project", principal.projectId());
         scope.put("team", principal.teamId());
         ObjectNode input = spec.putObject("inputJson");
-        input.put("prompt", content);
+        input.put("prompt", intent.description());
         input.put("conversationId", context.sessionId().toString());
         ArrayNode capabilities = spec.putArray("requiredCapabilities");
+        intent.requiredCapabilities().forEach(capabilities::add);
+        spec.put("priority", intent.priority());
+        spec.put("requiresApproval", intent.requiresApproval());
 
         TaskCreationResult created = commands.create(key, new TaskCommandPort.TaskCreateCommand(
-                "Conversation task " + context.sessionId(), content, spec.toString(), "manager", "conversation"));
+                intent.title(), intent.description(), spec.toString(), "manager", "conversation"));
         TaskCreationResult queued = commands.queue(created.taskId(), created.version(), key + "-queue");
         return queued;
     }

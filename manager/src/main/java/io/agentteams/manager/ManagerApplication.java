@@ -11,14 +11,15 @@ import io.agentteams.manager.conversation.ConversationRepository;
 import io.agentteams.manager.conversation.ControlPlaneConversationPort;
 import io.agentteams.manager.conversation.ControlPlaneConversationTaskBridge;
 import io.agentteams.manager.conversation.ConversationTaskBridge;
+import io.agentteams.manager.conversation.ConversationIntentRouter;
 import io.agentteams.manager.conversation.HttpControlPlaneConversationPort;
 import io.agentteams.manager.conversation.JdbcConversationRepository;
 import io.agentteams.manager.conversation.FakeConversationRuntime;
 import io.agentteams.manager.security.ConversationScopeAuthorizer;
 import io.agentteams.manager.security.ControlPlaneConversationScopeAuthorizer;
+import io.agentteams.manager.security.ManagerRequestContext;
 import java.net.http.HttpClient;
 import java.time.Clock;
-import java.util.HashMap;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
@@ -44,15 +45,13 @@ public class ManagerApplication {
 
     @Bean
     ModelProvider managerModelProvider(Environment environment) {
-        Map<String, String> configuration = new HashMap<>(System.getenv());
-        // Spring 属性（测试通过 .properties() 注入的占位凭据）优先于 OS env；
-        // 生产环境两者同源，此处合并只是把读取统一收口到 Spring Environment。
-        for (String key : new String[] {"DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "DEEPSEEK_TIMEOUT_SECONDS"}) {
-            String value = environment.getProperty(key);
-            if (value != null && !value.isBlank()) configuration.put(key, value);
-        }
-        return DeepSeekConfiguration.fromEnvironment(configuration)
-                .createProvider(HttpClient.newHttpClient(), new ObjectMapper());
+        String model = environment.getProperty("AGENTTEAMS_MODEL", ChatGptPlanResponsesProvider.DEFAULT_MODEL);
+        String tokenFile = environment.getProperty("AGENTTEAMS_CHATGPT_ACCESS_TOKEN_FILE",
+                "/var/run/agentteams/chatgpt/token");
+        String proxy = environment.getProperty("AGENTTEAMS_CHATGPT_PROXY_URL", "");
+        return new ChatGptPlanResponsesProvider(model, java.nio.file.Path.of(tokenFile),
+                ChatGptPlanResponsesProvider.DEFAULT_ENDPOINT,
+                ChatGptPlanResponsesProvider.httpClient(proxy), java.time.Duration.ofSeconds(90));
     }
 
     @Bean
@@ -125,6 +124,17 @@ public class ManagerApplication {
         return new ControlPlaneConversationTaskBridge(taskCommands, mapper);
     }
 
+    @Bean
+    ConversationIntentRouter conversationIntentRouter(ManagerSessionService modelService) {
+        return (context, owner, content) -> {
+            var principal = ManagerRequestContext.require();
+            var modelContext = new ManagerToolRegistry.ToolContext(principal.permissions(), false,
+                    owner.tenantId(), context.project(), context.worker(), context.task(), context.team(),
+                    "conversation.intent", null, null, context.sessionId().toString());
+            return modelService.routeConversationMessage(content, modelContext);
+        };
+    }
+
     @Bean(destroyMethod = "close")
     ConversationRuntimePort conversationRuntime(
             @Value("${AGENTTEAMS_CONVERSATION_RUNTIME:fake}") String runtimeName) {
@@ -141,8 +151,9 @@ public class ManagerApplication {
 
     @Bean(destroyMethod = "close")
     ConversationService conversationService(ConversationRuntimePort runtime, ConversationRepository repository,
-            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge) {
-        return new ConversationService(runtime, repository, controlPlane, taskBridge);
+            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge,
+            ConversationIntentRouter intentRouter) {
+        return new ConversationService(runtime, repository, controlPlane, taskBridge, intentRouter);
     }
 
     @Bean

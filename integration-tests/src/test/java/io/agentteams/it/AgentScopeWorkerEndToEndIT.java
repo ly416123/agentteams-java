@@ -104,7 +104,9 @@ class AgentScopeWorkerEndToEndIT {
         assertThat(harness.events).anySatisfy(event ->
                 assertThat(event.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.ERROR));
         assertThat(harness.events).anySatisfy(event ->
-                assertThat(event.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.TOOL_CALL_STARTED));
+                assertThat(event.kind()).isEqualTo(AgentScopeExecutionEvent.Kind.IGNORED));
+        assertThat(harness.events).noneMatch(event ->
+                event.kind() == AgentScopeExecutionEvent.Kind.TOOL_CALL_COMPLETED && event.success());
         harness.assertSandboxReclaimed(SandboxTerminationReason.TASK_FAILED);
     }
 

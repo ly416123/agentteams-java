@@ -10,7 +10,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>agentteams-manager</artifactId>
-    <name>AgentTeams DeepSeek Manager</name>
+    <name>AgentTeams Manager</name>
     <dependencies>
         <dependency>
             <groupId>io.agentscope</groupId>

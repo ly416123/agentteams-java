@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
+import io.agentteams.manager.CreateTaskIntent;
+import io.agentteams.manager.ConversationIntent;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,19 +71,105 @@ class ConversationServiceTest {
         FakeConversationRuntime runtime = new FakeConversationRuntime();
         ConversationTaskBridge bridge = mock(ConversationTaskBridge.class);
         TaskCreationResult queued = new TaskCreationResult(UUID.randomUUID(), "QUEUED", 1);
-        when(bridge.createAndQueue(context, new ConversationOwner("tenant-a", "manager-a"), "hello", "message-1"))
-                .thenReturn(queued);
-        ConversationService service = new ConversationService(runtime, new InMemoryConversationRepository(),
-                ControlPlaneConversationPort.noop(), bridge);
+        ConversationOwner owner = new ConversationOwner("tenant-a", "manager-a");
+        CreateTaskIntent taskIntent = new CreateTaskIntent("CREATE_TASK", "Run requested work", "hello",
+                List.of(), 0, false);
+        when(bridge.createAndQueue(context, owner, taskIntent, "message-1-confirm")).thenReturn(queued);
+        InMemoryConversationRepository repository = new InMemoryConversationRepository();
+        ConversationService service = new ConversationService(runtime, repository,
+                ControlPlaneConversationPort.noop(), bridge,
+                (routeContext, routeOwner, content) -> ConversationIntent.createTask(taskIntent));
 
-        service.createAndStart(context, "create-key", new ConversationOwner("tenant-a", "manager-a"));
-        ConversationService.SendResult result = service.send(SESSION_ID, "message-1", "hello", null,
-                new ConversationOwner("tenant-a", "manager-a"));
+        service.createAndStart(context, "create-key", owner);
+        ConversationService.SendResult preview = service.send(SESSION_ID, "message-1", "hello", null,
+                owner);
+        verifyNoInteractions(bridge);
+        assertThat(preview.events()).extracting(ConversationEvent::type).containsExactly("message.completed");
+        assertThat(preview.events().getFirst().data()).contains("TASK_PREVIEW", "确认执行", "Run requested work");
 
-        verify(bridge).createAndQueue(context, new ConversationOwner("tenant-a", "manager-a"), "hello", "message-1");
+        ConversationService restartedService = new ConversationService(runtime, repository,
+                ControlPlaneConversationPort.noop(), bridge,
+                (routeContext, routeOwner, content) -> {
+                    throw new AssertionError("confirmation must use the persisted proposal without rerouting");
+                });
+        ConversationService.SendResult result = restartedService.send(SESSION_ID, "message-1-confirm",
+                "确认执行", null, owner);
+
+        verify(bridge).createAndQueue(context, owner, taskIntent, "message-1-confirm");
         assertThat(result.events()).extracting(ConversationEvent::type)
                 .containsExactly("task.created", "task.updated", "message.completed");
         assertThat(runtime.events(SESSION_ID, 0)).isEmpty();
+    }
+
+    @Test
+    void cancellingTaskPreviewNeverCreatesOrQueuesTheTask() {
+        ConversationTaskBridge bridge = mock(ConversationTaskBridge.class);
+        ConversationOwner owner = new ConversationOwner("tenant-a", "manager-a");
+        CreateTaskIntent taskIntent = new CreateTaskIntent("CREATE_TASK", "Run requested work", "hello",
+                List.of("java"), 0, false);
+        ConversationService service = new ConversationService(new FakeConversationRuntime(),
+                new InMemoryConversationRepository(), ControlPlaneConversationPort.noop(), bridge,
+                (context, caller, content) -> ConversationIntent.createTask(taskIntent));
+        service.createAndStart(CONTEXT, "create-key", owner);
+
+        service.send(SESSION_ID, "message-preview", "请实现功能", null, owner);
+        ConversationService.SendResult cancelled = service.send(SESSION_ID, "message-cancel", "取消任务", null,
+                owner);
+
+        verifyNoInteractions(bridge);
+        assertThat(cancelled.events()).extracting(ConversationEvent::type).containsExactly("message.completed");
+        assertThat(cancelled.events().getFirst().data()).contains("TASK_PREVIEW_CANCELLED", "未创建");
+    }
+
+    @Test
+    void ordinaryChatMessageDoesNotCreateOrQueueATask() {
+        ConversationTaskBridge bridge = mock(ConversationTaskBridge.class);
+        ConversationOwner owner = new ConversationOwner("tenant-a", "manager-a");
+        ConversationService service = new ConversationService(new FakeConversationRuntime(),
+                new InMemoryConversationRepository(), ControlPlaneConversationPort.noop(), bridge,
+                (context, caller, content) -> ConversationIntent.chat("你好！"));
+        service.createAndStart(CONTEXT, "create-key", owner);
+
+        ConversationService.SendResult result = service.send(SESSION_ID, "message-hello", "你好", null, owner);
+
+        verifyNoInteractions(bridge);
+        assertThat(result.events()).extracting(ConversationEvent::type).containsExactly("message.completed");
+        assertThat(result.events().getFirst().data()).contains("你好");
+    }
+
+    @Test
+    void unclearMessageAsksForClarificationWithoutCreatingATask() {
+        ConversationTaskBridge bridge = mock(ConversationTaskBridge.class);
+        ConversationOwner owner = new ConversationOwner("tenant-a", "manager-a");
+        ConversationService service = new ConversationService(new FakeConversationRuntime(),
+                new InMemoryConversationRepository(), ControlPlaneConversationPort.noop(), bridge,
+                (context, caller, content) -> ConversationIntent.clarify("你希望我具体处理什么？"));
+        service.createAndStart(CONTEXT, "create-key", owner);
+
+        ConversationService.SendResult result = service.send(SESSION_ID, "message-unclear", "帮我看看", null, owner);
+
+        verifyNoInteractions(bridge);
+        assertThat(result.events()).extracting(ConversationEvent::type).containsExactly("message.completed");
+        assertThat(result.events().getFirst().data()).contains("你希望我具体处理什么？");
+        assertThat(result.events().getFirst().data()).contains("CLARIFY");
+    }
+
+    @Test
+    void intentRouterFailureFailsMessageWithoutTaskSideEffects() {
+        InMemoryConversationRepository repository = new InMemoryConversationRepository();
+        ConversationTaskBridge bridge = mock(ConversationTaskBridge.class);
+        ConversationOwner owner = new ConversationOwner("tenant-a", "manager-a");
+        ConversationService service = new ConversationService(new FakeConversationRuntime(), repository,
+                ControlPlaneConversationPort.noop(), bridge,
+                (context, caller, content) -> { throw new IllegalStateException("model unavailable"); });
+        service.createAndStart(CONTEXT, "create-key", owner);
+
+        assertThatThrownBy(() -> service.send(SESSION_ID, "message-router-error", "你好", null, owner))
+                .isInstanceOf(IllegalStateException.class);
+
+        verifyNoInteractions(bridge);
+        assertThat(repository.findMessage(SESSION_ID, "message-router-error").orElseThrow().status())
+                .isEqualTo(ConversationRepository.MessageStatus.FAILED);
     }
 
     @Test

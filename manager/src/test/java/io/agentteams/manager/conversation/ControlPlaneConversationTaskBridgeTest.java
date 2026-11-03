@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentteams.application.api.TaskCommandPort;
 import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
+import io.agentteams.manager.CreateTaskIntent;
 import io.agentteams.manager.security.ManagerPrincipal;
 import io.agentteams.manager.security.ManagerRequestContext;
 import java.util.List;
@@ -42,18 +43,23 @@ class ControlPlaneConversationTaskBridgeTest {
 
         ControlPlaneConversationTaskBridge bridge = new ControlPlaneConversationTaskBridge(commands,
                 new ObjectMapper());
+        CreateTaskIntent intent = new CreateTaskIntent("CREATE_TASK", "Produce a summary",
+                "请识别意图并分配给两个 Worker", List.of("research", "writer"), 50, false);
         TaskCreationResult result = bridge.createAndQueue(
                 new ConversationRuntimePort.Context("project-a", TEAM_ID.toString(), null, null, SESSION_ID),
-                new ConversationOwner("tenant-a", "alice"), "请识别意图并分配给两个 Worker", "message-key");
+                new ConversationOwner("tenant-a", "alice"), intent, "message-key");
 
         assertThat(result).isEqualTo(queued);
         verify(commands).create(argThat(key -> key.startsWith("conversation-task-")), argThat(command -> {
             String spec = command.specJson();
-            return command.title().contains(SESSION_ID.toString())
+            return command.title().equals("Produce a summary")
+                    && command.description().equals("请识别意图并分配给两个 Worker")
                     && spec.contains("\"taskType\":\"agentscope\"")
                     && spec.contains("\"teamId\":\"" + TEAM_ID + "\"")
                     && spec.contains("\"sourceConversationId\":\"" + SESSION_ID + "\"")
-                    && spec.contains("请识别意图并分配给两个 Worker");
+                    && spec.contains("请识别意图并分配给两个 Worker")
+                    && spec.contains("\"requiredCapabilities\":[\"research\",\"writer\"]")
+                    && spec.contains("\"priority\":50");
         }));
         InOrder order = inOrder(commands);
         order.verify(commands).create(any(), any());
@@ -73,7 +79,8 @@ class ControlPlaneConversationTaskBridgeTest {
         new ControlPlaneConversationTaskBridge(commands, new ObjectMapper()).createAndQueue(
                 new ConversationRuntimePort.Context("ef5916eb-14d9-4e75-9e9c-041c6b5fb447",
                         TEAM_ID.toString(), null, null, SESSION_ID),
-                new ConversationOwner("tenant-a", "alice"), "hello", "message-key");
+                new ConversationOwner("tenant-a", "alice"),
+                new CreateTaskIntent("CREATE_TASK", "Hello", "hello", List.of(), 0, false), "message-key");
 
         verify(commands).create(any(), argThat(command -> command.specJson().contains(
                 "\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}")));
@@ -94,7 +101,8 @@ class ControlPlaneConversationTaskBridgeTest {
         new ControlPlaneConversationTaskBridge(commands, new ObjectMapper()).createAndQueue(
                 new ConversationRuntimePort.Context("ef5916eb-14d9-4e75-9e9c-041c6b5fb447",
                         TEAM_ID.toString(), null, null, SESSION_ID),
-                new ConversationOwner("tenant-a", "alice"), "hello", "message-key");
+                new ConversationOwner("tenant-a", "alice"),
+                new CreateTaskIntent("CREATE_TASK", "Hello", "hello", List.of(), 0, false), "message-key");
 
         verify(commands).create(any(), argThat(command -> command.specJson().contains(
                 "\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"project-a\",\"team\":\"team-a\"}")));

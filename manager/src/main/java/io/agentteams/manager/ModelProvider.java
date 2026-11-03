@@ -3,6 +3,9 @@ package io.agentteams.manager;
 public interface ModelProvider {
     ModelResponse complete(ModelRequest request);
 
+    /** Whether this provider can perform real web searches during a conversation turn. */
+    default boolean supportsWebSearch() { return false; }
+
     /** Stable provider identity used by Manager audit records. */
     default String providerName() { return getClass().getSimpleName(); }
 

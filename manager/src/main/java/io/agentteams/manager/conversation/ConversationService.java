@@ -1,5 +1,7 @@
 package io.agentteams.manager.conversation;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -14,9 +16,12 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import io.agentteams.manager.security.ManagerAuthorizationException;
 import io.agentteams.application.api.TaskCommandPort.TaskCreationResult;
+import io.agentteams.manager.ConversationIntent;
+import io.agentteams.manager.CreateTaskIntent;
 
 /** Application service for conversation lifecycle, durable replay and idempotency. */
 public final class ConversationService {
+    private static final ObjectMapper JSON = new ObjectMapper();
     public enum Status { CREATED, ACTIVE, CANCELLING, CANCELLED }
 
     public record Conversation(UUID sessionId, ConversationRuntimePort.Context context, Status status,
@@ -54,6 +59,7 @@ public final class ConversationService {
     private final ConversationRepository repository;
     private final ControlPlaneConversationPort controlPlane;
     private final ConversationTaskBridge taskBridge;
+    private final ConversationIntentRouter intentRouter;
     private final boolean taskExecution;
     private final Map<UUID, SessionState> sessions = new ConcurrentHashMap<>();
     private final ScheduledExecutorService eventSynchronizer = Executors.newScheduledThreadPool(2,
@@ -69,20 +75,29 @@ public final class ConversationService {
 
     public ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
             ControlPlaneConversationPort controlPlane) {
-        this(runtime, repository, controlPlane, ConversationTaskBridge.noop(), false);
+        this(runtime, repository, controlPlane, ConversationTaskBridge.noop(),
+                ConversationIntentRouter.failClosed(), false);
     }
 
     public ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
             ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge) {
-        this(runtime, repository, controlPlane, taskBridge, true);
+        this(runtime, repository, controlPlane, taskBridge, ConversationIntentRouter.failClosed(), true);
+    }
+
+    public ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
+            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge,
+            ConversationIntentRouter intentRouter) {
+        this(runtime, repository, controlPlane, taskBridge, intentRouter, true);
     }
 
     private ConversationService(ConversationRuntimePort runtime, ConversationRepository repository,
-            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge, boolean taskExecution) {
+            ControlPlaneConversationPort controlPlane, ConversationTaskBridge taskBridge,
+            ConversationIntentRouter intentRouter, boolean taskExecution) {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.repository = Objects.requireNonNull(repository, "repository");
         this.controlPlane = Objects.requireNonNull(controlPlane, "controlPlane");
         this.taskBridge = Objects.requireNonNull(taskBridge, "taskBridge");
+        this.intentRouter = Objects.requireNonNull(intentRouter, "intentRouter");
         this.taskExecution = taskExecution;
     }
 
@@ -300,7 +315,7 @@ public final class ConversationService {
                     throw new ConversationRuntimeException(ConversationRuntimeException.Code.INVALID_STATE,
                             "task-backed conversation requires an owner");
                 }
-                dispatchTask(state, record, content, idempotencyKey);
+                dispatchRoutedMessage(state, record, content, idempotencyKey);
             } else {
                 bridgeMessage(state, content, idempotencyKey, requested.createdAt(), managerVersion);
                 dispatchPendingMessages(state);
@@ -604,14 +619,16 @@ public final class ConversationService {
         }
     }
 
-    private void dispatchTask(SessionState state, SendRecord record, String content, String idempotencyKey) {
+    private void dispatchTask(SessionState state, SendRecord record, io.agentteams.manager.CreateTaskIntent intent,
+            String idempotencyKey) {
         try {
-            TaskCreationResult task = taskBridge.createAndQueue(state.context, state.owner, content, idempotencyKey);
+            TaskCreationResult task = taskBridge.createAndQueue(state.context, state.owner, intent, idempotencyKey);
             Instant now = Instant.now();
             String data = "{\"taskId\":\"" + task.taskId() + "\",\"phase\":\"" + task.phase()
                     + "\",\"version\":" + task.version() + "}";
+            long cursor = lastCursor(repository.findEvents(state.context.sessionId())) + 1;
             ConversationEvent created = repository.appendEvent(state.context.sessionId(),
-                    ConversationEvent.of(state.context.sessionId(), 1, "task.created", data, now));
+                    ConversationEvent.of(state.context.sessionId(), cursor, "task.created", data, now));
             repository.appendEvent(state.context.sessionId(),
                     ConversationEvent.of(state.context.sessionId(), created.cursor() + 1, "task.updated", data, now));
             ConversationEvent completed = repository.appendEvent(state.context.sessionId(),
@@ -629,6 +646,141 @@ public final class ConversationService {
                     ConversationRepository.MessageStatus.RECOVERY_REQUIRED);
             throw error;
         }
+    }
+
+    private void dispatchRoutedMessage(SessionState state, SendRecord record, String content, String idempotencyKey) {
+        CreateTaskIntent pendingTask = pendingTaskProposal(state.context.sessionId());
+        if (pendingTask != null) {
+            if (isTaskConfirmation(content)) {
+                dispatchTask(state, record, pendingTask, idempotencyKey);
+                return;
+            }
+            if (isTaskCancellation(content)) {
+                completeRoutedMessage(state, record, idempotencyKey,
+                        "已取消这项任务预览，未创建或排队任何任务。", "TASK_PREVIEW_CANCELLED");
+                return;
+            }
+            completeRoutedMessage(state, record, idempotencyKey,
+                    "有一项后台任务等待确认。请回复“确认执行”创建并排队，或回复“取消任务”；我不会在确认前执行。",
+                    "TASK_PREVIEW_WAITING");
+            return;
+        }
+        ConversationIntent intent;
+        try {
+            intent = intentRouter.route(state.context, state.owner, content);
+            if (intent == null) throw new IllegalStateException("conversation intent router returned null");
+        } catch (RuntimeException error) {
+            record.dispatched = false;
+            record.status = ConversationRepository.MessageStatus.FAILED;
+            repository.updateMessageStatus(state.context.sessionId(), idempotencyKey,
+                    ConversationRepository.MessageStatus.FAILED);
+            throw error;
+        }
+        if (intent.type() == ConversationIntent.Type.CREATE_TASK) {
+            dispatchTaskProposal(state, record, intent.task(), idempotencyKey);
+            return;
+        }
+        completeRoutedMessage(state, record, idempotencyKey, intent.response(), intent.type().name());
+    }
+
+    private void dispatchTaskProposal(SessionState state, SendRecord record, CreateTaskIntent intent,
+            String idempotencyKey) {
+        try {
+            Instant now = Instant.now();
+            long cursor = lastCursor(repository.findEvents(state.context.sessionId())) + 1;
+            String capabilitySummary = intent.requiredCapabilities().isEmpty()
+                    ? "未指定" : String.join("、", intent.requiredCapabilities());
+            String preview = "任务预览\n标题：" + intent.title() + "\n说明：" + intent.description()
+                    + "\n所需能力：" + capabilitySummary
+                    + "\n确认后将创建并排队。回复“确认执行”继续，或回复“取消任务”。";
+            var data = JSON.createObjectNode().put("text", preview).put("intent", "TASK_PREVIEW");
+            data.set("task", JSON.valueToTree(intent));
+            ConversationEvent completed = repository.appendEvent(state.context.sessionId(),
+                    ConversationEvent.of(state.context.sessionId(), cursor, "message.completed", data.toString(), now));
+            record.dispatched = true;
+            record.freezeAt(completed.cursor());
+            record.status = ConversationRepository.MessageStatus.COMPLETED;
+            repository.updateMessageEnd(state.context.sessionId(), idempotencyKey, completed.cursor());
+        } catch (RuntimeException error) {
+            record.dispatched = false;
+            record.status = ConversationRepository.MessageStatus.RECOVERY_REQUIRED;
+            repository.updateMessageStatus(state.context.sessionId(), idempotencyKey,
+                    ConversationRepository.MessageStatus.RECOVERY_REQUIRED);
+            throw error;
+        }
+    }
+
+    private void completeRoutedMessage(SessionState state, SendRecord record, String idempotencyKey,
+            String response, String intent) {
+        try {
+            Instant now = Instant.now();
+            long cursor = lastCursor(repository.findEvents(state.context.sessionId())) + 1;
+            String data = "{\"text\":" + jsonString(response)
+                    + ",\"intent\":" + jsonString(intent) + "}";
+            ConversationEvent completed = repository.appendEvent(state.context.sessionId(),
+                    ConversationEvent.of(state.context.sessionId(), cursor, "message.completed", data, now));
+            record.dispatched = true;
+            record.freezeAt(completed.cursor());
+            record.status = ConversationRepository.MessageStatus.COMPLETED;
+            repository.updateMessageEnd(state.context.sessionId(), idempotencyKey, completed.cursor());
+        } catch (RuntimeException error) {
+            record.dispatched = false;
+            record.status = ConversationRepository.MessageStatus.RECOVERY_REQUIRED;
+            repository.updateMessageStatus(state.context.sessionId(), idempotencyKey,
+                    ConversationRepository.MessageStatus.RECOVERY_REQUIRED);
+            throw error;
+        }
+    }
+
+    private CreateTaskIntent pendingTaskProposal(UUID sessionId) {
+        List<ConversationEvent> events = repository.findEvents(sessionId);
+        for (int index = events.size() - 1; index >= 0; index--) {
+            ConversationEvent event = events.get(index);
+            if ("task.created".equals(event.type())) return null;
+            if (!"message.completed".equals(event.type())) continue;
+            try {
+                JsonNode data = JSON.readTree(event.data());
+                String intent = data.path("intent").asText();
+                if ("TASK_PREVIEW".equals(intent)) {
+                    JsonNode task = data.path("task");
+                    if (task.isMissingNode() || task.isNull()) {
+                        throw new IllegalStateException("task preview is missing its task payload");
+                    }
+                    return JSON.treeToValue(task, CreateTaskIntent.class);
+                }
+                if ("TASK_PREVIEW_CANCELLED".equals(intent)) return null;
+            } catch (java.io.IOException error) {
+                throw new IllegalStateException("pending task preview could not be read", error);
+            }
+        }
+        return null;
+    }
+
+    private static boolean isTaskConfirmation(String content) {
+        return content != null && content.trim().matches("(?i)(确认|确认执行|确认创建|开始执行|执行|yes|confirm)[。！.!！]?");
+    }
+
+    private static boolean isTaskCancellation(String content) {
+        return content != null && content.trim().matches("(?i)(取消|取消任务|暂不创建|不执行|no|cancel)[。！.!！]?");
+    }
+
+    private static String jsonString(String value) {
+        StringBuilder escaped = new StringBuilder("\"");
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            switch (character) {
+                case '"' -> escaped.append("\\\"");
+                case '\\' -> escaped.append("\\\\");
+                case '\n' -> escaped.append("\\n");
+                case '\r' -> escaped.append("\\r");
+                case '\t' -> escaped.append("\\t");
+                default -> {
+                    if (character < 0x20) escaped.append(String.format("\\u%04x", (int) character));
+                    else escaped.append(character);
+                }
+            }
+        }
+        return escaped.append('"').toString();
     }
 
     private static Conversation snapshot(SessionState state) {

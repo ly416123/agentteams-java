@@ -18,6 +18,64 @@ import org.junit.jupiter.api.Test;
 
 class ManagerSessionServiceTest {
     @Test
+    void doesNotCallModelOrCreateWorkForLiveStockLookupWithoutSearchCapability() {
+        ModelProvider provider = mock(ModelProvider.class);
+        ManagerSessionService service = new ManagerSessionService(provider, new ObjectMapper(),
+                new ManagerToolRegistry(Map.of()));
+
+        ConversationIntent result = service.routeConversationMessage("查看茅台的股票价格",
+                new ManagerToolRegistry.ToolContext(Set.of("conversation:send"), false));
+
+        assertThat(result.type()).isEqualTo(ConversationIntent.Type.CHAT);
+        assertThat(result.response()).contains("无法核验最新数据");
+        org.mockito.Mockito.verify(provider, org.mockito.Mockito.never())
+                .complete(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void routesGreetingToChatAndAuditsIntentWithoutCallingTaskTool() {
+        ModelProvider provider = mock(ModelProvider.class);
+        when(provider.providerName()).thenReturn("chatgpt-plan");
+        when(provider.modelName()).thenReturn("gpt-5.6-luna");
+        when(provider.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new ModelProvider.ModelResponse("{\"intent\":\"CHAT\",\"response\":\"你好！\"}",
+                        "gpt-5.6-luna", 12, 5));
+        List<ModelCallAudit> audits = new ArrayList<>();
+        FakeModelCallAdmission admission = new FakeModelCallAdmission();
+        ManagerSessionService service = new ManagerSessionService(provider, new ObjectMapper(),
+                new ManagerToolRegistry(Map.of()), audits::add, java.time.Clock.systemUTC(), admission);
+
+        ConversationIntent result = service.routeConversationMessage("你好",
+                new ManagerToolRegistry.ToolContext(Set.of("conversation:send"), false,
+                        "tenant-a", "project-a", null, null, "team-a", "conversation.intent", null,
+                        null, "session-a"));
+
+        assertThat(result.type()).isEqualTo(ConversationIntent.Type.CHAT);
+        assertThat(result.response()).isEqualTo("你好！");
+        org.mockito.Mockito.verify(provider).complete(org.mockito.ArgumentMatchers.argThat(request ->
+                request.prompt().contains("只有用户明确要求") && request.prompt().contains("\n你好\n")));
+        assertThat(audits).singleElement().satisfies(audit ->
+                assertThat(audit.dimensions().toolId()).isEqualTo("conversation.intent"));
+        assertThat(admission.releases()).isEqualTo(1);
+    }
+
+    @Test
+    void routesAmbiguousMessageToClarification() {
+        ModelProvider provider = mock(ModelProvider.class);
+        when(provider.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new ModelProvider.ModelResponse("{\"intent\":\"CLARIFY\",\"response\":\"要我具体做什么？\"}",
+                        "gpt-5.6-luna", 5, 4));
+        ManagerSessionService service = new ManagerSessionService(provider, new ObjectMapper(),
+                new ManagerToolRegistry(Map.of()));
+
+        ConversationIntent result = service.routeConversationMessage("帮我看看",
+                new ManagerToolRegistry.ToolContext(Set.of(), false));
+
+        assertThat(result.type()).isEqualTo(ConversationIntent.Type.CLARIFY);
+        assertThat(result.response()).isEqualTo("要我具体做什么？");
+    }
+
+    @Test
     void validatesModelOutputBeforeCallingCreateTaskTool() {
         ModelProvider provider = mock(ModelProvider.class);
         when(provider.complete(org.mockito.ArgumentMatchers.any())).thenReturn(

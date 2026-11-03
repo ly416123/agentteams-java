@@ -1,22 +1,29 @@
 package io.agentteams.manager;
 
 import io.agentteams.application.api.QuotaPort;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import java.net.http.HttpClient;
+import java.net.URI;
+import java.nio.file.Path;
 
-/** Minimal local-only entry point for verifying Manager -> DeepSeek connectivity. */
+/** Minimal local-only entry point for verifying Manager -> ChatGPT plan OAuth connectivity. */
 public final class ManagerSmokeApplication {
-    private static final String PROVIDER = "deepseek";
+    private static final String PROVIDER = "chatgpt-plan";
     private static final int SMOKE_MAX_TOKENS = 256;
 
     private ManagerSmokeApplication() {}
 
     public static void main(String[] args) {
-        DeepSeekConfiguration configuration = DeepSeekConfiguration.fromEnvironment(System.getenv());
+        String model = text(System.getenv("AGENTTEAMS_MODEL"), ChatGptPlanResponsesProvider.DEFAULT_MODEL);
+        String tokenPath = text(System.getenv("AGENTTEAMS_CHATGPT_ACCESS_TOKEN_FILE"), "");
+        if (tokenPath.isBlank()) {
+            throw new IllegalArgumentException("AGENTTEAMS_CHATGPT_ACCESS_TOKEN_FILE must be set");
+        }
+        String proxy = text(System.getenv("AGENTTEAMS_CHATGPT_PROXY_URL"), "");
         ManagerSmokeConfiguration smokeConfiguration = ManagerSmokeConfiguration.fromEnvironment();
-        DeepSeekProvider provider = configuration.createProvider(HttpClient.newHttpClient(), new ObjectMapper());
+        ChatGptPlanResponsesProvider provider = new ChatGptPlanResponsesProvider(model, Path.of(tokenPath),
+                ChatGptPlanResponsesProvider.DEFAULT_ENDPOINT,
+                ChatGptPlanResponsesProvider.httpClient(proxy), java.time.Duration.ofSeconds(90));
         ManagedChannel channel = null;
         QuotaPort quotaPort = QuotaPort.noop();
         try {
@@ -29,7 +36,7 @@ public final class ManagerSmokeApplication {
             }
             ModelCallAdmission admission = new ProjectScopedModelCallAdmission(quotaPort);
             ModelCallLease lease = admission.acquire(new ModelCallAdmissionRequest(
-                    PROVIDER, configuration.model(), SMOKE_MAX_TOKENS,
+                    PROVIDER, model, SMOKE_MAX_TOKENS,
                     smokeConfiguration.tenantId(), smokeConfiguration.projectId(),
                     ModelCallDimensions.empty()));
             if (lease == null) {
@@ -39,12 +46,12 @@ public final class ManagerSmokeApplication {
                 ModelProvider.ModelResponse response = provider.complete(new ModelProvider.ModelRequest(
                         "Reply with a short connectivity confirmation.", SMOKE_MAX_TOKENS));
                 if (response.content().isBlank()) {
-                    throw new IllegalStateException("DeepSeek smoke response was empty");
+                    throw new IllegalStateException("ChatGPT plan smoke response was empty");
                 }
             } finally {
                 lease.close();
             }
-            System.out.println("DEEPSEEK_MANAGER_OK model=" + configuration.model());
+            System.out.println("CHATGPT_PLAN_MANAGER_OK model=" + model);
         } finally {
             if (quotaPort instanceof GrpcQuotaPort grpcQuotaPort) {
                 grpcQuotaPort.close();
@@ -52,5 +59,9 @@ public final class ManagerSmokeApplication {
                 channel.shutdown();
             }
         }
+    }
+
+    private static String text(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }
