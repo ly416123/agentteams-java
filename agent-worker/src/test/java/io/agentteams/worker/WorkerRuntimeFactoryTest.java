@@ -12,6 +12,15 @@ import org.junit.jupiter.api.Test;
 
 class WorkerRuntimeFactoryTest {
     @Test
+    void defaultsNewWorkersToChatGptPlanGptLuna() {
+        AgentTeamsWorker.WorkerConfiguration configuration = AgentTeamsWorker.WorkerConfiguration.from(Map.of(
+                "AGENTTEAMS_AGENT_ID", "agent-a"));
+
+        assertThat(configuration.modelProvider()).isEqualTo("chatgpt-plan");
+        assertThat(configuration.model()).isEqualTo("chatgpt-plan:gpt-5.6-luna");
+    }
+
+    @Test
     void productionClasspathProvidesDashScopeModelResolution() {
         assertThat(ModelRegistry.canResolve("dashscope:qwen-plus")).isTrue();
     }

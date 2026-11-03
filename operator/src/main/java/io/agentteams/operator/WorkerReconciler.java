@@ -1,5 +1,7 @@
 package io.agentteams.operator;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentStatus;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -12,7 +14,9 @@ import io.javaoperatorsdk.operator.api.reconciler.UpdateControl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -60,8 +64,7 @@ public final class WorkerReconciler implements Reconciler<Worker> {
             boolean changed = applyDirective(resource, directive.get());
             if (changed) persistSpec(resource, namespace, name);
         }
-        client.apps().deployments().inNamespace(namespace)
-                .resource(WorkerResourceFactory.deployment(resource)).createOrReplace();
+        ensureDeployment(resource, namespace, name);
         client.services().inNamespace(namespace)
                 .resource(WorkerResourceFactory.service(resource)).createOrReplace();
 
@@ -83,6 +86,105 @@ public final class WorkerReconciler implements Reconciler<Worker> {
         // enqueue its Worker owner. Keep a bounded repair loop so the CR
         // cannot remain Ready while its child Deployment is missing.
         return update.rescheduleAfter(Duration.ofSeconds(30));
+    }
+
+    private void ensureDeployment(Worker worker, String namespace, String name) {
+        var deployments = client.apps().deployments().inNamespace(namespace);
+        Deployment desired = WorkerResourceFactory.deployment(worker);
+        Deployment current = deployments.withName(name).get();
+        if (current == null || !deploymentMatchesDesiredFields(desired, current)) {
+            deployments.resource(desired).createOrReplace();
+        }
+    }
+
+    private boolean deploymentMatchesDesiredFields(Deployment desired, Deployment current) {
+        if (desired.getSpec() == null || current.getSpec() == null
+                || !Objects.equals(desired.getSpec().getReplicas(), current.getSpec().getReplicas())
+                || desired.getSpec().getSelector() == null || current.getSpec().getSelector() == null
+                || !Objects.equals(desired.getSpec().getSelector().getMatchLabels(),
+                        current.getSpec().getSelector().getMatchLabels())
+                || !emptyIfNull(desired.getSpec().getSelector().getMatchExpressions())
+                        .equals(emptyIfNull(current.getSpec().getSelector().getMatchExpressions()))) {
+            return false;
+        }
+        JsonNode expected = desiredFields(desired);
+        JsonNode observed = objectMapper.valueToTree(current);
+        return matchesExpected(expected, observed);
+    }
+
+    private JsonNode desiredFields(Deployment desired) {
+        ObjectNode expected = objectMapper.createObjectNode();
+        ObjectNode metadata = objectMapper.createObjectNode();
+        JsonNode labels = objectMapper.valueToTree(desired.getMetadata().getLabels());
+        if (!labels.isNull()) metadata.set("labels", labels);
+        JsonNode ownerReferences = objectMapper.valueToTree(desired.getMetadata().getOwnerReferences());
+        if (!ownerReferences.isNull()) metadata.set("ownerReferences", ownerReferences);
+        expected.set("metadata", metadata);
+
+        ObjectNode spec = objectMapper.createObjectNode();
+        spec.set("replicas", objectMapper.valueToTree(desired.getSpec().getReplicas()));
+        spec.set("selector", objectMapper.valueToTree(desired.getSpec().getSelector()));
+        spec.set("template", objectMapper.valueToTree(desired.getSpec().getTemplate()));
+        expected.set("spec", spec);
+        removeNullFields(expected);
+        return expected;
+    }
+
+    private static boolean matchesExpected(JsonNode expected, JsonNode observed) {
+        if (expected == null || expected.isNull() || observed == null || observed.isNull()) return false;
+        if (expected.isObject()) {
+            if (!observed.isObject()) return false;
+            Iterator<Map.Entry<String, JsonNode>> fields = expected.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (!matchesExpected(field.getValue(), observed.get(field.getKey()))) return false;
+            }
+            return true;
+        }
+        if (expected.isArray()) {
+            if (!observed.isArray()) return false;
+            if (expected.isEmpty()) return observed.isEmpty();
+            if (expected.get(0).isObject() && expected.get(0).has("name")) {
+                for (JsonNode expectedItem : expected) {
+                    boolean found = false;
+                    for (JsonNode observedItem : observed) {
+                        if (Objects.equals(expectedItem.get("name"), observedItem.get("name"))
+                                && matchesExpected(expectedItem, observedItem)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) return false;
+                }
+                return true;
+            }
+            if (expected.size() != observed.size()) return false;
+            for (int i = 0; i < expected.size(); i++) {
+                if (!matchesExpected(expected.get(i), observed.get(i))) return false;
+            }
+            return true;
+        }
+        return expected.equals(observed);
+    }
+
+    private static void removeNullFields(JsonNode node) {
+        if (node.isObject()) {
+            ObjectNode object = (ObjectNode) node;
+            Iterator<Map.Entry<String, JsonNode>> fields = object.fields();
+            java.util.List<String> nullFields = new java.util.ArrayList<>();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (field.getValue().isNull()) nullFields.add(field.getKey());
+                else removeNullFields(field.getValue());
+            }
+            nullFields.forEach(object::remove);
+        } else if (node.isArray()) {
+            node.forEach(WorkerReconciler::removeNullFields);
+        }
+    }
+
+    private static <T> java.util.List<T> emptyIfNull(java.util.List<T> values) {
+        return values == null ? java.util.List.of() : values;
     }
 
     private Optional<WorkerOperationDirective> directiveFor(Worker resource) {
