@@ -15,6 +15,7 @@ import { ErrorState } from '../../components/ErrorState';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelStatus, labelType } from '../../i18n/labels';
+import { PermissionGate } from '../../auth/PermissionGate';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -98,7 +99,7 @@ export function ManagementMcpPage() {
     onSuccess: (result, id) => {
       setConnectionResults((current) => ({
         ...current,
-        [id]: `${labelStatus(result.category)} · ${result.latencyMillis} ms`,
+        [id]: `${labelStatus(result.category)} · ${result.latencyMillis} 毫秒`,
       }));
       setNotice({ kind: 'success', text: `连接测试完成：${labelStatus(result.status)}` });
       void refresh();
@@ -136,8 +137,8 @@ export function ManagementMcpPage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / MCP</p>
-          <h1>MCP Servers</h1>
+          <p className="eyebrow">管理 / MCP</p>
+          <h1>MCP 服务</h1>
           <p className="page-subtitle">
             管理 MCP Server 连接和健康状态。凭据只登记引用，不在 Console 保存或展示 Secret 明文。
           </p>
@@ -151,75 +152,80 @@ export function ManagementMcpPage() {
           {notice.text}
         </div>
       )}
-      <form className="panel form-panel" onSubmit={submit}>
-        <h2>{editingTarget ? '编辑 MCP Server' : '登记 MCP Server'}</h2>
-        <div className="form-grid">
-          <label>
-            名称
-            <input
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Transport
-            <select
-              value={form.transport}
-              onChange={(event) => setForm({ ...form, transport: event.target.value })}
+      <details className="form-disclosure" open={Boolean(editingTarget)}>
+        <summary>{editingTarget ? '编辑 MCP 服务' : '登记 MCP 服务'}</summary>
+        <PermissionGate permission="mcp:write">
+          <form className="panel form-panel" onSubmit={submit}>
+            <h2>{editingTarget ? '编辑 MCP Server' : '登记 MCP Server'}</h2>
+            <div className="form-grid">
+              <label>
+                名称
+                <input
+                  value={form.name}
+                  onChange={(event) => setForm({ ...form, name: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                传输方式
+                <select
+                  value={form.transport}
+                  onChange={(event) => setForm({ ...form, transport: event.target.value })}
+                >
+                  <option value="STREAMABLE_HTTP">HTTP</option>
+                  <option value="SSE">SSE</option>
+                </select>
+              </label>
+              <label>
+                服务地址
+                <input
+                  type="url"
+                  value={form.endpoint}
+                  onChange={(event) => setForm({ ...form, endpoint: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Credential Ref（可选）
+                <input
+                  value={form.credentialRef}
+                  onChange={(event) => setForm({ ...form, credentialRef: event.target.value })}
+                  placeholder="secret://..."
+                />
+              </label>
+            </div>
+            <button
+              className="button button--primary"
+              type="submit"
+              disabled={create.isPending || update.isPending}
             >
-              <option value="STREAMABLE_HTTP">HTTP</option>
-              <option value="SSE">SSE</option>
-            </select>
-          </label>
-          <label>
-            Endpoint
-            <input
-              type="url"
-              value={form.endpoint}
-              onChange={(event) => setForm({ ...form, endpoint: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Credential Ref（可选）
-            <input
-              value={form.credentialRef}
-              onChange={(event) => setForm({ ...form, credentialRef: event.target.value })}
-              placeholder="secret://..."
-            />
-          </label>
-        </div>
-        <button
-          className="button button--primary"
-          type="submit"
-          disabled={create.isPending || update.isPending}
-        >
-          {create.isPending || update.isPending
-            ? '保存中…'
-            : editingTarget
-              ? '保存 MCP Server'
-              : '登记 MCP Server'}
-        </button>
-        {editingTarget && (
-          <button
-            className="button button--ghost"
-            type="button"
-            onClick={() => {
-              setEditingTarget(undefined);
-              setForm({
-                name: '',
-                transport: 'STREAMABLE_HTTP',
-                endpoint: '',
-                credentialRef: '',
-                enabled: true,
-              });
-            }}
-          >
-            取消编辑
-          </button>
-        )}
-      </form>
+              {create.isPending || update.isPending
+                ? '保存中…'
+                : editingTarget
+                  ? '保存 MCP Server'
+                  : '登记 MCP Server'}
+            </button>
+            {editingTarget && (
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={() => {
+                  setEditingTarget(undefined);
+                  setForm({
+                    name: '',
+                    transport: 'STREAMABLE_HTTP',
+                    endpoint: '',
+                    credentialRef: '',
+                    enabled: true,
+                  });
+                }}
+              >
+                取消编辑
+              </button>
+            )}
+          </form>
+        </PermissionGate>
+      </details>
 
       {servers.isLoading ? (
         <div className="panel loading-block">加载中…</div>
@@ -241,7 +247,7 @@ export function ManagementMcpPage() {
                 <StatusBadge phase={server.healthStatus} />
               </div>
               <p className="muted-text">
-                credential: {server.credentialConfigured ? '已配置（仅引用）' : '未配置'} · version{' '}
+                凭据：{server.credentialConfigured ? '已配置（仅引用）' : '未配置'} · 版本{' '}
                 {server.version}
               </p>
               {connectionResults[server.id] && (
@@ -254,36 +260,38 @@ export function ManagementMcpPage() {
                   {discovery.data.toolsDigest || '无工具摘要'}
                 </p>
               )}
-              <button
-                className="button button--ghost"
-                disabled={connection.isPending}
-                onClick={() => connection.mutate(server.id)}
-              >
-                连接测试
-              </button>
-              <button
-                className="button button--ghost"
-                onClick={() => setDiscoveryTarget(server.id)}
-              >
-                查看 Discovery
-              </button>
-              <button className="button button--ghost" onClick={() => edit(server)}>
-                编辑
-              </button>
-              <button
-                className="button button--ghost"
-                disabled={health.isPending}
-                onClick={() => health.mutate(server.id)}
-              >
-                记录健康检查
-              </button>
-              <button
-                className="button button--danger"
-                disabled={remove.isPending}
-                onClick={() => setDeleteTarget(server)}
-              >
-                删除
-              </button>
+              <PermissionGate permission="mcp:write">
+                <button
+                  className="button button--ghost"
+                  disabled={connection.isPending}
+                  onClick={() => connection.mutate(server.id)}
+                >
+                  连接测试
+                </button>
+                <button
+                  className="button button--ghost"
+                  onClick={() => setDiscoveryTarget(server.id)}
+                >
+                  查看 Discovery
+                </button>
+                <button className="button button--ghost" onClick={() => edit(server)}>
+                  编辑
+                </button>
+                <button
+                  className="button button--ghost"
+                  disabled={health.isPending}
+                  onClick={() => health.mutate(server.id)}
+                >
+                  记录健康检查
+                </button>
+                <button
+                  className="button button--danger"
+                  disabled={remove.isPending}
+                  onClick={() => setDeleteTarget(server)}
+                >
+                  删除
+                </button>
+              </PermissionGate>
             </article>
           ))}
         </div>

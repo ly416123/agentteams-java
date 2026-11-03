@@ -11,8 +11,12 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelSeverity, labelStatus } from '../../i18n/labels';
+import { formatDateTime } from '../../utils/formatters';
+import { useAuthorization } from '../../auth/AuthorizationProvider';
+import { PermissionGate } from '../../auth/PermissionGate';
 
 export function ManagementAlertPage({ projectId }: { projectId: string }) {
+  const authorization = useAuthorization();
   const current = useQuery({
     queryKey: ['management-alerts', projectId],
     queryFn: () => listDashboardAlerts(projectId),
@@ -130,7 +134,7 @@ export function ManagementAlertPage({ projectId }: { projectId: string }) {
                       {event.lastError ? <div>{event.lastError}</div> : null}
                       {event.nextAttemptAt ? (
                         <div className="muted-text">
-                          下次重试 {new Date(event.nextAttemptAt).toLocaleString('zh-CN')}
+                          下次重试 {formatDateTime(event.nextAttemptAt)}
                         </div>
                       ) : event.status === 'FAILED' ? (
                         <span className="muted-text">等待调度</span>
@@ -139,8 +143,9 @@ export function ManagementAlertPage({ projectId }: { projectId: string }) {
                       )}
                     </td>
                     <td>
-                      <div>{new Date(event.updatedAt).toLocaleString('zh-CN')}</div>
-                      {event.status === 'FAILED' ? (
+                      <div>{formatDateTime(event.updatedAt)}</div>
+                      {event.status === 'FAILED' &&
+                      authorization.permissions.includes('dashboard:write') ? (
                         <button
                           className="button button--ghost"
                           onClick={() => retry.mutate(event.id)}
@@ -169,6 +174,8 @@ function AlertRuleEditor({
   projectId: string;
   rule: { rule: string; severity: string; threshold: number; enabled: boolean; version: number };
 }) {
+  const authorization = useAuthorization();
+  const canWrite = authorization.permissions.includes('dashboard:write');
   const [threshold, setThreshold] = useState(String(rule.threshold));
   const [enabled, setEnabled] = useState(rule.enabled);
   const mutation = useMutation({
@@ -189,31 +196,46 @@ function AlertRuleEditor({
           严重级别 {labelSeverity(rule.severity)} · version {rule.version}
         </p>
       </div>
-      <label>
-        {rule.rule} 阈值
-        <input
-          type="number"
-          min="0"
-          step="0.0001"
-          value={threshold}
-          onChange={(event) => setThreshold(event.target.value)}
-        />
-      </label>
-      <label>
-        启用
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
-        />
-      </label>
-      <button
-        className="button button--primary"
-        onClick={() => mutation.mutate()}
-        disabled={mutation.isPending}
-      >
-        {mutation.isPending ? '保存中…' : `保存 ${rule.rule} 规则`}
-      </button>
+      {canWrite ? (
+        <>
+          <label>
+            {rule.rule} 阈值
+            <input
+              type="number"
+              min="0"
+              step="0.0001"
+              value={threshold}
+              onChange={(event) => setThreshold(event.target.value)}
+            />
+          </label>
+          <label>
+            启用
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+            />
+          </label>
+        </>
+      ) : (
+        <div className="detail-list" aria-label={`${rule.rule} 告警规则只读信息`}>
+          <span>
+            阈值<strong>{rule.threshold}</strong>
+          </span>
+          <span>
+            状态<strong>{rule.enabled ? '已启用' : '已停用'}</strong>
+          </span>
+        </div>
+      )}
+      <PermissionGate permission="dashboard:write">
+        <button
+          className="button button--primary"
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+        >
+          {mutation.isPending ? '保存中…' : `保存 ${rule.rule} 规则`}
+        </button>
+      </PermissionGate>
       {mutation.isError ? <span role="alert">保存失败，请刷新后重试。</span> : null}
     </div>
   );

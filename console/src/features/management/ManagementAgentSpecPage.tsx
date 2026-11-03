@@ -11,6 +11,7 @@ import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { WorkerType } from '../../api/types';
 import { labelRuntime, labelType } from '../../i18n/labels';
+import { PermissionGate } from '../../auth/PermissionGate';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -89,75 +90,80 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
           {notice.text}
         </div>
       )}
-      <form className="panel form-panel" onSubmit={submit}>
-        <h2>创建智能体规格</h2>
-        <div className="form-grid">
-          <label>
-            内部名称
-            <input
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            运行时
-            <input
-              value={form.runtime}
-              onChange={(event) => setForm({ ...form, runtime: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            工作节点类型
-            <select
-              aria-label="工作节点类型"
-              value={form.workerType}
-              onChange={(event) =>
-                setForm({ ...form, workerType: event.target.value as WorkerType })
-              }
-            >
-              <option value="EXECUTOR">执行工作节点</option>
-              <option value="LEADER">负责人工作节点</option>
-            </select>
-          </label>
-          <label>
-            模型服务商
-            <input
-              value={form.modelProvider}
-              onChange={(event) => setForm({ ...form, modelProvider: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            模型名称
-            <input
-              value={form.modelName}
-              onChange={(event) => setForm({ ...form, modelName: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            团队引用（可选）
-            <input
-              value={form.teamRef}
-              onChange={(event) => setForm({ ...form, teamRef: event.target.value })}
-            />
-          </label>
-        </div>
-        <label>
-          规格 JSON
-          <textarea
-            rows={5}
-            value={form.spec}
-            onChange={(event) => setForm({ ...form, spec: event.target.value })}
-            required
-          />
-        </label>
-        <button className="button button--primary" type="submit" disabled={create.isPending}>
-          {create.isPending ? '创建中…' : '创建智能体规格'}
-        </button>
-      </form>
+      <details className="form-disclosure">
+        <summary>新建智能体规格</summary>
+        <PermissionGate permission="agent-spec:write">
+          <form className="panel form-panel" onSubmit={submit}>
+            <h2>创建智能体规格</h2>
+            <div className="form-grid">
+              <label>
+                内部名称
+                <input
+                  value={form.name}
+                  onChange={(event) => setForm({ ...form, name: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                运行时
+                <input
+                  value={form.runtime}
+                  onChange={(event) => setForm({ ...form, runtime: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                工作节点类型
+                <select
+                  aria-label="工作节点类型"
+                  value={form.workerType}
+                  onChange={(event) =>
+                    setForm({ ...form, workerType: event.target.value as WorkerType })
+                  }
+                >
+                  <option value="EXECUTOR">执行工作节点</option>
+                  <option value="LEADER">负责人工作节点</option>
+                </select>
+              </label>
+              <label>
+                模型服务商
+                <input
+                  value={form.modelProvider}
+                  onChange={(event) => setForm({ ...form, modelProvider: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                模型名称
+                <input
+                  value={form.modelName}
+                  onChange={(event) => setForm({ ...form, modelName: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                团队引用（可选）
+                <input
+                  value={form.teamRef}
+                  onChange={(event) => setForm({ ...form, teamRef: event.target.value })}
+                />
+              </label>
+            </div>
+            <label>
+              规格 JSON
+              <textarea
+                rows={5}
+                value={form.spec}
+                onChange={(event) => setForm({ ...form, spec: event.target.value })}
+                required
+              />
+            </label>
+            <button className="button button--primary" type="submit" disabled={create.isPending}>
+              {create.isPending ? '创建中…' : '创建智能体规格'}
+            </button>
+          </form>
+        </PermissionGate>
+      </details>
 
       {specs.isLoading ? (
         <div className="panel loading-block">加载中…</div>
@@ -183,22 +189,24 @@ export function ManagementAgentSpecPage({ projectId }: { projectId: string }) {
                 项目 {spec.projectId} · 版本 {spec.version}
                 {spec.teamRef ? ` · 团队 ${spec.teamRef}` : ' · 项目作用域'}
               </p>
-              <div className="form-actions">
-                <button
-                  className="button button--primary"
-                  disabled={publish.isPending || spec.lifecycleStatus === 'PUBLISHED'}
-                  onClick={() => publish.mutate(spec.id)}
-                >
-                  发布
-                </button>
-                <button
-                  className="button button--ghost"
-                  disabled={deactivate.isPending || spec.lifecycleStatus === 'DISABLED'}
-                  onClick={() => deactivate.mutate(spec.id)}
-                >
-                  停用
-                </button>
-              </div>
+              <PermissionGate permission="agent-spec:publish">
+                <div className="form-actions">
+                  <button
+                    className="button button--primary"
+                    disabled={publish.isPending || spec.lifecycleStatus === 'PUBLISHED'}
+                    onClick={() => publish.mutate(spec.id)}
+                  >
+                    发布
+                  </button>
+                  <button
+                    className="button button--ghost"
+                    disabled={deactivate.isPending || spec.lifecycleStatus === 'DISABLED'}
+                    onClick={() => deactivate.mutate(spec.id)}
+                  >
+                    停用
+                  </button>
+                </div>
+              </PermissionGate>
             </article>
           ))}
         </div>

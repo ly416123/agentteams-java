@@ -1,5 +1,6 @@
+import { renderAuthorized } from '../fixtures/authorizedRender';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ManagementArtifactPage } from '../../src/features/management/ManagementArtifactPage';
@@ -43,7 +44,7 @@ vi.mock('../../src/api/artifacts', () => ({
 describe('Management artifact page', () => {
   it('renders scoped artifact metadata without exposing a download shortcut', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
+    renderAuthorized(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <ManagementArtifactPage projectId="p-1" />
@@ -62,7 +63,7 @@ describe('Management artifact page', () => {
 
   it('shows and updates the project retention policy with the current version', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
+    renderAuthorized(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <ManagementArtifactPage projectId="p-1" />
@@ -86,5 +87,28 @@ describe('Management artifact page', () => {
         expectedVersion: 2,
       }),
     );
+  });
+
+  it('keeps retention policy controls hidden for artifact readers', async () => {
+    const { updateArtifactRetentionPolicy } = await import('../../src/api/artifacts');
+    vi.mocked(updateArtifactRetentionPolicy).mockClear();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderAuthorized(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ManagementArtifactPage projectId="p-1" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+      undefined,
+      ['artifact:read'],
+    );
+
+    expect(await screen.findByRole('heading', { name: '制品保留策略' })).toBeInTheDocument();
+    expect(await screen.findByText(/当前值：成功任务/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('成功任务保留（秒）')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: '法律保留' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存保留策略' })).not.toBeInTheDocument();
+
+    expect(updateArtifactRetentionPolicy).not.toHaveBeenCalled();
   });
 });

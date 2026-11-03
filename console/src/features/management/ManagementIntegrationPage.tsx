@@ -13,6 +13,9 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelStatus } from '../../i18n/labels';
+import { PermissionGate } from '../../auth/PermissionGate';
+import { IdDisplay } from '../../components/IdDisplay';
+import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 type Credential = {
@@ -48,6 +51,7 @@ export function ManagementIntegrationPage() {
   const [integrationName, setIntegrationName] = useState('');
   const [credential, setCredential] = useState({ label: '', credentialRef: '' });
   const [rotateRef, setRotateRef] = useState('');
+  const [pendingRevoke, setPendingRevoke] = useState<Credential>();
   const refreshIntegrations = () =>
     queryClient.invalidateQueries({
       queryKey: ['management-integrations', selectedOrganizationId],
@@ -125,80 +129,87 @@ export function ManagementIntegrationPage() {
           {notice.text}
         </div>
       )}
-      <div className="content-grid">
-        <form className="form-panel" onSubmit={submitIntegration}>
-          <h2>创建集成</h2>
-          <label htmlFor="integration-organization">组织</label>
-          <select
-            id="integration-organization"
-            value={selectedOrganizationId}
-            onChange={(event) => setOrganizationId(event.target.value)}
-            required
-          >
-            <option value="">选择组织</option>
-            {(organizations.data || []).map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="integration-name">集成名称</label>
-          <input
-            id="integration-name"
-            value={integrationName}
-            onChange={(event) => setIntegrationName(event.target.value)}
-            required
-          />
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createIntegration.isPending}
-          >
-            创建集成
-          </button>
-        </form>
-        <form className="form-panel" onSubmit={submitCredential}>
-          <h2>登记凭据引用</h2>
-          <label htmlFor="credential-integration">集成</label>
-          <select
-            id="credential-integration"
-            value={selectedIntegrationId}
-            onChange={(event) => setIntegrationId(event.target.value)}
-            required
-          >
-            <option value="">选择集成</option>
-            {(integrations.data || []).map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="credential-label">凭据标签</label>
-          <input
-            id="credential-label"
-            value={credential.label}
-            onChange={(event) => setCredential({ ...credential, label: event.target.value })}
-            required
-          />
-          <label htmlFor="credential-ref">凭据引用</label>
-          <input
-            id="credential-ref"
-            value={credential.credentialRef}
-            onChange={(event) =>
-              setCredential({ ...credential, credentialRef: event.target.value })
-            }
-            placeholder="secret://..."
-            required
-          />
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createCredential.isPending}
-          >
-            登记凭据引用
-          </button>
-        </form>
-      </div>
+      <details className="form-disclosure">
+        <summary>新增集成或凭据引用</summary>
+        <div className="content-grid">
+          <PermissionGate permission="integration:write">
+            <form className="form-panel" onSubmit={submitIntegration}>
+              <h2>创建集成</h2>
+              <label htmlFor="integration-organization">组织</label>
+              <select
+                id="integration-organization"
+                value={selectedOrganizationId}
+                onChange={(event) => setOrganizationId(event.target.value)}
+                required
+              >
+                <option value="">选择组织</option>
+                {(organizations.data || []).map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="integration-name">集成名称</label>
+              <input
+                id="integration-name"
+                value={integrationName}
+                onChange={(event) => setIntegrationName(event.target.value)}
+                required
+              />
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={createIntegration.isPending}
+              >
+                创建集成
+              </button>
+            </form>
+          </PermissionGate>
+          <PermissionGate permission="credential:manage">
+            <form className="form-panel" onSubmit={submitCredential}>
+              <h2>登记凭据引用</h2>
+              <label htmlFor="credential-integration">集成</label>
+              <select
+                id="credential-integration"
+                value={selectedIntegrationId}
+                onChange={(event) => setIntegrationId(event.target.value)}
+                required
+              >
+                <option value="">选择集成</option>
+                {(integrations.data || []).map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="credential-label">凭据标签</label>
+              <input
+                id="credential-label"
+                value={credential.label}
+                onChange={(event) => setCredential({ ...credential, label: event.target.value })}
+                required
+              />
+              <label htmlFor="credential-ref">凭据引用</label>
+              <input
+                id="credential-ref"
+                value={credential.credentialRef}
+                onChange={(event) =>
+                  setCredential({ ...credential, credentialRef: event.target.value })
+                }
+                placeholder="secret://..."
+                required
+              />
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={createCredential.isPending}
+              >
+                登记凭据引用
+              </button>
+            </form>
+          </PermissionGate>
+        </div>
+      </details>
 
       {organizations.isLoading || integrations.isLoading ? (
         <div className="panel loading-block">加载中…</div>
@@ -216,7 +227,9 @@ export function ManagementIntegrationPage() {
               <div className="panel-heading">
                 <div>
                   <h2>{integration.name}</h2>
-                  <p className="muted-text">{integration.id}</p>
+                  <p className="muted-text">
+                    <IdDisplay value={integration.id} />
+                  </p>
                 </div>
                 <StatusBadge phase={integration.status} />
               </div>
@@ -231,45 +244,59 @@ export function ManagementIntegrationPage() {
                           {item.label} · {item.accessKeyId} · {labelStatus(item.status)}
                         </span>
                         <div className="form-actions">
-                          <button
-                            className="button button--small"
-                            disabled={rotate.isPending || !rotateRef}
-                            onClick={() => rotate.mutate(item)}
-                          >
-                            轮换
-                          </button>
-                          <button
-                            className="button button--small button--ghost"
-                            disabled={revoke.isPending || item.status === 'REVOKED'}
-                            onClick={() => {
-                              if (
-                                window.confirm('确认撤销凭据？撤销后引用它的运行时将无法继续使用。')
-                              ) {
-                                revoke.mutate(item);
-                              }
-                            }}
-                          >
-                            撤销
-                          </button>
+                          <PermissionGate permission="credential:rotate">
+                            <button
+                              className="button button--small"
+                              disabled={rotate.isPending || !rotateRef}
+                              onClick={() => rotate.mutate(item)}
+                            >
+                              轮换
+                            </button>
+                          </PermissionGate>
+                          <PermissionGate permission="credential:revoke">
+                            <button
+                              className="button button--small button--ghost"
+                              disabled={revoke.isPending || item.status === 'REVOKED'}
+                              onClick={() => setPendingRevoke(item)}
+                            >
+                              撤销
+                            </button>
+                          </PermissionGate>
                         </div>
                       </div>
                     ))
                   ) : (
                     <span className="muted-text">暂无凭据</span>
                   )}
-                  <label htmlFor="credential-rotate-ref">轮换凭据引用</label>
-                  <input
-                    id="credential-rotate-ref"
-                    value={rotateRef}
-                    onChange={(event) => setRotateRef(event.target.value)}
-                    placeholder="secret://..."
-                  />
+                  <PermissionGate permission="credential:rotate">
+                    <label htmlFor="credential-rotate-ref">轮换凭据引用</label>
+                    <input
+                      id="credential-rotate-ref"
+                      value={rotateRef}
+                      onChange={(event) => setRotateRef(event.target.value)}
+                      placeholder="secret://..."
+                    />
+                  </PermissionGate>
                 </div>
               )}
             </article>
           ))}
         </div>
       )}
+      <ActionConfirmModal
+        open={Boolean(pendingRevoke)}
+        actionLabel="撤销凭据"
+        impact={
+          pendingRevoke
+            ? `目标凭据：${pendingRevoke.label}（${pendingRevoke.accessKeyId}）。撤销后引用它的运行时将无法继续使用。`
+            : ''
+        }
+        onCancel={() => setPendingRevoke(undefined)}
+        onConfirm={() => {
+          if (pendingRevoke) revoke.mutate(pendingRevoke);
+          setPendingRevoke(undefined);
+        }}
+      />
     </div>
   );
 }

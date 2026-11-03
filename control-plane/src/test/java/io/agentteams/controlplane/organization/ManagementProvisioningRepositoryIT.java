@@ -40,6 +40,31 @@ class ManagementProvisioningRepositoryIT {
         repository = new JdbcOrganizationManagementRepository(dataSource);
     }
 
+
+    @Test
+    void managementRoleAssignmentsPersistWithScopeUniquenessAndVersionedRevocation() {
+        Instant now = Instant.parse("2026-10-30T00:00:00Z");
+        UUID organizationId = UUID.randomUUID();
+        repository.insertOrganization(organizationId, "rbac", "RBAC", now);
+        JdbcManagementRoleRepository roleRepository = new JdbcManagementRoleRepository(jdbc);
+
+        assertThat(roleRepository.bootstrapPlatformAdminIfAbsent("root", "bootstrap", now)).isTrue();
+        assertThat(roleRepository.hasAnyPlatformAdmin()).isTrue();
+        assertThat(roleRepository.bootstrapPlatformAdminIfAbsent("second-root", "bootstrap", now)).isFalse();
+        var organizationAdmin = roleRepository.upsert("org-admin", "ORGANIZATION", organizationId,
+                "ORGANIZATION_ADMIN", "platform-root", now);
+        assertThat(roleRepository.hasRole("org-admin", "ORGANIZATION", organizationId,
+                "ORGANIZATION_ADMIN")).isTrue();
+        assertThat(roleRepository.hasRole("org-admin", "ORGANIZATION", UUID.randomUUID(),
+                "ORGANIZATION_ADMIN")).isFalse();
+        assertThat(roleRepository.updateStatus("org-admin", "ORGANIZATION", organizationId, "DISABLED",
+                organizationAdmin.version(), "platform-root", now.plusSeconds(1))).isTrue();
+        assertThat(roleRepository.hasRole("org-admin", "ORGANIZATION", organizationId,
+                "ORGANIZATION_ADMIN")).isFalse();
+        assertThat(roleRepository.updateStatus("org-admin", "ORGANIZATION", organizationId, "ACTIVE",
+                organizationAdmin.version(), "platform-root", now.plusSeconds(2))).isFalse();
+    }
+
     @Test
     void provisionsUpdatesDisablesAndListsMembershipsWithoutCrossIdentityLeakage() {
         Instant now = Instant.parse("2026-09-02T00:00:00Z");

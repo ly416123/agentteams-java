@@ -1,3 +1,4 @@
+import { PermissionGate } from '../../auth/PermissionGate';
 import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -10,8 +11,12 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelStatus } from '../../i18n/labels';
+import { formatDurationSeconds } from '../../utils/formatters';
+import { IdDisplay } from '../../components/IdDisplay';
+import { useAuthorization } from '../../auth/AuthorizationProvider';
 
 export function ManagementBudgetPage({ projectId }: { projectId: string }) {
+  const authorization = useAuthorization();
   const budgets = useQuery({
     queryKey: ['management-budgets', projectId],
     queryFn: () => listUsageBudgets(projectId),
@@ -51,6 +56,7 @@ export function ManagementBudgetPage({ projectId }: { projectId: string }) {
                 key={budget.id}
                 budget={budget}
                 evaluation={evaluation}
+                canWrite={authorization.permissions.includes('quota:write')}
                 onSaved={() => void budgets.refetch()}
               />
             );
@@ -64,6 +70,7 @@ export function ManagementBudgetPage({ projectId }: { projectId: string }) {
 function BudgetCard({
   budget,
   evaluation,
+  canWrite,
   onSaved,
 }: {
   budget: UsageBudget;
@@ -72,6 +79,7 @@ function BudgetCard({
     forecastCost: number | null;
     status: string;
   };
+  canWrite: boolean;
   onSaved: () => void;
 }) {
   const [softThreshold, setSoftThreshold] = useState(String(budget.softThreshold));
@@ -95,45 +103,56 @@ function BudgetCard({
       <div className="panel-heading">
         <div>
           <h2>{budget.currency} 预算</h2>
-          <p className="muted-text">{budget.id}</p>
+          <p className="muted-text">
+            <IdDisplay value={budget.id} />
+          </p>
         </div>
         <StatusBadge phase={evaluation?.status || budget.status} />
       </div>
       <p>
         策略状态：{labelStatus(budget.status)} · version {budget.version}
       </p>
-      <div className="form-grid">
-        <label>
-          软阈值
-          <input
-            type="number"
-            min="0"
-            step="0.0001"
-            value={softThreshold}
-            onChange={(event) => setSoftThreshold(event.target.value)}
-          />
-        </label>
-        <label>
-          硬阈值
-          <input
-            type="number"
-            min="0"
-            step="0.0001"
-            value={hardThreshold}
-            onChange={(event) => setHardThreshold(event.target.value)}
-          />
-        </label>
-      </div>
+      {canWrite ? (
+        <div className="form-grid">
+          <label>
+            软阈值
+            <input
+              type="number"
+              min="0"
+              step="0.0001"
+              value={softThreshold}
+              onChange={(event) => setSoftThreshold(event.target.value)}
+            />
+          </label>
+          <label>
+            硬阈值
+            <input
+              type="number"
+              min="0"
+              step="0.0001"
+              value={hardThreshold}
+              onChange={(event) => setHardThreshold(event.target.value)}
+            />
+          </label>
+        </div>
+      ) : (
+        <p className="muted-text">
+          软阈值 {budget.softThreshold} · 硬阈值 {budget.hardThreshold}
+        </p>
+      )}
       <p className="muted-text">
-        预算周期 {budget.periodSeconds}s · 预测窗口 {budget.forecastWindowSeconds}s
+        预算周期 {formatDurationSeconds(budget.periodSeconds)} · 预测窗口{' '}
+        {formatDurationSeconds(budget.forecastWindowSeconds)}
       </p>
-      <button
-        className="button button--primary"
-        onClick={() => mutation.mutate()}
-        disabled={mutation.isPending}
-      >
-        {mutation.isPending ? '保存中…' : '保存预算'}
-      </button>
+      <PermissionGate permission="quota:write">
+        <button
+          className="button button--primary"
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+        >
+          {mutation.isPending ? '保存中…' : '保存预算'}
+        </button>
+      </PermissionGate>
       {mutation.isError ? <p role="alert">预算保存失败，请刷新后重试。</p> : null}
       {evaluation ? (
         <div className="usage-summary">

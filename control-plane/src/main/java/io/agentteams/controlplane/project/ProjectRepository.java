@@ -14,6 +14,11 @@ public interface ProjectRepository {
     List<ProjectRecord> findProjects(String tenantId, String actor, CursorPageRequest.Position after, int limit,
             CursorPageRequest.Direction direction, String status, String query);
 
+    default List<ProjectRecord> findProjectsByTenant(String tenantId, CursorPageRequest.Position after, int limit,
+            CursorPageRequest.Direction direction, String status, String query) {
+        throw new UnsupportedOperationException("tenant scoped project listing is unavailable");
+    }
+
     default List<ProjectRecord> findProjects(String tenantId, String actor, CursorPageRequest.Position after, int limit,
             CursorPageRequest.Direction direction) {
         return findProjects(tenantId, actor, after, limit, direction, null, null);

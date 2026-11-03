@@ -23,6 +23,7 @@ public final class OrganizationManagementService {
     private final Clock clock;
     private final IdempotencyService idempotency;
     private final AuditRecorder auditRecorder;
+    private final ManagementAuthorizationService managementAuthorization;
     private final Map<UUID, OrganizationManagementController.OrganizationResponse> organizations = new LinkedHashMap<>();
     private final Map<UUID, OrganizationManagementController.TenantResponse> tenants = new LinkedHashMap<>();
     private final Map<UUID, OrganizationManagementController.IntegrationResponse> integrations = new LinkedHashMap<>();
@@ -37,6 +38,7 @@ public final class OrganizationManagementService {
         this.clock = Clock.systemUTC();
         this.idempotency = new IdempotencyService();
         this.auditRecorder = event -> { };
+        this.managementAuthorization = null;
     }
 
     /** Retained for focused service tests; production wiring uses the four-argument constructor. */
@@ -45,22 +47,31 @@ public final class OrganizationManagementService {
         this(repository, clock, idempotency, event -> { });
     }
 
-    @Autowired
     public OrganizationManagementService(OrganizationManagementRepository repository, Clock clock,
             IdempotencyService idempotency, AuditRecorder auditRecorder) {
+        this(repository, clock, idempotency, auditRecorder, null);
+    }
+
+    @Autowired
+    public OrganizationManagementService(OrganizationManagementRepository repository, Clock clock,
+            IdempotencyService idempotency, AuditRecorder auditRecorder,
+            ManagementAuthorizationService managementAuthorization) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
+        this.managementAuthorization = managementAuthorization;
     }
 
     public OrganizationManagementController.OrganizationResponse createOrganization(String name, String actor) {
+        requirePlatformAdmin();
         require("platform:organization:create");
         return createOrganizationLegacy(name);
     }
 
     public OrganizationManagementController.OrganizationResponse createOrganization(String name, String idempotencyKey,
             String actor) {
+        requirePlatformAdmin();
         require("platform:organization:create");
         String normalizedName = required(name, "name");
         String key = idempotency.requireKey(idempotencyKey);
@@ -74,24 +85,37 @@ public final class OrganizationManagementService {
     }
 
     public java.util.List<OrganizationManagementController.OrganizationResponse> listOrganizations() {
+        if (managementAuthorization != null && !managementAuthorization.isPlatformAdmin()) {
+            var allowed = managementAuthorization.currentOrganizationIds();
+            if (allowed.isEmpty()) return java.util.List.of();
+            require("organization:read");
+            if (repository != null) {
+                return repository.listOrganizations(allowed);
+            }
+            return organizations.values().stream().filter(org -> allowed.contains(org.id())).toList();
+        }
+        requirePlatformAdmin();
         require("platform:organization:read");
         if (repository != null) return repository.listOrganizations();
         return java.util.List.copyOf(organizations.values());
     }
 
     public java.util.List<OrganizationManagementController.TenantResponse> listTenants(UUID organizationId) {
+        requireOrganizationAdmin(organizationId);
         require("organization:admin"); ensureOrganization(organizationId);
         if (repository != null) return repository.listTenants(organizationId);
         return tenants.values().stream().filter(value -> value.organizationId().equals(organizationId)).toList();
     }
 
     public OrganizationManagementController.TenantResponse createTenant(UUID organizationId, String name, String actor) {
+        requireOrganizationAdmin(organizationId);
         require("organization:admin");
         return createTenantLegacy(organizationId, name);
     }
 
     public OrganizationManagementController.TenantResponse createTenant(UUID organizationId, String name,
             String idempotencyKey, String actor) {
+        requireOrganizationAdmin(organizationId);
         require("organization:admin");
         ensureOrganization(organizationId);
         String normalizedName = required(name, "name");
@@ -107,6 +131,7 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.OrganizationResponse updateOrganizationStatus(UUID id,
             long expectedVersion, String status, String actor) {
+        requireOrganizationAdmin(id);
         requireAny("organization:write", "organization:admin", "platform:organization:create");
         ensureOrganization(id);
         String normalizedStatus = status(status);
@@ -123,6 +148,7 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.TenantResponse updateTenantStatus(UUID id, long expectedVersion,
             String status, String actor) {
+        requireTenantAdmin(id);
         requireAny("organization:write", "organization:admin");
         String normalizedStatus = status(status);
         if (repository != null) {
@@ -160,7 +186,8 @@ public final class OrganizationManagementService {
     }
 
     public OrganizationManagementController.IntegrationResponse createIntegration(UUID organizationId, String name, String actor) {
-        require("integration:manage");
+        requireOrganizationAdmin(organizationId);
+        require("integration:write");
         ensureOrganization(organizationId);
         UUID id = UUID.randomUUID();
         if (repository != null) {
@@ -177,7 +204,8 @@ public final class OrganizationManagementService {
     }
 
     public java.util.List<OrganizationManagementController.IntegrationResponse> listIntegrations(UUID organizationId) {
-        require("integration:manage"); ensureOrganization(organizationId);
+        requireOrganizationAdmin(organizationId);
+        require("integration:read"); ensureOrganization(organizationId);
         if (repository != null) return repository.listIntegrations(organizationId);
         return integrations.values().stream().filter(value -> value.organizationId().equals(organizationId)).toList();
     }
@@ -188,6 +216,7 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.CredentialResponse createCredential(UUID integrationId, String label,
             String credentialRef, String actor) {
+        requireIntegrationAdmin(integrationId);
         require("credential:manage");
         ensureIntegration(integrationId);
         UUID id = UUID.randomUUID();
@@ -207,6 +236,7 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.CredentialResponse createCredential(UUID integrationId, String label,
             String credentialRef, String idempotencyKey, String actor) {
+        requireIntegrationAdmin(integrationId);
         require("credential:manage");
         ensureIntegration(integrationId);
         String normalizedLabel = required(label, "label");
@@ -242,7 +272,8 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.CredentialResponse rotateCredential(UUID credentialId, long expectedVersion,
             String credentialRef, String actor) {
-        require("credential:manage");
+        requireCredentialAdmin(credentialId);
+        require("credential:rotate");
         if (repository != null) {
             var current = repository.findCredential(Objects.requireNonNull(credentialId, "credentialId"))
                     .orElseThrow(() -> new IllegalArgumentException("credential not found"));
@@ -268,7 +299,8 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.CredentialResponse rotateCredential(UUID credentialId, long expectedVersion,
             String idempotencyKey, String credentialRef, String actor) {
-        require("credential:manage");
+        requireCredentialAdmin(credentialId);
+        require("credential:rotate");
         String key = idempotency.requireKey(idempotencyKey);
         String normalizedRef = CredentialReferenceValidator.normalize(credentialRef);
         if (normalizedRef == null) throw new IllegalArgumentException("credentialRef is required for rotation");
@@ -303,7 +335,8 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.CredentialResponse revokeCredential(UUID credentialId, long expectedVersion,
             String actor) {
-        require("credential:manage");
+        requireCredentialAdmin(credentialId);
+        require("credential:revoke");
         if (repository != null) {
             var current = repository.findCredential(Objects.requireNonNull(credentialId, "credentialId"))
                     .orElseThrow(() -> new IllegalArgumentException("credential not found"));
@@ -325,7 +358,8 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.CredentialResponse revokeCredential(UUID credentialId, long expectedVersion,
             String idempotencyKey, String actor) {
-        require("credential:manage");
+        requireCredentialAdmin(credentialId);
+        require("credential:revoke");
         String key = idempotency.requireKey(idempotencyKey);
         String requestHash = idempotency.requestHash("REVOKE_MANAGEMENT_CREDENTIAL", credentialId.toString(),
                 Long.toString(expectedVersion));
@@ -357,7 +391,8 @@ public final class OrganizationManagementService {
     }
 
     public java.util.List<OrganizationManagementController.CredentialResponse> listCredentials(UUID integrationId) {
-        require("credential:manage"); ensureIntegration(integrationId);
+        requireIntegrationAdmin(integrationId);
+        require("credential:read"); ensureIntegration(integrationId);
         if (repository != null) return repository.listCredentials(integrationId);
         return credentials.values().stream().filter(value -> value.integrationId().equals(integrationId))
                 .map(CredentialState::response).toList();
@@ -365,6 +400,7 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.ProvisioningPolicyResponse updateProvisioningPolicy(UUID integrationId,
             OrganizationManagementController.ProvisioningPolicyRequest request, String actor) {
+        requireIntegrationAdmin(integrationId);
         require("provisioning-policy:manage");
         ensureIntegration(integrationId);
         if (repository != null) {
@@ -382,6 +418,7 @@ public final class OrganizationManagementService {
     }
 
     public OrganizationManagementController.UserResponse createUser(String subject, String displayName, String actor) {
+        requirePlatformAdmin();
         require("user:manage");
         String normalizedSubject = required(subject, "subject");
         String normalizedName = required(displayName, "displayName");
@@ -389,29 +426,40 @@ public final class OrganizationManagementService {
             UUID id = UUID.randomUUID();
             return new OrganizationManagementController.UserResponse(id, normalizedSubject, normalizedName, "ACTIVE", 0);
         }
-        return repository.insertUser(UUID.randomUUID(), normalizedSubject, normalizedName, clock.instant());
+        var created = repository.insertUser(UUID.randomUUID(), normalizedSubject, normalizedName, clock.instant());
+        recordManagementAudit("USER_CREATED", "management_user", created.id().toString(),
+                Map.of("subject_hash", hashSubject(created.subject())));
+        return created;
     }
 
     public java.util.List<OrganizationManagementController.UserResponse> listUsers() {
+        requirePlatformAdmin();
         require("user:manage");
         return repository == null ? java.util.List.of() : repository.listUsers();
     }
 
     public OrganizationManagementController.UserResponse updateUserStatus(UUID id, long expectedVersion, String status,
             String actor) {
+        requirePlatformAdmin();
         require("user:manage");
         if (repository == null) throw new UnsupportedOperationException("user status requires persistent repository");
-        return repository.updateUserStatus(id, expectedVersion, required(status, "status").toUpperCase(java.util.Locale.ROOT),
-                clock.instant());
+        var updated = repository.updateUserStatus(id, expectedVersion,
+                required(status, "status").toUpperCase(java.util.Locale.ROOT), clock.instant());
+        recordManagementAudit("USER_STATUS_CHANGED", "management_user", id.toString(),
+                Map.of("subject_hash", hashSubject(updated.subject()), "status", updated.status(),
+                        "version", Long.toString(updated.version())));
+        return updated;
     }
 
     public java.util.List<OrganizationManagementController.MembershipResponse> listOrganizationMemberships(UUID id) {
+        requireOrganizationAdmin(id);
         require("organization:admin"); ensureOrganization(id);
         return repository == null ? java.util.List.of() : repository.listOrganizationMemberships(id);
     }
 
     public OrganizationManagementController.MembershipResponse upsertOrganizationMembership(UUID organizationId,
             String subject, String role, String actor) {
+        requireOrganizationAdmin(organizationId);
         require("organization:admin");
         ensureOrganization(organizationId);
         String normalizedSubject = required(subject, "subject");
@@ -420,12 +468,17 @@ public final class OrganizationManagementService {
         if (repository == null) {
             return new OrganizationManagementController.MembershipResponse(organizationId, normalizedSubject, normalizedRole);
         }
-        return repository.upsertOrganizationMembership(organizationId, normalizedSubject, normalizedRole, clock.instant());
+        var updated = repository.upsertOrganizationMembership(organizationId, normalizedSubject, normalizedRole,
+                clock.instant());
+        recordManagementAudit("ORGANIZATION_MEMBERSHIP_ROLE_CHANGED", "organization_membership",
+                organizationId + ":" + hashSubject(normalizedSubject), Map.of("role", normalizedRole));
+        return updated;
     }
 
     public OrganizationManagementController.ExternalIdentityResponse upsertExternalIdentity(UUID integrationId,
             OrganizationManagementController.ExternalIdentityRequest request, String actor) {
-        require("external-user:manage");
+        requireIntegrationAdmin(integrationId);
+        require("identity-mapping:write");
         var integration = repository == null ? null : repository.findIntegration(Objects.requireNonNull(integrationId, "integrationId"))
                 .orElseThrow(() -> new IllegalArgumentException("integration not found"));
         if (repository == null) ensureIntegration(integrationId);
@@ -443,12 +496,14 @@ public final class OrganizationManagementService {
     }
 
     public java.util.List<OrganizationManagementController.ExternalIdentityResponse> listExternalIdentities(UUID id) {
-        require("external-user:manage"); ensureIntegration(id);
+        requireIntegrationAdmin(id);
+        require("identity-mapping:read"); ensureIntegration(id);
         return repository == null ? java.util.List.of() : repository.listExternalIdentities(id);
     }
 
     public OrganizationManagementController.ProvisionedUserResponse initializeProvisionedUser(UUID integrationId,
             OrganizationManagementController.ProvisionedUserRequest request, String idempotencyKey, String actor) {
+        requireIntegrationAdmin(integrationId);
         require("external-user:manage");
         ensureIntegration(integrationId);
         Objects.requireNonNull(request, "request");
@@ -482,6 +537,7 @@ public final class OrganizationManagementService {
             String externalOrganizationId, String externalUserId,
             OrganizationManagementController.ProvisionedUserUpdateRequest request,
             String idempotencyKey, String actor) {
+        requireIntegrationAdmin(integrationId);
         require("external-user:manage");
         ensureIntegration(integrationId);
         String targetExternalOrganizationId = required(externalOrganizationId, "externalOrganizationId");
@@ -508,6 +564,7 @@ public final class OrganizationManagementService {
 
     public OrganizationManagementController.ProvisionedUserResponse disableProvisionedUser(UUID integrationId,
             String externalOrganizationId, String externalUserId, String idempotencyKey, String actor) {
+        requireIntegrationAdmin(integrationId);
         require("external-user:manage");
         ensureIntegration(integrationId);
         String targetExternalOrganizationId = required(externalOrganizationId, "externalOrganizationId");
@@ -532,6 +589,7 @@ public final class OrganizationManagementService {
 
     public java.util.List<OrganizationManagementController.ProvisionedMembershipResponse> listProvisionedUserMemberships(
             UUID integrationId, String externalOrganizationId, String externalUserId, String actor) {
+        requireIntegrationAdmin(integrationId);
         require("external-user:manage");
         ensureIntegration(integrationId);
         String externalOrganization = required(externalOrganizationId, "externalOrganizationId");
@@ -575,8 +633,8 @@ public final class OrganizationManagementService {
                 response.internalUserId().toString(),
                 Map.of(
                         "integrationId", response.integrationId().toString(),
-                        "externalOrganizationId", response.externalOrganizationId(),
-                        "externalUserId", response.externalUserId(),
+                        "external_organization_id_hash", hashSubject(response.externalOrganizationId()),
+                        "external_user_id_hash", hashSubject(response.externalUserId()),
                         "status", response.status()),
                 clock.instant()));
     }
@@ -611,14 +669,74 @@ public final class OrganizationManagementService {
                 clock.instant()));
     }
 
+
+    private void recordManagementAudit(String action, String resourceType, String resourceId,
+            Map<String, String> attributes) {
+        String actor = PrincipalContext.current().orElseThrow(() -> new AuthorizationException("actor is required"))
+                .subject();
+        auditRecorder.record(new AuditEvent(UUID.randomUUID(), actor, action, resourceType, resourceId, attributes,
+                clock.instant()));
+    }
+
+    private static String hashSubject(String subject) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(subject.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
+    }
+
     private void require(String permission) {
+        if (managementAuthorization != null) {
+            if (!managementAuthorization.effectivePermissions().permissions().contains(permission)) {
+                throw new AuthorizationException("permission denied");
+            }
+            return;
+        }
         var principal = PrincipalContext.current().orElseThrow(() -> new AuthorizationException("actor is required"));
         if (!principal.permissions().contains(permission)) {
             throw new AuthorizationException("permission denied: " + permission);
         }
     }
 
+    private void requirePlatformAdmin() {
+        if (managementAuthorization != null) managementAuthorization.requirePlatformAdmin();
+    }
+
+    private void requireOrganizationAdmin(UUID organizationId) {
+        if (managementAuthorization != null) managementAuthorization.requireOrganizationAdmin(organizationId);
+    }
+
+    private void requireIntegrationAdmin(UUID integrationId) {
+        if (managementAuthorization == null || repository == null) return;
+        var integration = repository.findIntegration(Objects.requireNonNull(integrationId, "integrationId"))
+                .orElseThrow(() -> new AuthorizationException("integration not found"));
+        managementAuthorization.requireOrganizationAdmin(integration.organizationId());
+    }
+
+    private void requireCredentialAdmin(UUID credentialId) {
+        if (managementAuthorization == null || repository == null) return;
+        var credential = repository.findCredential(Objects.requireNonNull(credentialId, "credentialId"))
+                .orElseThrow(() -> new AuthorizationException("credential not found"));
+        requireIntegrationAdmin(credential.integrationId());
+    }
+
+    private void requireTenantAdmin(UUID tenantId) {
+        if (managementAuthorization == null || repository == null) return;
+        UUID organizationId = repository.organizationIdForTenant(Objects.requireNonNull(tenantId, "tenantId"))
+                .orElseThrow(() -> new AuthorizationException("tenant not found"));
+        requireOrganizationAdmin(organizationId);
+    }
+
     private void requireAny(String... permissions) {
+        if (managementAuthorization != null) {
+            var effective = managementAuthorization.effectivePermissions().permissions();
+            for (String permission : permissions) {
+                if (effective.contains(permission)) return;
+            }
+            throw new AuthorizationException("permission denied");
+        }
         var principal = PrincipalContext.current().orElseThrow(() -> new AuthorizationException("actor is required"));
         for (String permission : permissions) {
             if (principal.permissions().contains(permission)) return;

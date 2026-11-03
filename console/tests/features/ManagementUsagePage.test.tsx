@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ManagementUsagePage } from '../../src/features/management/ManagementUsagePage';
+import { AuthorizationContext } from '../../src/auth/AuthorizationProvider';
 
 vi.mock('../../src/api/usage', () => ({
   getUsageSummary: vi.fn().mockResolvedValue({
@@ -48,13 +49,21 @@ vi.mock('../../src/api/usage', () => ({
 describe('Management usage page', () => {
   it('renders scoped usage, pricing caveat, model breakdown and budget status', async () => {
     render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      <AuthorizationContext.Provider
+        value={{
+          permissions: ['usage:read', 'usage:export', 'quota:write'],
+          loaded: true,
+          failed: false,
+        }}
       >
-        <MemoryRouter>
-          <ManagementUsagePage projectId="project-1" />
-        </MemoryRouter>
-      </QueryClientProvider>,
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <MemoryRouter>
+            <ManagementUsagePage projectId="project-1" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AuthorizationContext.Provider>,
     );
 
     expect(await screen.findByRole('heading', { name: '用量与费用' })).toBeInTheDocument();
@@ -72,13 +81,21 @@ describe('Management usage page', () => {
 
   it('applies operational filters and requests a scoped CSV export', async () => {
     render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      <AuthorizationContext.Provider
+        value={{
+          permissions: ['usage:read', 'usage:export', 'quota:write'],
+          loaded: true,
+          failed: false,
+        }}
       >
-        <MemoryRouter>
-          <ManagementUsagePage projectId="project-1" />
-        </MemoryRouter>
-      </QueryClientProvider>,
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <MemoryRouter>
+            <ManagementUsagePage projectId="project-1" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AuthorizationContext.Provider>,
     );
 
     fireEvent.change(await screen.findByLabelText('任务 ID'), { target: { value: 'task-1' } });
@@ -100,6 +117,8 @@ describe('Management usage page', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '导出 CSV' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('将导出当前项目 project-1');
+    fireEvent.click(screen.getByRole('button', { name: '确认导出用量 CSV' }));
     await waitFor(() =>
       expect(exportUsageCsv).toHaveBeenCalledWith('project-1', {
         taskId: 'task-1',
@@ -111,13 +130,17 @@ describe('Management usage page', () => {
 
   it('moves between usage pages using the server-provided next offset', async () => {
     render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      <AuthorizationContext.Provider
+        value={{ permissions: ['usage:read', 'quota:write'], loaded: true, failed: false }}
       >
-        <MemoryRouter>
-          <ManagementUsagePage projectId="project-1" />
-        </MemoryRouter>
-      </QueryClientProvider>,
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <MemoryRouter>
+            <ManagementUsagePage projectId="project-1" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AuthorizationContext.Provider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '下一页' }));
@@ -131,13 +154,17 @@ describe('Management usage page', () => {
 
   it('requests an operational aggregation dimension from the management API', async () => {
     render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      <AuthorizationContext.Provider
+        value={{ permissions: ['usage:read', 'quota:write'], loaded: true, failed: false }}
       >
-        <MemoryRouter>
-          <ManagementUsagePage projectId="project-1" />
-        </MemoryRouter>
-      </QueryClientProvider>,
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <MemoryRouter>
+            <ManagementUsagePage projectId="project-1" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AuthorizationContext.Provider>,
     );
 
     expect(screen.getByRole('option', { name: '用户' })).toBeInTheDocument();
@@ -153,22 +180,24 @@ describe('Management usage page', () => {
     );
   });
 
-  it('explains when the independent export permission is missing', async () => {
+  it('hides export when the independent export permission is missing', async () => {
     const { exportUsageCsv } = await import('../../src/api/usage');
     vi.mocked(exportUsageCsv).mockRejectedValueOnce({ status: 403 });
     render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      <AuthorizationContext.Provider
+        value={{ permissions: ['usage:read'], loaded: true, failed: false }}
       >
-        <MemoryRouter>
-          <ManagementUsagePage projectId="project-1" />
-        </MemoryRouter>
-      </QueryClientProvider>,
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <MemoryRouter>
+            <ManagementUsagePage projectId="project-1" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AuthorizationContext.Provider>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: '导出 CSV' }));
-    expect(
-      await screen.findByText('当前账号没有 usage:export 权限，无法导出。'),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '用量与费用' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '导出 CSV' })).not.toBeInTheDocument();
   });
 });

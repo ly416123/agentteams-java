@@ -1,3 +1,4 @@
+import { renderAuthorized } from '../fixtures/authorizedRender';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
@@ -6,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ManagementAlertPage } from '../../src/features/management/ManagementAlertPage';
 import { ManagementAuditPage } from '../../src/features/management/ManagementAuditPage';
 import { ManagementBudgetPage } from '../../src/features/management/ManagementBudgetPage';
+import { AuthorizationContext } from '../../src/auth/AuthorizationProvider';
 
 vi.mock('../../src/api/alerts', () => ({
   listDashboardAlerts: vi
@@ -117,17 +119,32 @@ vi.mock('../../src/api/usage', async () => {
   };
 });
 
-function renderPage(page: React.ReactNode) {
-  return render(
+function renderPage(page: React.ReactNode, permissions?: readonly string[]) {
+  return renderAuthorized(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
       <MemoryRouter>{page}</MemoryRouter>
     </QueryClientProvider>,
+    undefined,
+    permissions,
   );
 }
 
 describe('management operations pages', () => {
+  it('renders budget values read-only without quota write permission', async () => {
+    const { upsertUsageBudget } = await import('../../src/api/usage');
+    vi.mocked(upsertUsageBudget).mockClear();
+    renderPage(<ManagementBudgetPage projectId="project-1" />, ['quota:read']);
+
+    expect(await screen.findByRole('heading', { name: 'USD 预算' })).toBeInTheDocument();
+    expect(screen.getByText('软阈值 10 · 硬阈值 20')).toBeInTheDocument();
+    expect(screen.queryByLabelText('软阈值')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('硬阈值')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存预算' })).not.toBeInTheDocument();
+    expect(upsertUsageBudget).not.toHaveBeenCalled();
+  });
+
   it('renders budget evaluations for the current project', async () => {
     renderPage(<ManagementBudgetPage projectId="project-1" />);
     expect(await screen.findByRole('heading', { name: '预算与预测' })).toBeInTheDocument();
@@ -191,6 +208,28 @@ describe('management operations pages', () => {
         expectedVersion: 3,
       }),
     );
+  });
+
+  it('renders alert rules as read-only without dashboard write permission', async () => {
+    render(
+      <AuthorizationContext.Provider
+        value={{ permissions: ['usage:read'], loaded: true, failed: false }}
+      >
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <MemoryRouter>
+            <ManagementAlertPage projectId="project-1" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AuthorizationContext.Provider>,
+    );
+    expect(await screen.findByRole('heading', { name: '告警规则' })).toBeInTheDocument();
+    expect(await screen.findByText('100')).toBeInTheDocument();
+    expect(screen.getByText('已启用')).toBeInTheDocument();
+    expect(screen.queryByLabelText('COST 阈值')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: '启用' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存 COST 规则' })).not.toBeInTheDocument();
   });
 
   it('renders scoped, redacted audit event metadata', async () => {

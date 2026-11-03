@@ -53,7 +53,7 @@ class OidcApiAuthorizationIntegrationTest {
         publishedKey = new AtomicReference<>(signingKey);
         jwksServer = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         jwksServer.createContext("/jwks", exchange -> {
-            byte[] body = new JWKSet(publishedKey.get().toPublicJWK()).toJSONObject().toString()
+            byte[] body = new JWKSet(publishedKey.get().toPublicJWK()).toString()
                     .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);

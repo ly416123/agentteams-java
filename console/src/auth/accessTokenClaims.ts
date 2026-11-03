@@ -14,3 +14,19 @@ export function readAccessTokenClaim(token: string | undefined, claim: string): 
     return undefined;
   }
 }
+
+export function readAccessTokenPermissions(token: string | undefined): unknown {
+  if (!token) return undefined;
+  try {
+    const encodedPayload = token.split('.')[1];
+    if (!encodedPayload) return undefined;
+    const base64 = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+    const payload: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+    return (payload as Record<string, unknown>).permissions;
+  } catch {
+    return undefined;
+  }
+}

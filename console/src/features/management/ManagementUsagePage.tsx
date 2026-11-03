@@ -14,6 +14,9 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelStatus } from '../../i18n/labels';
+import { formatDateTime } from '../../utils/formatters';
+import { PermissionGate } from '../../auth/PermissionGate';
+import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 
 export function ManagementUsagePage({ projectId }: { projectId: string }) {
   const pageSize = 20;
@@ -26,6 +29,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
   const [pageOffset, setPageOffset] = useState(0);
   const [groupBy, setGroupBy] = useState<UsageGroupBy>('provider_model');
   const [exporting, setExporting] = useState(false);
+  const [confirmExport, setConfirmExport] = useState(false);
   const [exportError, setExportError] = useState<unknown>();
   const summary = useQuery({
     queryKey: ['management-usage-summary', projectId, appliedFilters, groupBy, pageOffset],
@@ -97,13 +101,15 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
           <button className="button button--ghost" onClick={refresh}>
             刷新数据
           </button>
-          <button
-            className="button button--ghost"
-            onClick={() => void downloadCsv()}
-            disabled={exporting}
-          >
-            {exporting ? '导出中…' : '导出 CSV'}
-          </button>
+          <PermissionGate permission="usage:export">
+            <button
+              className="button button--ghost"
+              onClick={() => setConfirmExport(true)}
+              disabled={exporting}
+            >
+              {exporting ? '导出中…' : '导出 CSV'}
+            </button>
+          </PermissionGate>
         </div>
       </div>
       {exportError ? (
@@ -117,7 +123,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
       <section className="panel usage-filters" aria-label="用量筛选">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">FILTERS</p>
+            <p className="eyebrow">筛选条件</p>
             <h2>多维筛选</h2>
           </div>
           <span className="muted">数据库仍按当前项目作用域过滤</span>
@@ -186,7 +192,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
             <Metric label="估算成本" value={`$${summary.data.costUsd.toFixed(4)}`} />
             <Metric
               label="平均延迟"
-              value={`${Math.round(summary.data.averageLatencyMillis)} ms`}
+              value={`${Math.round(summary.data.averageLatencyMillis)} 毫秒`}
             />
           </section>
           <div className="content-grid">
@@ -215,7 +221,7 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
                         <th>{dimensionGrouping ? '分组' : '服务商 / 模型'}</th>
                         <th>调用</th>
                         <th>失败</th>
-                        <th>Tokens</th>
+                        <th>令牌数</th>
                         <th>估算成本</th>
                       </tr>
                     </thead>
@@ -257,6 +263,16 @@ export function ManagementUsagePage({ projectId }: { projectId: string }) {
       ) : (
         <EmptyState title="暂无用量数据" description="当前项目还没有可展示的使用量记录。" />
       )}
+      <ActionConfirmModal
+        open={confirmExport}
+        actionLabel="导出用量 CSV"
+        impact={`将导出当前项目 ${projectId} 在所选筛选条件下的用量明细并下载到本机。`}
+        onCancel={() => setConfirmExport(false)}
+        onConfirm={() => {
+          setConfirmExport(false);
+          void downloadCsv();
+        }}
+      />
     </div>
   );
 }
@@ -295,7 +311,7 @@ function BudgetPanel({ query, onRetry }: { query: BudgetQuery; onRetry: () => vo
     <section className="panel">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">BUDGET CONTROL</p>
+          <p className="eyebrow">预算控制</p>
           <h2>预算策略</h2>
         </div>
       </div>
@@ -345,5 +361,5 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function formatRange(from: string, to: string) {
-  return `${new Date(from).toLocaleString('zh-CN')} — ${new Date(to).toLocaleString('zh-CN')}`;
+  return `${formatDateTime(from)} — ${formatDateTime(to)}`;
 }

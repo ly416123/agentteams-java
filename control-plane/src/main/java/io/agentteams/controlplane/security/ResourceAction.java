@@ -15,5 +15,7 @@ public enum ResourceAction {
     TASK_OPERATE,
     TASK_APPROVE,
     TASK_CANCEL,
-    WORKER_OPERATE
+    WORKER_OPERATE,
+    ARTIFACT_READ,
+    ARTIFACT_WRITE
 }

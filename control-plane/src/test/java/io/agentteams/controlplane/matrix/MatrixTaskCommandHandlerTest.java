@@ -157,7 +157,8 @@ class MatrixTaskCommandHandlerTest {
                 UUID.fromString("00000000-0000-0000-0000-000000000002"), MatrixRoomBindingStatus.ACTIVE,
                 "alice", Instant.parse("2026-09-28T04:00:00Z"), Instant.parse("2026-09-28T04:00:00Z"), 0);
         when(taskService.get(taskId)).thenReturn(task(taskId, TaskPhase.QUEUED, 7));
-        when(contexts.resolve(principal)).thenReturn(new ExecutionContext("org-a", "tenant-a", "project-a",
+        String projectId = "00000000-0000-0000-0000-000000000001";
+        when(contexts.resolve(principal)).thenReturn(new ExecutionContext("org-a", "tenant-a", projectId,
                 "team-a", "alice"));
         when(dispatcher.dispatch(any(), any())).thenReturn(new CommandResult(UUID.randomUUID(),
                 CommandStatus.ACCEPTED, false, taskId, 8, "trace"));
@@ -173,6 +174,55 @@ class MatrixTaskCommandHandlerTest {
         assertThat(captured.getValue().aggregateVersion()).isEqualTo(7);
         assertThat(captured.getValue().idempotencyKey()).isEqualTo("matrix:txn-1:event-1");
         verify(taskService).get(taskId);
+    }
+
+    @Test
+    void dispatchesStartWithIdentityScopeWhenRoomBelongsToResolvedProject() {
+        CommandDispatcher dispatcher = mock(CommandDispatcher.class);
+        ExecutionContextResolver contexts = mock(ExecutionContextResolver.class);
+        Principal principal = new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of("task:create"));
+        MatrixIdentity identity = new MatrixIdentity("@alice:agentteams.test", principal);
+        UUID projectId = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        MatrixRoomBinding binding = new MatrixRoomBinding(UUID.randomUUID(), "org-a", "tenant-a",
+                "!project:example.org", MatrixRoomContextType.PROJECT, projectId, projectId,
+                UUID.fromString("00000000-0000-0000-0000-000000000002"), MatrixRoomBindingStatus.ACTIVE,
+                "alice", Instant.parse("2026-09-28T04:00:00Z"), Instant.parse("2026-09-28T04:00:00Z"), 0);
+        when(contexts.resolve(principal)).thenReturn(new ExecutionContext("org-a", "tenant-a", projectId.toString(),
+                "team-a", "alice"));
+        UUID taskId = UUID.randomUUID();
+        when(dispatcher.dispatch(any(), any())).thenReturn(new CommandResult(UUID.randomUUID(),
+                CommandStatus.ACCEPTED, false, taskId, 0, "trace"));
+
+        new MatrixTaskCommandHandler(dispatcher, contexts, null).handle(identity, binding,
+                new MatrixCommand.Start("investigate"), "txn-start", "event-start");
+
+        var captured = org.mockito.ArgumentCaptor.forClass(io.agentteams.application.api.CommandEnvelope.class);
+        verify(dispatcher).dispatch(any(ExecutionContext.class), captured.capture());
+        assertThat(captured.getValue().payload().path("scope").path("tenant").asText()).isEqualTo("tenant-a");
+        assertThat(captured.getValue().payload().path("scope").path("project").asText()).isEqualTo("project-a");
+        assertThat(captured.getValue().payload().path("scope").path("team").asText()).isEqualTo("team-a");
+    }
+
+    @Test
+    void rejectsStartWhenRoomBelongsToAnotherProject() {
+        CommandDispatcher dispatcher = mock(CommandDispatcher.class);
+        ExecutionContextResolver contexts = mock(ExecutionContextResolver.class);
+        Principal principal = new Principal("alice",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of("task:create"));
+        MatrixIdentity identity = new MatrixIdentity("@alice:agentteams.test", principal);
+        UUID boundProjectId = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        MatrixRoomBinding binding = new MatrixRoomBinding(UUID.randomUUID(), "org-a", "tenant-a",
+                "!project:example.org", MatrixRoomContextType.PROJECT, boundProjectId, boundProjectId,
+                UUID.fromString("00000000-0000-0000-0000-000000000002"), MatrixRoomBindingStatus.ACTIVE,
+                "alice", Instant.parse("2026-09-28T04:00:00Z"), Instant.parse("2026-09-28T04:00:00Z"), 0);
+        when(contexts.resolve(principal)).thenReturn(new ExecutionContext("org-a", "tenant-a",
+                "00000000-0000-0000-0000-000000000009", "team-a", "alice"));
+
+        assertThatThrownBy(() -> new MatrixTaskCommandHandler(dispatcher, contexts, null).handle(identity, binding,
+                new MatrixCommand.Start("investigate"), "txn-start", "event-start"))
+                .isInstanceOf(AuthorizationException.class);
+        org.mockito.Mockito.verifyNoInteractions(dispatcher);
     }
 
     private static TaskRecord task(UUID id, TaskPhase phase, long version) {

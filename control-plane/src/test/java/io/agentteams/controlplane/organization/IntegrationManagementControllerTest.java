@@ -41,7 +41,7 @@ class IntegrationManagementControllerTest {
                 .build();
         PrincipalContext.set(new Principal("trusted-admin",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
-                Set.of("integration:manage", "credential:manage", "provisioning-policy:manage")));
+                Set.of("integration:write", "credential:manage", "credential:read", "credential:rotate", "credential:revoke", "provisioning-policy:manage")));
     }
 
     @AfterEach
@@ -119,7 +119,7 @@ class IntegrationManagementControllerTest {
     void credentialWritesReplayWithSameKeyAndRejectDifferentRequest() {
         PrincipalContext.set(new Principal("trusted-admin",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
-                Set.of("platform:organization:create", "integration:manage", "credential:manage")));
+                Set.of("platform:organization:create", "integration:write", "credential:manage", "credential:read", "credential:rotate", "credential:revoke")));
         OrganizationManagementService realService = new OrganizationManagementService();
         var organization = realService.createOrganization("Acme", "trusted-admin");
         var integration = realService.createIntegration(organization.id(), "Docs", "trusted-admin");
@@ -146,7 +146,7 @@ class IntegrationManagementControllerTest {
     void rotatesCredentialWithNewAccessKeyAndNeverSerializesSecret() throws Exception {
         PrincipalContext.set(new Principal("trusted-admin",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
-                Set.of("platform:organization:create", "integration:manage", "credential:manage")));
+                Set.of("platform:organization:create", "integration:write", "credential:manage", "credential:read", "credential:rotate", "credential:revoke")));
         OrganizationManagementService realService = new OrganizationManagementService();
 
         var organization = realService.createOrganization("Acme", "trusted-admin");
@@ -162,7 +162,7 @@ class IntegrationManagementControllerTest {
     void concurrentRotatesWithSameExpectedVersionAllowAtMostOneSuccess() throws Exception {
         Principal principal = new Principal("trusted-admin",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
-                Set.of("platform:organization:create", "integration:manage", "credential:manage"));
+                Set.of("platform:organization:create", "integration:write", "credential:manage", "credential:read", "credential:rotate", "credential:revoke"));
         OrganizationManagementService realService = new OrganizationManagementService();
         PrincipalContext.set(principal);
         var organization = realService.createOrganization("Acme", "trusted-admin");
@@ -210,7 +210,7 @@ class IntegrationManagementControllerTest {
     void credentialStateToStringDoesNotContainSecret() throws Exception {
         PrincipalContext.set(new Principal("trusted-admin",
                 new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
-                Set.of("platform:organization:create", "integration:manage", "credential:manage")));
+                Set.of("platform:organization:create", "integration:write", "credential:manage", "credential:read", "credential:rotate", "credential:revoke")));
         OrganizationManagementService realService = new OrganizationManagementService();
         var organization = realService.createOrganization("Acme", "trusted-admin");
         var integration = realService.createIntegration(organization.id(), "Docs", "trusted-admin");
@@ -224,5 +224,41 @@ class IntegrationManagementControllerTest {
         String secret = (String) secretField.get(state);
 
         assertThat(state.toString()).doesNotContain(secret);
+    }
+
+    @Test
+    void credentialReadCreateRotateAndRevokeUseSeparatePermissionKeys() {
+        OrganizationManagementService realService = new OrganizationManagementService();
+        PrincipalContext.set(new Principal("trusted-admin",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                Set.of("platform:organization:create", "integration:write", "credential:manage")));
+        var organization = realService.createOrganization("Acme", "trusted-admin");
+        var integration = realService.createIntegration(organization.id(), "Docs", "trusted-admin");
+        var credential = realService.createCredential(integration.id(), "svc", "secret://svc", "create-credential",
+                "trusted-admin");
+
+        assertThatThrownBy(() -> realService.listCredentials(integration.id()))
+                .isInstanceOf(AuthorizationException.class).hasMessageContaining("credential:read");
+
+        PrincipalContext.set(new Principal("trusted-admin",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                Set.of("credential:read")));
+        assertThat(realService.listCredentials(integration.id())).hasSize(1);
+        assertThatThrownBy(() -> realService.rotateCredential(credential.id(), credential.version(), "secret://rotated",
+                "trusted-admin")).isInstanceOf(AuthorizationException.class).hasMessageContaining("credential:rotate");
+
+        PrincipalContext.set(new Principal("trusted-admin",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                Set.of("credential:rotate")));
+        var rotated = realService.rotateCredential(credential.id(), credential.version(), "secret://rotated",
+                "trusted-admin");
+        assertThatThrownBy(() -> realService.revokeCredential(rotated.id(), rotated.version(), "revoke-1",
+                "trusted-admin")).isInstanceOf(AuthorizationException.class).hasMessageContaining("credential:revoke");
+
+        PrincipalContext.set(new Principal("trusted-admin",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"),
+                Set.of("credential:revoke")));
+        assertThat(realService.revokeCredential(rotated.id(), rotated.version(), "revoke-1", "trusted-admin").status())
+                .isEqualTo("REVOKED");
     }
 }

@@ -1,7 +1,8 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 type ProjectContextValue = { projectId?: string; setProjectId: (projectId: string) => void };
 const ProjectContext = createContext<ProjectContextValue | null>(null);
+const SELECTED_PROJECT_STORAGE_KEY = 'agentteams.selectedProjectId';
 
 export function ProjectProvider({
   projectId: initialProjectId,
@@ -10,7 +11,17 @@ export function ProjectProvider({
   projectId?: string;
   children: ReactNode;
 }) {
-  const [projectId, setProjectId] = useState(initialProjectId);
+  const [projectId, setProjectId] = useState(
+    () =>
+      initialProjectId || window.localStorage.getItem(SELECTED_PROJECT_STORAGE_KEY) || undefined,
+  );
+  useEffect(() => {
+    if (initialProjectId)
+      setProjectId((current) => (current === initialProjectId ? current : initialProjectId));
+  }, [initialProjectId]);
+  useEffect(() => {
+    if (projectId) window.localStorage.setItem(SELECTED_PROJECT_STORAGE_KEY, projectId);
+  }, [projectId]);
   const value = useMemo(() => ({ projectId, setProjectId }), [projectId]);
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 }

@@ -1,3 +1,4 @@
+import { PermissionGate } from '../../auth/PermissionGate';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   listArtifactRetentionPolicy,
@@ -9,6 +10,8 @@ import { useEffect, useState } from 'react';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { IdDisplay } from '../../components/IdDisplay';
+import { formatDurationSeconds } from '../../utils/formatters';
 
 export function ManagementArtifactPage({ projectId }: { projectId: string }) {
   const artifacts = useQuery({
@@ -63,16 +66,25 @@ export function ManagementArtifactPage({ projectId }: { projectId: string }) {
               </div>
               <div className="detail-list">
                 <span>
-                  Artifact<strong>{artifact.id}</strong>
+                  制品
+                  <strong>
+                    <IdDisplay value={artifact.id} />
+                  </strong>
                 </span>
                 <span>
-                  Task<strong>{artifact.taskId}</strong>
+                  任务
+                  <strong>
+                    <IdDisplay value={artifact.taskId} />
+                  </strong>
                 </span>
                 <span>
-                  Attempt<strong>{artifact.attemptId}</strong>
+                  尝试
+                  <strong>
+                    <IdDisplay value={artifact.attemptId} />
+                  </strong>
                 </span>
                 <span>
-                  大小<strong>{artifact.sizeBytes.toLocaleString()} bytes</strong>
+                  大小<strong>{formatArtifactSize(artifact.sizeBytes)}</strong>
                 </span>
                 <span>
                   SHA-256<strong>{artifact.sha256}</strong>
@@ -142,56 +154,70 @@ function RetentionPolicyCard({
         <ErrorState error={error} onRetry={onRetry} />
       ) : (
         <>
-          <div className="form-grid">
-            <label>
-              成功任务保留（秒）
-              <input
-                type="number"
-                min="0"
-                value={successful}
-                onChange={(event) => setSuccessful(event.target.value)}
-              />
-            </label>
-            <label>
-              失败任务保留（秒）
-              <input
-                type="number"
-                min="0"
-                value={failed}
-                onChange={(event) => setFailed(event.target.value)}
-              />
-            </label>
-            <label>
-              临时上传保留（秒）
-              <input
-                type="number"
-                min="0"
-                value={temporary}
-                onChange={(event) => setTemporary(event.target.value)}
-              />
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={legalHold}
-                onChange={(event) => setLegalHold(event.target.checked)}
-              />
-              法律保留
-            </label>
-          </div>
+          <PermissionGate permission="artifact:write">
+            <div className="form-grid">
+              <label>
+                成功任务保留（秒）
+                <input
+                  type="number"
+                  min="0"
+                  value={successful}
+                  onChange={(event) => setSuccessful(event.target.value)}
+                />
+              </label>
+              <label>
+                失败任务保留（秒）
+                <input
+                  type="number"
+                  min="0"
+                  value={failed}
+                  onChange={(event) => setFailed(event.target.value)}
+                />
+              </label>
+              <label>
+                临时上传保留（秒）
+                <input
+                  type="number"
+                  min="0"
+                  value={temporary}
+                  onChange={(event) => setTemporary(event.target.value)}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={legalHold}
+                  onChange={(event) => setLegalHold(event.target.checked)}
+                />
+                法律保留
+              </label>
+            </div>
+          </PermissionGate>
           <p className="muted-text">
-            未配置项目覆盖时使用平台默认值；策略只影响后端保留清理，不暴露产物内容。
+            当前值：成功任务 {formatDurationSeconds(policy?.successfulTaskRetentionSeconds)} ·
+            失败任务 {formatDurationSeconds(policy?.failedTaskRetentionSeconds)} · 临时上传{' '}
+            {formatDurationSeconds(policy?.temporaryUploadRetentionSeconds)}
+            。未配置项目覆盖时使用平台默认值。 策略只影响后端保留清理，不暴露产物内容。
           </p>
-          <button
-            className="button button--primary"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !policy}
-          >
-            {mutation.isPending ? '保存中…' : '保存保留策略'}
-          </button>
+          <PermissionGate permission="artifact:write">
+            <button
+              className="button button--primary"
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending || !policy}
+            >
+              {mutation.isPending ? '保存中…' : '保存保留策略'}
+            </button>
+          </PermissionGate>
           {mutation.isError ? <p role="alert">保留策略保存失败，请刷新后重试。</p> : null}
         </>
       )}
     </section>
   );
+}
+
+function formatArtifactSize(value: number) {
+  if (value < 1024) return `${value} 字节`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

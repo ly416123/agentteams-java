@@ -14,7 +14,8 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
-import { labelType } from '../../i18n/labels';
+import { labelStatus, labelType } from '../../i18n/labels';
+import { PermissionGate } from '../../auth/PermissionGate';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -91,7 +92,7 @@ export function ManagementSkillPage() {
         text:
           value.reviewStatus === 'APPROVED' && value.packageUploadStatus !== 'COMPLETED'
             ? '已审核；仍需完成制品上传后才能发布'
-            : `版本审核状态已更新为 ${value.reviewStatus}`,
+            : `版本审核状态已更新为 ${labelStatus(value.reviewStatus)}`,
       });
     },
     onError: (error) => setNotice({ kind: 'error', text: error.message }),
@@ -176,164 +177,182 @@ export function ManagementSkillPage() {
           {notice.text}
         </div>
       )}
-      <div className="content-grid">
-        <form className="form-panel" onSubmit={submitSkill}>
-          <h2>创建技能</h2>
-          <label>
-            内部名称
-            <input
-              value={skill.name}
-              onChange={(event) => setSkill({ ...skill, name: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            显示名称
-            <input
-              value={skill.displayName}
-              onChange={(event) => setSkill({ ...skill, displayName: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            描述
-            <textarea
-              rows={3}
-              value={skill.description}
-              onChange={(event) => setSkill({ ...skill, description: event.target.value })}
-            />
-          </label>
-          <label>
-            可见性
-            <select
-              value={skill.visibility}
-              onChange={(event) => setSkill({ ...skill, visibility: event.target.value })}
-            >
-              <option>PRIVATE</option>
-              <option>PUBLIC</option>
-            </select>
-          </label>
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createSkillMutation.isPending}
-          >
-            创建技能
-          </button>
-        </form>
-
-        <form className="form-panel" onSubmit={submitVersion}>
-          <h2>创建技能版本</h2>
-          <label htmlFor="skill-version-skill">技能</label>
-          <select
-            id="skill-version-skill"
-            value={version.skillId}
-            onChange={(event) => setVersion({ ...version, skillId: event.target.value })}
-            required
-          >
-            <option value="">选择技能</option>
-            {(skills.data || []).map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.displayName} ({item.name})
-              </option>
-            ))}
-          </select>
-          <label htmlFor="skill-version-number">版本</label>
-          <input
-            id="skill-version-number"
-            value={version.version}
-            onChange={(event) => setVersion({ ...version, version: event.target.value })}
-            required
-          />
-          <label htmlFor="skill-version-digest">摘要（Digest）</label>
-          <input
-            id="skill-version-digest"
-            value={version.digest}
-            onChange={(event) => setVersion({ ...version, digest: event.target.value })}
-            required
-          />
-          <label htmlFor="skill-version-manifest">清单 JSON</label>
-          <textarea
-            id="skill-version-manifest"
-            rows={5}
-            value={version.manifest}
-            onChange={(event) => setVersion({ ...version, manifest: event.target.value })}
-            required
-          />
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createVersionMutation.isPending}
-          >
-            创建版本
-          </button>
-          {lastVersion && (
-            <div className="info-box">
-              <div>
-                v{lastVersion.version} · {lastVersion.reviewStatus} · package{' '}
-                {lastVersion.packageUploadStatus}
-              </div>
-              <div className="form-actions">
-                <button
-                  className="button button--small"
-                  type="button"
-                  disabled={reviewMutation.isPending}
-                  onClick={() => reviewMutation.mutate('APPROVED')}
-                >
-                  审核通过
-                </button>
-                <button
-                  className="button button--small button--ghost"
-                  type="button"
-                  disabled={reviewMutation.isPending}
-                  onClick={() => reviewMutation.mutate('REJECTED')}
-                >
-                  驳回
-                </button>
-                <button
-                  className="button button--small button--primary"
-                  type="button"
-                  disabled={
-                    publishMutation.isPending ||
-                    lastVersion.lifecycle === 'PUBLISHED' ||
-                    lastVersion.reviewStatus !== 'APPROVED' ||
-                    lastVersion.packageUploadStatus !== 'COMPLETED'
-                  }
-                  onClick={() => publishMutation.mutate()}
-                >
-                  发布版本
-                </button>
-                <button
-                  className="button button--small button--ghost"
-                  type="button"
-                  disabled={disableMutation.isPending || lastVersion.lifecycle !== 'PUBLISHED'}
-                  onClick={() => disableMutation.mutate()}
-                >
-                  停用版本
-                </button>
-              </div>
-              <label htmlFor="skill-package-file">
-                技能包
+      <details className="form-disclosure">
+        <summary>创建技能或版本</summary>
+        <div className="content-grid">
+          <PermissionGate permission="skill:write">
+            <form className="form-panel" onSubmit={submitSkill}>
+              <h2>创建技能</h2>
+              <label>
+                内部名称
                 <input
-                  id="skill-package-file"
-                  type="file"
-                  accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
-                  onChange={(event) => setPackageFile(event.target.files?.[0])}
+                  value={skill.name}
+                  onChange={(event) => setSkill({ ...skill, name: event.target.value })}
+                  required
                 />
               </label>
+              <label>
+                显示名称
+                <input
+                  value={skill.displayName}
+                  onChange={(event) => setSkill({ ...skill, displayName: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                描述
+                <textarea
+                  rows={3}
+                  value={skill.description}
+                  onChange={(event) => setSkill({ ...skill, description: event.target.value })}
+                />
+              </label>
+              <label>
+                可见性
+                <select
+                  value={skill.visibility}
+                  onChange={(event) => setSkill({ ...skill, visibility: event.target.value })}
+                >
+                  <option value="PRIVATE">私有</option>
+                  <option value="PUBLIC">公开</option>
+                </select>
+              </label>
               <button
-                className="button button--small"
-                type="button"
-                disabled={uploadMutation.isPending || !packageFile}
-                onClick={() => uploadMutation.mutate()}
+                className="button button--primary"
+                type="submit"
+                disabled={createSkillMutation.isPending}
               >
-                {uploadMutation.isPending ? '上传中…' : '上传制品'}
+                创建技能
               </button>
-              <p className="muted-text">制品尚未完成上传时，发布操作会被后端拒绝。</p>
-            </div>
-          )}
-        </form>
-      </div>
+            </form>
+          </PermissionGate>
+
+          <PermissionGate permission="skill:write">
+            <form className="form-panel" onSubmit={submitVersion}>
+              <h2>创建技能版本</h2>
+              <label htmlFor="skill-version-skill">技能</label>
+              <select
+                id="skill-version-skill"
+                value={version.skillId}
+                onChange={(event) => setVersion({ ...version, skillId: event.target.value })}
+                required
+              >
+                <option value="">选择技能</option>
+                {(skills.data || []).map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.displayName} ({item.name})
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="skill-version-number">版本</label>
+              <input
+                id="skill-version-number"
+                value={version.version}
+                onChange={(event) => setVersion({ ...version, version: event.target.value })}
+                required
+              />
+              <label htmlFor="skill-version-digest">摘要（Digest）</label>
+              <input
+                id="skill-version-digest"
+                value={version.digest}
+                onChange={(event) => setVersion({ ...version, digest: event.target.value })}
+                required
+              />
+              <label htmlFor="skill-version-manifest">清单 JSON</label>
+              <textarea
+                id="skill-version-manifest"
+                rows={5}
+                value={version.manifest}
+                onChange={(event) => setVersion({ ...version, manifest: event.target.value })}
+                required
+              />
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={createVersionMutation.isPending}
+              >
+                创建版本
+              </button>
+              {lastVersion && (
+                <div className="info-box">
+                  <div>
+                    版本 v{lastVersion.version} · 审核：
+                    {labelStatus(lastVersion.reviewStatus || 'UNKNOWN')} · 制品上传：
+                    {labelStatus(lastVersion.packageUploadStatus || 'UNKNOWN')}
+                  </div>
+                  <PermissionGate permission="skill:review">
+                    <button
+                      className="button button--small"
+                      type="button"
+                      disabled={reviewMutation.isPending}
+                      onClick={() => reviewMutation.mutate('APPROVED')}
+                    >
+                      审核通过
+                    </button>
+                  </PermissionGate>
+                  <PermissionGate permission="skill:review">
+                    <button
+                      className="button button--small button--ghost"
+                      type="button"
+                      disabled={reviewMutation.isPending}
+                      onClick={() => reviewMutation.mutate('REJECTED')}
+                    >
+                      驳回
+                    </button>
+                  </PermissionGate>
+                  <PermissionGate permission="skill:publish">
+                    <div className="form-actions">
+                      <button
+                        className="button button--small button--primary"
+                        type="button"
+                        disabled={
+                          publishMutation.isPending ||
+                          lastVersion.lifecycle === 'PUBLISHED' ||
+                          lastVersion.reviewStatus !== 'APPROVED' ||
+                          lastVersion.packageUploadStatus !== 'COMPLETED'
+                        }
+                        onClick={() => publishMutation.mutate()}
+                      >
+                        发布版本
+                      </button>
+                      <button
+                        className="button button--small button--ghost"
+                        type="button"
+                        disabled={
+                          disableMutation.isPending || lastVersion.lifecycle !== 'PUBLISHED'
+                        }
+                        onClick={() => disableMutation.mutate()}
+                      >
+                        停用版本
+                      </button>
+                    </div>
+                  </PermissionGate>
+                  <PermissionGate permission="skill:package:upload">
+                    <label htmlFor="skill-package-file">
+                      技能包
+                      <input
+                        id="skill-package-file"
+                        type="file"
+                        accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+                        onChange={(event) => setPackageFile(event.target.files?.[0])}
+                      />
+                    </label>
+                    <button
+                      className="button button--small"
+                      type="button"
+                      disabled={uploadMutation.isPending || !packageFile}
+                      onClick={() => uploadMutation.mutate()}
+                    >
+                      {uploadMutation.isPending ? '上传中…' : '上传制品'}
+                    </button>
+                  </PermissionGate>
+                  <p className="muted-text">制品尚未完成上传时，发布操作会被后端拒绝。</p>
+                </div>
+              )}
+            </form>
+          </PermissionGate>
+        </div>
+      </details>
 
       {skills.isLoading ? (
         <div className="panel loading-block">加载中…</div>

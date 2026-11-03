@@ -37,6 +37,40 @@ class JdbcOrganizationManagementRepositoryTest {
     }
 
     @Test
+    void organizationListQueryIsLimitedToAuthorizedIds() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        UUID organizationId = UUID.randomUUID();
+        when(jdbc.query(anyString(), any(RowMapper.class), eq(organizationId))).thenReturn(List.of());
+
+        new JdbcOrganizationManagementRepository(jdbc).listOrganizations(List.of(organizationId));
+
+        verify(jdbc).query(org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("WHERE id IN (?)")
+                        && !sql.contains("WHERE id IN (?,?)")),
+                any(RowMapper.class), eq(organizationId));
+    }
+
+    @Test
+    void emptyAuthorizedOrganizationListDoesNotQueryDatabase() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+
+        assertThat(new JdbcOrganizationManagementRepository(jdbc).listOrganizations(List.of())).isEmpty();
+
+        org.mockito.Mockito.verifyNoInteractions(jdbc);
+    }
+
+    @Test
+    void tenantExternalKeyResolvesToOwningOrganization() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        UUID organizationId = UUID.randomUUID();
+        when(jdbc.query(anyString(), any(RowMapper.class), eq("tenant-a"))).thenReturn(List.of(organizationId));
+
+        assertThat(new JdbcOrganizationManagementRepository(jdbc).organizationIdForTenantReference("tenant-a"))
+                .contains(organizationId);
+        verify(jdbc).query(org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("external_key = ?")),
+                any(RowMapper.class), eq("tenant-a"));
+    }
+
+    @Test
     void credentialUpdateUsesDatabaseVersionPredicate() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         UUID credentialId = UUID.randomUUID();

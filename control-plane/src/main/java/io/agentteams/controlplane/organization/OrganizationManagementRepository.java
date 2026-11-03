@@ -17,11 +17,14 @@ public interface OrganizationManagementRepository {
     Optional<OrganizationManagementController.OrganizationResponse> findOrganization(UUID id);
 
     List<OrganizationManagementController.OrganizationResponse> listOrganizations();
+    List<OrganizationManagementController.OrganizationResponse> listOrganizations(List<UUID> organizationIds);
 
     OrganizationManagementController.OrganizationResponse updateOrganizationStatus(UUID id, long expectedVersion,
             String status, Instant now);
 
     List<OrganizationManagementController.TenantResponse> listTenants(UUID organizationId);
+    Optional<UUID> organizationIdForTenant(UUID tenantId);
+    Optional<UUID> organizationIdForTenantReference(String tenantIdOrExternalKey);
 
     OrganizationManagementController.TenantResponse insertTenant(UUID id, UUID organizationId, String externalKey,
             String displayName, Instant now);

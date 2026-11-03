@@ -1,9 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { renderAuthorized } from '../fixtures/authorizedRender';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ManagementSkillPage } from '../../src/features/management/ManagementSkillPage';
+import { ApiError } from '../../src/api/httpClient';
 
 const mocks = vi.hoisted(() => ({
   listSkills: vi.fn().mockResolvedValue([
@@ -77,17 +79,34 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/api/managementCatalog', () => ({ ...mocks }));
 
-function renderPage() {
-  return render(
+function renderPage(permissions?: readonly string[]) {
+  return renderAuthorized(
     <MemoryRouter>
       <QueryClientProvider client={new QueryClient()}>
         <ManagementSkillPage />
       </QueryClientProvider>
     </MemoryRouter>,
+    undefined,
+    permissions,
   );
 }
 
 describe('Management skill page', () => {
+  it('hides skill changes and package lifecycle actions from readers', async () => {
+    renderPage(['skill:read']);
+    expect(await screen.findByRole('heading', { name: '技能' })).toBeInTheDocument();
+    expect(await screen.findByText('Reporting')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('创建技能或版本'));
+
+    expect(screen.queryByRole('button', { name: '创建技能' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建版本' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('技能')).not.toBeInTheDocument();
+    expect(mocks.createSkill).not.toHaveBeenCalled();
+    expect(mocks.createSkillVersion).not.toHaveBeenCalled();
+    expect(mocks.reviewSkillVersion).not.toHaveBeenCalled();
+    expect(mocks.publishSkillVersion).not.toHaveBeenCalled();
+  });
+
   it('creates a skill and version, then records review without pretending package publish succeeded', async () => {
     renderPage();
     expect(await screen.findByRole('heading', { name: '技能' })).toBeInTheDocument();
@@ -180,5 +199,22 @@ describe('Management skill page', () => {
       expect.objectContaining({ method: 'PUT', body: file }),
     );
     expect(mocks.completeSkillPackageUpload).toHaveBeenCalledWith('skill-1', 'version-1');
+  });
+
+  it('shows a generic safe message when the server denies skill creation', async () => {
+    mocks.createSkill.mockRejectedValueOnce(
+      new ApiError(403, { code: 'FORBIDDEN', message: 'skill catalog write is restricted' }),
+    );
+    renderPage();
+    await screen.findByRole('heading', { name: '技能' });
+    await userEvent.type(screen.getByLabelText('内部名称'), 'denied-skill');
+    await userEvent.type(screen.getByLabelText('显示名称'), 'Denied Skill');
+    await userEvent.click(screen.getByRole('button', { name: '创建技能' }));
+
+    expect(await screen.findByText('当前账号没有权限执行此操作。')).toHaveAttribute(
+      'role',
+      'status',
+    );
+    expect(screen.queryByText(/skill catalog write/)).not.toBeInTheDocument();
   });
 });

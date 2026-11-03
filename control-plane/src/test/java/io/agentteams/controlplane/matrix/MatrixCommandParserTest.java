@@ -54,6 +54,9 @@ class MatrixCommandParserTest {
         assertThat(command.idempotencyKey()).isEqualTo("matrix:txn-1:event-1");
         assertThat(command.payload().path("title").asText()).isEqualTo("investigate");
         assertThat(command.payload().path("roomId").asText()).isEqualTo("!conversation:example.org");
+        assertThat(command.payload().path("scope").path("tenant").asText()).isEqualTo("tenant-1");
+        assertThat(command.payload().path("scope").path("project").asText()).isEqualTo("project-1");
+        assertThat(command.payload().path("scope").path("team").asText()).isEqualTo("team-1");
     }
 
     @Test

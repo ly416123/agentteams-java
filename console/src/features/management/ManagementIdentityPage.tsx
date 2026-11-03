@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   createManagementUser,
   disableProvisionedUser,
@@ -12,12 +12,19 @@ import {
   type ManagementUser,
 } from '../../api/management';
 import { labelRole, labelStatus, labelType } from '../../i18n/labels';
+import { PermissionGate } from '../../auth/PermissionGate';
+import { useAuthorization } from '../../auth/AuthorizationProvider';
+import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
 export function ManagementIdentityPage() {
+  const authorization = useAuthorization();
+  const canReadUsers = authorization.permissions.includes('admin:user:read');
   const [notice, setNotice] = useState<Notice>();
   const [users, setUsers] = useState<ManagementUser[]>([]);
+  const [pendingUserStatusChange, setPendingUserStatusChange] = useState<ManagementUser>();
+  const [confirmExternalDisable, setConfirmExternalDisable] = useState(false);
   const [user, setUser] = useState({ subject: '', displayName: '' });
   const [membership, setMembership] = useState({ organizationId: '', subject: '', role: 'MEMBER' });
   const [identity, setIdentity] = useState({
@@ -37,17 +44,18 @@ export function ManagementIdentityPage() {
     Array<{ scopeType: string; scopeId: string; scopeName: string; role: string }>
   >([]);
 
-  async function refreshUsers() {
+  const refreshUsers = useCallback(async () => {
+    if (!canReadUsers) return;
     try {
       setUsers(await listManagementUsers());
     } catch {
       // The form remains usable when the current principal can write but not list users.
     }
-  }
+  }, [canReadUsers]);
 
   useEffect(() => {
-    void refreshUsers();
-  }, []);
+    if (authorization.loaded) void refreshUsers();
+  }, [authorization.loaded, refreshUsers]);
 
   async function submit(action: () => Promise<unknown>, success: string) {
     setNotice(undefined);
@@ -165,7 +173,7 @@ export function ManagementIdentityPage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT</p>
+          <p className="eyebrow">管理</p>
           <h1>身份与权限管理</h1>
           <p className="page-subtitle">
             管理内部用户、组织角色，以及 SDK 外部用户到内部身份的映射。
@@ -178,27 +186,33 @@ export function ManagementIdentityPage() {
         </div>
       )}
       <div className="content-grid">
-        <form className="form-panel" onSubmit={submitUser}>
-          <h2>内部用户</h2>
-          <label htmlFor="management-user-subject">内部用户 Subject</label>
-          <input
-            id="management-user-subject"
-            value={user.subject}
-            onChange={(event) => setUser({ ...user, subject: event.target.value })}
-            required
-          />
-          <label htmlFor="management-user-name">内部用户名称</label>
-          <input
-            id="management-user-name"
-            value={user.displayName}
-            onChange={(event) => setUser({ ...user, displayName: event.target.value })}
-            required
-          />
-          <button className="button button--primary" type="submit">
-            创建内部用户
-          </button>
-          {users.length > 0 && (
-            <div className="stack-list" aria-label="已登记内部用户">
+        <PermissionGate permission="admin:user:write">
+          <form className="form-panel" onSubmit={submitUser}>
+            <h2>内部用户</h2>
+            <label htmlFor="management-user-subject">内部用户 Subject</label>
+            <input
+              id="management-user-subject"
+              value={user.subject}
+              onChange={(event) => setUser({ ...user, subject: event.target.value })}
+              required
+            />
+            <label htmlFor="management-user-name">内部用户名称</label>
+            <input
+              id="management-user-name"
+              value={user.displayName}
+              onChange={(event) => setUser({ ...user, displayName: event.target.value })}
+              required
+            />
+            <button className="button button--primary" type="submit">
+              创建内部用户
+            </button>
+          </form>
+        </PermissionGate>
+
+        {canReadUsers && users.length > 0 && (
+          <section className="form-panel" aria-label="已登记内部用户">
+            <h2>已登记内部用户</h2>
+            <div className="stack-list">
               {users.map((item) => (
                 <div className="stack-list__item" key={item.id}>
                   <span>
@@ -206,173 +220,211 @@ export function ManagementIdentityPage() {
                   </span>
                   <span className="muted-text">
                     {labelStatus(item.status)}
-                    <button
-                      className="button button--ghost"
-                      type="button"
-                      onClick={() => toggleInternalUser(item)}
-                    >
-                      {item.status === 'ACTIVE' ? '停用' : '重新激活'}内部用户 {item.displayName}
-                    </button>
+                    <PermissionGate permission="admin:user:write">
+                      <button
+                        className="button button--ghost"
+                        type="button"
+                        onClick={() => setPendingUserStatusChange(item)}
+                      >
+                        {item.status === 'ACTIVE' ? '停用' : '重新激活'}内部用户 {item.displayName}
+                      </button>
+                    </PermissionGate>
                   </span>
                 </div>
               ))}
             </div>
-          )}
-        </form>
+          </section>
+        )}
 
-        <form className="form-panel" onSubmit={submitMembership}>
-          <h2>组织成员角色</h2>
-          <label htmlFor="membership-organization">组织 ID</label>
-          <input
-            id="membership-organization"
-            value={membership.organizationId}
-            onChange={(event) =>
-              setMembership({ ...membership, organizationId: event.target.value })
-            }
-            required
-          />
-          <label htmlFor="membership-subject">成员 Subject</label>
-          <input
-            id="membership-subject"
-            value={membership.subject}
-            onChange={(event) => setMembership({ ...membership, subject: event.target.value })}
-            required
-          />
-          <label htmlFor="membership-role">角色</label>
-          <select
-            id="membership-role"
-            value={membership.role}
-            onChange={(event) => setMembership({ ...membership, role: event.target.value })}
-          >
-            {['OWNER', 'ADMIN', 'MEMBER', 'AUDITOR'].map((role) => (
-              <option key={role} value={role}>
-                {labelRole(role)}
-              </option>
-            ))}
-          </select>
-          <button className="button button--primary" type="submit">
-            保存组织成员角色
-          </button>
-        </form>
-
-        <form className="form-panel" onSubmit={submitIdentity}>
-          <h2>外部用户映射</h2>
-          <label htmlFor="identity-integration">Integration ID</label>
-          <input
-            id="identity-integration"
-            value={identity.integrationId}
-            onChange={(event) => setIdentity({ ...identity, integrationId: event.target.value })}
-            required
-          />
-          <label htmlFor="identity-organization">组织 ID（身份映射）</label>
-          <input
-            id="identity-organization"
-            value={identity.organizationId}
-            onChange={(event) => setIdentity({ ...identity, organizationId: event.target.value })}
-            required
-          />
-          <label htmlFor="identity-user">内部用户 UUID</label>
-          <input
-            id="identity-user"
-            value={identity.internalUserId}
-            onChange={(event) => setIdentity({ ...identity, internalUserId: event.target.value })}
-            required
-          />
-          <label htmlFor="identity-external-organization">外部组织 ID</label>
-          <input
-            id="identity-external-organization"
-            value={identity.externalOrganizationId}
-            onChange={(event) =>
-              setIdentity({ ...identity, externalOrganizationId: event.target.value })
-            }
-            required
-          />
-          <label htmlFor="identity-external-user">外部用户 ID</label>
-          <input
-            id="identity-external-user"
-            value={identity.externalUserId}
-            onChange={(event) => setIdentity({ ...identity, externalUserId: event.target.value })}
-            required
-          />
-          <button className="button button--primary" type="submit">
-            保存外部用户映射
-          </button>
-        </form>
-
-        <section className="form-panel" aria-labelledby="provisioned-user-lifecycle-heading">
-          <h2 id="provisioned-user-lifecycle-heading">外部用户生命周期</h2>
-          <p className="muted-text">对应 SDK 的初始化、更新、停用和 Membership 查询能力。</p>
-          <label htmlFor="provisioned-integration">生命周期 Integration ID</label>
-          <input
-            id="provisioned-integration"
-            name="integrationId"
-            value={provisioned.integrationId}
-            onChange={lifecycleInput}
-            required
-          />
-          <label htmlFor="provisioned-external-organization">生命周期外部组织 ID</label>
-          <input
-            id="provisioned-external-organization"
-            name="externalOrganizationId"
-            value={provisioned.externalOrganizationId}
-            onChange={lifecycleInput}
-            required
-          />
-          <label htmlFor="provisioned-external-user">生命周期外部用户 ID</label>
-          <input
-            id="provisioned-external-user"
-            name="externalUserId"
-            value={provisioned.externalUserId}
-            onChange={lifecycleInput}
-            required
-          />
-          <label htmlFor="provisioned-display-name">生命周期用户名称</label>
-          <input
-            id="provisioned-display-name"
-            name="displayName"
-            value={provisioned.displayName}
-            onChange={lifecycleInput}
-            required
-          />
-          <div className="form-actions">
-            <button
-              className="button button--primary"
-              type="button"
-              onClick={() => void initializeExternalUser()}
+        <PermissionGate permission="organization:write">
+          <form className="form-panel" onSubmit={submitMembership}>
+            <h2>组织成员角色</h2>
+            <label htmlFor="membership-organization">组织 ID</label>
+            <input
+              id="membership-organization"
+              value={membership.organizationId}
+              onChange={(event) =>
+                setMembership({ ...membership, organizationId: event.target.value })
+              }
+              required
+            />
+            <label htmlFor="membership-subject">成员 Subject</label>
+            <input
+              id="membership-subject"
+              value={membership.subject}
+              onChange={(event) => setMembership({ ...membership, subject: event.target.value })}
+              required
+            />
+            <label htmlFor="membership-role">角色</label>
+            <select
+              id="membership-role"
+              value={membership.role}
+              onChange={(event) => setMembership({ ...membership, role: event.target.value })}
             >
-              初始化外部用户
-            </button>
-            <button className="button" type="button" onClick={() => void updateExternalUser()}>
-              更新外部用户
-            </button>
-            <button className="button" type="button" onClick={() => void loadExternalMemberships()}>
-              查询 Membership
-            </button>
-            <button
-              className="button button--ghost"
-              type="button"
-              onClick={() => void disableExternalUser()}
-            >
-              停用外部用户
-            </button>
-          </div>
-          {provisionedMemberships.length > 0 && (
-            <div className="stack-list" aria-label="外部用户有效 Membership">
-              {provisionedMemberships.map((membership) => (
-                <div
-                  className="stack-list__item"
-                  key={`${membership.scopeType}-${membership.scopeId}`}
-                >
-                  <span>{membership.scopeName}</span>
-                  <span className="muted-text">
-                    {labelType(membership.scopeType)} · {labelRole(membership.role)}
-                  </span>
-                </div>
+              {['OWNER', 'ADMIN', 'MEMBER', 'AUDITOR'].map((role) => (
+                <option key={role} value={role}>
+                  {labelRole(role)}
+                </option>
               ))}
+            </select>
+            <button className="button button--primary" type="submit">
+              保存组织成员角色
+            </button>
+          </form>
+        </PermissionGate>
+
+        <PermissionGate permission="identity-mapping:write">
+          <form className="form-panel" onSubmit={submitIdentity}>
+            <h2>外部用户映射</h2>
+            <label htmlFor="identity-integration">集成 ID</label>
+            <input
+              id="identity-integration"
+              value={identity.integrationId}
+              onChange={(event) => setIdentity({ ...identity, integrationId: event.target.value })}
+              required
+            />
+            <label htmlFor="identity-organization">组织 ID（身份映射）</label>
+            <input
+              id="identity-organization"
+              value={identity.organizationId}
+              onChange={(event) => setIdentity({ ...identity, organizationId: event.target.value })}
+              required
+            />
+            <label htmlFor="identity-user">内部用户 UUID</label>
+            <input
+              id="identity-user"
+              value={identity.internalUserId}
+              onChange={(event) => setIdentity({ ...identity, internalUserId: event.target.value })}
+              required
+            />
+            <label htmlFor="identity-external-organization">外部组织 ID</label>
+            <input
+              id="identity-external-organization"
+              value={identity.externalOrganizationId}
+              onChange={(event) =>
+                setIdentity({ ...identity, externalOrganizationId: event.target.value })
+              }
+              required
+            />
+            <label htmlFor="identity-external-user">外部用户 ID</label>
+            <input
+              id="identity-external-user"
+              value={identity.externalUserId}
+              onChange={(event) => setIdentity({ ...identity, externalUserId: event.target.value })}
+              required
+            />
+            <button className="button button--primary" type="submit">
+              保存外部用户映射
+            </button>
+          </form>
+        </PermissionGate>
+
+        <PermissionGate permission="external-user:manage">
+          <section className="form-panel" aria-labelledby="provisioned-user-lifecycle-heading">
+            <h2 id="provisioned-user-lifecycle-heading">外部用户生命周期</h2>
+            <p className="muted-text">对应 SDK 的初始化、更新、停用和 Membership 查询能力。</p>
+            <label htmlFor="provisioned-integration">生命周期 Integration ID</label>
+            <input
+              id="provisioned-integration"
+              name="integrationId"
+              value={provisioned.integrationId}
+              onChange={lifecycleInput}
+              required
+            />
+            <label htmlFor="provisioned-external-organization">生命周期外部组织 ID</label>
+            <input
+              id="provisioned-external-organization"
+              name="externalOrganizationId"
+              value={provisioned.externalOrganizationId}
+              onChange={lifecycleInput}
+              required
+            />
+            <label htmlFor="provisioned-external-user">生命周期外部用户 ID</label>
+            <input
+              id="provisioned-external-user"
+              name="externalUserId"
+              value={provisioned.externalUserId}
+              onChange={lifecycleInput}
+              required
+            />
+            <label htmlFor="provisioned-display-name">生命周期用户名称</label>
+            <input
+              id="provisioned-display-name"
+              name="displayName"
+              value={provisioned.displayName}
+              onChange={lifecycleInput}
+              required
+            />
+            <div className="form-actions">
+              <button
+                className="button button--primary"
+                type="button"
+                onClick={() => void initializeExternalUser()}
+              >
+                初始化外部用户
+              </button>
+              <button className="button" type="button" onClick={() => void updateExternalUser()}>
+                更新外部用户
+              </button>
+              <button
+                className="button"
+                type="button"
+                onClick={() => void loadExternalMemberships()}
+              >
+                查询 Membership
+              </button>
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={() => setConfirmExternalDisable(true)}
+              >
+                停用外部用户
+              </button>
             </div>
-          )}
-        </section>
+            {provisionedMemberships.length > 0 && (
+              <div className="stack-list" aria-label="外部用户有效 Membership">
+                {provisionedMemberships.map((membership) => (
+                  <div
+                    className="stack-list__item"
+                    key={`${membership.scopeType}-${membership.scopeId}`}
+                  >
+                    <span>{membership.scopeName}</span>
+                    <span className="muted-text">
+                      {labelType(membership.scopeType)} · {labelRole(membership.role)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </PermissionGate>
       </div>
+      <ActionConfirmModal
+        open={Boolean(pendingUserStatusChange)}
+        actionLabel={
+          pendingUserStatusChange?.status === 'ACTIVE' ? '停用内部用户' : '重新激活内部用户'
+        }
+        impact={
+          pendingUserStatusChange
+            ? `目标用户：${pendingUserStatusChange.displayName}（${pendingUserStatusChange.subject}）。${pendingUserStatusChange.status === 'ACTIVE' ? '停用后该用户将失去管理平台访问能力。' : '重新激活后该用户可按现有授权访问管理平台。'}`
+            : ''
+        }
+        onCancel={() => setPendingUserStatusChange(undefined)}
+        onConfirm={() => {
+          if (pendingUserStatusChange) toggleInternalUser(pendingUserStatusChange);
+          setPendingUserStatusChange(undefined);
+        }}
+      />
+      <ActionConfirmModal
+        open={confirmExternalDisable}
+        actionLabel="停用外部用户"
+        impact={`目标外部用户：${provisioned.externalUserId || '未指定'}（组织 ${provisioned.externalOrganizationId || '未指定'}，集成 ${provisioned.integrationId || '未指定'}）。停用后该身份映射将不再处于活动状态。`}
+        onCancel={() => setConfirmExternalDisable(false)}
+        onConfirm={() => {
+          setConfirmExternalDisable(false);
+          void disableExternalUser();
+        }}
+      />
     </div>
   );
 }

@@ -42,6 +42,18 @@ class ChatGptPlanWorkerAccessPolicyTest {
     }
 
     @Test
+    void allowsAnyAuthenticatedProjectScopeWhenGlobalWorkerAccessIsExplicitlyEnabled() {
+        var policy = new ChatGptPlanWorkerAccessPolicy(true, "", "", "", "chatgpt-session", "", true);
+        ResourceScopeRepository scopes = mock(ResourceScopeRepository.class);
+        Principal caller = new Principal("subject-1",
+                new AuthorizationService.Scope("tenant-b", "project-b", "team-b"), Set.of());
+
+        assertThat(policy.secretFor("chatgpt-plan", caller, WorkerType.EXECUTOR, scopes))
+                .isEqualTo("chatgpt-session");
+        assertThat(policy.proxyUrlFor("chatgpt-plan", caller, WorkerType.EXECUTOR, scopes)).isEmpty();
+    }
+
+    @Test
     void failsClosedWhenThePolicyIsNotConfigured() {
         var policy = new ChatGptPlanWorkerAccessPolicy(true, "", "", "", "");
 

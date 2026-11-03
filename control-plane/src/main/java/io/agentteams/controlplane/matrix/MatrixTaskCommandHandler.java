@@ -8,7 +8,9 @@ import io.agentteams.application.api.CommandEnvelope;
 import io.agentteams.application.api.CommandResult;
 import io.agentteams.controlplane.command.CommandDispatcher;
 import io.agentteams.controlplane.persistence.TaskRecord;
+import io.agentteams.controlplane.security.AuthorizationException;
 import io.agentteams.controlplane.security.AuthorizationService;
+import io.agentteams.controlplane.security.ExecutionContext;
 import io.agentteams.controlplane.security.ExecutionContextResolver;
 import io.agentteams.controlplane.security.Permission;
 import io.agentteams.controlplane.security.Principal;
@@ -77,6 +79,10 @@ public final class MatrixTaskCommandHandler implements MatrixCommandHandler {
         java.util.Optional<Principal> previous = PrincipalContext.current();
         PrincipalContext.set(identity.principal());
         try {
+            ExecutionContext context = contexts.resolve(identity.principal());
+            if (!binding.projectId().toString().equals(context.projectId())) {
+                throw new AuthorizationException("Matrix room is outside the caller project scope");
+            }
             long aggregateVersion = 0;
             if (command instanceof MatrixCommand.TaskAction action) {
                 if (taskService == null) throw new MatrixCommandHandlingException("task query service is not configured");
@@ -84,7 +90,7 @@ public final class MatrixTaskCommandHandler implements MatrixCommandHandler {
             }
             CommandEnvelope envelope = new MatrixCommandParser().toEnvelope(identity, binding, command, transactionId,
                     eventId, aggregateVersion);
-            CommandResult result = dispatcher.dispatch(contexts.resolve(identity.principal()), envelope);
+            CommandResult result = dispatcher.dispatch(context, envelope);
             return result.taskId() == null ? result.status().name().toLowerCase(java.util.Locale.ROOT)
                     : result.status().name().toLowerCase(java.util.Locale.ROOT) + " task " + result.taskId()
                             + " v" + result.aggregateVersion();

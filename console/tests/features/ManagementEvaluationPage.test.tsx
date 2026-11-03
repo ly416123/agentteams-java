@@ -73,12 +73,20 @@ describe('Management evaluation page', () => {
 
     expect(await screen.findByRole('heading', { name: '评测详情' })).toBeInTheDocument();
     expect(await screen.findByText('Evaluation 状态')).toBeInTheDocument();
-    expect(screen.getByText('Task success')).toBeInTheDocument();
+    expect(screen.getByText('任务是否成功')).toBeInTheDocument();
     expect(screen.getByText('Execution gate')).toBeInTheDocument();
     expect(screen.getByText('Result gate')).toBeInTheDocument();
     expect(screen.getAllByText('证据不完整')).toHaveLength(2);
-    expect(within(screen.getByText('Execution gate').parentElement!).getByText('证据不完整：依赖交接结果缺失')).toBeInTheDocument();
-    expect(within(screen.getByText('Result gate').parentElement!).queryByText('证据不完整：依赖交接结果缺失')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByText('Execution gate').parentElement!).getByText(
+        '证据不完整：依赖交接结果缺失',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('Result gate').parentElement!).queryByText(
+        '证据不完整：依赖交接结果缺失',
+      ),
+    ).not.toBeInTheDocument();
     expect(screen.getAllByText('失败').length).toBeGreaterThan(0);
     expect(screen.getByText('是')).toBeInTheDocument();
     expect(screen.getByText('0.500')).toBeInTheDocument();
@@ -90,7 +98,10 @@ describe('Management evaluation page', () => {
 
   it('shows the permission error state without leaking report details', async () => {
     const evaluations = await import('../../src/api/evaluations');
-    vi.mocked(evaluations.getEvaluationRun).mockRejectedValueOnce({ status: 403, code: 'FORBIDDEN' });
+    vi.mocked(evaluations.getEvaluationRun).mockRejectedValueOnce({
+      status: 403,
+      code: 'FORBIDDEN',
+    });
     renderPage();
 
     expect(await screen.findByRole('heading', { name: '无权访问' })).toBeInTheDocument();
@@ -130,21 +141,25 @@ describe('Management evaluation page', () => {
         resultGateStatus: 'INCONCLUSIVE',
         createdAt: '2026-09-28T08:01:00Z',
       },
-      results: [{
-        id: 'result-pdf',
-        evaluationRunId: 'run-1',
-        metric: 'artifact_pdf',
-        score: null,
-        threshold: null,
-        status: 'INCONCLUSIVE',
-        evidenceRefs: [],
-        findingSummary: 'PDF bytes are unavailable',
-        createdAt: '2026-09-28T08:01:00Z',
-      }],
+      results: [
+        {
+          id: 'result-pdf',
+          evaluationRunId: 'run-1',
+          metric: 'artifact_pdf',
+          score: null,
+          threshold: null,
+          status: 'INCONCLUSIVE',
+          evidenceRefs: [],
+          findingSummary: 'PDF bytes are unavailable',
+          createdAt: '2026-09-28T08:01:00Z',
+        },
+      ],
     });
     renderPage();
 
     expect(await screen.findAllByText('PDF bytes are unavailable')).toHaveLength(2);
-    expect(within(screen.getByText('Result gate').parentElement!).getByText('PDF bytes are unavailable')).toBeInTheDocument();
+    expect(
+      within(screen.getByText('Result gate').parentElement!).getByText('PDF bytes are unavailable'),
+    ).toBeInTheDocument();
   });
 });

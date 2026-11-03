@@ -180,10 +180,12 @@ public class ControlPlaneConfiguration {
     @ConditionalOnProperty(name = "agentteams.security.api.enabled", havingValue = "true")
     FilterRegistrationBean<ApiAuthenticationFilter> apiAuthenticationFilter(IdentityTokenValidator validator,
             io.agentteams.controlplane.project.ProjectRepository projects,
+            io.agentteams.controlplane.security.ProjectApiAuthorization projectAuthorization,
             @Value("${AGENTTEAMS_TASK_MCP_TOKEN:}") String taskMcpToken) {
         FilterRegistrationBean<ApiAuthenticationFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new ApiAuthenticationFilter(validator,
-                new io.agentteams.controlplane.security.ProjectScopeResolver(projects), taskMcpToken));
+                new io.agentteams.controlplane.security.ProjectScopeResolver(projects), taskMcpToken,
+                projectAuthorization));
         registration.addUrlPatterns("/api/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
         return registration;

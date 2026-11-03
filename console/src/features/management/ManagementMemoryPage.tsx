@@ -1,9 +1,12 @@
+import { PermissionGate } from '../../auth/PermissionGate';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { governMemory, listMemoryMetadata, type MemoryMetadata } from '../../api/memory';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { labelSource } from '../../i18n/labels';
+import { IdDisplay } from '../../components/IdDisplay';
+import { formatDateTime, isExpired } from '../../utils/formatters';
 
 type Operation = 'CONFIRM' | 'REVOKE' | 'FREEZE' | 'DELETE' | 'EXPORT';
 
@@ -52,19 +55,24 @@ export function ManagementMemoryPage({ projectId }: { projectId: string }) {
           刷新
         </button>
       </div>
-      <div className="form-panel">
-        <label htmlFor="memory-governance-reason">治理原因</label>
-        <input id="memory-governance-reason" placeholder="例如：compliance review" required />
-        <p className="muted-text">
-          治理操作会记录操作者、原因和幂等键；私人 Memory 仍按 subjectId 隔离。
-        </p>
-      </div>
+      <PermissionGate permission="memory:govern">
+        <div className="form-panel">
+          <label htmlFor="memory-governance-reason">治理原因</label>
+          <input id="memory-governance-reason" placeholder="例如：compliance review" required />
+          <p className="muted-text">
+            治理操作会记录操作者、原因和幂等键；私人 Memory 仍按 subjectId 隔离。
+          </p>
+        </div>
+      </PermissionGate>
       {memories.isLoading ? (
         <div className="panel loading-block">加载中…</div>
       ) : memories.isError ? (
         <ErrorState error={memories.error} onRetry={() => void memories.refetch()} />
       ) : !memories.data?.length ? (
-        <EmptyState title="暂无记忆" description="当前作用域没有可展示的记忆元数据。" />
+        <EmptyState
+          title="暂无记忆记录"
+          description="当前项目没有可展示的记忆元数据；页面不会读取或显示记忆正文。"
+        />
       ) : (
         <div className="content-grid">
           {memories.data.map((memory) => (
@@ -96,22 +104,25 @@ function MemoryCard({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">{policy.scope}</p>
-          <h2>{memory.id}</h2>
+          <h2>
+            <IdDisplay value={memory.id} />
+          </h2>
         </div>
         <StatusBadge phase={memory.governanceStatus} />
       </div>
       <div className="detail-list">
         <span>
-          主体<strong>{policy.subjectId || '共享策略'}</strong>
+          主体
+          <strong>{policy.subjectId ? <IdDisplay value={policy.subjectId} /> : '共享策略'}</strong>
         </span>
         <span>
-          项目<strong>{policy.projectId || '—'}</strong>
+          项目<strong>{policy.projectId ? <IdDisplay value={policy.projectId} /> : '—'}</strong>
         </span>
         <span>
-          团队<strong>{policy.teamId || '—'}</strong>
+          团队<strong>{policy.teamId ? <IdDisplay value={policy.teamId} /> : '—'}</strong>
         </span>
         <span>
-          任务<strong>{policy.taskId || '—'}</strong>
+          任务<strong>{policy.taskId ? <IdDisplay value={policy.taskId} /> : '—'}</strong>
         </span>
         <span>
           Sensitivity<strong>{policy.sensitivity}</strong>
@@ -126,46 +137,64 @@ function MemoryCard({
           Version<strong>{memory.version}</strong>
         </span>
       </div>
-      <p className="muted-text">
-        过期时间：{memory.expiresAt ? new Date(memory.expiresAt).toLocaleString('zh-CN') : '未设置'}
+      <p className={isExpired(memory.expiresAt) ? 'warning-text' : 'muted-text'}>
+        {memory.expiresAt
+          ? isExpired(memory.expiresAt)
+            ? `已过期：${formatDateTime(memory.expiresAt)}`
+            : `过期时间：${formatDateTime(memory.expiresAt)}`
+          : '未设置过期时间'}
       </p>
       <div className="button-row">
-        <button
-          className="button button--ghost"
-          disabled={pending}
-          onClick={() => onOperate(memory, 'CONFIRM')}
-        >
-          确认
-        </button>
-        <button
-          className="button button--ghost"
-          disabled={pending}
-          onClick={() => onOperate(memory, 'REVOKE')}
-        >
-          撤回同意
-        </button>
-        <button
-          className="button button--ghost"
-          disabled={pending}
-          onClick={() => onOperate(memory, 'FREEZE')}
-        >
-          冻结
-        </button>
-        <button
-          className="button button--ghost"
-          disabled={pending}
-          onClick={() => onOperate(memory, 'EXPORT')}
-        >
-          导出元数据
-        </button>
-        <button
-          className="button button--danger"
-          disabled={pending}
-          onClick={() => onOperate(memory, 'DELETE')}
-        >
-          删除
-        </button>
+        <PermissionGate permission={operationPermission('CONFIRM')}>
+          <button
+            className="button button--ghost"
+            disabled={pending}
+            onClick={() => onOperate(memory, 'CONFIRM')}
+          >
+            确认
+          </button>
+        </PermissionGate>
+        <PermissionGate permission={operationPermission('REVOKE')}>
+          <button
+            className="button button--ghost"
+            disabled={pending}
+            onClick={() => onOperate(memory, 'REVOKE')}
+          >
+            撤回同意
+          </button>
+        </PermissionGate>
+        <PermissionGate permission={operationPermission('FREEZE')}>
+          <button
+            className="button button--ghost"
+            disabled={pending}
+            onClick={() => onOperate(memory, 'FREEZE')}
+          >
+            冻结
+          </button>
+        </PermissionGate>
+        <PermissionGate permission={operationPermission('EXPORT')}>
+          <button
+            className="button button--ghost"
+            disabled={pending}
+            onClick={() => onOperate(memory, 'EXPORT')}
+          >
+            导出元数据
+          </button>
+        </PermissionGate>
+        <PermissionGate permission={operationPermission('DELETE')}>
+          <button
+            className="button button--danger"
+            disabled={pending}
+            onClick={() => onOperate(memory, 'DELETE')}
+          >
+            删除
+          </button>
+        </PermissionGate>
       </div>
     </article>
   );
+}
+
+function operationPermission(operation: Operation) {
+  return operation === 'EXPORT' ? 'memory:export' : 'memory:govern';
 }

@@ -10,6 +10,7 @@ import io.agentteams.controlplane.security.Principal;
 import io.agentteams.controlplane.security.PrincipalContext;
 import io.agentteams.controlplane.security.ResourceAction;
 import io.agentteams.controlplane.security.ResourceAuthorizationMatrix;
+import io.agentteams.controlplane.organization.ManagementAuthorizationService;
 import io.agentteams.controlplane.service.ResourceNotFoundException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -32,12 +33,18 @@ public class ProjectAuthorizationService {
     private final ProjectRepository repository;
     private final Clock clock;
     private final AuditRecorder auditRecorder;
+    private final ManagementAuthorizationService managementAuthorization;
 
     private static final AuditRecorder NOOP_AUDIT = event -> { };
 
-    @Autowired
     public ProjectAuthorizationService(ProjectRepository repository, AuditRecorder auditRecorder) {
-        this(repository, Clock.systemUTC(), auditRecorder);
+        this(repository, Clock.systemUTC(), auditRecorder, null);
+    }
+
+    @Autowired
+    public ProjectAuthorizationService(ProjectRepository repository, AuditRecorder auditRecorder,
+            ManagementAuthorizationService managementAuthorization) {
+        this(repository, Clock.systemUTC(), auditRecorder, managementAuthorization);
     }
 
     public ProjectAuthorizationService(ProjectRepository repository) {
@@ -49,14 +56,24 @@ public class ProjectAuthorizationService {
     }
 
     ProjectAuthorizationService(ProjectRepository repository, Clock clock, AuditRecorder auditRecorder) {
+        this(repository, clock, auditRecorder, null);
+    }
+
+    private ProjectAuthorizationService(ProjectRepository repository, Clock clock, AuditRecorder auditRecorder,
+            ManagementAuthorizationService managementAuthorization) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder");
+        this.managementAuthorization = managementAuthorization;
     }
 
     @Transactional
     public ProjectRecord createProject(String idempotencyKey, String name) {
         Principal principal = principal();
+        if (managementAuthorization == null) {
+            throw new AuthorizationException("platform authorization is unavailable");
+        }
+        managementAuthorization.requirePlatformAdmin();
         String key = required(idempotencyKey, "Idempotency-Key");
         String projectName = required(name, "name");
         String tenantId = principal.scope().tenant();
@@ -138,14 +155,20 @@ public class ProjectAuthorizationService {
     public List<ProjectMembershipRecord> listMembers(UUID projectId) {
         Principal principal = principal();
         ProjectRecord project = project(principal.scope().tenant(), projectId);
-        membership(project.tenantId(), project.id(), principal.subject());
+        ProjectMembershipRecord actor = membership(project.tenantId(), project.id(), principal.subject());
+        if (!actor.role().atLeast(ProjectRole.ADMIN)) {
+            throw new AuthorizationException("project member list access denied");
+        }
         return repository.findMemberships(project.tenantId(), project.id());
     }
 
     public List<RolePermissions> listRolePermissions(UUID projectId) {
         Principal principal = principal();
         ProjectRecord project = project(principal.scope().tenant(), projectId);
-        membership(project.tenantId(), project.id(), principal.subject());
+        ProjectMembershipRecord actor = membership(project.tenantId(), project.id(), principal.subject());
+        if (!actor.role().atLeast(ProjectRole.ADMIN)) {
+            throw new AuthorizationException("project role matrix access denied");
+        }
         return List.of(ProjectRole.values()).stream()
                 .map(role -> new RolePermissions(role, ResourceAuthorizationMatrix.actions(role)))
                 .toList();
@@ -158,8 +181,13 @@ public class ProjectAuthorizationService {
     public CursorPage<ProjectRecord> list(CursorPageRequest request, String status, String query) {
         Objects.requireNonNull(request, "request");
         Principal principal = principal();
-        List<ProjectRecord> rows = repository.findProjects(principal.scope().tenant(), principal.subject(),
-                request.position(), request.pageSize() + 1, request.direction(), status, query);
+        boolean tenantAdmin = managementAuthorization != null
+                && managementAuthorization.canReadTenantProjects(principal.scope().tenant());
+        List<ProjectRecord> rows = tenantAdmin
+                ? repository.findProjectsByTenant(principal.scope().tenant(), request.position(),
+                        request.pageSize() + 1, request.direction(), status, query)
+                : repository.findProjects(principal.scope().tenant(), principal.subject(), request.position(),
+                        request.pageSize() + 1, request.direction(), status, query);
         return CursorPage.fromRows(rows, request.pageSize(),
                 project -> new CursorPageRequest.Position(project.updatedAt(), project.id()), clock.instant());
     }

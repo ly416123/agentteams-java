@@ -13,6 +13,7 @@ import type { WorkerType } from '../../api/types';
 import { ErrorState } from '../../components/ErrorState';
 import { EmptyState } from '../../components/EmptyState';
 import { labelStatus, labelType } from '../../i18n/labels';
+import { PermissionGate } from '../../auth/PermissionGate';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -114,91 +115,100 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
           {notice.text}
         </div>
       )}
-      <div className="content-grid">
-        <form className="form-panel" onSubmit={submitTemplate}>
-          <h2>创建模板</h2>
-          <label htmlFor="template-name">内部名称</label>
-          <input
-            id="template-name"
-            value={template.name}
-            onChange={(event) => setTemplate({ ...template, name: event.target.value })}
-            required
-          />
-          <label htmlFor="template-display-name">显示名称</label>
-          <input
-            id="template-display-name"
-            value={template.displayName}
-            onChange={(event) => setTemplate({ ...template, displayName: event.target.value })}
-            required
-          />
-          <label htmlFor="template-worker-type">工作节点类型</label>
-          <select
-            id="template-worker-type"
-            value={template.workerType}
-            onChange={(event) =>
-              setTemplate({ ...template, workerType: event.target.value as WorkerType })
-            }
-          >
-            <option value="EXECUTOR">执行工作节点</option>
-            <option value="LEADER">负责人工作节点</option>
-          </select>
-          <button className="button button--primary" type="submit" disabled={create.isPending}>
-            {create.isPending ? '创建中…' : '创建模板'}
-          </button>
-        </form>
-
-        <form className="form-panel" onSubmit={submitRevision}>
-          <h2>创建版本</h2>
-          <label htmlFor="revision-template">模板</label>
-          <select
-            id="revision-template"
-            value={revision.templateId}
-            onChange={(event) => setRevision({ ...revision, templateId: event.target.value })}
-            required
-          >
-            <option value="">选择模板</option>
-            {(templates.data || []).map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.displayName} ({item.name})
-              </option>
-            ))}
-          </select>
-          <label htmlFor="revision-spec">工作节点规格 JSON</label>
-          <textarea
-            id="revision-spec"
-            rows={6}
-            value={revision.specJson}
-            onChange={(event) => setRevision({ ...revision, specJson: event.target.value })}
-            required
-          />
-          <label htmlFor="revision-actor">变更说明人</label>
-          <input
-            id="revision-actor"
-            value={revision.actor}
-            onChange={(event) => setRevision({ ...revision, actor: event.target.value })}
-          />
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createRevision.isPending}
-          >
-            {createRevision.isPending ? '保存中…' : '创建版本'}
-          </button>
-          {lastRevision && (
-            <div className="info-box">
-              版本 {lastRevision.revision} · {labelStatus(lastRevision.status)}
-              <button
-                className="button button--small"
-                type="button"
-                disabled={publish.isPending}
-                onClick={() => publish.mutate(lastRevision)}
+      <details className="form-disclosure">
+        <summary>新建模板或版本</summary>
+        <div className="content-grid">
+          <PermissionGate permission="agent-spec:write">
+            <form className="form-panel" onSubmit={submitTemplate}>
+              <h2>创建模板</h2>
+              <label htmlFor="template-name">内部名称</label>
+              <input
+                id="template-name"
+                value={template.name}
+                onChange={(event) => setTemplate({ ...template, name: event.target.value })}
+                required
+              />
+              <label htmlFor="template-display-name">显示名称</label>
+              <input
+                id="template-display-name"
+                value={template.displayName}
+                onChange={(event) => setTemplate({ ...template, displayName: event.target.value })}
+                required
+              />
+              <label htmlFor="template-worker-type">工作节点类型</label>
+              <select
+                id="template-worker-type"
+                value={template.workerType}
+                onChange={(event) =>
+                  setTemplate({ ...template, workerType: event.target.value as WorkerType })
+                }
               >
-                发布此版本
+                <option value="EXECUTOR">执行工作节点</option>
+                <option value="LEADER">负责人工作节点</option>
+              </select>
+              <button className="button button--primary" type="submit" disabled={create.isPending}>
+                {create.isPending ? '创建中…' : '创建模板'}
               </button>
-            </div>
-          )}
-        </form>
-      </div>
+            </form>
+          </PermissionGate>
+
+          <PermissionGate permission="agent-spec:write">
+            <form className="form-panel" onSubmit={submitRevision}>
+              <h2>创建版本</h2>
+              <label htmlFor="revision-template">模板</label>
+              <select
+                id="revision-template"
+                value={revision.templateId}
+                onChange={(event) => setRevision({ ...revision, templateId: event.target.value })}
+                required
+              >
+                <option value="">选择模板</option>
+                {(templates.data || []).map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.displayName} ({item.name})
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="revision-spec">工作节点规格 JSON</label>
+              <textarea
+                id="revision-spec"
+                rows={6}
+                value={revision.specJson}
+                onChange={(event) => setRevision({ ...revision, specJson: event.target.value })}
+                required
+              />
+              <label htmlFor="revision-actor">变更说明人</label>
+              <input
+                id="revision-actor"
+                value={revision.actor}
+                onChange={(event) => setRevision({ ...revision, actor: event.target.value })}
+              />
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={createRevision.isPending}
+              >
+                {createRevision.isPending ? '保存中…' : '创建版本'}
+              </button>
+              {lastRevision && (
+                <div className="info-box">
+                  版本 {lastRevision.revision} · {labelStatus(lastRevision.status)}
+                  <PermissionGate permission="agent-spec:publish">
+                    <button
+                      className="button button--small"
+                      type="button"
+                      disabled={publish.isPending}
+                      onClick={() => publish.mutate(lastRevision)}
+                    >
+                      发布此版本
+                    </button>
+                  </PermissionGate>
+                </div>
+              )}
+            </form>
+          </PermissionGate>
+        </div>
+      </details>
 
       {templates.isLoading ? (
         <div className="panel loading-block">加载中…</div>
@@ -228,18 +238,20 @@ export function ManagementTemplatePage({ projectId }: { projectId: string }) {
               </p>
               {item.currentPublishedRevision && (
                 <>
-                  <button
-                    className="button button--primary"
-                    disabled={instantiate.isPending}
-                    onClick={() =>
-                      instantiate.mutate({
-                        templateId: item.id,
-                        revision: item.currentPublishedRevision as number,
-                      })
-                    }
-                  >
-                    {instantiate.isPending ? '实例化中…' : '显式实例化工作节点'}
-                  </button>
+                  <PermissionGate permission="agent-spec:instantiate">
+                    <button
+                      className="button button--primary"
+                      disabled={instantiate.isPending}
+                      onClick={() =>
+                        instantiate.mutate({
+                          templateId: item.id,
+                          revision: item.currentPublishedRevision as number,
+                        })
+                      }
+                    >
+                      {instantiate.isPending ? '实例化中…' : '显式实例化工作节点'}
+                    </button>
+                  </PermissionGate>
                   {lastInstance?.templateId === item.id && (
                     <div
                       className={

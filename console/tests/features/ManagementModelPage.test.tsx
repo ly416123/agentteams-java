@@ -1,9 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderAuthorized } from '../fixtures/authorizedRender';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ManagementModelPage } from '../../src/features/management/ManagementModelPage';
+import { ApiError } from '../../src/api/httpClient';
 
 const mocks = vi.hoisted(() => ({
   listModelProviders: vi.fn().mockResolvedValue([
@@ -60,22 +62,60 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/api/managementCatalog', () => ({ ...mocks }));
 
-function renderPage() {
-  return render(
+function renderPage(permissions?: readonly string[]) {
+  return renderAuthorized(
     <MemoryRouter>
       <QueryClientProvider client={new QueryClient()}>
         <ManagementModelPage />
       </QueryClientProvider>
     </MemoryRouter>,
+    undefined,
+    permissions,
   );
 }
 
 describe('Management model page', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shows a generic safe message when the server denies model provider creation', async () => {
+    mocks.createModelProvider.mockRejectedValueOnce(
+      new ApiError(403, { code: 'FORBIDDEN', message: 'provider config is restricted' }),
+    );
+    renderPage();
+    await screen.findByRole('heading', { name: '模型与价格' });
+    await userEvent.click(screen.getByText('新增模型服务商或模型'));
+    await userEvent.type(screen.getByLabelText('名称'), 'denied-provider');
+    await userEvent.type(screen.getByLabelText('服务地址'), 'https://model.example.test');
+    await userEvent.click(screen.getByRole('button', { name: '登记服务商' }));
+
+    expect(await screen.findByText('当前账号没有权限执行此操作。')).toHaveAttribute(
+      'role',
+      'status',
+    );
+    expect(screen.queryByText(/provider config is restricted/)).not.toBeInTheDocument();
+  });
+
+  it('keeps model mutation controls hidden for model readers', async () => {
+    renderPage(['model:read']);
+    expect(await screen.findByRole('heading', { name: '模型与价格' })).toBeInTheDocument();
+    await userEvent.click(screen.getByText('新增模型服务商或模型'));
+
+    expect(await screen.findByText('local / qwen-2.5')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '登记服务商' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '登记模型' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '连接测试' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除模型' })).not.toBeInTheDocument();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+    expect(mocks.createModel).not.toHaveBeenCalled();
+    expect(mocks.deleteModel).not.toHaveBeenCalled();
+  });
+
   it('registers a provider and model and exposes credential-safe connection test', async () => {
     renderPage();
     expect(await screen.findByRole('heading', { name: '模型与价格' })).toBeInTheDocument();
+    await userEvent.click(screen.getByText('新增模型服务商或模型'));
     await userEvent.type(screen.getByLabelText('名称'), 'remote');
-    await userEvent.type(screen.getByLabelText('Endpoint'), 'https://remote.example.test');
+    await userEvent.type(screen.getByLabelText('服务地址'), 'https://remote.example.test');
     await userEvent.type(screen.getByLabelText('凭据引用（可选）'), 'secret://model/remote');
     await userEvent.click(screen.getByRole('button', { name: '登记服务商' }));
     expect(mocks.createModelProvider).toHaveBeenCalledWith({

@@ -18,6 +18,8 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { ActionConfirmModal } from '../../components/ActionConfirmModal';
 import { labelStatus, labelType } from '../../i18n/labels';
+import { formatDateTime } from '../../utils/formatters';
+import { PermissionGate } from '../../auth/PermissionGate';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
@@ -137,7 +139,7 @@ export function ManagementModelPage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MANAGEMENT / MODELS</p>
+          <p className="eyebrow">管理 / 模型</p>
           <h1>模型与价格</h1>
           <p className="page-subtitle">
             管理模型服务商和模型目录。连接测试结果仅代表当前依赖状态，不等同于生产凭据可用。
@@ -152,92 +154,103 @@ export function ManagementModelPage() {
           {notice.text}
         </div>
       )}
-      <div className="content-grid">
-        <form className="form-panel" onSubmit={submitProvider}>
-          <h2>登记模型服务商</h2>
-          <label>
-            名称
-            <input
-              value={provider.name}
-              onChange={(event) => setProvider({ ...provider, name: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            服务商类型
-            <input
-              value={provider.providerType}
-              onChange={(event) => setProvider({ ...provider, providerType: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Endpoint
-            <input
-              type="url"
-              value={provider.endpoint}
-              onChange={(event) => setProvider({ ...provider, endpoint: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            凭据引用（可选）
-            <input
-              value={provider.credentialRef}
-              onChange={(event) => setProvider({ ...provider, credentialRef: event.target.value })}
-              placeholder="secret://..."
-            />
-          </label>
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createProvider.isPending}
-          >
-            登记服务商
-          </button>
-        </form>
-        <form className="form-panel" onSubmit={submitModel}>
-          <h2>登记模型</h2>
-          <label>
-            服务商
-            <select
-              value={model.providerId}
-              onChange={(event) => setModel({ ...model, providerId: event.target.value })}
-              required
-            >
-              <option value="">选择服务商</option>
-              {(providers.data || []).map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            显示名称
-            <input
-              value={model.name}
-              onChange={(event) => setModel({ ...model, name: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            模型 ID
-            <input
-              value={model.modelId}
-              onChange={(event) => setModel({ ...model, modelId: event.target.value })}
-              required
-            />
-          </label>
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createModelMutation.isPending}
-          >
-            登记模型
-          </button>
-        </form>
-      </div>
+      <details className="form-disclosure">
+        <summary>新增模型服务商或模型</summary>
+        <div className="content-grid">
+          <PermissionGate permission="model:write">
+            <form className="form-panel" onSubmit={submitProvider}>
+              <h2>登记模型服务商</h2>
+              <label>
+                名称
+                <input
+                  value={provider.name}
+                  onChange={(event) => setProvider({ ...provider, name: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                服务商类型
+                <input
+                  value={provider.providerType}
+                  onChange={(event) =>
+                    setProvider({ ...provider, providerType: event.target.value })
+                  }
+                  required
+                />
+              </label>
+              <label>
+                服务地址
+                <input
+                  type="url"
+                  value={provider.endpoint}
+                  onChange={(event) => setProvider({ ...provider, endpoint: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                凭据引用（可选）
+                <input
+                  value={provider.credentialRef}
+                  onChange={(event) =>
+                    setProvider({ ...provider, credentialRef: event.target.value })
+                  }
+                  placeholder="secret://..."
+                />
+              </label>
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={createProvider.isPending}
+              >
+                登记服务商
+              </button>
+            </form>
+          </PermissionGate>
+          <PermissionGate permission="model:write">
+            <form className="form-panel" onSubmit={submitModel}>
+              <h2>登记模型</h2>
+              <label>
+                服务商
+                <select
+                  value={model.providerId}
+                  onChange={(event) => setModel({ ...model, providerId: event.target.value })}
+                  required
+                >
+                  <option value="">选择服务商</option>
+                  {(providers.data || []).map((item) => (
+                    <option value={item.id} key={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                显示名称
+                <input
+                  value={model.name}
+                  onChange={(event) => setModel({ ...model, name: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                模型 ID
+                <input
+                  value={model.modelId}
+                  onChange={(event) => setModel({ ...model, modelId: event.target.value })}
+                  required
+                />
+              </label>
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={createModelMutation.isPending}
+              >
+                登记模型
+              </button>
+            </form>
+          </PermissionGate>
+        </div>
+      </details>
       {providers.isLoading ? (
         <div className="panel loading-block">加载中…</div>
       ) : providers.isError ? (
@@ -261,27 +274,29 @@ export function ManagementModelPage() {
                 凭据：{item.credentialConfigured ? '已配置（仅引用）' : '未配置'} · 版本{' '}
                 {item.version}
               </p>
-              <button
-                className="button button--ghost"
-                disabled={connectionTest.isPending}
-                onClick={() => connectionTest.mutate(item.id)}
-              >
-                连接测试
-              </button>
-              <button
-                className="button button--ghost"
-                disabled={toggleProvider.isPending}
-                onClick={() => toggleProvider.mutate(item)}
-              >
-                {item.enabled ? '停用' : '启用'}
-              </button>
-              <button
-                className="button button--danger"
-                disabled={removeProvider.isPending}
-                onClick={() => setDeleteTarget({ kind: 'provider', item })}
-              >
-                删除
-              </button>
+              <PermissionGate permission="model:write">
+                <button
+                  className="button button--ghost"
+                  disabled={connectionTest.isPending}
+                  onClick={() => connectionTest.mutate(item.id)}
+                >
+                  连接测试
+                </button>
+                <button
+                  className="button button--ghost"
+                  disabled={toggleProvider.isPending}
+                  onClick={() => toggleProvider.mutate(item)}
+                >
+                  {item.enabled ? '停用' : '启用'}
+                </button>
+                <button
+                  className="button button--danger"
+                  disabled={removeProvider.isPending}
+                  onClick={() => setDeleteTarget({ kind: 'provider', item })}
+                >
+                  删除
+                </button>
+              </PermissionGate>
               <div className="stack-list" aria-label={`${item.name} 的模型`}>
                 {models[index]?.isLoading ? (
                   <span className="muted-text">模型加载中…</span>
@@ -295,22 +310,24 @@ export function ManagementModelPage() {
                         </span>
                       </span>
                       <span>
-                        <button
-                          className="button button--ghost"
-                          disabled={toggleModel.isPending}
-                          onClick={() =>
-                            toggleModel.mutate({ item: managedModel, providerId: item.id })
-                          }
-                        >
-                          {managedModel.enabled ? '停用模型' : '启用模型'}
-                        </button>
-                        <button
-                          className="button button--danger"
-                          disabled={removeModel.isPending}
-                          onClick={() => setDeleteTarget({ kind: 'model', item: managedModel })}
-                        >
-                          删除模型
-                        </button>
+                        <PermissionGate permission="model:write">
+                          <button
+                            className="button button--ghost"
+                            disabled={toggleModel.isPending}
+                            onClick={() =>
+                              toggleModel.mutate({ item: managedModel, providerId: item.id })
+                            }
+                          >
+                            {managedModel.enabled ? '停用模型' : '启用模型'}
+                          </button>
+                          <button
+                            className="button button--danger"
+                            disabled={removeModel.isPending}
+                            onClick={() => setDeleteTarget({ kind: 'model', item: managedModel })}
+                          >
+                            删除模型
+                          </button>
+                        </PermissionGate>
                       </span>
                     </div>
                   ))
@@ -346,7 +363,7 @@ export function ManagementModelPage() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">PRICE CATALOG</p>
+            <p className="eyebrow">价格目录</p>
             <h2>价格目录</h2>
           </div>
           <span className="muted-text">费用计算使用已生效价格版本</span>
@@ -362,9 +379,9 @@ export function ManagementModelPage() {
             <table className="resource-table">
               <thead>
                 <tr>
-                  <th>Provider / Model</th>
-                  <th>输入 / 1M Tokens</th>
-                  <th>输出 / 1M Tokens</th>
+                  <th>服务商 / 模型</th>
+                  <th>输入 / 百万令牌</th>
+                  <th>输出 / 百万令牌</th>
                   <th>生效时间</th>
                   <th>状态</th>
                 </tr>
@@ -381,7 +398,7 @@ export function ManagementModelPage() {
                     <td>
                       {price.currency} {price.outputPricePerMillionTokens}
                     </td>
-                    <td>{new Date(price.effectiveFrom).toLocaleString('zh-CN')}</td>
+                    <td>{formatDateTime(price.effectiveFrom)}</td>
                     <td>
                       {labelStatus(price.lifecycleStatus)} · v{price.version}
                     </td>

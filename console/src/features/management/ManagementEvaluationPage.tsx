@@ -1,23 +1,39 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import {
-  getEvaluationReport,
-  getEvaluationRun,
-  listEvaluationRuns,
-} from '../../api/evaluations';
-import type { EvaluationReport, EvaluationReportResponse, EvaluationResult, EvaluationRun } from '../../api/types';
+import { getEvaluationReport, getEvaluationRun, listEvaluationRuns } from '../../api/evaluations';
+import type {
+  EvaluationReport,
+  EvaluationReportResponse,
+  EvaluationResult,
+  EvaluationRun,
+} from '../../api/types';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { IdDisplay } from '../../components/IdDisplay';
 
 const SENSITIVE_REF = /token|password|cookie|secret|authorization|x-amz-|presign|[?&=]/i;
 const SENSITIVE_TEXT = /token|password|cookie|secret|authorization|x-amz-|presign/i;
 const EXECUTION_METRICS = new Set([
-  'phase', 'required_tool', 'forbidden_tool', 'failed_tool', 'tool_order', 'tool_count',
-  'dependency_success', 'dependency_handoff', 'retry_limit', 'run_status',
+  'phase',
+  'required_tool',
+  'forbidden_tool',
+  'failed_tool',
+  'tool_order',
+  'tool_count',
+  'dependency_success',
+  'dependency_handoff',
+  'retry_limit',
+  'run_status',
 ]);
 
-export function ManagementEvaluationPage({ projectId, runId }: { projectId: string; runId?: string }) {
+export function ManagementEvaluationPage({
+  projectId,
+  runId,
+}: {
+  projectId: string;
+  runId?: string;
+}) {
   const [searchParams] = useSearchParams();
   const resolvedRunId = runId || searchParams.get('runId') || '';
   const evaluationRun = useQuery({
@@ -54,10 +70,17 @@ export function ManagementEvaluationPage({ projectId, runId }: { projectId: stri
             {runsFromResponse(evaluationRuns.data).map((run) => (
               <article className="panel" key={run.id}>
                 <div className="section-heading">
-                  <div><p className="eyebrow">Evaluation Run</p><h2>{run.id}</h2></div>
+                  <div>
+                    <p className="eyebrow">评估运行</p>
+                    <h2>
+                      <IdDisplay value={run.id} />
+                    </h2>
+                  </div>
                   <StatusBadge phase={run.status} />
                 </div>
-                <p className="muted-text">Task {run.taskId} · {run.evaluatorVersion}</p>
+                <p className="muted-text">
+                  任务 <IdDisplay value={run.taskId} /> · 评估器版本 {run.evaluatorVersion}
+                </p>
                 <Link className="button button--ghost" to={`/${projectId}/evaluations/${run.id}`}>
                   查看详情
                 </Link>
@@ -77,7 +100,9 @@ export function ManagementEvaluationPage({ projectId, runId }: { projectId: stri
         <div>
           <p className="eyebrow">质量 / 评测</p>
           <h1>评测详情</h1>
-          <p className="page-subtitle">评测结论与 Task 生命周期状态独立记录，评测失败不会回写 Task。</p>
+          <p className="page-subtitle">
+            评测结论与任务生命周期状态独立记录，评测失败不会回写任务状态。
+          </p>
         </div>
         <button
           className="button button--ghost"
@@ -96,11 +121,7 @@ export function ManagementEvaluationPage({ projectId, runId }: { projectId: stri
       ) : report.isError ? (
         <ErrorState error={report.error} onRetry={() => void report.refetch()} />
       ) : evaluationRun.data && report.data ? (
-        <EvaluationDetails
-          projectId={projectId}
-          run={evaluationRun.data}
-          response={report.data}
-        />
+        <EvaluationDetails projectId={projectId} run={evaluationRun.data} response={report.data} />
       ) : null}
     </div>
   );
@@ -121,17 +142,42 @@ function EvaluationDetails({
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Evaluation Run</p>
-            <h2>{run.id}</h2>
+            <p className="eyebrow">评估运行</p>
+            <h2>
+              <IdDisplay value={run.id} />
+            </h2>
           </div>
           <StatusBadge phase={run.status} />
         </div>
         <div className="detail-list">
-          <span>Suite<strong>{run.suiteId}</strong></span>
-          <span>Case<strong>{run.caseId}</strong></span>
-          <span>Task<strong><Link to={`/${projectId}/tasks/${run.taskId}`}>{run.taskId}</Link></strong></span>
-          <span>Execution Run<strong>{run.executionRunId}</strong></span>
-          <span>Evaluator<strong>{run.evaluatorVersion}</strong></span>
+          <span>
+            评估套件
+            <strong>
+              <IdDisplay value={run.suiteId} />
+            </strong>
+          </span>
+          <span>
+            用例
+            <strong>
+              <IdDisplay value={run.caseId} />
+            </strong>
+          </span>
+          <span>
+            Task
+            <strong>
+              <Link to={`/${projectId}/tasks/${run.taskId}`}>打开任务</Link>{' '}
+              <IdDisplay value={run.taskId} />
+            </strong>
+          </span>
+          <span>
+            执行运行
+            <strong>
+              <IdDisplay value={run.executionRunId} />
+            </strong>
+          </span>
+          <span>
+            Evaluator<strong>{run.evaluatorVersion}</strong>
+          </span>
         </div>
       </section>
 
@@ -143,34 +189,47 @@ function EvaluationDetails({
           <div className="usage-summary">
             <div>
               <span>Evaluation 状态</span>
-              <strong><StatusBadge phase={report.evaluationStatus} /></strong>
+              <strong>
+                <StatusBadge phase={report.evaluationStatus} />
+              </strong>
             </div>
             <div>
-              <span>Task success</span>
+              <span>任务是否成功</span>
               <strong>
                 <StatusBadge phase={report.taskSuccess ? 'SUCCEEDED' : 'FAILED'} />
                 <span className="muted-text">{report.taskSuccess ? '是' : '否'}</span>
               </strong>
             </div>
-            <GateSummary label="Execution gate" status={report.executionGateStatus}
-              inconclusiveReasons={inconclusiveReasons(results, true)} />
-            <GateSummary label="Result gate" status={report.resultGateStatus}
-              inconclusiveReasons={inconclusiveReasons(results, false)} />
+            <GateSummary
+              label="Execution gate"
+              status={report.executionGateStatus}
+              inconclusiveReasons={inconclusiveReasons(results, true)}
+            />
+            <GateSummary
+              label="Result gate"
+              status={report.resultGateStatus}
+              inconclusiveReasons={inconclusiveReasons(results, false)}
+            />
             <div>
-              <span>aggregateScore</span>
+              <span>综合得分</span>
               <strong>{formatScore(report.aggregateScore)}</strong>
             </div>
           </div>
         </article>
 
         <article className="panel">
-          <div className="section-heading"><h2>维度分数</h2></div>
+          <div className="section-heading">
+            <h2>维度分数</h2>
+          </div>
           {!Object.keys(report.dimensionScores).length ? (
             <p className="muted-text">暂无维度分数。</p>
           ) : (
             <div className="detail-list">
               {Object.entries(report.dimensionScores).map(([dimension, score]) => (
-                <span key={dimension}>{dimension}<strong>{formatScore(score)}</strong></span>
+                <span key={dimension}>
+                  {dimension}
+                  <strong>{formatScore(score)}</strong>
+                </span>
               ))}
             </div>
           )}
@@ -179,13 +238,18 @@ function EvaluationDetails({
 
       <section className="panel">
         <div className="section-heading">
-          <div><p className="eyebrow">Deterministic checks</p><h2>评测结果</h2></div>
+          <div>
+            <p className="eyebrow">确定性检查</p>
+            <h2>评测结果</h2>
+          </div>
         </div>
         {!results.length ? (
           <p className="muted-text">暂无逐项评测结果。</p>
         ) : (
           <div className="content-grid">
-            {results.map((result) => <EvaluationResultCard key={result.id} projectId={projectId} result={result} />)}
+            {results.map((result) => (
+              <EvaluationResultCard key={result.id} projectId={projectId} result={result} />
+            ))}
           </div>
         )}
       </section>
@@ -193,13 +257,22 @@ function EvaluationDetails({
   );
 }
 
-function GateSummary({ label, status, inconclusiveReasons = [] }: {
+function GateSummary({
+  label,
+  status,
+  inconclusiveReasons = [],
+}: {
   label: string;
   status?: string | null;
   inconclusiveReasons?: string[];
 }) {
   if (!status) {
-    return <div><span>{label}</span><strong className="muted-text">旧报告未记录此门禁</strong></div>;
+    return (
+      <div>
+        <span>{label}</span>
+        <strong className="muted-text">旧报告未记录此门禁</strong>
+      </div>
+    );
   }
   return (
     <div>
@@ -207,22 +280,35 @@ function GateSummary({ label, status, inconclusiveReasons = [] }: {
       <strong>
         <StatusBadge phase={status} />
       </strong>
-      {inconclusiveReasons.length ? <ul className="muted-text">
-        {inconclusiveReasons.map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}
-      </ul> : null}
+      {inconclusiveReasons.length ? (
+        <ul className="muted-text">
+          {inconclusiveReasons.map((reason, index) => (
+            <li key={`${index}-${reason}`}>{reason}</li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
 
 function inconclusiveReasons(results: EvaluationResult[], executionGate: boolean) {
-  return results.filter((result) => {
-    if (result.status !== 'INCONCLUSIVE' || result.metric === 'semantic') return false;
-    const metricType = result.metric.split(':', 1)[0];
-    return EXECUTION_METRICS.has(metricType) === executionGate;
-  }).map((result) => safeFinding(result.findingSummary)).filter(Boolean);
+  return results
+    .filter((result) => {
+      if (result.status !== 'INCONCLUSIVE' || result.metric === 'semantic') return false;
+      const metricType = result.metric.split(':', 1)[0];
+      return EXECUTION_METRICS.has(metricType) === executionGate;
+    })
+    .map((result) => safeFinding(result.findingSummary))
+    .filter(Boolean);
 }
 
-function EvaluationResultCard({ projectId, result }: { projectId: string; result: EvaluationResult }) {
+function EvaluationResultCard({
+  projectId,
+  result,
+}: {
+  projectId: string;
+  result: EvaluationResult;
+}) {
   const finding = safeFinding(result.findingSummary);
   const refs = result.evidenceRefs.filter(isSafeEvidenceRef);
   return (
@@ -232,15 +318,23 @@ function EvaluationResultCard({ projectId, result }: { projectId: string; result
         <StatusBadge phase={result.status} />
       </div>
       <div className="detail-list">
-        <span>分数<strong>{formatScore(result.score)}</strong></span>
-        <span>阈值<strong>{formatScore(result.threshold)}</strong></span>
+        <span>
+          分数<strong>{formatScore(result.score)}</strong>
+        </span>
+        <span>
+          阈值<strong>{formatScore(result.threshold)}</strong>
+        </span>
       </div>
       {finding ? <p>{finding}</p> : null}
       {refs.length ? (
         <div>
           <p className="eyebrow">证据引用</p>
           <ul>
-            {refs.map((ref) => <li key={ref}><Link to={evidenceLink(projectId, ref)}>{ref}</Link></li>)}
+            {refs.map((ref) => (
+              <li key={ref}>
+                <Link to={evidenceLink(projectId, ref)}>{ref}</Link>
+              </li>
+            ))}
           </ul>
         </div>
       ) : (
@@ -250,7 +344,10 @@ function EvaluationResultCard({ projectId, result }: { projectId: string; result
   );
 }
 
-function normalizeReport(response: EvaluationReportResponse): { report: EvaluationReport; results: EvaluationResult[] } {
+function normalizeReport(response: EvaluationReportResponse): {
+  report: EvaluationReport;
+  results: EvaluationResult[];
+} {
   if ('report' in response) return { report: response.report, results: response.results || [] };
   return { report: response, results: [] };
 }
@@ -266,9 +363,12 @@ function safeFinding(value: string | null | undefined) {
 }
 
 function evidenceLink(projectId: string, ref: string) {
-  if (ref.startsWith('task-snapshot:')) return `/${projectId}/tasks/${ref.slice('task-snapshot:'.length)}`;
-  if (ref.startsWith('result-manifest:')) return `/${projectId}/artifacts?runId=${encodeURIComponent(ref.slice('result-manifest:'.length))}`;
-  if (ref.startsWith('artifact:')) return `/${projectId}/artifacts?sha256=${encodeURIComponent(ref.slice('artifact:'.length))}`;
+  if (ref.startsWith('task-snapshot:'))
+    return `/${projectId}/tasks/${ref.slice('task-snapshot:'.length)}`;
+  if (ref.startsWith('result-manifest:'))
+    return `/${projectId}/artifacts?runId=${encodeURIComponent(ref.slice('result-manifest:'.length))}`;
+  if (ref.startsWith('artifact:'))
+    return `/${projectId}/artifacts?sha256=${encodeURIComponent(ref.slice('artifact:'.length))}`;
   return `/${projectId}/tasks?evidenceRef=${encodeURIComponent(ref)}`;
 }
 

@@ -11,14 +11,19 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { IdDisplay } from '../../components/IdDisplay';
+import { PermissionGate } from '../../auth/PermissionGate';
+import { useAuthorization } from '../../auth/AuthorizationProvider';
 
 type Notice = { kind: 'success' | 'error'; text: string } | undefined;
 
 export function ManagementOrganizationPage() {
+  const authorization = useAuthorization();
   const queryClient = useQueryClient();
   const organizations = useQuery({
     queryKey: ['management-organizations'],
     queryFn: () => listManagementOrganizations(),
+    enabled: authorization.loaded && authorization.permissions.includes('organization:read'),
   });
   const [notice, setNotice] = useState<Notice>();
   const [organizationName, setOrganizationName] = useState('');
@@ -115,56 +120,63 @@ export function ManagementOrganizationPage() {
           {notice.text}
         </div>
       )}
-      <div className="content-grid">
-        <form className="form-panel" onSubmit={submitOrganization}>
-          <h2>创建组织</h2>
-          <label htmlFor="organization-name">组织名称</label>
-          <input
-            id="organization-name"
-            value={organizationName}
-            onChange={(event) => setOrganizationName(event.target.value)}
-            required
-          />
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={createOrganization.isPending}
-          >
-            创建组织
-          </button>
-        </form>
-        <form className="form-panel" onSubmit={submitTenant}>
-          <h2>创建租户</h2>
-          <label htmlFor="tenant-organization">组织</label>
-          <select
-            id="tenant-organization"
-            value={selectedOrganizationId}
-            onChange={(event) => setOrganizationId(event.target.value)}
-            required
-          >
-            <option value="">选择组织</option>
-            {(organizations.data || []).map((organization) => (
-              <option value={organization.id} key={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="tenant-name">租户名称</label>
-          <input
-            id="tenant-name"
-            value={tenantName}
-            onChange={(event) => setTenantName(event.target.value)}
-            required
-          />
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={!selectedOrganizationId || createTenant.isPending}
-          >
-            创建租户
-          </button>
-        </form>
-      </div>
+      <details className="form-disclosure">
+        <summary>新建组织或租户</summary>
+        <div className="content-grid">
+          <PermissionGate permission="platform:organization:create">
+            <form className="form-panel" onSubmit={submitOrganization}>
+              <h2>创建组织</h2>
+              <label htmlFor="organization-name">组织名称</label>
+              <input
+                id="organization-name"
+                value={organizationName}
+                onChange={(event) => setOrganizationName(event.target.value)}
+                required
+              />
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={createOrganization.isPending}
+              >
+                创建组织
+              </button>
+            </form>
+          </PermissionGate>
+          <PermissionGate permission="organization:write">
+            <form className="form-panel" onSubmit={submitTenant}>
+              <h2>创建租户</h2>
+              <label htmlFor="tenant-organization">组织</label>
+              <select
+                id="tenant-organization"
+                value={selectedOrganizationId}
+                onChange={(event) => setOrganizationId(event.target.value)}
+                required
+              >
+                <option value="">选择组织</option>
+                {(organizations.data || []).map((organization) => (
+                  <option value={organization.id} key={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="tenant-name">租户名称</label>
+              <input
+                id="tenant-name"
+                value={tenantName}
+                onChange={(event) => setTenantName(event.target.value)}
+                required
+              />
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={!selectedOrganizationId || createTenant.isPending}
+              >
+                创建租户
+              </button>
+            </form>
+          </PermissionGate>
+        </div>
+      </details>
 
       {organizations.isLoading ? (
         <div className="panel loading-block">加载中…</div>
@@ -179,24 +191,28 @@ export function ManagementOrganizationPage() {
               <div className="panel-heading">
                 <div>
                   <h2>{organization.name}</h2>
-                  <p className="muted-text">{organization.id}</p>
+                  <p className="muted-text">
+                    <IdDisplay value={organization.id} />
+                  </p>
                 </div>
                 <StatusBadge phase={organization.status} />
                 {organization.status !== 'DELETED' && (
-                  <button
-                    className="button button--ghost"
-                    type="button"
-                    disabled={updateOrganizationStatus.isPending}
-                    onClick={() =>
-                      updateOrganizationStatus.mutate({
-                        id: organization.id,
-                        expectedVersion: organization.version,
-                        status: organization.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
-                      })
-                    }
-                  >
-                    {organization.status === 'ACTIVE' ? '暂停组织' : '恢复组织'}
-                  </button>
+                  <PermissionGate permission="organization:write">
+                    <button
+                      className="button button--ghost"
+                      type="button"
+                      disabled={updateOrganizationStatus.isPending}
+                      onClick={() =>
+                        updateOrganizationStatus.mutate({
+                          id: organization.id,
+                          expectedVersion: organization.version,
+                          status: organization.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
+                        })
+                      }
+                    >
+                      {organization.status === 'ACTIVE' ? '暂停组织' : '恢复组织'}
+                    </button>
+                  </PermissionGate>
                 )}
               </div>
               {organization.id === selectedOrganizationId && (
@@ -209,20 +225,22 @@ export function ManagementOrganizationPage() {
                         <span>{tenant.name}</span>
                         <StatusBadge phase={tenant.status} />
                         {tenant.status !== 'DELETED' && (
-                          <button
-                            className="button button--ghost"
-                            type="button"
-                            disabled={updateTenantStatus.isPending}
-                            onClick={() =>
-                              updateTenantStatus.mutate({
-                                id: tenant.id,
-                                expectedVersion: tenant.version,
-                                status: tenant.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
-                              })
-                            }
-                          >
-                            {tenant.status === 'ACTIVE' ? '暂停租户' : '恢复租户'}
-                          </button>
+                          <PermissionGate permission="organization:write">
+                            <button
+                              className="button button--ghost"
+                              type="button"
+                              disabled={updateTenantStatus.isPending}
+                              onClick={() =>
+                                updateTenantStatus.mutate({
+                                  id: tenant.id,
+                                  expectedVersion: tenant.version,
+                                  status: tenant.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
+                                })
+                              }
+                            >
+                              {tenant.status === 'ACTIVE' ? '暂停租户' : '恢复租户'}
+                            </button>
+                          </PermissionGate>
                         )}
                       </div>
                     ))

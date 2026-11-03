@@ -88,6 +88,17 @@ public class JdbcOrganizationManagementRepository implements OrganizationManagem
     }
 
     @Override
+    public List<OrganizationManagementController.OrganizationResponse> listOrganizations(List<UUID> organizationIds) {
+        if (organizationIds == null || organizationIds.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(organizationIds.size(), "?"));
+        return jdbc.query("SELECT id, display_name, status, version FROM organizations WHERE id IN ("
+                        + placeholders + ") ORDER BY display_name, id",
+                (rs, row) -> new OrganizationManagementController.OrganizationResponse(rs.getObject("id", UUID.class),
+                        rs.getString("display_name"), rs.getString("status"), rs.getLong("version")),
+                organizationIds.toArray());
+    }
+
+    @Override
     public OrganizationManagementController.OrganizationResponse updateOrganizationStatus(UUID id, long expectedVersion,
             String status, Instant now) {
         ensureExpectedVersion(expectedVersion);
@@ -107,6 +118,23 @@ public class JdbcOrganizationManagementRepository implements OrganizationManagem
                 """, (rs, row) -> new OrganizationManagementController.TenantResponse(rs.getObject("id", UUID.class),
                 rs.getObject("organization_id", UUID.class), rs.getString("display_name"), rs.getString("status"),
                 rs.getLong("version")), organizationId);
+    }
+
+    @Override
+    public Optional<UUID> organizationIdForTenant(UUID tenantId) {
+        return jdbc.query("SELECT organization_id FROM tenants WHERE id = ?", (rs, row) ->
+                rs.getObject("organization_id", UUID.class), tenantId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<UUID> organizationIdForTenantReference(String tenantIdOrExternalKey) {
+        Objects.requireNonNull(tenantIdOrExternalKey, "tenantIdOrExternalKey");
+        try {
+            return organizationIdForTenant(UUID.fromString(tenantIdOrExternalKey));
+        } catch (IllegalArgumentException notUuid) {
+            return jdbc.query("SELECT organization_id FROM tenants WHERE external_key = ?", (rs, row) ->
+                    rs.getObject("organization_id", UUID.class), tenantIdOrExternalKey).stream().findFirst();
+        }
     }
 
     @Override

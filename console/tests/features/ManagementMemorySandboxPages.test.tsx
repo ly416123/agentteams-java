@@ -1,5 +1,6 @@
+import { renderAuthorized } from '../fixtures/authorizedRender';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import type React from 'react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -50,17 +51,30 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/api/memory', () => ({ ...mocks }));
 vi.mock('../../src/api/sandboxes', () => ({ listSandboxes: mocks.listSandboxes }));
 
-function renderPage(page: React.ReactNode) {
-  return render(
+function renderPage(page: React.ReactNode, permissions?: readonly string[]) {
+  return renderAuthorized(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
       <MemoryRouter>{page}</MemoryRouter>
     </QueryClientProvider>,
+    undefined,
+    permissions,
   );
 }
 
 describe('management memory and sandbox pages', () => {
+  it('hides governance reason and actions from memory readers', async () => {
+    mocks.governMemory.mockClear();
+    renderPage(<ManagementMemoryPage projectId="project-1" />, ['memory:read']);
+    expect(await screen.findByRole('heading', { name: '记忆治理' })).toBeInTheDocument();
+    expect(await screen.findByText('USER_PRIVATE')).toBeInTheDocument();
+    expect(screen.queryByLabelText('治理原因')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '冻结' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
+    expect(mocks.governMemory).not.toHaveBeenCalled();
+  });
+
   it('renders memory policy metadata and sends a reasoned governance action', async () => {
     renderPage(<ManagementMemoryPage projectId="project-1" />);
     expect(await screen.findByRole('heading', { name: '记忆治理' })).toBeInTheDocument();

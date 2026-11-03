@@ -83,6 +83,10 @@ public final class MatrixCommandParser {
         if (command instanceof MatrixCommand.Start start) {
             commandType = "task.start";
             payload.put("title", start.title());
+            ObjectNode scope = payload.putObject("scope");
+            scope.put("tenant", identity.principal().scope().tenant());
+            scope.put("project", identity.principal().scope().project());
+            scope.put("team", identity.principal().scope().team());
         } else {
             MatrixCommand.TaskAction action = (MatrixCommand.TaskAction) command;
             taskId = action.taskId();

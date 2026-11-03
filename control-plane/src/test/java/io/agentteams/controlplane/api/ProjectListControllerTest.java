@@ -56,6 +56,7 @@ class ProjectListControllerTest {
                 .param("search", "project").param("status", "ACTIVE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("project-a"))
+                .andExpect(jsonPath("$.items[0].version").value(0))
                 .andExpect(jsonPath("$.hasMore").value(false));
 
         verify(service).list(any(), org.mockito.ArgumentMatchers.eq("ACTIVE"),
@@ -87,5 +88,16 @@ class ProjectListControllerTest {
                 .andExpect(status().isNoContent());
 
         verify(service).changeRole(projectId, "role-key-1", "developer", ProjectRole.OPERATOR, 2);
+    }
+
+    @Test
+    void transfersProjectOwnershipWithExpectedProjectVersion() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        mvc.perform(post("/api/v1/projects/{projectId}/owner/transfer", projectId)
+                .contentType(APPLICATION_JSON)
+                .content("{\"newOwner\":\"alice\",\"expectedProjectVersion\":7}"))
+                .andExpect(status().isNoContent());
+
+        verify(service).transferOwner(projectId, "alice", 7L);
     }
 }

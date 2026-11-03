@@ -15,14 +15,15 @@ public final class ResourceAuthorizationMatrix {
                     ResourceAction.PROJECT_MEMBER_ENABLE, ResourceAction.PROJECT_MEMBER_ROLE_CHANGE,
                     ResourceAction.TEAM_READ, ResourceAction.TEAM_WRITE, ResourceAction.TASK_READ,
                     ResourceAction.TASK_CREATE, ResourceAction.TASK_OPERATE, ResourceAction.TASK_APPROVE,
-                    ResourceAction.TASK_CANCEL, ResourceAction.WORKER_OPERATE),
+                    ResourceAction.TASK_CANCEL, ResourceAction.WORKER_OPERATE,
+                    ResourceAction.ARTIFACT_READ, ResourceAction.ARTIFACT_WRITE),
             ProjectRole.OPERATOR, EnumSet.of(ResourceAction.PROJECT_READ, ResourceAction.TEAM_READ,
                     ResourceAction.TASK_READ, ResourceAction.TASK_OPERATE, ResourceAction.TASK_CANCEL,
-                    ResourceAction.WORKER_OPERATE),
+                    ResourceAction.WORKER_OPERATE, ResourceAction.ARTIFACT_READ),
             ProjectRole.DEVELOPER, EnumSet.of(ResourceAction.PROJECT_READ, ResourceAction.TEAM_READ,
-                    ResourceAction.TASK_READ, ResourceAction.TASK_CREATE),
+                    ResourceAction.TASK_READ, ResourceAction.TASK_CREATE, ResourceAction.ARTIFACT_READ),
             ProjectRole.VIEWER, EnumSet.of(ResourceAction.PROJECT_READ, ResourceAction.TEAM_READ,
-                    ResourceAction.TASK_READ));
+                    ResourceAction.TASK_READ, ResourceAction.ARTIFACT_READ));
 
     private ResourceAuthorizationMatrix() { }
 

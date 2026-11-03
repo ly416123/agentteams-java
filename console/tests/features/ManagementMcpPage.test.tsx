@@ -1,9 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderAuthorized } from '../fixtures/authorizedRender';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ManagementMcpPage } from '../../src/features/management/ManagementMcpPage';
+import { ApiError } from '../../src/api/httpClient';
 
 const mocks = vi.hoisted(() => ({
   listMcpServers: vi.fn().mockResolvedValue([
@@ -44,22 +46,40 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/api/managementCatalog', () => ({ ...mocks }));
 
-function renderPage() {
-  return render(
+function renderPage(permissions?: readonly string[]) {
+  return renderAuthorized(
     <MemoryRouter>
       <QueryClientProvider client={new QueryClient()}>
         <ManagementMcpPage />
       </QueryClientProvider>
     </MemoryRouter>,
+    undefined,
+    permissions,
   );
 }
 
 describe('Management MCP page', () => {
+  it('hides MCP mutations from users with read permission only', async () => {
+    renderPage(['mcp:read']);
+    expect(await screen.findByRole('heading', { name: 'MCP 服务' })).toBeInTheDocument();
+    expect(await screen.findByText('docs')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '登记 MCP Server' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '连接测试' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '记录健康检查' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
+    expect(mocks.createMcpServer).not.toHaveBeenCalled();
+    expect(mocks.updateMcpServerHealth).not.toHaveBeenCalled();
+    expect(mocks.updateMcpServer).not.toHaveBeenCalled();
+    expect(mocks.deleteMcpServer).not.toHaveBeenCalled();
+  });
+
   it('registers a server without accepting a secret and records health', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { name: 'MCP Servers' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'MCP 服务' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('名称'), 'search');
-    await userEvent.type(screen.getByLabelText('Endpoint'), 'https://search.example.test');
+    await userEvent.click(screen.getByText('登记 MCP 服务'));
+    await userEvent.type(screen.getByLabelText('服务地址'), 'https://search.example.test');
     await userEvent.type(screen.getByLabelText('Credential Ref（可选）'), 'secret://mcp/search');
     await userEvent.click(screen.getByRole('button', { name: '登记 MCP Server' }));
     expect(mocks.createMcpServer).toHaveBeenCalledWith({
@@ -83,12 +103,12 @@ describe('Management MCP page', () => {
 
   it('edits a server and exposes real connection and discovery status', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { name: 'MCP Servers' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'MCP 服务' })).toBeInTheDocument();
     expect(await screen.findByText('docs')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '连接测试' }));
     expect(mocks.testMcpConnection).toHaveBeenCalledWith('mcp-1');
-    expect(await screen.findByText(/成功 · 12 ms/)).toBeInTheDocument();
+    expect(await screen.findByText(/成功 · 12 毫秒/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '查看 Discovery' }));
     expect(mocks.getMcpDiscovery).toHaveBeenCalledWith('mcp-1');
@@ -104,5 +124,21 @@ describe('Management MCP page', () => {
       'mcp-1',
       expect.objectContaining({ name: 'docs-v2', expectedVersion: 0 }),
     );
+  });
+
+  it('shows a generic safe message when the server denies MCP deletion', async () => {
+    mocks.deleteMcpServer.mockRejectedValueOnce(
+      new ApiError(403, { code: 'FORBIDDEN', message: 'MCP is owned by another tenant' }),
+    );
+    renderPage();
+    await screen.findByRole('heading', { name: 'MCP 服务' });
+    await userEvent.click(await screen.findByRole('button', { name: '删除' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认删除 MCP Server' }));
+
+    expect(await screen.findByText('当前账号没有权限执行此操作。')).toHaveAttribute(
+      'role',
+      'status',
+    );
+    expect(screen.queryByText(/owned by another tenant/)).not.toBeInTheDocument();
   });
 });

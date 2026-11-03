@@ -61,6 +61,109 @@ class ProjectMembershipLifecycleTest {
     }
 
     @Test
+    void viewerCannotReadProjectMemberIdentities() {
+        PrincipalContext.set(new Principal("viewer",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "viewer")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "viewer", ProjectRole.VIEWER, NOW)));
+
+        assertThatThrownBy(() -> service.listMembers(PROJECT_ID))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        verify(repository, org.mockito.Mockito.never()).findMemberships("tenant-a", PROJECT_ID);
+    }
+
+    @Test
+    void viewerCannotReadProjectRoleMatrix() {
+        PrincipalContext.set(new Principal("viewer",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "viewer")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "viewer", ProjectRole.VIEWER, NOW)));
+
+        assertThatThrownBy(() -> service.listRolePermissions(PROJECT_ID))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+    }
+
+    @Test
+    void ownerCanReadProjectMembersAndRoleMatrix() {
+        ProjectMembershipRecord owner = ProjectMembershipRecord.create(
+                "tenant-a", PROJECT_ID, "owner-a", ProjectRole.OWNER, NOW);
+        when(repository.findMemberships("tenant-a", PROJECT_ID)).thenReturn(List.of(owner));
+
+        assertThat(service.listMembers(PROJECT_ID)).containsExactly(owner);
+        assertThat(service.listRolePermissions(PROJECT_ID))
+                .extracting(ProjectAuthorizationService.RolePermissions::role)
+                .containsExactly(ProjectRole.values());
+
+        verify(repository).findMemberships("tenant-a", PROJECT_ID);
+    }
+
+    @Test
+    void adminCannotTransferOwnershipOrGrantAdministrativeRoles() {
+        PrincipalContext.set(new Principal("admin-a",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "admin-a")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "admin-a", ProjectRole.ADMIN, NOW)));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "developer")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "developer", ProjectRole.DEVELOPER, NOW)));
+
+        assertThatThrownBy(() -> service.transferOwner(PROJECT_ID, "developer", 7))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        assertThatThrownBy(() -> service.changeRole(PROJECT_ID, "developer", ProjectRole.ADMIN, 0))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+
+        verify(repository, org.mockito.Mockito.never()).transferOwnership(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(repository, org.mockito.Mockito.never()).updateMembershipRole(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void operatorCannotReadOrMutateProjectMembershipAdministration() {
+        PrincipalContext.set(new Principal("operator-a",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "operator-a")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "operator-a", ProjectRole.OPERATOR, NOW)));
+
+        assertThatThrownBy(() -> service.listMembers(PROJECT_ID))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        assertThatThrownBy(() -> service.listRolePermissions(PROJECT_ID))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        assertThatThrownBy(() -> service.addMember(PROJECT_ID, "operator-key", "new-member", ProjectRole.VIEWER))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        assertThatThrownBy(() -> service.disableMember(PROJECT_ID, "new-member"))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        assertThatThrownBy(() -> service.enableMember(PROJECT_ID, "new-member", 0))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        assertThatThrownBy(() -> service.changeRole(PROJECT_ID, "new-member", ProjectRole.VIEWER, 0))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+        assertThatThrownBy(() -> service.transferOwner(PROJECT_ID, "new-member", 7))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+
+        verify(repository, org.mockito.Mockito.never()).findMemberships("tenant-a", PROJECT_ID);
+        verify(repository, org.mockito.Mockito.never()).insertMembershipIdempotency(
+                org.mockito.ArgumentMatchers.any());
+        verify(repository, org.mockito.Mockito.never()).deactivateMembership(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+        verify(repository, org.mockito.Mockito.never()).updateMembershipStatus(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(repository, org.mockito.Mockito.never()).updateMembershipRole(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(repository, org.mockito.Mockito.never()).transferOwnership(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void ownerTransferRequiresExpectedProjectVersionAndChangesRolesAtomically() {
         ProjectMembershipRecord target = ProjectMembershipRecord.create(
                 "tenant-a", PROJECT_ID, "owner-b", ProjectRole.ADMIN, NOW);

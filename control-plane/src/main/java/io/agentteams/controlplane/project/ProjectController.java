@@ -138,10 +138,11 @@ public final class ProjectController {
 
     public record ChangeRoleRequest(ProjectRole role, long expectedMembershipVersion) { }
 
-    public record ProjectResponse(UUID id, String tenantId, String name, String status, String createdBy) {
+    public record ProjectResponse(UUID id, String tenantId, String name, String status, String createdBy,
+            long version) {
         static ProjectResponse from(ProjectRecord project) {
             return new ProjectResponse(project.id(), project.tenantId(), project.name(), project.status(),
-                    project.createdBy());
+                    project.createdBy(), project.version());
         }
     }
 

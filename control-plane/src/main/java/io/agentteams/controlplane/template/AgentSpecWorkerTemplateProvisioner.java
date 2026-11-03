@@ -57,11 +57,12 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             @Value("${agentteams.chatgpt.plan.session-secret-name:}") String chatGptSessionSecret,
             @Value("${agentteams.chatgpt.plan.proxy-url:}") String chatGptProxyUrl,
             @Value("${agentteams.chatgpt.plan.enabled:false}") boolean chatGptPlanEnabled,
+            @Value("${agentteams.chatgpt.plan.allow-all-workers:false}") boolean chatGptPlanAllowAllWorkers,
             ResourceScopeRepository resourceScopes) {
         this(specs, agents, provisioners.getIfAvailable(NoopWorkerCrdProvisioner::new), workerImage, workerReplicas,
                 gatewayHost, gatewayPort, configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson,
                 chatGptTenantId, chatGptProjectId, chatGptTeamId, chatGptSessionSecret,
-                chatGptProxyUrl, chatGptPlanEnabled, resourceScopes);
+                chatGptProxyUrl, chatGptPlanEnabled, resourceScopes, chatGptPlanAllowAllWorkers);
     }
 
     AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
@@ -129,6 +130,18 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
             String tlsSecret, String credentialSecretEnvsJson,
             String chatGptTenantId, String chatGptProjectId, String chatGptTeamId, String chatGptSessionSecret,
             String chatGptProxyUrl, boolean chatGptPlanEnabled, ResourceScopeRepository resourceScopes) {
+        this(specs, agents, workerCrdProvisioner, workerImage, workerReplicas, gatewayHost, gatewayPort,
+                configManifestBaseUrl, tlsSecret, credentialSecretEnvsJson, chatGptTenantId, chatGptProjectId,
+                chatGptTeamId, chatGptSessionSecret, chatGptProxyUrl, chatGptPlanEnabled, resourceScopes, false);
+    }
+
+    AgentSpecWorkerTemplateProvisioner(AgentSpecService specs, AgentService agents,
+            WorkerCrdProvisioner workerCrdProvisioner, String workerImage, int workerReplicas,
+            String gatewayHost, int gatewayPort, String configManifestBaseUrl,
+            String tlsSecret, String credentialSecretEnvsJson,
+            String chatGptTenantId, String chatGptProjectId, String chatGptTeamId, String chatGptSessionSecret,
+            String chatGptProxyUrl, boolean chatGptPlanEnabled, ResourceScopeRepository resourceScopes,
+            boolean chatGptPlanAllowAllWorkers) {
         this.specs = specs;
         this.agents = agents;
         this.workerCrdProvisioner = workerCrdProvisioner;
@@ -142,7 +155,8 @@ public final class AgentSpecWorkerTemplateProvisioner implements TemplateInstanc
         this.tlsSecret = tlsSecret == null ? "" : tlsSecret.trim();
         this.credentialSecretEnvs = parseCredentialSecretEnvs(credentialSecretEnvsJson);
         this.chatGptPlanAccessPolicy = new ChatGptPlanWorkerAccessPolicy(chatGptPlanEnabled,
-                chatGptTenantId, chatGptProjectId, chatGptTeamId, chatGptSessionSecret, chatGptProxyUrl);
+                chatGptTenantId, chatGptProjectId, chatGptTeamId, chatGptSessionSecret, chatGptProxyUrl,
+                chatGptPlanAllowAllWorkers);
         this.resourceScopes = resourceScopes;
     }
 

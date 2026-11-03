@@ -6,7 +6,7 @@ import io.agentteams.controlplane.security.ResourceScopeRepository;
 import java.net.URI;
 import java.util.UUID;
 
-/** Restricts the ChatGPT OAuth session Secret to one configured evaluation Team scope. */
+/** Controls which authenticated Worker provisioning requests may receive the ChatGPT OAuth session Secret. */
 final class ChatGptPlanWorkerAccessPolicy {
     private final UUID tenantId;
     private final UUID projectId;
@@ -14,6 +14,7 @@ final class ChatGptPlanWorkerAccessPolicy {
     private final String sessionSecret;
     private final String proxyUrl;
     private final boolean enabled;
+    private final boolean allowAllWorkers;
 
     ChatGptPlanWorkerAccessPolicy(boolean enabled, String tenantId, String projectId, String teamId,
             String sessionSecret) {
@@ -22,7 +23,13 @@ final class ChatGptPlanWorkerAccessPolicy {
 
     ChatGptPlanWorkerAccessPolicy(boolean enabled, String tenantId, String projectId, String teamId,
             String sessionSecret, String proxyUrl) {
+        this(enabled, tenantId, projectId, teamId, sessionSecret, proxyUrl, false);
+    }
+
+    ChatGptPlanWorkerAccessPolicy(boolean enabled, String tenantId, String projectId, String teamId,
+            String sessionSecret, String proxyUrl, boolean allowAllWorkers) {
         this.enabled = enabled;
+        this.allowAllWorkers = allowAllWorkers;
         this.tenantId = uuidOrNull(tenantId);
         this.projectId = uuidOrNull(projectId);
         this.teamId = uuidOrNull(teamId);
@@ -32,9 +39,10 @@ final class ChatGptPlanWorkerAccessPolicy {
 
     String secretFor(String provider, String tenant, String project, String team, WorkerType workerType) {
         if (provider == null || !"chatgpt-plan".equalsIgnoreCase(provider.trim())) return "";
-        if (!enabled || tenantId == null || projectId == null || teamId == null || sessionSecret.isBlank()
+        if (!enabled || sessionSecret.isBlank()
+                || (!allowAllWorkers && (tenantId == null || projectId == null || teamId == null
                 || !tenantId.equals(uuidOrNull(tenant)) || !projectId.equals(uuidOrNull(project))
-                || !teamId.equals(uuidOrNull(team))
+                || !teamId.equals(uuidOrNull(team))))
                 || (workerType != WorkerType.LEADER && workerType != WorkerType.EXECUTOR)) {
             throw new IllegalArgumentException(
                     "ChatGPT plan credentials are restricted to the evaluation Team scope");
@@ -50,10 +58,11 @@ final class ChatGptPlanWorkerAccessPolicy {
     String secretFor(String provider, Principal principal, WorkerType workerType,
             ResourceScopeRepository resourceScopes) {
         if (provider == null || !"chatgpt-plan".equalsIgnoreCase(provider.trim())) return "";
-        if (!enabled || tenantId == null || projectId == null || teamId == null || sessionSecret.isBlank()
+        if (!enabled || sessionSecret.isBlank()
                 || (workerType != WorkerType.LEADER && workerType != WorkerType.EXECUTOR)
                 || principal == null || resourceScopes == null
-                || !resourceScopes.matchesEvaluationTeamScope(principal, tenantId, projectId, teamId)) {
+                || (!allowAllWorkers && (tenantId == null || projectId == null || teamId == null
+                || !resourceScopes.matchesEvaluationTeamScope(principal, tenantId, projectId, teamId)))) {
             throw new IllegalArgumentException(
                     "ChatGPT plan credentials are restricted to the evaluation Team scope");
         }

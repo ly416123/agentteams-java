@@ -141,6 +141,26 @@ class ProjectInvitationServiceTest {
         verify(repository, never()).insertInvitation(any());
     }
 
+    @Test
+    void operatorCannotInviteAndAdminCannotGrantAnAdministrativeRole() {
+        PrincipalContext.set(new Principal("operator",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "operator")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "operator", ProjectRole.OPERATOR, NOW)));
+        assertThatThrownBy(() -> service.invite(PROJECT_ID, "operator-invite", "target", ProjectRole.VIEWER))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+
+        PrincipalContext.set(new Principal("admin",
+                new AuthorizationService.Scope("tenant-a", "project-a", "team-a"), Set.of()));
+        when(repository.findMembership("tenant-a", PROJECT_ID, "admin")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant-a", PROJECT_ID, "admin", ProjectRole.ADMIN, NOW)));
+        assertThatThrownBy(() -> service.invite(PROJECT_ID, "admin-invite", "target", ProjectRole.ADMIN))
+                .isInstanceOf(io.agentteams.controlplane.security.AuthorizationException.class);
+
+        verify(repository, never()).insertInvitationIdempotency(any());
+        verify(repository, never()).insertInvitation(any());
+    }
+
     private static String hash(String value) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")

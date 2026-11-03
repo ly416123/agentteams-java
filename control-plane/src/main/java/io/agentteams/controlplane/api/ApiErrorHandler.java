@@ -80,6 +80,12 @@ public final class ApiErrorHandler {
         return error(HttpStatus.CONFLICT, error.code(), "worker lifecycle transition is not allowed");
     }
 
+    @ExceptionHandler(io.agentteams.controlplane.organization.ManagementRoleConflictException.class)
+    ResponseEntity<ApiError> managementRoleConflict(
+            io.agentteams.controlplane.organization.ManagementRoleConflictException error) {
+        return error(HttpStatus.CONFLICT, error.code(), "management role transition is not allowed");
+    }
+
     @ExceptionHandler(ProjectMembershipConflictException.class)
     ResponseEntity<ApiError> projectMembershipConflict(ProjectMembershipConflictException error) {
         return error(HttpStatus.CONFLICT, error.code(), "project membership transition is not allowed");

@@ -18,6 +18,7 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
     private final IdentityTokenValidator validator;
     private final ProjectScopeResolver projectScopes;
     private final String taskMcpToken;
+    private final ProjectApiAuthorization projectAuthorization;
 
     public ApiAuthenticationFilter(IdentityTokenValidator validator) {
         this(validator, null, "");
@@ -34,9 +35,15 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
      */
     public ApiAuthenticationFilter(IdentityTokenValidator validator, ProjectScopeResolver projectScopes,
             String taskMcpToken) {
+        this(validator, projectScopes, taskMcpToken, null);
+    }
+
+    public ApiAuthenticationFilter(IdentityTokenValidator validator, ProjectScopeResolver projectScopes,
+            String taskMcpToken, ProjectApiAuthorization projectAuthorization) {
         this.validator = java.util.Objects.requireNonNull(validator, "validator");
         this.projectScopes = projectScopes;
         this.taskMcpToken = taskMcpToken == null ? "" : taskMcpToken.trim();
+        this.projectAuthorization = projectAuthorization;
     }
 
     @Override
@@ -84,14 +91,30 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
             forbidden(response);
             return;
         }
+        try {
+            if (projectAuthorization != null && isProjectResourcePath(request.getRequestURI())) {
+                principal = projectAuthorization.withEffectivePermissions(principal);
+            }
+        } catch (AuthorizationException denied) {
+            forbidden(response);
+            return;
+        }
         final Principal authenticatedPrincipal = principal;
         request.setAttribute(PRINCIPAL_ATTRIBUTE, authenticatedPrincipal);
         PrincipalContext.set(authenticatedPrincipal);
         try {
             try {
-                ApiAuthorizationPolicy.requiredPermission(request)
-                        .ifPresent(permission -> new AuthorizationService().require(
-                                authenticatedPrincipal.subject(), permission, authenticatedPrincipal.permissions()));
+                if (!ApiAuthorizationPolicy.hasExplicitAuthorizationBoundary(request)) {
+                    throw new AuthorizationException("API route has no authorization policy");
+                }
+                ApiAuthorizationPolicy.requiredPermission(request).ifPresent(permission -> {
+                    if (projectAuthorization != null && isProjectResourcePath(request.getRequestURI())) {
+                        projectAuthorization.require(permission, authenticatedPrincipal);
+                    } else {
+                        new AuthorizationService().require(authenticatedPrincipal.subject(), permission,
+                                authenticatedPrincipal.permissions());
+                    }
+                });
             } catch (AuthorizationException denied) {
                 forbidden(response);
                 return;
@@ -104,12 +127,26 @@ public final class ApiAuthenticationFilter extends OncePerRequestFilter {
 
     private static boolean requiresCanonicalProjectScope(String path) {
         if (path == null) return false;
-        if (path.startsWith("/api/v1/config/")) return true;
+        if (isProjectResourcePath(path)) return true;
         String[] segments = path.split("/", -1);
         return segments.length == 7
                 && "api".equals(segments[1]) && "v1".equals(segments[2])
                 && "agent-specs".equals(segments[3]) && isUuid(segments[4])
                 && "deployments".equals(segments[5]) && isUuid(segments[6]);
+    }
+
+    private static boolean isProjectResourcePath(String path) {
+        return path.startsWith("/api/v1/config/") || path.startsWith("/api/v1/management/tasks")
+                || path.startsWith("/api/v1/evaluations") || path.startsWith("/api/v1/commands")
+                || path.startsWith("/api/v1/scheduled-tasks") || path.startsWith("/api/v1/worker-templates")
+                || path.startsWith("/api/v1/artifact-quality")
+                || path.startsWith("/api/v1/teams") || path.startsWith("/api/v1/agents")
+                || path.startsWith("/api/v1/tasks") || path.startsWith("/api/v1/artifacts")
+                || path.startsWith("/api/v1/model-providers") || path.startsWith("/api/v1/model-prices")
+                || path.startsWith("/api/v1/agent-specs") || path.startsWith("/api/v1/skills")
+                || path.startsWith("/api/v1/mcp-servers") || path.startsWith("/api/v1/memory")
+                || path.startsWith("/api/v1/sandboxes") || path.startsWith("/api/v1/usage")
+                || path.startsWith("/api/v1/dashboard") || path.startsWith("/api/v1/audit-events");
     }
 
     private boolean isTaskMcpRequest(HttpServletRequest request, String header) {

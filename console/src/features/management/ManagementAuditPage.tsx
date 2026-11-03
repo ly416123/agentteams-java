@@ -4,6 +4,8 @@ import { listAuditEvents, type AuditFilters } from '../../api/audit';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { labelAction, labelType } from '../../i18n/labels';
+import { formatDateTime } from '../../utils/formatters';
+import { IdDisplay } from '../../components/IdDisplay';
 
 export function ManagementAuditPage({ projectId }: { projectId: string }) {
   const [draftFilters, setDraftFilters] = useState({
@@ -134,11 +136,11 @@ export function ManagementAuditPage({ projectId }: { projectId: string }) {
               <tbody>
                 {query.data.map((event) => (
                   <tr key={event.id}>
-                    <td>{new Date(event.occurredAt).toLocaleString('zh-CN')}</td>
+                    <td>{formatDateTime(event.occurredAt)}</td>
                     <td>{event.actor}</td>
                     <td>{labelAction(event.action)}</td>
                     <td>
-                      {labelType(event.resourceType)} / {event.resourceId}
+                      {labelType(event.resourceType)} / <IdDisplay value={event.resourceId} />
                     </td>
                     <td>
                       {Object.entries(event.attributes)
