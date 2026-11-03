@@ -9,7 +9,7 @@
 # IfNotPresent). Without these pins a Helm upgrade would roll workloads back
 # to the ghcr.io :latest tags, which do not exist on the L5 host.
 images:
-  controlPlane: agentteams-control-plane:l5-quality-ledger-20261014-r7-amd64
+  controlPlane: agentteams-control-plane:codex-rbac-tenant-key-20261102-amd64
   gateway: agentteams-agent-gateway:l5-agentscope-team-20260930-amd64
   operator: agentteams-operator:l5-chatgpt-plan-proxy2-20261011-amd64
 
@@ -23,7 +23,7 @@ resources:
 
 console:
   enabled: true
-  image: agentteams-console:l5-quality-ledger-20261013-r3-amd64
+  image: agentteams-console:l5-ui-20261022-r6-amd64
   service:
     type: NodePort
     nodePort: 30080
@@ -72,13 +72,14 @@ controlPlane:
     gatewayPort: 9090
     # Dynamic workers are provisioned with this image; keep it in sync with
     # the pinned control-plane/gateway tag above.
-    image: agentteams-agent-worker:l5-ai-news-evidence-20261012-amd64
+    image: agentteams-agent-worker:l5-gpt56-20261022-amd64
     # The Worker receives the MCP/gateway credentials and the configured model key.
     # Model credentials remain Secret-backed and are never placed in this file.
     credentialSecretEnvs: >-
-      {"DEEPSEEK_API_KEY":{"secret":"agentteams-manager","key":"deepseek-api-key"},"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"},"AGENTTEAMS_GATEWAY_AUTH_TOKEN":{"secret":"agentteams-gateway","key":"worker-token"}}
+      {"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"},"AGENTTEAMS_GATEWAY_AUTH_TOKEN":{"secret":"agentteams-gateway","key":"worker-token"}}
   chatgptPlan:
     enabled: true
+    allowAllWorkers: true
     # Read-only verified on L5 from tenant-a / project-a / team-a on 2026-10-11.
     allowedTenantId: 429327d7-0250-600e-b51c-31d853528b8f
     allowedProjectId: ef5916eb-14d9-4e75-9e9c-041c6b5fb447
@@ -92,8 +93,10 @@ controlPlane:
 manager:
   enabled: true
   replicas: 1
-  image: agentteams-manager:l5-agentscope-team-20260930-amd64
+  image: agentteams-manager:l5-gpt56-20261022-r7-amd64
   existingSecret: agentteams-manager
+  chatgptPlanSecretName: agentteams-chatgpt-oauth-session
+  proxyUrl: "http://192.168.125.227:7892"
   conversation:
     runtime: fake
   security:
