@@ -64,6 +64,22 @@ select 'gateway_ack_cursors|' || count(*)::text || '|' ||
        md5(coalesce(string_agg(agent_id || '|' || last_ack_sequence::text,
                              ',' order by agent_id), ''))
   from gateway_ack_cursors
+union all
+select 'artifacts|' || count(*)::text || '|' ||
+       md5(coalesce(string_agg(to_jsonb(t)::text, ',' order by t.id), ''))
+  from artifacts t
+union all
+select 'config_snapshots|' || count(*)::text || '|' ||
+       md5(coalesce(string_agg(to_jsonb(t)::text, ',' order by t.id), ''))
+  from config_snapshots t
+union all
+select 'config_files|' || count(*)::text || '|' ||
+       md5(coalesce(string_agg(to_jsonb(t)::text, ',' order by t.id), ''))
+  from config_files t
+union all
+select 'config_uploads|' || count(*)::text || '|' ||
+       md5(coalesce(string_agg(to_jsonb(t)::text, ',' order by t.id), ''))
+  from config_uploads t
 order by 1;
 """
 
@@ -170,6 +186,10 @@ def signatures(namespace: str, postgres_pod: str, database: str) -> dict[str, tu
         "gateway_commands",
         "gateway_command_deliveries",
         "gateway_ack_cursors",
+        "artifacts",
+        "config_snapshots",
+        "config_files",
+        "config_uploads",
     }
     if set(parsed) != expected:
         fail(f"unexpected PostgreSQL signature tables for {database}: {sorted(parsed)}")

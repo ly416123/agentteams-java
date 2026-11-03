@@ -156,8 +156,24 @@ class ConsoleDeploymentContractTest(unittest.TestCase):
         self.assertLess(helm_setup, contract_test)
         self.assertLess(helm_setup, render)
         self.assertIn("if [[ ! -d console ]]; then", workflow)
-        for command in ("npm --prefix console test", "npm --prefix console run build", "npm --prefix console run lint"):
+        for command in (
+            "npm --prefix console test",
+            "npm --prefix console run build",
+            "npm --prefix console run lint",
+            "npm --prefix console run format:check",
+            "npx --prefix console playwright install --with-deps chromium",
+            'npm --prefix console run e2e -- --grep "public console"',
+        ):
             self.assertIn(command, workflow)
+        console_ci = workflow[console_checks:]
+        self.assertLess(
+            console_ci.index("npm --prefix console ci"),
+            console_ci.index("npx --prefix console playwright install --with-deps chromium"),
+        )
+        self.assertLess(
+            console_ci.index("npx --prefix console playwright install --with-deps chromium"),
+            console_ci.index('npm --prefix console run e2e -- --grep "public console"'),
+        )
         self.assertIn("python3 -m unittest scripts/test_console_manifests_contract.py -v", workflow)
         self.assertIn("Render Console-enabled manifests", workflow)
         self.assertIn("python3 scripts/validate-console-manifests.py", workflow)

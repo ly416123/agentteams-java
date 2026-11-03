@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -64,9 +65,26 @@ TARGETS = {
     "sandbox": "sandboxes",
 }
 
+COLLECTION_FIELDS = {
+    "tasks": {"id"},
+    "attempts": {"id", *REFERENCE_FIELDS["task"]},
+    "artifacts": {"id", *REFERENCE_FIELDS["attempt"]},
+    "config_bindings": {"id", *REFERENCE_FIELDS["config_snapshot"]},
+    "config_snapshots": {"id"},
+    "quota_reservations": {"id", *REFERENCE_FIELDS["task"]},
+    "sandboxes": {"id", *REFERENCE_FIELDS["task"], *REFERENCE_FIELDS["attempt"]},
+    "outbox": {
+        "id", "aggregate_id", "aggregateId", "aggregate_type", "aggregateType",
+        *(field for fields in REFERENCE_FIELDS.values() for field in fields),
+    },
+}
+
 
 class ConsistencyError(ValueError):
     """Internal sentinel; its details are never shown to the caller."""
+
+
+SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 def fail() -> int:
@@ -86,7 +104,7 @@ def collection(metadata: Mapping[str, object], name: str) -> list[Mapping[str, o
         raise ConsistencyError
     records: list[Mapping[str, object]] = []
     for record in value:
-        if not isinstance(record, Mapping):
+        if not isinstance(record, Mapping) or not set(record.keys()).issubset(COLLECTION_FIELDS[name]):
             raise ConsistencyError
         records.append(record)
     return records
@@ -106,7 +124,12 @@ def reference(record: Mapping[str, object], kind: str) -> str | None:
     present = [field for field in REFERENCE_FIELDS[kind] if field in record]
     if not present:
         return None
-    values = [identifier(record[field]) for field in present]
+    raw_values = [record[field] for field in present]
+    if all(value is None for value in raw_values):
+        return None
+    if any(value is None for value in raw_values):
+        raise ConsistencyError
+    values = [identifier(value) for value in raw_values]
     if len(set(values)) != 1:
         raise ConsistencyError
     return values[0]
@@ -120,6 +143,8 @@ def require_reference(record: Mapping[str, object], kind: str) -> str:
 
 
 def check(metadata: Mapping[str, object]) -> None:
+    if set(metadata.keys()) != {*COLLECTIONS, "object_references"}:
+        raise ConsistencyError
     records = {name: collection(metadata, name) for name in COLLECTIONS}
     ids = {name: index(items) for name, items in records.items()}
 
@@ -128,7 +153,8 @@ def check(metadata: Mapping[str, object]) -> None:
             raise ConsistencyError
 
     for record in records["artifacts"]:
-        if require_reference(record, "attempt") not in ids["attempts"]:
+        attempt_id = reference(record, "attempt")
+        if attempt_id is not None and attempt_id not in ids["attempts"]:
             raise ConsistencyError
 
     for record in records["config_bindings"]:
@@ -136,7 +162,8 @@ def check(metadata: Mapping[str, object]) -> None:
             raise ConsistencyError
 
     for record in records["quota_reservations"]:
-        if require_reference(record, "task") not in ids["tasks"]:
+        task_id = reference(record, "task")
+        if task_id is not None and task_id not in ids["tasks"]:
             raise ConsistencyError
 
     for record in records["sandboxes"]:
@@ -167,14 +194,74 @@ def check(metadata: Mapping[str, object]) -> None:
                 raise ConsistencyError
 
 
+def object_records(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, list):
+        raise ConsistencyError
+    records: list[Mapping[str, object]] = []
+    for record in value:
+        if not isinstance(record, Mapping):
+            raise ConsistencyError
+        records.append(record)
+    return records
+
+
+def object_path(value: object) -> str:
+    if (not isinstance(value, str) or not value or value.startswith("/") or "\\" in value
+            or any(ord(char) < 0x20 or ord(char) == 0x7f for char in value)):
+        raise ConsistencyError
+    if any(part in {"", ".", ".."} for part in value.split("/")):
+        raise ConsistencyError
+    return value
+
+
+def object_metadata(record: Mapping[str, object]) -> tuple[str, int, str]:
+    if set(record.keys()) != {"path", "size_bytes", "sha256"}:
+        raise ConsistencyError
+    path = object_path(record.get("path"))
+    size = record.get("size_bytes")
+    digest = record.get("sha256")
+    if type(size) is not int or size < 0:
+        raise ConsistencyError
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        raise ConsistencyError
+    return path, size, digest.lower()
+
+
+def check_objects(metadata: Mapping[str, object], inventory: Mapping[str, object]) -> None:
+    if set(inventory.keys()) != {"objects"}:
+        raise ConsistencyError
+    raw_references = metadata.get("object_references")
+    raw_objects = inventory.get("objects")
+    references: dict[str, tuple[int, str]] = {}
+    objects: dict[str, tuple[int, str]] = {}
+
+    for record in object_records(raw_references):
+        path, size, digest = object_metadata(record)
+        value = (size, digest)
+        if path in references and references[path] != value:
+            raise ConsistencyError
+        references[path] = value
+
+    for record in object_records(raw_objects):
+        path, size, digest = object_metadata(record)
+        if path in objects:
+            raise ConsistencyError
+        objects[path] = (size, digest)
+
+    for path, value in references.items():
+        if objects.get(path) != value:
+            raise ConsistencyError
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--input")
+    parser.add_argument("--object-inventory")
     try:
         args, unknown = parser.parse_known_args(argv)
     except SystemExit:
         return fail()
-    if unknown or not args.input:
+    if unknown or not args.input or not args.object_inventory:
         return fail()
     try:
         path = Path(args.input)
@@ -184,8 +271,16 @@ def main(argv: list[str] | None = None) -> int:
             metadata = json.load(stream)
         if not isinstance(metadata, Mapping):
             raise ConsistencyError
+        inventory_path = Path(args.object_inventory)
+        if not inventory_path.is_file():
+            raise ConsistencyError
+        with inventory_path.open("r", encoding="utf-8") as stream:
+            inventory = json.load(stream)
+        if not isinstance(inventory, Mapping):
+            raise ConsistencyError
         check(metadata)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError, ConsistencyError):
+        check_objects(metadata, inventory)
+    except (OSError, ValueError, TypeError, RuntimeError, ConsistencyError):
         return fail()
     print("RECOVERY_CONSISTENCY_OK")
     return 0

@@ -78,6 +78,7 @@ controlPlane:
     # Disabled by default. When enabled, only this exact UUID scope can provision workers
     # with the OAuth access-token projection.
     enabled: false
+    allowAllWorkers: false
     allowedTenantId: ""
     allowedProjectId: ""
     allowedTeamId: ""
@@ -239,7 +240,9 @@ manager:
   enabled: false
   image: ghcr.io/ly416123/agentteams-manager:latest
   existingSecret: agentteams-database
-  model: deepseek-v4-flash
+  model: gpt-5.6-luna
+  chatgptPlanSecretName: ""
+  proxyUrl: ""
   conversation:
     runtime: fake
   env:

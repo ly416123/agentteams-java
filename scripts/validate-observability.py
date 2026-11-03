@@ -68,6 +68,11 @@ def main():
         ("ServiceAccount", "prometheus"),
         ("Role", "prometheus-discovery"),
         ("RoleBinding", "prometheus-discovery"),
+        ("ServiceAccount", "kube-state-metrics"),
+        ("Role", "kube-state-metrics"),
+        ("RoleBinding", "kube-state-metrics"),
+        ("Deployment", "kube-state-metrics"),
+        ("Service", "kube-state-metrics"),
         ("PersistentVolumeClaim", "prometheus-data"),
         ("Deployment", "grafana"),
         ("Service", "grafana"),
@@ -81,12 +86,34 @@ def main():
         if key not in by_name:
             fail(f"missing {key[0]}/{key[1]}")
     config = by_name[("ConfigMap", "prometheus-config")]["data"].get("prometheus.yml", "")
+    prometheus_config = yaml.safe_load(config)
     alerts = by_name[("ConfigMap", "prometheus-config")]["data"].get("agentteams-alerts.yml", "")
     for job, label in (("control-plane", "agentteams-control-plane"), ("gateway", "agentteams-gateway")):
         if f"job_name: {job}" not in config or "kubernetes_sd_configs:" not in config:
             fail(f"Prometheus config missing Kubernetes discovery for {job}")
         if label not in config:
             fail(f"Prometheus config missing pod label {label}")
+        scrape_job = next((item for item in prometheus_config["scrape_configs"]
+                           if item.get("job_name") == job), {})
+        if not any(item.get("source_labels") == ["__meta_kubernetes_pod_phase"]
+                   and item.get("regex") == "Running" and item.get("action") == "keep"
+                   for item in scrape_job.get("relabel_configs", [])):
+            fail(f"Prometheus {job} scrape must keep only Running pods")
+    ksm = by_name[("Deployment", "kube-state-metrics")]["spec"]["template"]["spec"]
+    ksm_container = ksm.get("containers", [{}])[0]
+    if ksm.get("serviceAccountName") != "kube-state-metrics" or \
+            "--resources=deployments" not in ksm_container.get("args", []) or \
+            "--namespaces=agentteams" not in ksm_container.get("args", []):
+        fail("kube-state-metrics must be scoped to agentteams Deployments")
+    ksm_role = by_name[("Role", "kube-state-metrics")].get("rules", [])
+    if ksm_role != [{"apiGroups": ["apps"], "resources": ["deployments"],
+                     "verbs": ["get", "list", "watch"]}]:
+        fail("kube-state-metrics RBAC must be read-only for Deployments")
+    ksm_job = next((item for item in prometheus_config["scrape_configs"]
+                    if item.get("job_name") == "kube-state-metrics"), {})
+    if "kube-state-metrics.agentteams.svc:8080" not in str(ksm_job) or \
+            "kube_deployment_status_replicas_available" not in str(ksm_job):
+        fail("Prometheus must scrape kube-state-metrics deployment availability")
     if "/actuator/prometheus" not in config:
         fail("Prometheus config must scrape /actuator/prometheus")
     for required in (

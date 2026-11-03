@@ -2,6 +2,7 @@
 {{- $security := $manager.security | default dict -}}
 {{- $quota := $manager.quota | default dict -}}
 {{- if $manager.enabled }}
+{{- $chatGptSecret := required "manager.chatgptPlanSecretName or controlPlane.chatgptPlan.sessionSecretName is required when manager is enabled" (default .Values.controlPlane.chatgptPlan.sessionSecretName $manager.chatgptPlanSecretName) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,6 +22,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: manager
@@ -41,13 +44,12 @@ spec:
                 secretKeyRef:
                   name: {{ required "manager.existingSecret is required when manager is enabled" $manager.existingSecret }}
                   key: password
-            - name: DEEPSEEK_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $manager.existingSecret }}
-                  key: deepseek-api-key
-            - name: DEEPSEEK_MODEL
-              value: {{ default "deepseek-v4-flash" $manager.model | quote }}
+            - name: AGENTTEAMS_MODEL
+              value: {{ default "gpt-5.6-luna" $manager.model | quote }}
+            - name: AGENTTEAMS_CHATGPT_ACCESS_TOKEN_FILE
+              value: /var/run/agentteams/chatgpt/token
+            - name: AGENTTEAMS_CHATGPT_PROXY_URL
+              value: {{ default .Values.controlPlane.chatgptPlan.proxyUrl $manager.proxyUrl | quote }}
             - name: AGENTTEAMS_CONTROL_PLANE_URL
               value: {{ default (printf "http://%s-control-plane:%d" (include "agentteams-java.fullname" .) (int .Values.controlPlane.port)) $manager.controlPlaneUrl | quote }}
             - name: AGENTTEAMS_MANAGER_ID
@@ -119,7 +121,17 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: chatgpt-plan-access-token
+              mountPath: /var/run/agentteams/chatgpt
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: chatgpt-plan-access-token
+          secret:
+            secretName: {{ $chatGptSecret }}
+            defaultMode: 0440
+            items:
+              - key: access-token
+                path: token
 {{- end }}

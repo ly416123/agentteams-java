@@ -54,7 +54,7 @@ def create_team(base_url: str, agent_id: str) -> str:
          "displayName": "Kind Worker quota admission",
          "maxConcurrentTasks": 1,
          "requireHumanApproval": False,
-         "allowedRuntimes": ["agentscope"],
+         "allowedRuntimes": ["AGENTSCOPE"],
          "requiredCapabilities": ["agentscope"]},
         f"kind-worker-quota-team-{uuid.uuid4()}"), 201, "create quota admission team")
     team_id = payload.get("id")
@@ -62,7 +62,7 @@ def create_team(base_url: str, agent_id: str) -> str:
         raise KindTestError(f"create team response has no id: {payload!r}")
     team_id = str(team_id)
     require_status(api_request(f"{base_url}/api/v1/teams/{team_id}/members", "POST",
-                               {"agentId": agent_id, "role": "WORKER"},
+                               {"agentId": agent_id, "role": "LEADER"},
                                f"kind-worker-quota-member-{uuid.uuid4()}"), 200,
                    f"add Worker {agent_id} to team {team_id}")
     return team_id

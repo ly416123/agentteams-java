@@ -14,6 +14,9 @@ concurrency:
   group: agentteams-java-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   eval-contract:
     # This job is intentionally offline. It validates the versioned cases and
@@ -26,7 +29,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install evaluation dependencies
-        run: python -m pip install --disable-pip-version-check pyyaml pypdf==6.19.0 pymupdf==1.27.2.3
+        run: python -m pip install --disable-pip-version-check --require-hashes -r requirements/eval-ci-py312.lock
       - name: Validate evaluation runner and cases
         run: |
           set -euo pipefail
@@ -114,13 +117,18 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: console/package-lock.json
+      - name: Set up Python for verification contracts
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python contract dependencies
+        run: python -m pip install --disable-pip-version-check --require-hashes -r requirements/eval-ci-py312.lock
       - name: Validate architecture map
         run: python scripts/validate-architecture-map.py
       - name: Validate API contract
         run: python scripts/validate-api-contract.py
       - name: Validate production values contract
         run: |
-          python -m pip install --disable-pip-version-check pyyaml
           python scripts/validate-production-values.py
           python scripts/validate-production-network.py
           python scripts/validate-matrix-registration.py
@@ -128,7 +136,8 @@ jobs:
         run: bash scripts/validate-backup-scripts.sh
       - name: Test Kind recovery scripts
         run: |
-          python -m pip install --disable-pip-version-check pytest alibabacloud-agentcore20260804 pypdf==6.19.0 -r eval/requirements-deepeval.txt
+          python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements/pip-installer-py312.lock
+          python -m pip install --disable-pip-version-check --require-hashes --build-constraint requirements/release-ci-py312.lock -r requirements/release-ci-py312.lock
           python -m pytest scripts -q
       - name: Validate production endpoint preflight script
         run: bash -n scripts/validate-production-endpoints.sh
@@ -163,9 +172,12 @@ jobs:
             exit 1
           fi
           npm --prefix console ci
+          npx --prefix console playwright install --with-deps chromium
           npm --prefix console test
           npm --prefix console run build
           npm --prefix console run lint
+          npm --prefix console run format:check
+          npm --prefix console run e2e -- --grep "public console"
       - name: Validate Console deployment manifests
         run: python3 scripts/validate-console-manifests.py
       - name: Validate public OpenAPI and SDKs
@@ -239,7 +251,7 @@ jobs:
           echo "GRPCURL_BIN=$HOME/.local/bin/grpcurl" >> "$GITHUB_ENV"
           "$HOME/.local/bin/grpcurl" -help >/dev/null
       - name: Install manifest validation dependencies
-        run: python -m pip install --disable-pip-version-check pyyaml
+        run: python -m pip install --disable-pip-version-check --require-hashes -r requirements/eval-ci-py312.lock
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
         with:
@@ -335,6 +347,10 @@ jobs:
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-control-plane --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-gateway --timeout=300s
           kubectl -n agentteams rollout status deployment/agentteams-agentteams-java-operator --timeout=300s
+      - name: Run Kind PostgreSQL backup and restore validation
+        run: python scripts/run-kind-postgres-restore.py
+      - name: Run Kind MinIO backup and restore validation
+        run: python scripts/run-kind-minio-restore.py
       - name: Run Kind External Secrets convergence acceptance
         run: python scripts/run-kind-external-secrets.py --namespace agentteams --run-id "$GITHUB_RUN_ID"
       - name: Create real AgentScope worker
@@ -484,10 +500,6 @@ jobs:
         run: python scripts/run-kind-gateway-replay.py --agent-id "$AGENTTEAMS_AGENT_ID"
       - name: Run Kind in-flight Worker restart recovery test
         run: python scripts/run-kind-worker-restart.py --agent-id "$AGENTTEAMS_AGENT_ID"
-      - name: Run Kind PostgreSQL backup and restore validation
-        run: python scripts/run-kind-postgres-restore.py
-      - name: Run Kind MinIO backup and restore validation
-        run: python scripts/run-kind-minio-restore.py
       - name: Run Kind object reference integrity validation
         run: python scripts/run-kind-object-reference-integrity.py
       - name: Verify multi-replica Prometheus scraping

@@ -74,17 +74,40 @@ context until the Pod is restarted.
 The `agentteams-java-promote` workflow consumes an existing signed release and
 requires the production GitHub Environment to provide `KUBECONFIG_B64` and
 `PROMETHEUS_URL` secrets. It records the currently deployed Helm revision,
-applies only the manifest's image digests, waits for the Control Plane,
-Gateway, and Operator rollouts, and evaluates
-[`canary-policy.json`](promotion/canary-policy.json). Missing Prometheus
-evidence, a readiness shortfall, an Outbox backlog, or an error-rate/latency
-budget breach fails closed and automatically rolls back to the recorded Helm
-revision. A first production bootstrap is intentionally excluded and must be
-performed as a separately approved platform operation.
+checks that current health telemetry is complete and within policy before any
+Helm change, then applies only the manifest's image digests, including the
+Worker image used for new Worker CRs. It waits for the Control Plane, Gateway,
+and Operator rollouts, then evaluates
+[`canary-policy.json`](promotion/canary-policy.json) again. Missing or unhealthy
+baseline telemetry stops promotion before upgrade. A post-upgrade readiness
+shortfall, missing evidence, an Outbox backlog, or an error-rate/latency budget
+breach fails closed and automatically rolls back to the recorded Helm revision.
+A first production bootstrap is intentionally excluded and must be performed
+as a separately approved platform operation.
+
+Promotion accepts only stable `vX.Y.Z` release tags and verifies the Cosign
+certificate identity exactly against this repository's `release.yml` workflow
+for the requested tag; signatures from another repository or tag do not pass.
+The workflow can run only from `main`, checks that the tag commit is on
+`origin/main`, and deploys the verified chart archive from the signed release
+instead of executing deployment scripts or a chart checked out from that tag.
+
+This Helm promotion updates the Worker image used when the Control Plane
+creates new Worker CRs. It does not rewrite existing Worker CRs; those require
+the task-aware, drain/rollout/rollback operation and must be included in a
+separate controlled Worker rollout before claiming all running Workers use the
+promoted release.
 
 The policy is an environment-owned contract: its PromQL must select only the
 promoted production workloads, and the platform must expose a unique scalar
 for every query. The workflow does not print metric payloads or credentials.
+Control Plane and Gateway enable `http.server.requests` histogram buckets for
+the P95 PromQL through Spring Boot's
+`management.metrics.distribution.percentiles-histogram` setting ([metrics reference](https://docs.spring.io/spring-boot/reference/actuator/metrics.html)).
+An already-running release without those buckets cannot satisfy the new
+pre-upgrade baseline gate. Roll out the histogram instrumentation through a
+separately approved observability bootstrap, then wait for a complete metrics
+window; do not bypass the gate to make a regular promotion pass.
 This rolling verification gate is not evidence of a completed L5/L6 traffic
 split; real canary routing and the production recovery drill still require the
 controlled environment.

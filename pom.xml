@@ -34,7 +34,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-        <spring-boot.version>3.4.5</spring-boot.version>
+        <spring-boot.version>3.5.16</spring-boot.version>
         <grpc.version>1.72.0</grpc.version>
         <protobuf.version>4.30.2</protobuf.version>
         <protoc.version>3.25.5</protoc.version>

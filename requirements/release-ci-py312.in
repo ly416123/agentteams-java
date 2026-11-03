@@ -1,0 +1,8 @@
+# Root script-test dependencies used by the release verification gate.
+-r ../eval/requirements-deepeval.txt
+-r ../deploy/chatgpt-plan/requirements.txt
+pytest==9.1.1
+alibabacloud-agentcore20260804==2.3.1
+pypdf==6.19.0
+pyyaml==6.0.3
+setuptools==84.0.0

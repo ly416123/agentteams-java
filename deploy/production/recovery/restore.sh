@@ -5,6 +5,7 @@
 # discarded so credentials supplied by the platform cannot enter the report.
 
 set -Eeuo pipefail
+umask 077
 
 fail() {
   if [[ "${recovery_started:-false}" == true && -n "${RECOVERY_CLOSE_ENTRYPOINT_COMMAND:-}" ]]; then
@@ -22,6 +23,7 @@ restore_point=''
 endpoint=''
 manifest_digest=''
 metadata_file=''
+object_inventory_file=''
 execute=false
 approval_id=''
 
@@ -57,6 +59,11 @@ while (($# > 0)); do
       metadata_file="$2"
       shift 2
       ;;
+    --object-inventory)
+      (($# >= 2)) || fail
+      object_inventory_file="$2"
+      shift 2
+      ;;
     --approval-id)
       (($# >= 2)) || fail
       approval_id="$2"
@@ -73,8 +80,19 @@ while (($# > 0)); do
 done
 
 [[ "$environment" == production ]] || fail
-[[ -n "$metadata_file" && -f "$metadata_file" ]] || fail
+[[ -n "$metadata_file" && -n "$object_inventory_file" && "$metadata_file" != "$object_inventory_file" ]] || fail
 [[ "$approval_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail
+
+if [[ "$execute" == true ]]; then
+  for output_file in "$metadata_file" "$object_inventory_file"; do
+    [[ ! -e "$output_file" && ! -L "$output_file" ]] || fail
+    output_dir="$(dirname -- "$output_file")"
+    [[ -d "$output_dir" && -w "$output_dir" ]] || fail
+  done
+else
+  [[ -f "$metadata_file" && ! -L "$metadata_file" ]] || fail
+  [[ -f "$object_inventory_file" && ! -L "$object_inventory_file" ]] || fail
+fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 "$script_dir/preflight.sh" \
@@ -83,7 +101,10 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
   --restore-point "$restore_point" \
   --endpoint "$endpoint" \
   --manifest-digest "$manifest_digest" >/dev/null
-python3 "$script_dir/consistency-check.py" --input "$metadata_file" >/dev/null
+if [[ "$execute" != true ]]; then
+  python3 "$script_dir/consistency-check.py" --input "$metadata_file" \
+    --object-inventory "$object_inventory_file" >/dev/null
+fi
 
 if [[ "$execute" != true ]]; then
   printf '%s\n' 'RECOVERY_PLAN_OK'
@@ -131,13 +152,34 @@ run_hook() {
   local phase="$1"
   local variable="$(hook_variable "$phase")"
   local hook="${!variable}"
-  RECOVERY_PHASE="$phase" \
-    RECOVERY_APPROVAL_ID="$approval_id" \
-    RECOVERY_BACKUP_ID="$backup_id" \
-    RECOVERY_RESTORE_POINT="$restore_point" \
-    RECOVERY_ENDPOINT="$endpoint" \
-    RECOVERY_MANIFEST_DIGEST="$manifest_digest" \
-    "$hook" >/dev/null 2>&1
+  if [[ "$phase" == consistency-check ]]; then
+    RECOVERY_METADATA_FILE="$metadata_file" \
+      RECOVERY_OBJECT_INVENTORY_FILE="$object_inventory_file" \
+      RECOVERY_PHASE="$phase" \
+      RECOVERY_APPROVAL_ID="$approval_id" \
+      RECOVERY_BACKUP_ID="$backup_id" \
+      RECOVERY_RESTORE_POINT="$restore_point" \
+      RECOVERY_ENDPOINT="$endpoint" \
+      RECOVERY_MANIFEST_DIGEST="$manifest_digest" \
+      "$hook" >/dev/null 2>&1
+    [[ -f "$metadata_file" && ! -L "$metadata_file" ]] || fail
+    [[ -f "$object_inventory_file" && ! -L "$object_inventory_file" ]] || fail
+    metadata_chmod_path="$metadata_file"
+    inventory_chmod_path="$object_inventory_file"
+    [[ "$metadata_chmod_path" != -* ]] || metadata_chmod_path="./$metadata_chmod_path"
+    [[ "$inventory_chmod_path" != -* ]] || inventory_chmod_path="./$inventory_chmod_path"
+    chmod 600 "$metadata_chmod_path" "$inventory_chmod_path"
+    python3 "$script_dir/consistency-check.py" --input "$metadata_file" \
+      --object-inventory "$object_inventory_file" >/dev/null
+  else
+    RECOVERY_PHASE="$phase" \
+      RECOVERY_APPROVAL_ID="$approval_id" \
+      RECOVERY_BACKUP_ID="$backup_id" \
+      RECOVERY_RESTORE_POINT="$restore_point" \
+      RECOVERY_ENDPOINT="$endpoint" \
+      RECOVERY_MANIFEST_DIGEST="$manifest_digest" \
+      "$hook" >/dev/null 2>&1
+  fi
 }
 
 recovery_started=true

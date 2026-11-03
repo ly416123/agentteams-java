@@ -202,6 +202,8 @@ spec:
               value: {{ .Values.controlPlane.chatgptPlan.allowedTenantId | quote }}
             - name: AGENTTEAMS_CHATGPT_PLAN_ENABLED
               value: {{ .Values.controlPlane.chatgptPlan.enabled | quote }}
+            - name: AGENTTEAMS_CHATGPT_PLAN_ALLOW_ALL_WORKERS
+              value: {{ .Values.controlPlane.chatgptPlan.allowAllWorkers | quote }}
             - name: AGENTTEAMS_CHATGPT_PLAN_ALLOWED_PROJECT_ID
               value: {{ .Values.controlPlane.chatgptPlan.allowedProjectId | quote }}
             - name: AGENTTEAMS_CHATGPT_PLAN_ALLOWED_TEAM_ID

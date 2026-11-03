@@ -18,6 +18,12 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PostgresRestoreContractTest(unittest.TestCase):
+    def test_signatures_cover_object_reference_tables(self):
+        signature = MODULE.POSTGRES_TABLE_SIGNATURES
+        for table in ("artifacts", "config_snapshots", "config_files", "config_uploads"):
+            with self.subTest(table=table):
+                self.assertIn(f"select '{table}|", signature)
+
     def test_outbox_signature_excludes_relay_mutable_fields(self):
         signature = MODULE.POSTGRES_TABLE_SIGNATURES
         outbox = signature.split("select 'outbox_events|", 1)[1].split("union all", 1)[0]
