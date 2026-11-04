@@ -6,10 +6,12 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jose.jwk.source.JWKSource;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.proc.SecurityContext;
 import java.time.Instant;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.List;
 import java.util.Optional;
@@ -93,10 +95,12 @@ class OidcIdentityTokenValidatorTest {
     void refreshesJwksWhenTheIdentityProviderPublishesANewKey() throws Exception {
         RSAKey rotatedKey = new RSAKeyGenerator(2048).keyID("rotated-key").generate();
         AtomicReference<RSAKey> currentKey = new AtomicReference<>(signingKey);
+        AtomicInteger jwksRequests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/jwks", exchange -> {
-            byte[] body = new JWKSet(currentKey.get().toPublicJWK()).toJSONObject().toString()
-                    .getBytes(StandardCharsets.UTF_8);
+            jwksRequests.incrementAndGet();
+            byte[] body = new ObjectMapper().writeValueAsBytes(
+                    new JWKSet(currentKey.get().toPublicJWK()).toJSONObject());
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             try (var output = exchange.getResponseBody()) {
@@ -118,6 +122,7 @@ class OidcIdentityTokenValidatorTest {
             assertThat(validator.validate(token(rotatedKey, "alice", issuer, AUDIENCE,
                     "tenant_id", "tenant-a", "project_id", "project-a", "team_id", "team-a",
                     "permissions", "task:read"))).isPresent();
+            assertThat(jwksRequests).hasValue(2);
         } finally {
             server.stop(0);
         }
