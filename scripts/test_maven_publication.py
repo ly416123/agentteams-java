@@ -52,6 +52,8 @@ class MavenPublicationContractTest(unittest.TestCase):
         self.assertLess(script.index("check-maven-publication.py"),
                         script.index("deploy"))
         self.assertIn("maven.pkg.github.com/ly416123/agentteams-java", script)
+        self.assertIn("api.github.com/repos/$GITHUB_REPOSITORY", script)
+        self.assertIn('Authorization: Bearer $GITHUB_TOKEN', script)
         self.assertIn("$maven_repository/io/agentteams/$package/$release_version", script)
         self.assertIn("agentteams-runtime:jar", script)
         self.assertIn("artifact_file=", script)
@@ -62,6 +64,7 @@ class MavenPublicationContractTest(unittest.TestCase):
         self.assertNotIn("200|302)", script)
         self.assertIn("agentteams-java", script)
         self.assertIn("GITHUB_TOKEN", publish["env"])
+        self.assertEqual(workflow["permissions"]["packages"], "write")
 
 
 if __name__ == "__main__":

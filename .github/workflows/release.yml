@@ -122,6 +122,13 @@ jobs:
           )
           published_artifacts=()
           maven_repository="https://maven.pkg.github.com/ly416123/agentteams-java"
+          # Validate the workflow token and repository access before treating
+          # Maven 404 responses as absent artifacts. The package must grant
+          # this source repository write access (or inherit repository access).
+          curl --fail --silent --show-error --netrc-file /dev/null \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY" >/dev/null
           for artifact in "${maven_artifacts[@]}"; do
             package="${artifact%%:*}"
             extension="${artifact##*:}"
