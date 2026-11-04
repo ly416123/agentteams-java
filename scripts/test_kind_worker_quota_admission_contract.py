@@ -25,8 +25,10 @@ class KindWorkerQuotaAdmissionContractTest(unittest.TestCase):
         self.assertIn('AGENTTEAMS_SCOPE_PROJECT: "project-a"', run)
         self.assertIn("secretEnv:", run)
         self.assertIn("DEEPSEEK_API_KEY", run)
-        self.assertIn("secret: agentteams-manager", run)
+        self.assertIn("create secret generic kind-agentscope-model", run)
+        self.assertIn("secret: kind-agentscope-model", run)
         self.assertIn("key: deepseek-api-key", run)
+        self.assertNotIn("secret: agentteams-manager", run)
 
     def test_recovery_job_runs_real_worker_quota_admission(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))

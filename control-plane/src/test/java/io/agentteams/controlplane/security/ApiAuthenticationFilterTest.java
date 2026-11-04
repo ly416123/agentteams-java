@@ -284,6 +284,34 @@ class ApiAuthenticationFilterTest {
     }
 
     @Test
+    void canonicalizesTokenProjectNameForTaskCreationAndUsesPersistedRole() throws Exception {
+        UUID id = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        ProjectRepository projects = mock(ProjectRepository.class);
+        ProjectRecord project = ProjectRecord.create(id, "tenant", "project-a", "alice", Instant.EPOCH);
+        when(projects.findProjectByName("tenant", "project-a")).thenReturn(Optional.of(project));
+        when(projects.findProject("tenant", id)).thenReturn(Optional.of(project));
+        when(projects.findMembership("tenant", id, "alice")).thenReturn(Optional.of(
+                ProjectMembershipRecord.create("tenant", id, "alice", ProjectRole.DEVELOPER, Instant.EPOCH)));
+        IdentityTokenValidator validator = token -> Optional.of(new IdentityTokenValidator.IdentityPrincipal(
+                "alice", new AuthorizationService.Scope("tenant", "project-a", "team-a"),
+                Set.of("task:create")));
+        ApiAuthenticationFilter filter = new ApiAuthenticationFilter(validator,
+                new ProjectScopeResolver(projects), "", new ProjectApiAuthorization(projects));
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/tasks");
+        request.addHeader("Authorization", "Bearer test-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = (req, ignored) -> {
+            Principal principal = PrincipalContext.current().orElseThrow();
+            assertThat(principal.scope().project()).isEqualTo(id.toString());
+            assertThat(principal.permissions()).contains("task:create");
+        };
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
     void leavesTenantLevelRequestsUnresolvedWhenProjectIsNotRequested() throws Exception {
         ProjectRepository projects = mock(ProjectRepository.class);
         IdentityTokenValidator validator = token -> Optional.of(new IdentityTokenValidator.IdentityPrincipal(
