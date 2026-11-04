@@ -98,6 +98,13 @@ class InstallKindOidcContractTest(unittest.TestCase):
             content = (ROOT / name).read_text()
             self.assertIn("KIND_KEYCLOAK_LOCAL_PORT:-18082", content)
 
+    def test_oidc_rotation_smoke_uses_canonical_project_uuid(self):
+        content = (ROOT / "scripts/smoke-kind-oidc-rotation.sh").read_text()
+        self.assertIn("SELECT id::text FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'", content)
+        self.assertIn('"${PROJECT_ID}" =~ ^[0-9a-fA-F-]{36}$', content)
+        self.assertIn('"project\\":\\"${PROJECT_ID}\\"', content)
+        self.assertNotIn('"project":"project-a"', content)
+
     def test_oidc_installer_takes_ownership_of_local_helm_conflicts(self):
         self.assertIn("--force-conflicts", SCRIPT.read_text())
 

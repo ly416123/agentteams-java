@@ -12,6 +12,8 @@ KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin-dev}
 LOG_DIR=${TMPDIR:-/tmp}
 KEYCLOAK_LOG="${LOG_DIR}/agentteams-keycloak-rotation-port-forward.log"
 API_LOG="${LOG_DIR}/agentteams-oidc-rotation-api-port-forward.log"
+DB_PASSWORD=""
+PROJECT_ID=""
 KEYCLOAK_PID=""
 API_PID=""
 COMPONENT_ID=""
@@ -66,6 +68,16 @@ until curl --fail --silent "${KEYCLOAK_URL}/realms/agentteams/.well-known/openid
   fi
   sleep 2
 done
+
+DB_PASSWORD="$(kubectl -n "${NAMESPACE}" get secret agentteams-database \
+  -o jsonpath='{.data.password}' | base64 --decode)"
+PROJECT_ID="$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -At -c \
+  "SELECT id::text FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a' AND status = 'ACTIVE'")"
+[[ "${PROJECT_ID}" =~ ^[0-9a-fA-F-]{36}$ ]] || {
+  echo "OIDC rotation project fixture did not resolve to one canonical UUID" >&2
+  exit 1
+}
 
 json_string() {
   local field="$1"
@@ -136,7 +148,7 @@ post_task() {
     --header "Authorization: Bearer ${token}" \
     --header "Idempotency-Key: ${key}" \
     --header 'Content-Type: application/json' \
-    --data '{"title":"oidc-rotation","spec":{"scope":{"tenant":"tenant-a","project":"project-a","team":"team-a"}}}')"
+    --data "{\"title\":\"oidc-rotation\",\"spec\":{\"scope\":{\"tenant\":\"tenant-a\",\"project\":\"${PROJECT_ID}\",\"team\":\"team-a\"}}}")"
   [[ "${status}" == "201" ]] || {
     echo "${label}: expected HTTP 201, got ${status}" >&2
     exit 1
