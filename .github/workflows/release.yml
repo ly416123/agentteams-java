@@ -234,18 +234,13 @@ jobs:
                   properties:[{name:"io.agentteams.source-fingerprint", value:$source_fingerprint}]}]}' \
               > "$sbom"
             jq -n \
-              --arg subject "$image@$digest" \
-              --arg digest "${digest#sha256:}" \
               --arg git_sha "$GITHUB_SHA" \
               --arg source_fingerprint "$SOURCE_FINGERPRINT" \
               --arg workflow "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/release.yml" \
-              '{_type:"https://in-toto.io/Statement/v1",
-                subject:[{name:$subject, digest:{sha256:$digest}}],
-                predicateType:"https://slsa.dev/provenance/v1",
-                predicate:{buildDefinition:{buildType:$workflow,
-                  externalParameters:{gitSha:$git_sha, sourceFingerprint:$source_fingerprint,
-                    resolvedDependencies:[]},
-                  runDetails:{builder:{id:$workflow}, metadata:{invocationId:$git_sha}}}}}' \
+              '{buildDefinition:{buildType:$workflow,
+                  externalParameters:{gitSha:$git_sha, sourceFingerprint:$source_fingerprint},
+                  resolvedDependencies:[]},
+                runDetails:{builder:{id:$workflow}, metadata:{invocationId:$git_sha}}}' \
               > "$provenance"
             cosign sign --yes "$image@$digest"
             cosign attest --yes --predicate "$sbom" --type cyclonedx "$image@$digest"
