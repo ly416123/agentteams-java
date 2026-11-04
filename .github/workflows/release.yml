@@ -106,6 +106,7 @@ jobs:
       - name: Publish versioned shared core Maven artifacts
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -125,10 +126,7 @@ jobs:
           # Validate the workflow token and repository access before treating
           # Maven 404 responses as absent artifacts. The package must grant
           # this source repository write access (or inherit repository access).
-          curl --fail --silent --show-error --netrc-file /dev/null \
-            --header "Authorization: Bearer $GITHUB_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY" >/dev/null
           for artifact in "${maven_artifacts[@]}"; do
             package="${artifact%%:*}"
             extension="${artifact##*:}"
