@@ -245,7 +245,7 @@ jobs:
                 predicate:{buildDefinition:{buildType:$workflow,
                   externalParameters:{gitSha:$git_sha, sourceFingerprint:$source_fingerprint,
                     resolvedDependencies:[]},
-                  runDetails:{builder:{id:$workflow}, metadata:{invocationId:$git_sha}}}}' \
+                  runDetails:{builder:{id:$workflow}, metadata:{invocationId:$git_sha}}}}}' \
               > "$provenance"
             cosign sign --yes "$image@$digest"
             cosign attest --yes --predicate "$sbom" --type cyclonedx "$image@$digest"
