@@ -249,7 +249,7 @@ jobs:
               > "$provenance"
             cosign sign --yes "$image@$digest"
             cosign attest --yes --predicate "$sbom" --type cyclonedx "$image@$digest"
-            cosign attest --yes --predicate "$provenance" --type slsaprovenance "$image@$digest"
+            cosign attest --yes --predicate "$provenance" --type slsaprovenance1 "$image@$digest"
 
             jq -n \
               --arg image "$image@$digest" \
