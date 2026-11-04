@@ -46,6 +46,7 @@ class KindWorkerQuotaAdmissionContractTest(unittest.TestCase):
         self.assertIn('"teamId"', script)
         self.assertIn("/members", script)
         self.assertIn('"role": "EXECUTOR"', script)
+        self.assertIn('"teamRole": "EXECUTOR"', script)
         self.assertIn('"allowedRuntimes": ["AGENTSCOPE"]', script)
 
         tree = ast.parse(script)

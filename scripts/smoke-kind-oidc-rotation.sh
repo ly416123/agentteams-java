@@ -135,7 +135,7 @@ jwks_contains_kid() {
     --header 'Cache-Control: no-cache' \
     --header 'Pragma: no-cache' \
     "${KEYCLOAK_URL}/realms/agentteams/protocol/openid-connect/certs?rotation_nonce=${RANDOM}-${SECONDS}" \
-    | grep -F "${1}" >/dev/null
+    | grep -F -- "${1}" >/dev/null
 }
 
 post_task() {

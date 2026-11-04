@@ -105,6 +105,10 @@ class InstallKindOidcContractTest(unittest.TestCase):
         self.assertIn('"project\\":\\"${PROJECT_ID}\\"', content)
         self.assertNotIn('"project":"project-a"', content)
 
+    def test_oidc_rotation_jwks_check_accepts_kids_starting_with_hyphen(self):
+        content = (ROOT / "scripts/smoke-kind-oidc-rotation.sh").read_text()
+        self.assertIn('grep -F -- "${1}"', content)
+
     def test_oidc_installer_takes_ownership_of_local_helm_conflicts(self):
         self.assertIn("--force-conflicts", SCRIPT.read_text())
 

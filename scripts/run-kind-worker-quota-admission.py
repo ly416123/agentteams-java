@@ -75,6 +75,7 @@ def create_task(base_url: str, tenant: str, project: str, team: str, team_id: st
          "description": "Real Worker project-quota admission smoke test",
          "spec": {"scope": {"tenant": tenant, "project": project, "team": team},
                   "teamId": team_id,
+                  "teamRole": "EXECUTOR",
                   "taskType": "agentscope",
                   "inputJson": {"prompt": "KIND_WORKER_QUOTA_ADMISSION_OK"},
                   "requiredCapabilities": ["agentscope"]}},
