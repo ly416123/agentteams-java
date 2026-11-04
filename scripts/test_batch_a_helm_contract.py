@@ -59,6 +59,20 @@ class BatchAHelmContractTest(unittest.TestCase):
         self.assertEqual(secret_env["type"], "object")
         self.assertEqual(secret_env["additionalProperties"]["required"], ["secret", "key"])
 
+    def test_kind_ci_jobs_create_manager_oauth_session_secret(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        kind_jobs = [workflow["jobs"][name] for name in ("kind-recovery", "kind-oidc")]
+
+        for job in kind_jobs:
+            setup = next(
+                step for step in job["steps"]
+                if step.get("name") == "Install Kind dependencies"
+            )
+            script = setup["run"]
+            self.assertIn("create secret generic agentteams-chatgpt-oauth-session", script)
+            self.assertIn("--from-file=access-token=/dev/stdin", script)
+            self.assertNotIn("--from-literal=access-token", script)
+
     def test_values_schema_restricts_runtime_and_sandbox_enums(self):
         schema = json.loads(read_chart("values.schema.json"))
         sandbox = schema["properties"]["sandbox"]["properties"]
