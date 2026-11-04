@@ -28,8 +28,14 @@ fi
 kubectl apply -f "$ROOT/deploy/kind-dev-infra.yaml"
 kubectl -n "$NAMESPACE" create secret generic agentteams-manager \
   --from-literal=password="${AGENTTEAMS_DATABASE_PASSWORD:-agentteams-dev}" \
-  --from-literal=deepseek-api-key="${DEEPSEEK_API_KEY:-kind-dev-placeholder}" \
   --dry-run=client -o yaml | kubectl apply -f -
+# A real access token may be supplied for model calls. The placeholder only
+# lets the local Kind deployment start without placing a credential in argv.
+printf '%s' "${CHATGPT_OAUTH_ACCESS_TOKEN:-kind-dev-placeholder}" \
+  | kubectl -n "$NAMESPACE" create secret generic agentteams-chatgpt-oauth-session \
+      --from-file=access-token=/dev/stdin --dry-run=client -o yaml \
+  | kubectl apply -f -
+unset CHATGPT_OAUTH_ACCESS_TOKEN
 kubectl -n "$NAMESPACE" rollout status statefulset/postgresql statefulset/nats statefulset/minio --timeout=180s
 kubectl -n "$NAMESPACE" wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=180s
 

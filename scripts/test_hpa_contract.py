@@ -36,6 +36,7 @@ class HpaContractTest(unittest.TestCase):
             "--set", "controlPlane.autoscaling.enabled=true",
             "--set", "gateway.autoscaling.enabled=true",
             "--set", "manager.enabled=true",
+            "--set", "manager.chatgptPlanSecretName=agentteams-chatgpt-oauth-session",
             "--set", "manager.autoscaling.enabled=true",
             "--set", "manager.existingSecret=agentteams-manager",
             "--set", "manager.security.enabled=true",

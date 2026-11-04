@@ -191,6 +191,13 @@ class ConsoleDeploymentContractTest(unittest.TestCase):
         rollout_position = installer.index('kubectl -n "$NAMESPACE" wait --for=condition=available')
         self.assertGreater(ingress_position, helm_position)
         self.assertGreater(ingress_position, rollout_position)
+        self.assertEqual(
+            kind_values["manager"]["chatgptPlanSecretName"],
+            "agentteams-chatgpt-oauth-session",
+        )
+        self.assertIn("CHATGPT_OAUTH_ACCESS_TOKEN", installer)
+        self.assertIn("--from-file=access-token=/dev/stdin", installer)
+        self.assertIn("unset CHATGPT_OAUTH_ACCESS_TOKEN", installer)
 
     @unittest.skipUnless(HELM, "helm is unavailable")
     def test_kind_values_render_console_service_before_kind_ingress_uses_it(self):

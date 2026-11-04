@@ -73,8 +73,8 @@ controlPlane:
     # Dynamic workers are provisioned with this image; keep it in sync with
     # the pinned control-plane/gateway tag above.
     image: agentteams-agent-worker:l5-gpt56-20261022-amd64
-    # The Worker receives the MCP/gateway credentials and the configured model key.
-    # Model credentials remain Secret-backed and are never placed in this file.
+    # The Worker receives only MCP and Gateway credentials here. The scoped
+    # ChatGPT Plan token is projected separately through chatgptPlan below.
     credentialSecretEnvs: >-
       {"MCP_TOOLS_TOKEN":{"secret":"agentteams-mcp-tools","key":"mcp-tools-token"},"AGENTTEAMS_GATEWAY_AUTH_TOKEN":{"secret":"agentteams-gateway","key":"worker-token"}}
   chatgptPlan:

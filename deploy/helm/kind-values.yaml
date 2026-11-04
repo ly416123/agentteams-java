@@ -13,6 +13,7 @@ manager:
   enabled: true
   image: ghcr.io/ly416123/agentteams-manager:latest
   existingSecret: agentteams-manager
+  chatgptPlanSecretName: agentteams-chatgpt-oauth-session
   conversation:
     runtime: fake
   security:

@@ -30,17 +30,13 @@ def render_chart(*args):
 
 
 class BatchAHelmContractTest(unittest.TestCase):
-    def test_l5_worker_provisioner_separates_mcp_and_model_credentials(self):
+    def test_l5_worker_provisioner_keeps_model_credentials_out_of_worker_secret_envs(self):
         l5_values = yaml.safe_load((ROOT / "deploy/helm/l5-values.yaml").read_text(encoding="utf-8"))
         raw_mapping = l5_values["controlPlane"]["workerProvisioner"]["credentialSecretEnvs"]
 
         self.assertEqual(
             json.loads(raw_mapping),
             {
-                "DEEPSEEK_API_KEY": {
-                    "secret": "agentteams-manager",
-                    "key": "deepseek-api-key",
-                },
                 "MCP_TOOLS_TOKEN": {
                     "secret": "agentteams-mcp-tools",
                     "key": "mcp-tools-token",
@@ -51,6 +47,7 @@ class BatchAHelmContractTest(unittest.TestCase):
                 },
             },
         )
+        self.assertNotIn("DEEPSEEK_API_KEY", raw_mapping)
         self.assertNotIn("bailian-api-key", raw_mapping)
         self.assertNotIn("BAILIAN_API_KEY", raw_mapping)
 
@@ -80,6 +77,7 @@ class BatchAHelmContractTest(unittest.TestCase):
     def test_manager_model_network_policy_uses_configured_https_endpoint(self):
         docs = render_chart(
             "--set", "manager.enabled=true",
+            "--set", "manager.chatgptPlanSecretName=agentteams-chatgpt-oauth-session",
             "--set", "manager.modelEgressCIDR=192.0.2.0/24",
             "--set", "manager.security.enabled=true",
             "--set", "manager.security.issuerUri=http://keycloak/realms/agentteams",
@@ -104,6 +102,7 @@ class BatchAHelmContractTest(unittest.TestCase):
         docs = render_chart(
             "--set", "console.enabled=true",
             "--set", "manager.enabled=true",
+            "--set", "manager.chatgptPlanSecretName=agentteams-chatgpt-oauth-session",
             "--set", "manager.security.enabled=true",
             "--set", "manager.security.issuerUri=http://keycloak/realms/agentteams",
             "--set", "manager.security.jwkSetUri=http://keycloak/realms/agentteams/protocol/openid-connect/certs",
@@ -127,6 +126,7 @@ class BatchAHelmContractTest(unittest.TestCase):
         docs = render_chart(
             "--set", "console.enabled=true",
             "--set", "manager.enabled=true",
+            "--set", "manager.chatgptPlanSecretName=agentteams-chatgpt-oauth-session",
             "--set", "manager.security.enabled=true",
             "--set", "manager.security.issuerUri=http://keycloak/realms/agentteams",
             "--set", "manager.security.jwkSetUri=http://keycloak/realms/agentteams/protocol/openid-connect/certs",
