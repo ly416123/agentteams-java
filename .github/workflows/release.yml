@@ -50,6 +50,9 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
 
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
@@ -99,6 +102,69 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_*.py'
           mvn -q -Pintegration-tests clean verify
           helm lint deploy/helm/agentteams-java
+
+      - name: Publish versioned shared core Maven artifacts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_TAG#v}"
+
+          maven_artifacts=(
+            agentteams-java:pom
+            agentteams-contracts:pom agentteams-contracts:jar
+            agentteams-domain:pom agentteams-domain:jar
+            agentteams-application-contracts:pom agentteams-application-contracts:jar
+            agentteams-observability:pom agentteams-observability:jar
+            agentteams-storage:pom agentteams-storage:jar
+            agentteams-runtime:pom agentteams-runtime:jar
+          )
+          published_artifacts=()
+          maven_repository="https://maven.pkg.github.com/ly416123/agentteams-java"
+          for artifact in "${maven_artifacts[@]}"; do
+            package="${artifact%%:*}"
+            extension="${artifact##*:}"
+            artifact_file="$package-$release_version.$extension"
+            artifact_url="$maven_repository/io/agentteams/$package/$release_version/$artifact_file"
+            http_status="$(curl --silent --show-error --location --max-redirs 3 \
+              --proto-redir '=https' --netrc-file /dev/null \
+              --user "$GITHUB_ACTOR:$GITHUB_TOKEN" \
+              --output /dev/null --write-out '%{http_code}' "$artifact_url")"
+            case "$http_status" in
+              200) published_artifacts+=("$artifact") ;;
+              404) ;;
+              *)
+                echo "MAVEN_PACKAGE_PREFLIGHT_FAILED: $artifact returned HTTP $http_status" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          publication_state="$(python3 scripts/check-maven-publication.py \
+            --expected "${maven_artifacts[@]}" \
+            --published "${published_artifacts[@]}")"
+          if [[ "$publication_state" == "SKIP" ]]; then
+            echo "Maven artifacts for $release_version are already complete; skipping republish."
+            exit 0
+          fi
+
+          maven_source="$RUNNER_TEMP/agentteams-maven-source"
+          mkdir -p "$maven_source"
+          git archive "$GITHUB_SHA" | tar -x -C "$maven_source"
+          cd "$maven_source"
+
+          mvn --batch-mode org.codehaus.mojo:versions-maven-plugin:2.18.0:set \
+            -DnewVersion="$release_version" \
+            -DprocessAllModules=true \
+            -DgenerateBackupPoms=false \
+            -DupdateMatchingVersions=true
+
+          # Publish from the temporary source copy so the tagged checkout and
+          # its source fingerprint remain untouched for image provenance below.
+          mvn --batch-mode -DskipTests \
+            -pl .,contracts,domain,application-contracts,observability,storage,runtime \
+            -am deploy
 
       - name: Install Cosign
         run: |

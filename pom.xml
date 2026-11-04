@@ -12,6 +12,14 @@
     <name>AgentTeams Java</name>
     <description>Java foundation for the AgentTeams control plane and agent runtimes</description>
 
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub AgentTeams Apache Maven Packages</name>
+            <url>https://maven.pkg.github.com/ly416123/agentteams-java</url>
+        </repository>
+    </distributionManagement>
+
     <modules>
         <module>contracts</module>
         <module>domain</module>
