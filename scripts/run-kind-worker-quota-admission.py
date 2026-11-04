@@ -54,7 +54,8 @@ def create_team(base_url: str, agent_id: str) -> str:
          "displayName": "Kind Worker quota admission",
          "maxConcurrentTasks": 1,
          "requireHumanApproval": False,
-         "allowedRuntimes": ["AGENTSCOPE"],
+         # The Gateway persists the Worker runtime identifier as lowercase.
+         "allowedRuntimes": ["agentscope"],
          "requiredCapabilities": ["agentscope"]},
         f"kind-worker-quota-team-{uuid.uuid4()}"), 201, "create quota admission team")
     team_id = payload.get("id")
