@@ -64,6 +64,9 @@ class InstallKindOidcContractTest(unittest.TestCase):
         self.assertIn("INSERT INTO projects", install_content)
         self.assertIn("tenant-a', 'project-a'", install_content)
         self.assertIn("TOKEN_SUBJECT=", smoke_content)
+        self.assertIn("SCOPE_PROJECT=$(kubectl", smoke_content)
+        self.assertIn("SELECT id::text FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a'", smoke_content)
+        self.assertIn("export SCOPE_PROJECT", smoke_content)
         self.assertIn("INSERT INTO project_memberships", smoke_content)
         self.assertIn("'${TOKEN_SUBJECT}', 'DEVELOPER', 'ACTIVE'", smoke_content)
         self.assertLess(smoke_content.index("INSERT INTO project_memberships"),

@@ -76,7 +76,7 @@ export TOKEN_NO_PERMISSION="$(token_for reader reader-dev)"
 export TOKEN_CROSS_SCOPE="$(token_for tenant-b-user tenant-b-dev)"
 TOKEN_QUOTA_ADMIN="$(token_for quota-admin quota-admin-dev)"
 export SCOPE_TENANT=tenant-a
-export SCOPE_PROJECT=project-a
+SCOPE_PROJECT=project-a
 export SCOPE_TEAM=team-a
 
 # Keycloak's JWT subject is an implementation-generated stable identifier, not
@@ -94,6 +94,14 @@ QUOTA_ADMIN_SUBJECT="$(python3 -c 'import base64,json,sys; p=sys.argv[1].split("
 }
 DB_PASSWORD=$(kubectl -n "${NAMESPACE}" get secret agentteams-database \
   -o jsonpath='{.data.password}' | base64 --decode)
+SCOPE_PROJECT=$(kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
+  psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -At -c \
+  "SELECT id::text FROM projects WHERE tenant_id = 'tenant-a' AND name = 'project-a' AND status = 'ACTIVE'")
+[[ "${SCOPE_PROJECT}" =~ ^[0-9a-fA-F-]{36}$ ]] || {
+  echo "OIDC smoke project fixture did not resolve to one canonical UUID" >&2
+  exit 1
+}
+export SCOPE_PROJECT
 kubectl -n "${NAMESPACE}" exec statefulset/postgresql -- env PGPASSWORD="${DB_PASSWORD}" \
   psql -v ON_ERROR_STOP=1 -U agentteams -d agentteams -c "
     INSERT INTO project_memberships(tenant_id, project_id, subject, role, status, created_at, updated_at, version)
