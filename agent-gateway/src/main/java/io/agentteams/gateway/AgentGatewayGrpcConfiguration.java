@@ -124,23 +124,25 @@ public class AgentGatewayGrpcConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean({AuthenticationPort.class, AgentSessionStore.class})
-    public AuthenticationPort authenticationPort() {
+    @ConditionalOnMissingBean(AuthenticationPort.class)
+    public AuthenticationPort authenticationPort(ObjectProvider<AgentSessionStore> sessions,
+            ObjectProvider<DataSource> dataSources, Clock clock) {
+        AgentSessionStore sessionStore = sessions.getIfAvailable();
+        if (sessionStore != null) {
+            return new SessionTokenAuthenticator(sessionStore, clock);
+        }
+        if (dataSources.getIfAvailable() != null) {
+            return (connection, hello) -> AuthenticationPort.AuthenticationDecision
+                    .rejected("session authentication is unavailable");
+        }
         return (connection, hello) -> AuthenticationPort.AuthenticationDecision.allow();
     }
 
     @Bean
-    @ConditionalOnBean(DataSource.class)
+    @ConditionalOnProperty(name = "spring.datasource.url")
     @ConditionalOnMissingBean(AgentSessionStore.class)
     public AgentSessionStore jdbcAgentSessionStore(DataSource dataSource) {
         return new JdbcAgentSessionStore(new org.springframework.jdbc.core.JdbcTemplate(dataSource));
-    }
-
-    @Bean
-    @ConditionalOnBean(AgentSessionStore.class)
-    @ConditionalOnMissingBean(AuthenticationPort.class)
-    public AuthenticationPort sessionTokenAuthentication(AgentSessionStore sessions, Clock clock) {
-        return new SessionTokenAuthenticator(sessions, clock);
     }
 
     @Bean

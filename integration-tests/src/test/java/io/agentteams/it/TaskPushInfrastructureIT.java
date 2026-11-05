@@ -28,8 +28,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Base64;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import javax.sql.DataSource;
@@ -57,6 +60,8 @@ class TaskPushInfrastructureIT {
     private static final String TEST_TENANT = "tenant-a";
     private static final String TEST_PROJECT = "project-a";
     private static final String TEST_TEAM = "team-a";
+    private static final SecureRandom SESSION_TOKEN_RANDOM = new SecureRandom();
+    private static final Map<UUID, String> SESSION_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -132,7 +137,8 @@ class TaskPushInfrastructureIT {
                 "Gateway must use the JDBC agent state projection when a DataSource is configured");
         UUID agentId = createAgent();
         FakeAgent firstConnection = FakeAgent.connect("127.0.0.1", gatewayPort(), agentId.toString(),
-                ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build());
+                ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build(), Map.of("tasks", "1"),
+                SESSION_TOKENS.get(agentId));
         try {
             firstConnection.awaitReady();
             UUID taskId = createAndQueueTask();
@@ -148,7 +154,8 @@ class TaskPushInfrastructureIT {
 
             firstConnection.closeWithoutAcknowledging();
             FakeAgent reconnected = FakeAgent.connect("127.0.0.1", gatewayPort(), agentId.toString(),
-                    ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build());
+                    ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build(), Map.of("tasks", "1"),
+                    SESSION_TOKENS.get(agentId));
             try {
                 reconnected.awaitReady();
                 io.agentteams.contracts.v1.TaskAssigned replayed = reconnected.awaitTaskAssigned(taskId.toString());
@@ -194,7 +201,8 @@ class TaskPushInfrastructureIT {
     void fansOutConfigChangedToBothGatewayConsumersAndDeduplicatesTheCommand() throws Exception {
         UUID agentId = createAgent();
         FakeAgent agent = FakeAgent.connect("127.0.0.1", gatewayPort(), agentId.toString(),
-                ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build());
+                ProtocolVersion.newBuilder().setMajor(2).setMinor(3).build(), Map.of("tasks", "1"),
+                SESSION_TOKENS.get(agentId));
         try {
             agent.awaitReady();
             String snapshotBody = """
@@ -268,7 +276,20 @@ class TaskPushInfrastructureIT {
         UUID agentId = UUID.fromString(postJson("/api/v1/agents", "agent-create-" + UUID.randomUUID(), body)
                 .path("id").asText());
         bindInfrastructureResourceScope("WORKER", agentId);
+        String sessionToken = newWorkerSessionToken();
+        jdbc().update("""
+                INSERT INTO agent_sessions(id, agent_id, token_sha256, expires_at, created_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, UUID.randomUUID(), agentId, sha256(sessionToken.getBytes(StandardCharsets.UTF_8)),
+                java.sql.Timestamp.from(java.time.Instant.now().plus(Duration.ofDays(1))));
+        SESSION_TOKENS.put(agentId, sessionToken);
         return agentId;
+    }
+
+    private static String newWorkerSessionToken() {
+        byte[] tokenBytes = new byte[32];
+        SESSION_TOKEN_RANDOM.nextBytes(tokenBytes);
+        return "ats_" + Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
     }
 
     private static UUID createAndQueueTask() throws Exception {
