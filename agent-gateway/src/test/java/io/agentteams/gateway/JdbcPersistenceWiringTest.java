@@ -3,8 +3,10 @@ package io.agentteams.gateway;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import java.time.Clock;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,7 +44,23 @@ class JdbcPersistenceWiringTest {
                     assertThat(context.getBean(CommandReplayPort.class)).isInstanceOf(JdbcCommandEventStore.class);
                     assertThat(context.getBean(InboundEventPort.class)).isInstanceOf(JdbcInboundEventStore.class);
                     assertThat(context.getBean(AgentStatePort.class)).isInstanceOf(JdbcAgentStateStore.class);
+                    assertThat(context).hasSingleBean(AgentSessionStore.class);
+                    assertThat(context.getBean(AgentSessionStore.class)).isInstanceOf(JdbcAgentSessionStore.class);
+                    assertThat(context.getBean(AuthenticationPort.class)).isInstanceOf(SessionTokenAuthenticator.class);
                 });
+    }
+
+    @Test
+    void rejectsAuthenticationWhenDataSourceExistsWithoutSessionStore() {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("dataSource", mock(DataSource.class));
+        AgentGatewayGrpcConfiguration configuration = new AgentGatewayGrpcConfiguration();
+
+        AuthenticationPort authentication = configuration.authenticationPort(
+                beanFactory.getBeanProvider(AgentSessionStore.class),
+                beanFactory.getBeanProvider(DataSource.class), Clock.systemUTC());
+
+        assertThat(authentication.authenticate(null, null).accepted()).isFalse();
     }
 
     @Configuration(proxyBeanMethods = false)
