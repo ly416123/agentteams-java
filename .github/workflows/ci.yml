@@ -381,9 +381,8 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl -n agentteams exec statefulset/postgresql -- psql -v ON_ERROR_STOP=1 \
             -U agentteams -d agentteams \
-            -v "agent_id=$AGENT_ID" -v "token_hash=$SESSION_TOKEN_HASH" \
             -c "INSERT INTO agent_sessions(id, agent_id, token_sha256, expires_at, created_at) \
-                VALUES (gen_random_uuid(), :'agent_id', :'token_hash', now() + interval '1 hour', now())"
+                VALUES (gen_random_uuid(), '$AGENT_ID'::uuid, '$SESSION_TOKEN_HASH', now() + interval '1 hour', now())"
           unset SESSION_TOKEN SESSION_TOKEN_HASH
           sed "s/00000000-0000-0000-0000-000000000001/$AGENT_ID/; s/name: agentscope-worker/name: agentscope-real/; s/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"false\"/AGENTTEAMS_QUOTA_REMOTE_ENABLED: \"true\"/; s/AGENTTEAMS_SCOPE_TENANT: \"\"/AGENTTEAMS_SCOPE_TENANT: \"tenant-a\"/; s/AGENTTEAMS_SCOPE_PROJECT: \"\"/AGENTTEAMS_SCOPE_PROJECT: \"project-a\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"false\"/AGENTTEAMS_OBSERVABILITY_TRACING_ENABLED: \"true\"/; s/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"0.1\"/AGENTTEAMS_OBSERVABILITY_TRACING_SAMPLING_PROBABILITY: \"1.0\"/; s#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: \"\"#AGENTTEAMS_OBSERVABILITY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces#" \
             deploy/examples/agentscope-worker.yaml >/tmp/agentscope-real.yaml
