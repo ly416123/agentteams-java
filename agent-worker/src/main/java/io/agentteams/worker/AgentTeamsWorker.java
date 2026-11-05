@@ -174,23 +174,28 @@ public final class AgentTeamsWorker implements AutoCloseable {
                 configuration.artifactUploadTimeout(), configuration::gatewayAuthToken, () -> "");
     }
 
-    private static ManagedChannel gatewayChannel(WorkerConfiguration configuration,
+    static ManagedChannel gatewayChannel(WorkerConfiguration configuration,
             GrpcClientTracingInterceptor tracing) {
+        ManagedChannelBuilder<?> builder;
         if (!configuration.gatewayTlsEnabled()) {
-            return ManagedChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
-                    .intercept(tracing).usePlaintext().build();
+            builder = ManagedChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
+                    .usePlaintext();
+        } else {
+            try {
+                SslContext sslContext = GrpcSslContexts.forClient()
+                        .trustManager(new File(configuration.gatewayTlsCaCertPath()))
+                        .keyManager(new File(configuration.gatewayTlsClientCertPath()),
+                                new File(configuration.gatewayTlsClientKeyPath()))
+                        .build();
+                builder = NettyChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
+                        .sslContext(sslContext);
+            } catch (Exception error) {
+                throw new IllegalStateException("failed to build Gateway mTLS channel", error);
+            }
         }
-        try {
-            SslContext sslContext = GrpcSslContexts.forClient()
-                    .trustManager(new File(configuration.gatewayTlsCaCertPath()))
-                    .keyManager(new File(configuration.gatewayTlsClientCertPath()),
-                            new File(configuration.gatewayTlsClientKeyPath()))
-                    .build();
-            return NettyChannelBuilder.forAddress(configuration.gatewayHost(), configuration.gatewayPort())
-                    .sslContext(sslContext).intercept(tracing).build();
-        } catch (Exception error) {
-            throw new IllegalStateException("failed to build Gateway mTLS channel", error);
-        }
+        return builder.intercept(tracing)
+                .intercept(new GrpcSessionAuthInterceptor(configuration::gatewayAuthToken))
+                .build();
     }
 
     public void start() {

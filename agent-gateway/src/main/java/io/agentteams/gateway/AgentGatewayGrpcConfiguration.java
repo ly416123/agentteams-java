@@ -139,7 +139,7 @@ public class AgentGatewayGrpcConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(DataSource.class)
+    @ConditionalOnProperty(name = "spring.datasource.url")
     @ConditionalOnMissingBean(AgentSessionStore.class)
     public AgentSessionStore jdbcAgentSessionStore(DataSource dataSource) {
         return new JdbcAgentSessionStore(new org.springframework.jdbc.core.JdbcTemplate(dataSource));

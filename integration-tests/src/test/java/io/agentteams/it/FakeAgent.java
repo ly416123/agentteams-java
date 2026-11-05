@@ -20,6 +20,8 @@ import io.agentteams.contracts.v1.TaskProgress;
 import io.agentteams.gateway.SequencedCommand;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Metadata;
+import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
 import java.time.Instant;
@@ -55,9 +57,19 @@ final class FakeAgent implements AutoCloseable {
 
     static FakeAgent connect(String host, int port, String agentId, ProtocolVersion version,
             Map<String, String> capabilities) {
-        ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port)
-                .usePlaintext()
-                .build();
+        return connect(host, port, agentId, version, capabilities, null);
+    }
+
+    static FakeAgent connect(String host, int port, String agentId, ProtocolVersion version,
+            Map<String, String> capabilities, String sessionToken) {
+        ManagedChannelBuilder<?> channelBuilder = ManagedChannelBuilder.forAddress(host, port).usePlaintext();
+        if (sessionToken != null && !sessionToken.isBlank()) {
+            Metadata headers = new Metadata();
+            headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER),
+                    "Bearer " + sessionToken);
+            channelBuilder.intercept(MetadataUtils.newAttachHeadersInterceptor(headers));
+        }
+        ManagedChannel channel = channelBuilder.build();
         FakeAgent[] holder = new FakeAgent[1];
         StreamObserver<AgentMessage> requests = AgentChannelGrpc.newStub(channel).connect(new StreamObserver<>() {
             @Override

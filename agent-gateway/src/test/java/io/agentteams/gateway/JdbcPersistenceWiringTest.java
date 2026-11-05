@@ -33,7 +33,8 @@ class JdbcPersistenceWiringTest {
     void usesEachJdbcPortOnceWhenDataSourceIsPresent() {
         new ApplicationContextRunner()
                 .withUserConfiguration(MockDataSourceConfiguration.class, AgentGatewayGrpcConfiguration.class)
-                .withPropertyValues("agentteams.gateway.grpc.port=0")
+                .withPropertyValues("agentteams.gateway.grpc.port=0",
+                        "spring.datasource.url=jdbc:postgresql://localhost/agentteams")
                 .run(context -> {
                     assertThat(context).hasSingleBean(JdbcCommandEventStore.class);
                     assertThat(context).hasSingleBean(JdbcInboundEventStore.class);
