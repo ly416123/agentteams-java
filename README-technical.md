@@ -1,0 +1,596 @@
+# AgentTeams Java 技术参考
+
+本文保留原 README 中的模块、接口、部署与本地验证资料。面向读者的项目概览见 [README](README.md)。
+
+## Modules
+
+- `contracts`: protobuf and gRPC contract build support.
+- `domain`: framework-independent domain model and tests.
+- `application-contracts`: application ports and DTOs shared by service boundaries.
+- `control-plane`: Spring Boot application dependencies for business APIs,
+  persistence, Flyway, PostgreSQL, and NATS.
+- `agent-gateway`: Spring Boot application dependencies for gRPC agent
+  connections and NATS integration.
+- `runtime`: runtime-neutral Agent SPI; the current production path uses AgentScope Harness.
+- `manager`: GPT-5.6 Luna structured Manager and permissioned tools.
+- `operator`: Java Operator SDK and Fabric8 Kubernetes dependencies.
+- `integration-tests`: cross-module tests and Testcontainers dependencies.
+
+## Architecture map
+
+The repository's module responsibilities, dependency layers, core data flows,
+deployment topology, and important design patterns are documented in the
+[architecture code map](docs/architecture-map.html). The map is a curated
+design aid; CI checks that every Maven module has a corresponding map entry so
+module additions do not silently make it stale.
+
+## Build
+
+The parent POM configures the Maven compiler for Java 21 (`--release 21`) and
+UTF-8. A Java 21 JDK is required to build the project. Unit tests are enabled
+by default:
+
+```text
+mvn -q test
+```
+
+Integration tests use the `integration-tests` profile:
+
+```text
+mvn -q -Pintegration-tests verify
+```
+
+## Worker Template Registry（当前第一纵切）
+
+Control Plane 已提供模板的 scope 内唯一创建、不可变 revision、Review/Publish
+生命周期、幂等实例化和实例升级入口。当前公共 API 为：
+
+```text
+POST /api/v1/worker-templates
+POST /api/v1/worker-templates/{id}/revisions
+POST /api/v1/worker-templates/{id}/revisions/{revision}/review
+POST /api/v1/worker-templates/{id}/revisions/{revision}/publish
+POST /api/v1/worker-templates/{id}/revisions/{revision}/instances
+POST /api/v1/worker-templates/{id}/instances/{instanceId}/upgrade/{revision}
+```
+
+写操作使用 `Idempotency-Key`；状态变更使用 `expectedVersion`。模板实例通过
+现有 AgentSpec/Worker 服务边界创建，不直接操作 Kubernetes。企业审批、外部
+Skill/MCP/Secret 深度校验和 L6 真实验收不属于当前纵切完成条件。L6 统一保留到项目最终阶段；
+除非用户明确说“启动 L6 验收”，否则当前不纳入执行计划，不创建 L6 计划、不排入当前任务、不自动执行。
+
+Worker Pod 创建时机、Worker 归属与并发、Task Sandbox 分级，以及用户私人、企业、
+Project/Team 和 Task 记忆的隔离规则，统一以
+[Worker Pod 与记忆隔离需求基线](docs/superpowers/specs/2026-09-01-work-pod-and-memory-isolation-requirements.md)
+为准。企业注册、激活和用户初始化不会隐式创建 Worker Pod；Worker 必须显式实例化并
+通过 Worker CR/Operator 达到 `READY` 后才能接收任务。
+
+后续功能开发暂不更新 Java SDK；SDK 已有能力必须由管理 API 与 Console 逐项提供，管理端
+可以拥有 SDK 尚未暴露的更多管理、治理和运营能力。最终页面功能验证通过后才允许单独规划
+Java SDK 同步。完整实施顺序、
+能力矩阵、记忆隔离和无生产 Secret Manager Credential 时的验收边界见
+[管理端优先与 Java SDK 冻结实施方案](docs/superpowers/plans/2026-09-01-management-first-console-completion-plan.md)。
+
+当前 `task.start` 适配任务另有明确范围约束：只维护 Java SDK；TypeScript SDK 暂不维护，
+不要求与 Java SDK 同步新增接口或测试。任何 TypeScript SDK 更新都必须另行确认并制定独立计划。
+
+当前开发阶段的运行时、Conversation/Team 任务流、Leader/Worker 分工、ChatGPT OAuth 接入、
+`linux/amd64` 构建和 L5 真实验收约束，统一以
+[当前开发阶段项目约束](docs/development/project-constraints.md)为准。生产 Conversation
+必须进入 Control Plane Task/Team 调度链路，不得直接调用模型 Provider。
+
+当前阶段已完成管理端 Usage（含 Organization/Tenant/Project/Team/User 聚合）、预算评估、Project 作用域告警规则/自动重试详情、人工重试幂等、告警历史和审计入口的首轮页面闭环；验证结果与
+OIDC/生产凭据限制记录在[管理端阶段验证报告](docs/acceptance/2026-09-01-management-verification-report.md)。
+
+## Public API 与 SDK（v1.0 第一纵切）
+
+公共契约位于 [`openapi/agentteams-public.yaml`](openapi/agentteams-public.yaml)，当前冻结
+Project/Task 核心接口、游标分页、Bearer 鉴权、`Idempotency-Key` 和统一错误结构。
+Java 21 与 TypeScript 客户端分别位于 [`sdk/java`](sdk/java) 和
+[`sdk/typescript`](sdk/typescript)；它们只访问公共 API，不暴露 Kubernetes、Matrix
+AppService 或其他内部接口。
+
+## Git development workflow
+
+`main` is the only development, integration, and release branch. New requirements,
+plans, implementation, and tests are developed directly on the latest `main`; do
+not create feature branches or worktrees. See the
+[Git development workflow](docs/development/git-workflow.md) for synchronization
+and branch-governance rules.
+
+Generated protobuf and gRPC sources are build artifacts and are not committed.
+
+## Kubernetes delivery
+
+The Kubernetes-only delivery artifacts are under `deploy/`:
+
+```text
+deploy/docker/                       # multi-stage images for the Java services
+deploy/helm/agentteams-java/         # CRDs, RBAC, Deployments and Services
+```
+
+The chart expects PostgreSQL, NATS JetStream and the database Secret to be
+provided by the cluster (or by an operator-managed dependency). It does not
+embed Docker Compose or local polling infrastructure.
+
+The runtime path is push-based: Control Plane writes PostgreSQL plus Outbox,
+NATS carries durable events, Gateway delivers assignments over a gRPC stream,
+and the Agent acknowledges/reports progress on that stream. Agent execution
+events return through the `agent.events.*` JetStream stream and are applied by
+the Control Plane. Gateway and Manager depend on application contracts rather
+than Control Plane persistence classes. Matrix is an optional
+human-collaboration adapter; it is not the task state database.
+
+Task-level isolation is layered behind `SandboxRuntimePort`. The default
+profile is `NONE`, so existing tasks keep their current path. Explicit
+`ISOLATED`/`HARDENED` tasks are fenced by Attempt, persisted in
+`task_sandboxes`, and represented in Kubernetes by the namespace-scoped
+`TaskSandbox` CRD and an Operator-managed restricted Job. The Control Plane
+does not need Docker Socket or Pod/Job RBAC. Helm keeps the feature disabled by
+default; gVisor/Kata RuntimeClass validation requires a separate Linux/KVM
+environment and is not claimed by the local Fake Provider or Kind static tests.
+
+The runtime module provides `GrpcAgentChannelPort` for the protobuf
+bidirectional stream. Worker execution is implemented by the AgentScope
+Harness; the Worker creates the configured `provider:model` entry through the
+AgentScope model registry and reports accepted, heartbeat, progress,
+completion, or failure events over the Gateway gRPC stream. Runtime-specific
+model credentials and endpoints stay in Worker configuration and Kubernetes
+Secrets, never in the Control Plane.
+
+The Control Plane task lifecycle is explicit: create a task in `DRAFT`, then
+`POST /api/v1/tasks/{id}/queue` with an `Idempotency-Key`. Lifecycle commands
+are exposed as `POST /retry`, `/pause`, `/approve`, `/reject`, and `/cancel`
+under the task resource; each command requires its own idempotency key and
+enforces the corresponding OIDC permission. Task artifacts use direct
+object-storage transfer: call
+`POST /api/v1/tasks/{taskId}/attempts/{attemptId}/artifacts/uploads`, upload to
+the returned pre-signed URL, then call the sibling `/artifacts/complete`
+endpoint with the size and SHA-256 checksum. The built-in lease-based
+scheduler assigns queued work across replicas and recovers expired leases
+after restart. Existing artifacts can be listed or fetched through the task
+artifact resource, which returns a fresh short-lived download URL. HTTP API
+authentication is disabled by default. To
+enable the built-in OIDC JWT validator, provide the issuer, JWKS URI, audience,
+and scope claims together; enabling the API without a complete OIDC
+configuration fails startup rather than exposing an unauthenticated API:
+
+```yaml
+controlPlane:
+  security:
+    apiEnabled: true
+    oidc:
+      enabled: true
+      issuerUri: https://id.example.com/
+      jwkSetUri: https://id.example.com/.well-known/jwks.json
+      audience: agentteams-api
+      tenantClaim: tenant
+      projectClaim: project
+      teamClaim: team
+      permissionsClaim: permissions
+```
+
+The validator checks the JWT signature, issuer, audience, expiry and not-before
+claims, then maps `sub`, tenant/project/team claims and permissions into the
+existing authorization boundary. JWKS caching and key refresh are delegated
+to Spring Security's Nimbus decoder; no OIDC client secret is stored in the
+application configuration.
+
+Artifact retention is enabled when object storage is enabled. The Control Plane
+uses deployment defaults of `30d` for successful tasks, `90d` for failed tasks,
+and `2h` for temporary uploads; project policies and Task overrides are stored
+separately. Cleanup first writes a database tombstone, then deletes the object
+through the storage port under a database scheduler lease. Failed deletions
+remain retryable, while Legal Hold creates a held tombstone and does not delete
+content. Artifact metadata is retained for audit and is marked `DELETED` only
+after the object deletion succeeds. The `2h` temporary window applies to tracked
+non-available artifact rows; the existing config-upload lifecycle keeps its
+dedicated pending-upload cleanup until the unified result-manifest/payload-ref
+retention model is delivered.
+Project administrators can read and update the project policy through
+`GET/PUT /api/v1/artifacts/retention`; updates require the current
+`expectedVersion` and use the existing `artifact:write` permission. The
+management Console exposes these controls without exposing artifact bytes.
+
+Task state consistency is protected at two layers. The `tasks.phase` state remains
+authoritative, while `task_runs` is a monotonic projection whose terminal state,
+identity, and completion timestamp cannot be regressed by late observations. A
+leader-only reconciliation job scans recent runs, compares Task/Run/Attempt/Lease,
+process-event, subtask, and result-manifest facts, and records idempotent findings
+in `task_state_consistency_issues`. Findings are resolved when a later scan no
+longer observes the drift. The first slice is diagnostic only: it does not rewrite
+Task state or delete process evidence. Operators can read OPEN findings through the
+token-protected internal endpoint
+`GET /internal/v1/task-state-consistency/issues?limit=100`.
+
+## Project environment and validation gate
+
+The primary local development environment is macOS with Colima and a working
+Docker daemon. This project workspace has Docker Engine available locally,
+Chrome available for browser validation, and an existing Kind cluster named
+`agentteams`. `deploy/dev-env.sh` selects the `colima` Docker context and
+exports the Docker endpoint used by Kind and other CLI commands. For Maven
+tests, the root `pom.xml` automatically activates the `colima-testcontainers`
+profile when the Colima socket exists, and injects the endpoint plus the
+container-visible socket override into Surefire/Failsafe. Docker-backed tests
+are therefore part of the normal local verification path, not an optional
+CI-only substitute.
+
+Before pushing a code or deployment change to GitHub Actions, load the local
+environment and complete the Docker-backed verification successfully:
+
+```bash
+source deploy/dev-env.sh
+docker info
+mvn -q -Pintegration-tests verify
+```
+
+`source deploy/dev-env.sh` remains necessary for Kind and explicit Docker CLI
+commands. Maven/Surefire Testcontainers tests can be run directly with
+`mvn -q test`; no `DOCKER_HOST` or `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`
+export is required when the Colima socket is present.
+
+If the local Docker daemon or Testcontainers endpoint is unavailable, pure
+Java tests may still be useful for diagnosis, but the change must not be
+submitted to GitHub CI as locally verified until the Docker-backed command has
+passed.
+
+For this workspace, Docker/Kind/browser validation is an execution
+requirement. Acceptance commands must fail with a non-zero exit code when
+Docker, Kind, kubectl, the required image, or Chrome is unavailable; an
+environmental `SKIPPED` result is not accepted as a passing result.
+
+The current local verification baseline (2026-08-30) uses Docker 29.5.2,
+Kind cluster `agentteams`, and the installed browser toolchain. The Console
+Playwright smoke passed (`1 passed`) and the deployed real AgentScope conversation
+checks passed. A direct system-Chrome connector was not attached in the latest
+Codex session, so that connector-specific result remains explicitly
+unverified rather than being inferred from the Playwright result.
+
+The independent Ubuntu/KVM L5 host is `ly-MacBookAir7-2` at
+`192.168.125.55`. It also passed the real L5 TaskSandbox acceptance: both
+`gvisor` and `kata-qemu` profiles reached `READY`,
+their generated Jobs/Pods used the expected RuntimeClass, guest and host
+kernels were observed, and cleanup completed with
+`L5_LINUX_KVM_ACCEPTANCE_OK`. Node-failure recovery and production L6 remain
+separate gates.
+
+For every subsequent batch feature, local Docker-backed verification is
+required. If the change touches Kubernetes, Operator, Worker, TaskSandbox,
+RuntimeClass, images, Helm, runtime routing, lifecycle, or deployment paths,
+the same change must also pass the real Ubuntu/KVM L5 acceptance on this host,
+including runtime evidence and cleanup confirmation. A local Kind/Fake Provider
+result or an unavailable L5 environment cannot be reported as a pass; until
+both gates pass, the batch remains `development complete, acceptance pending`
+and cannot be integrated into the mainline. L6 remains a separate controlled
+environment gate.
+
+## Local infrastructure
+
+On macOS, the repository provides a Colima/Testcontainers bootstrap script:
+
+```bash
+source deploy/dev-env.sh
+mvn -q clean test
+```
+
+For local Kubernetes work, create a clean Kind cluster, install the development
+dependencies, load local service images, and install the chart:
+
+```bash
+source deploy/dev-env.sh
+./deploy/pull-kind-node-image.sh
+kind create cluster --config deploy/kind-config.yaml
+kubectl apply -f deploy/kind-dev-infra.yaml
+kubectl -n agentteams wait --for=condition=available deployment/postgresql deployment/nats deployment/minio --timeout=180s
+kubectl -n agentteams wait --for=condition=complete job/nats-stream-bootstrap job/minio-bucket-bootstrap --timeout=120s
+./deploy/build-images.sh
+kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
+kubectl apply -f deploy/helm/agentteams-java/crds/workers.yaml
+helm lint deploy/helm/agentteams-java
+helm upgrade --install agentteams deploy/helm/agentteams-java \
+  --namespace agentteams --create-namespace --wait \
+  -f deploy/helm/kind-values.yaml
+kubectl -n agentteams wait --for=condition=available \
+  deployment/agentteams-agentteams-java-control-plane \
+  deployment/agentteams-agentteams-java-gateway \
+  deployment/agentteams-agentteams-java-operator --timeout=300s
+```
+
+To enable a real local OIDC issuer after the Kind foundation is installed,
+deploy the development-only Keycloak realm and apply the OIDC Helm overlay:
+
+```bash
+./deploy/install-kind-oidc.sh
+./scripts/smoke-kind-oidc.sh
+./scripts/smoke-kind-oidc-rotation.sh
+```
+
+The smoke script obtains tokens from Keycloak and verifies missing/invalid
+authentication (`401`), missing permission and cross-scope access (`403`),
+and matching permission plus scope (`201`). Development users are
+`alice/alice-dev`, `reader/reader-dev`, and `tenant-b-user/tenant-b-dev`.
+Keycloak uses temporary development storage and credentials; do not reuse
+them outside the local Kind cluster. The rotation smoke creates a temporary
+RSA signing provider, verifies a changed JWT `kid`, confirms the new key is
+published in JWKS, and checks both the new token and the old token overlap.
+
+The local Matrix path uses Tuwunel with a file-based AppService registration
+and a development-only shared token:
+
+```bash
+./deploy/install-kind-matrix.sh
+./scripts/smoke-kind-matrix.sh
+```
+
+The smoke verifies Tuwunel health, AppService shared-token rejection, accepted
+transactions, transaction-level duplicate acknowledgement, and real local
+user/room messages that create and mutate scoped tasks through `!agentteams
+start/status/approve/pause/cancel/reject/retry`. It also verifies pause/resume
+state persistence, approval spec persistence, permission rejection, and a
+duplicate direct AppService mutation. The local Tuwunel data, registration
+token, and users are development-only and must not be reused elsewhere. Matrix
+task actions use scoped permissions and optimistic versions; approval also
+updates the task spec and team approval link.
+
+The Kind path was verified on 2026-08-18 with a two-node `v1.36.1` cluster.
+Docker Hub was not reachable from the environment, so the pinned node image
+and dependency images were preloaded into Kind; the application manifests keep
+their canonical image names and `IfNotPresent` policy. The MinIO server uses
+`RELEASE.2024-11-07T00-52-20Z`, while the compatible fixed `mc` bootstrap image
+uses `RELEASE.2025-07-21T05-28-08Z`. The service Dockerfiles copy
+`deploy/docker/maven-settings.xml` so Maven builds use the configured public
+mirror when Maven Central is unavailable.
+
+The `kind-recovery` CI job creates the same two-node topology, builds and loads
+the service images, creates a real AgentScope Worker, and runs
+`scripts/run-kind-lease-recovery.py`. Prometheus uses Kubernetes Pod discovery
+instead of a load-balanced Service target, and
+`scripts/validate-kind-prometheus.py` verifies that both Control Plane and
+Gateway replicas are being scraped.
+
+The Operator smoke path was also verified with a temporary `Worker` CR:
+Operator-created Deployment and Service reached Ready, replica changes updated
+Worker status, and deleting the CR removed both child resources. Worker images
+are generated with `imagePullPolicy: IfNotPresent` so locally loaded Kind images
+do not trigger a registry pull.
+
+The AgentScope Worker image is built and loaded by `deploy/build-images.sh`.
+`deploy/install-kind-dev.sh` registers the development Agent, injects the
+returned UUID, applies the Worker CR, and waits for the Worker to become Ready.
+To repeat the full installation:
+
+```bash
+./deploy/install-kind-dev.sh
+```
+
+To add a second real AgentScope Worker for Team scheduling tests, create a
+second `Worker` resource with a distinct Agent UUID and set:
+
+```bash
+runtime: AGENTSCOPE
+model: chatgpt-plan:gpt-5.6-luna
+```
+
+The Operator injects `AGENTTEAMS_AGENT_ID` from `Worker.spec.agentId`. Worker
+readiness proves the Agent channel is connected; a real task additionally
+requires a resolvable model registry key and its Provider credentials. L5 uses
+`chatgpt-plan:gpt-5.6-luna` by default and shares its authorized ChatGPT OAuth
+session across Manager and Workers.
+
+### Channel 出站扩展
+
+企业事件出站统一经过 Channel SPI。当前 Webhook 适配器只做租户绑定校验并写入持久化投递记录，实际 HTTP 投递复用已有 leader-only scheduler、HMAC、重试、死信和事件 ID 去重；Matrix 适配器复用 Matrix Outbox 与 delivery service，并通过独立 room 绑定表做 Organization/Tenant/Project、事件白名单和启用状态校验。两类适配器都不会拥有 Task 状态，也不会返回 Secret；后续 DingTalk 适配器必须复用同一 Port 和 Outbox 边界。
+
+### AgentScope 当前开发路径
+
+当前开发阶段和生产主链路统一使用 AgentScope Harness；L5 默认模型为
+DeepSeek，但模型 Provider 和模型标识通过 Worker 配置/注册表注入，旧运行时
+不属于当前代码、部署或 L5 主验收路径。
+Helm 仍会渲染 `<release>-agentteams-java-agent-runtime` ConfigMap，供 Worker 读取非敏感
+运行时配置；ConfigMap 不包含任何模型凭证。模型密钥必须由 Kubernetes Secret 注入。
+
+```yaml
+agentRuntime:
+  artifactUploadEnabled: true
+worker:
+  runtime: AGENTSCOPE
+  model: chatgpt-plan:gpt-5.6-luna
+```
+
+任务必须包含稳定的 Team/Agent 标识；缺少标识时直接拒绝，不回退到另一套运行时。
+
+The chart resource names include both the Helm release and chart name. The
+Control Plane API can be exposed for a smoke check with:
+
+```bash
+kubectl -n agentteams port-forward \
+  svc/agentteams-agentteams-java-control-plane 8080:8080 &
+PORT_FORWARD_PID=$!
+trap 'kill "$PORT_FORWARD_PID" 2>/dev/null || true' EXIT
+until curl -fsS localhost:8080/actuator/health >/dev/null; do sleep 2; done
+AGENT_ID=$(curl -fsS -X POST http://localhost:8080/api/v1/agents \
+  -H 'Idempotency-Key: smoke-agent-1' -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-agent","runtime":"fake","capabilities":{"java":"21"}}' \
+  | jq -r '.id')
+TASK_ID=$(curl -fsS -X POST http://localhost:8080/api/v1/tasks \
+  -H 'Idempotency-Key: smoke-task-1' -H 'Content-Type: application/json' \
+  -d '{"title":"smoke","description":"kind smoke task","spec":{}}' \
+  | jq -r '.id')
+curl -fsS -X POST "http://localhost:8080/api/v1/tasks/${TASK_ID}/queue" \
+  -H 'Idempotency-Key: smoke-queue-1'
+curl -fsS "http://localhost:8080/api/v1/tasks/${TASK_ID}"
+```
+
+This smoke check expects the task to remain `QUEUED`: registering an Agent via
+the API does not establish a gRPC connection. The complete push path is
+covered by the infrastructure integration test.
+
+For a local real-model check, use the authorized ChatGPT OAuth access-token
+file with mode `0600`. Configure the Worker model registry key and verify
+Manager plus the full task path. The scripts never print the token or send it
+as a command-line argument:
+
+```bash
+chmod 600 chatgpt-access-token
+./scripts/smoke-chatgpt-plan-manager.sh
+./scripts/smoke-kind-task-api.sh
+```
+
+The L5 default model is `chatgpt-plan:gpt-5.6-luna`; use the Worker model
+configuration for a deliberate Provider/model override. A successful real
+smoke must verify `phase=SUCCEEDED`, the Attempt lifecycle, and a UTF-8
+Artifact, rather than relying on Worker readiness alone.
+
+When OIDC API authentication is enabled, the task smoke honors
+`AGENTTEAMS_API_TOKEN` first. If it is unset, the script port-forwards the
+local Keycloak service and obtains a development `alice/alice-dev` token,
+without printing the token or the complete task response. Override the local
+Keycloak port with `KIND_KEYCLOAK_LOCAL_PORT` when needed.
+
+For the real Manager Conversation path, deploy the Manager and AgentScope
+Workers, then run the authenticated acceptance script. It verifies the real
+model call, terminal completion, cursor replay, idempotent message replay, and
+cancellation; it never treats a missing Docker/Kind/image/model dependency as
+a skip:
+
+```bash
+helm upgrade --install agentteams deploy/helm/agentteams-java \
+  --namespace agentteams --create-namespace --wait \
+  -f deploy/helm/kind-values.yaml -f deploy/helm/kind-oidc-values.yaml
+kubectl -n agentteams port-forward svc/agentteams-agentteams-java-manager 18084:8080
+AGENTTEAMS_API_BEARER_TOKEN="<Keycloak token>" \
+  python3 scripts/run-kind-conversation-restart-acceptance.py \
+  --base-url http://127.0.0.1:18084 --image agentteams-manager
+```
+
+也可以直接运行 `./scripts/smoke-kind-console-real-conversation.sh`；脚本会
+自动建立 Manager/Keycloak port-forward、获取本地 alice 测试令牌，并在结束时
+清理转发进程，不会输出令牌或 API Key。
+
+Conversation 会话、用户消息和事件已由 Manager 的 PostgreSQL repository 持久化，
+Console 页面加载时会读取 `/api/v1/conversations/{sessionId}/history`，再接续 SSE。
+可用下面的验收脚本真实滚动重启 Manager，并验证同一会话历史与消息幂等重放保持一致：
+
+```bash
+python3 scripts/run-kind-conversation-restart-acceptance.py \
+  --image ghcr.io/ly416123/agentteams-manager:latest
+```
+
+会话创建时会从已验证的 OIDC 身份持久化 `tenantId` 与 `subject`，读取、消息和取消
+操作会再次校验租户、项目和 Team 范围；服务端响应带有会话 `version`，消息和取消
+请求可通过 `expectedVersion` 防止并发覆盖。旧版本数据库会由 Manager Flyway
+迁移增加可为空的归属字段和版本初值；无法追溯归属的历史会话不会被当作通配资源放行。
+
+消息发送采用数据库 reservation：同一会话幂等键在跨 Manager 副本场景下只允许一个
+副本调用 Worker，消息状态会记录为 `RESERVED`、`COMPLETED`、`FAILED` 或
+`RECOVERY_REQUIRED`。Manager 重启发现未完成 reservation 时会 fail-closed，返回
+`CONVERSATION_RECOVERY_REQUIRED`，不会对无法确认是否已被 AgentScope Worker 接收的请求自动重发。
+上游事件 ID 会作为可选的事件身份保存，并通过唯一约束去重；对外 SSE
+仍使用 Manager 的持久化 replay cursor。历史事件没有上游 ID 时不会伪造 exactly-once 语义。
+
+当前重启验收覆盖的是已完成消息的历史恢复与幂等重放。AgentScope 运行中的请求仍
+依赖上游提供稳定的 operation/event cursor 才能实现真正 resume；在该协议补齐前，
+不能把 Manager 重启后的 in-flight 请求宣称为 exactly-once 或可自动续接。
+
+在本机 OIDC 集群中验收真实 Worker 的项目配额闭环，可执行：
+
+```bash
+AGENTTEAMS_AGENT_ID="$(kubectl -n agentteams get worker agentscope-worker -o jsonpath='{.spec.agentId}')" \
+  ./scripts/run-kind-oidc-worker-quota-admission.sh
+```
+
+该脚本使用 Keycloak 的本地 `quota-admin` 测试用户，绑定 `tenant-a/project-a`
+项目成员关系，开启目标 Worker 的远程配额并等待滚动更新，然后验证真实任务的
+配额 acquire/release、调用次数和 token 计数。它不会输出令牌或 API Key。
+
+The browser remains connected only to the AgentTeams Console/Conversation API;
+AgentScope stays an internal Worker dependency. The Console Playwright check
+exercises the browser page and the real Conversation acceptance exercises the
+deployed Docker/Kind service path. Direct system-Chrome automation is an
+additional connector-specific check and must be reported separately when that
+connector is not attached.
+
+Team CRD scheduling can be smoke-tested with two existing READY Agent UUIDs.
+The script creates a temporary Team CR, applies the stable `namespace/name`
+Team ID to three tasks, and expects one task to be `ASSIGNED` while the other
+two remain `QUEUED` under `maxConcurrentTasks: 1`. It removes only the
+temporary Team CR when it exits and never prints the CRD body or credentials:
+
+```bash
+AGENTTEAMS_TEAM_AGENT_IDS="<ready-agent-uuid-1>,<ready-agent-uuid-2>" \
+  ./scripts/smoke-kind-team-scheduling.sh
+```
+
+The Team CRD must be applied before Helm on an existing cluster because Helm
+does not upgrade CRDs automatically:
+
+```bash
+kubectl apply -f deploy/helm/agentteams-java/crds/teams.yaml
+```
+
+`deploy/install-kind-dev.sh` performs this step automatically. The Team
+informer requires the Control Plane service account to have only
+`get/list/watch` access to `teams.agentteams.io`; the chart enables this with
+`controlPlane.teamSync.enabled=true` and scopes it to the `agentteams`
+namespace by default. The deterministic PostgreSQL-backed acceptance test is
+`TeamSchedulingInfrastructureIT`; the Kind smoke additionally proves the
+informer and Helm/RBAC wiring. A cluster with only one READY Agent cannot run
+this smoke without adding a second real Agent.
+
+The chart isolates workload identities: Control Plane, Gateway, and Operator
+use separate ServiceAccounts. Gateway pods do not mount a Kubernetes API token;
+only the Operator receives permissions to manage Worker child resources, while
+Control Plane retains read-only Team sync access. Do not reuse the Operator
+account for Gateway when overriding chart values.
+
+The Operator RBAC is namespace-scoped: Helm creates a `Role` and `RoleBinding`
+in the release namespace, and the Operator watches only that namespace through
+`AGENTTEAMS_OPERATOR_NAMESPACE`. Team sync is also restricted to a read-only
+Role in the release namespace. Deployments that manage multiple namespaces must
+install one chart release per namespace; no shared ClusterRole or cluster-wide
+Operator informer is granted.
+
+When OIDC API authentication is enabled, the Control Plane maps API routes to
+the permissions carried in the configured claim (`task:read`, `task:create`,
+`task:cancel`, `agent:read`, `agent:write`, `config:read`, and `config:write`).
+Missing permissions return `403`, while missing or invalid tokens return
+`401`; unknown API routes do not receive an implicit write permission.
+Authenticated Agent resources must carry `metadata.scope`, while Task resources
+must carry `spec.scope`; ConfigSnapshot and ConfigFile resources carry the same
+`scope` object in their manifest. Each object must contain the same `tenant`,
+`project`, and `team` values as the caller's claims. Missing or cross-scope
+create/read/update requests are rejected with `403`.
+
+For a local Gateway↔Worker mTLS check, use the development-only bootstrap
+script. It creates a temporary 30-day CA and certificates under
+`.local/kind-mtls/` (ignored by Git), creates the two Kubernetes Secrets,
+enables Gateway TLS, and patches the selected Worker CRs with the client
+certificate mount:
+
+```bash
+AGENTTEAMS_MTLS_WORKERS=agentscope-worker-team-2,agentscope-worker-team-3 \
+  ./deploy/bootstrap-kind-mtls.sh
+```
+
+The script waits for the Gateway, Deployment, and Worker status to converge.
+The local validation used two distinct READY Agents and printed
+`TEAM_SCHEDULING_OK`. This is a Kind development path: production should use
+per-Agent certificates issued and rotated by an external CA or cert-manager;
+the repository does not commit generated keys or certificate material. For the
+production Secret contract, stable-name rotation, optional Stakater Reloader
+rollouts, and OIDC JWKS key overlap, see
+[`deploy/production/README.md`](deploy/production/README.md).
+
+`deploy/kind-dev-infra.yaml` is intentionally development-only: PostgreSQL
+uses an `emptyDir` volume and the database password is a local test secret.
+Production deployments must provide durable PostgreSQL, NATS JetStream and
+Secrets through the target cluster or its operators.
+
+For a production starting point, copy
+[`deploy/helm/agentteams-java/values-production.example.yaml`](deploy/helm/agentteams-java/values-production.example.yaml)
+to an environment-owned values file, replace the release tag and endpoint
+placeholders, and provision the referenced Secrets through cert-manager,
+External Secrets, or the platform secret manager. The repository validates the
+example contract with `python scripts/validate-production-values.py`; it never
+contains production credentials.
